@@ -1,0 +1,109 @@
+/* --- 3D Рендеринг Карточки --- */
+.perspective-1000 {
+    perspective: 1000px;
+}
+.transform-style-3d {
+    transform-style: preserve-3d;
+}
+.backface-hidden {
+    backface-visibility: hidden;
+}
+.rotate-y-180 {
+    transform: rotateY(180deg);
+}
+
+/* Стабильные 100% высоты WebView без вылетов за границы экрана */
+body {
+    height: 100dvh;
+}
+
+/* Изменение прозрачности для плавного скрытия статус-бара */
+.opacity-0 {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* --- ПРАВИЛА РЕЖИМА ВЫСОКОЙ КОНЦЕНТРАЦИИ (Focus Mode) --- */
+
+/* Скрываем прогресс-бар, подвал и служебные элементы полностью с усадкой сетки */
+.focus-active #progress-bar,
+.focus-active #bottom-nav,
+.focus-active #train-session-counters,
+.focus-active .hide-on-focus {
+    display: none !important;
+}
+
+/* Гасим таймер Помодоро, чтобы не создавал когнитивного давления */
+.focus-active #session-timer-container {
+    display: none !important;
+}
+
+/* Снижаем визуальную сложность карточки — убираем тени и эффекты */
+.focus-active #flashcard {
+    box-shadow: none !important;
+    background-image: none !important;
+}
+
+/* Намертво приглушаем FAB кнопку фокуса под большим пальцем, стирая границы */
+.focus-active #focus-toggle {
+    opacity: 0.15 !important;
+    border-color: transparent !important;
+    background: transparent !important;
+}
+.focus-active #focus-toggle:hover {
+    opacity: 0.6 !important;
+}
+
+/* Кнопки переключения микро-фильтров в Архиве */
+#archive-filter-bar button {
+    transition: all 0.2s ease;
+}
+
+/* Скроллбары для текстовой матрицы без enterprise-шума */
+#breakdown-list::-webkit-scrollbar,
+#data-container::-webkit-scrollbar {
+    width: 3px;
+}
+#breakdown-list::-webkit-scrollbar-thumb,
+#data-container::-webkit-scrollbar-thumb {
+    background: #222;
+}
+
+#data-container,
+#breakdown-list,
+#screen-config {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* --- Интерактивные шаблоны для предметов --- */
+
+/* Китайский: Размытие Pinyin на обратной стороне до наведения */
+.template-chinese #card-secondary-text {
+    filter: blur(5px);
+    transition: filter 0.3s ease;
+    cursor: pointer;
+}
+.template-chinese #card-secondary-text:hover,
+.template-chinese #card-secondary-text:active {
+    filter: blur(0);
+}
+
+/* Право: Строгий стиль для кодексов */
+.template-law #card-main-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    border-left: 3px solid var(--primary);
+    padding-left: 12px;
+    text-align: left;
+    font-size: 0.9em;
+}
+
+/* Карточка в режиме знакомства — убираем cursor-pointer, т.к. клик не переворачивает */
+#card-front.introduction-mode {
+    cursor: default;
+}
+
+/* Плавное появление блоков */
+.introduction-block {
+    opacity: 0;
+    animation: fadeIn 0.3s ease-out forwards;
+}

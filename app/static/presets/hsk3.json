@@ -1,0 +1,106 @@
+{
+  "subject_slug": "chinese_hsk3",
+  "phrase_title": "Китайский HSK3 (Популярные слова)",
+  "cards": [
+    {
+      "text": "住",
+      "secondary_text": "zhù",
+      "translation": "Жить, проживать (где-то)",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "ЖУТЬ",
+        "verbal_cue": "ЖУТЬ как не хочется жить в этой общаге."
+      }
+    },
+    {
+      "text": "昨晚",
+      "secondary_text": "zuówǎn",
+      "translation": "Вчера вечером",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "ЗУЕВ",
+        "verbal_cue": "Вчера вечером ЗУЕВ (zuo) опоздал на свидание в ВАННУЮ (wan)."
+      }
+    },
+    {
+      "text": "做饭",
+      "secondary_text": "zuòfàn",
+      "translation": "Готовить еду",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "ЦАРЬ ФАНТ",
+        "verbal_cue": "ЦАРЬ (zuo) заставил ФАНТА (fan) готовить еду на всю кухню."
+      }
+    },
+    {
+      "text": "办法",
+      "secondary_text": "bànfǎ",
+      "translation": "Способ, метод, выход (из ситуации)",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "БАНЯ ФАРА",
+        "verbal_cue": "Лучший способ помыться в БАНЕ (ban) — включить ФАРУ (fa) вместо лампы."
+      }
+    },
+    {
+      "text": "帮忙",
+      "secondary_text": "bāngmáng",
+      "translation": "Помогать, оказывать помощь",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "БАНЯ МАНГО",
+        "verbal_cue": "В БАНЕ (bang) МАНЬКА (mang) помогает нам раздавать манго."
+      }
+    },
+    {
+      "text": "包子",
+      "secondary_text": "bāozi",
+      "translation": "Баоцзы (паровые пирожки)",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "БАОБАБ ЦЫПЛЕНОК",
+        "verbal_cue": "Под БАОБАБОМ (bao) ЦЫПЛЕНОК (zi) кушает вкусные паровые пирожки."
+      }
+    },
+    {
+      "text": "必须",
+      "secondary_text": "bìxū",
+      "translation": "Обязательно, необходимо",
+      "initial_difficulty_tier": "hard",
+      "mnemonic": {
+        "keyword": "БИТЬ ХУЛИГАНА",
+        "verbal_cue": "БИТЬ (bi) ХУЛИГАНА (xu) на улице обязательно нужно для самообороны."
+      }
+    },
+    {
+      "text": "变化",
+      "secondary_text": "biànhuà",
+      "translation": "Изменение, перемена",
+      "initial_difficulty_tier": "hard",
+      "mnemonic": {
+        "keyword": "БЕНЗИН ХВАТИТ",
+        "verbal_cue": "Цены на БЕНЗИН (bian) ХВАТИТ (hua) менять, эти перемены бьют по карману."
+      }
+    },
+    {
+      "text": "舒服",
+      "secondary_text": "shūfu",
+      "translation": "Удобный, комфортный",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "ШУБА ФУТБОЛКА",
+        "verbal_cue": "В ШУБЕ (shu) поверх ФУТБОЛКИ (fu) совсем не комфортно и не удобно."
+      }
+    },
+    {
+      "text": "词典",
+      "secondary_text": "cídiǎn",
+      "translation": "Словарь",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "ЦИРК ДЯДЯ",
+        "verbal_cue": "В ЦИРКЕ (ci) ДЯДЯ (dian) читает орфографический словарь на арене."
+      }
+    }
+  ]
+}

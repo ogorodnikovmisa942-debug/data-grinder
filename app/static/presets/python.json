@@ -1,0 +1,66 @@
+{
+  "subject_slug": "python_pro",
+  "phrase_title": "Python Базовый (Встроенные функции)",
+  "cards": [
+    {
+      "text": "zip()",
+      "secondary_text": "zip(*iterables, strict=False)",
+      "translation": "Объединяет элементы из нескольких итерируемых объектов в кортежи.",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "ЗИПЕР/МОЛНИЯ",
+        "verbal_cue": "Молния соединяет две стороны куртки попарно, как функция zip соединяет списки."
+      }
+    },
+    {
+      "text": "enumerate()",
+      "secondary_text": "enumerate(iterable, start=0)",
+      "translation": "Возвращает итератор, который генерирует кортежи, состоящие из индекса и значения элемента.",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "НУМЕРАТОР",
+        "verbal_cue": "Кассир использует нумератор, чтобы штамповать номера на каждый билет."
+      }
+    },
+    {
+      "text": "map()",
+      "secondary_text": "map(function, iterable, ...)",
+      "translation": "Применяет указанную функцию к каждому элементу итерируемого объекта и возвращает итератор с результатами.",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "КАРТА",
+        "verbal_cue": "Навигационная карта прокладывает маршрут для каждого дома на улице."
+      }
+    },
+    {
+      "text": "filter()",
+      "secondary_text": "filter(function, iterable)",
+      "translation": "Фильтрует элементы итерируемого объекта, оставляя только те, для которых функция возвращает True.",
+      "initial_difficulty_tier": "easy",
+      "mnemonic": {
+        "keyword": "ФИЛЬТР",
+        "verbal_cue": "Фильтр для воды очищает воду от примесей, пропуская только чистые капли."
+      }
+    },
+    {
+      "text": "any()",
+      "secondary_text": "any(iterable)",
+      "translation": "Возвращает True, если хотя бы один элемент в итерируемом объекте истинен (имеет значение True).",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "КТО-УГОДНО",
+        "verbal_cue": "Если кто-угодно (any) из гостей придет, праздник состоится."
+      }
+    },
+    {
+      "text": "all()",
+      "secondary_text": "all(iterable)",
+      "translation": "Возвращает True, только если ВСЕ элементы в итерируемом объекте истинны (имеют значение True).",
+      "initial_difficulty_tier": "medium",
+      "mnemonic": {
+        "keyword": "ВСЕ",
+        "verbal_cue": "Все (all) до одного солдаты должны быть в строю для прохождения парада."
+      }
+    }
+  ]
+}

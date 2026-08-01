@@ -1,0 +1,22 @@
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# SQLite temporary files
+data_grinder.db-shm
+data_grinder.db-wal
+
+# Secrets & Environment
+.env
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
