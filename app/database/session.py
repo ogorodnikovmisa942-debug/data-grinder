@@ -41,7 +41,8 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False, 
     autoflush=False, 
     bind=engine,
-    class_=AsyncSession
+    class_=AsyncSession,
+    expire_on_commit=False
 )
 
 # Главный класс-конструктор таблиц

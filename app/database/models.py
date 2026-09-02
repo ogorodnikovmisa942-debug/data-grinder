@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database.session import Base
@@ -30,6 +30,10 @@ class Phrase(Base):
 
 class Card(Base):
     __tablename__ = "cards"
+    __table_args__ = (
+        Index("idx_card_user_subject", "user_id", "subject"),
+        Index("idx_card_user_next_review", "user_id", "next_review"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     phrase_id = Column(Integer, ForeignKey("phrases.id"), nullable=False)
@@ -126,4 +130,16 @@ class DailySession(Base):
     association_utility = Column(Integer, nullable=False) # Польза ассоциаций
     perceived_retention = Column(Integer, nullable=False) # Субъективная уверенность
     
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, unique=True, index=True, nullable=False)
+    daily_limit = Column(Integer, default=10)
+    target_retention = Column(Float, default=0.9)
+    assoc_preference = Column(String, default="acoustic")
+    subject_limits = Column(JSON, nullable=True) # например {"law_civil_rb": 15, "all": 10}
+

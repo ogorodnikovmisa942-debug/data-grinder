@@ -6,17 +6,17 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase
+from app.database.models import Card, ReviewLog, Phrase, UserSetting
 from app.services.fsrs_core import calculate_intervals
+from app.core.auth import get_current_user_id
 from datetime import datetime
-from app.api.endpoints.management import SUBJECT_LIMITS
 
 router = APIRouter()
 
 class AnswerIn(BaseModel):
     card_id: int
     rating: int  # 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
-    response_time: int
+    response_time: int = 0
     has_association: bool | None = None
     is_cram: bool = False
     is_introduction: bool = False
@@ -66,33 +66,51 @@ def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
         
     return interleaved_result
 
-# --- 1. ВЫДАЧА ОЧЕРЕДИ С ИНТЕРЛИВИНГОМ ТЕМ ---
+# --- 1. ВЫДАЧА ОЧЕРЕДИ С ИНТЕРЛИВИНГОМ ТЕМ И ИЗОЛЯЦИЕЙ ПО ПОЛЬЗОВАТЕЛЮ ---
 @router.get("/session")
-async def get_session_cards(subject: str = Query("all"), mode: str = Query("mixed"), db: AsyncSession = Depends(get_db)):
+async def get_session_cards(
+    subject: str = Query("all"), 
+    mode: str = Query("mixed"), 
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
     now = datetime.utcnow()
     
-    # 1. Сбор просроченных повторений (REV)
-    review_stmt = select(Card).filter(Card.state == 2, Card.next_review <= now)
+    # Получаем персональные настройки пользователя из БД
+    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+    user_setting = setting_res.scalar_one_or_none()
+    user_daily_limit = user_setting.daily_limit if user_setting else 10
+    
+    # Лимит для конкретного предмета
+    subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
+    limit = subject_limits.get(subject, user_daily_limit)
+
+    # 1. Сбор просроченных повторений (REV) текущего пользователя
+    review_stmt = select(Card).filter(
+        Card.user_id == current_user,
+        Card.state == 2, 
+        Card.next_review <= now
+    )
     if subject != 'all':
         review_stmt = review_stmt.filter(Card.subject == subject)
     review_res = await db.execute(review_stmt)
     due_reviews = review_res.scalars().all()
 
-    # 2. Сбор краткосрочной памяти внутри дня (LRN)
-    intra_stmt = select(Card).filter(Card.state.in_([1, 3]))
+    # 2. Сбор краткосрочной памяти внутри дня (LRN) текущего пользователя
+    intra_stmt = select(Card).filter(
+        Card.user_id == current_user,
+        Card.state.in_([1, 3])
+    )
     if subject != 'all':
         intra_stmt = intra_stmt.filter(Card.subject == subject)
     intra_res = await db.execute(intra_stmt)
     intra_day_cards = intra_res.scalars().all()
 
-    # 3. Расчет квот на новые карты по лимитам конфига с учетом уже изученных за день
-    limit = SUBJECT_LIMITS.get(subject, 10)
-    
-    # Получаем начало сегодняшнего дня (UTC) для расчета лимитов
+    # 3. Расчет квот на новые карты с учетом уже изученных именно этим пользователем за день
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Считаем количество новых карт (state == 0 на момент ответа), изученных сегодня
     new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
+        ReviewLog.user_id == current_user,
         ReviewLog.state == 0,
         ReviewLog.review_time >= today_start
     )
@@ -106,7 +124,10 @@ async def get_session_cards(subject: str = Query("all"), mode: str = Query("mixe
 
     new_cards = []
     if allowed_new_count > 0:
-        new_stmt = select(Card).filter(Card.state == 0)
+        new_stmt = select(Card).filter(
+            Card.user_id == current_user,
+            Card.state == 0
+        )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject == subject)
         new_stmt = new_stmt.limit(allowed_new_count)
@@ -118,7 +139,7 @@ async def get_session_cards(subject: str = Query("all"), mode: str = Query("mixe
     elif mode == "review":
         full_pool = due_reviews
     elif mode == "cram":
-        cram_stmt = select(Card).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
+        cram_stmt = select(Card).filter(Card.user_id == current_user).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
         if subject != 'all':
             cram_stmt = cram_stmt.filter(Card.subject == subject)
         cram_res = await db.execute(cram_stmt)
@@ -130,11 +151,11 @@ async def get_session_cards(subject: str = Query("all"), mode: str = Query("mixe
     if subject == 'all':
         full_pool = await asyncio.to_thread(apply_interleaving, full_pool, 1)
     
-    # Оптимизация N+1: собираем все phrase_id для anchored карт и загружаем их за один запрос
+    # Оптимизация N+1: собираем все phrase_id для anchored карт и загружаем их с фильтром по пользователю
     phrase_ids = {c.phrase_id for c in full_pool if c.is_anchored and c.phrase_id}
     phrase_map = {}
     if phrase_ids:
-        phrases_stmt = select(Phrase).filter(Phrase.id.in_(list(phrase_ids)))
+        phrases_stmt = select(Phrase).filter(Phrase.id.in_(list(phrase_ids)), Phrase.user_id == current_user)
         phrases_res = await db.execute(phrases_stmt)
         phrase_map = {p.id: p.text for p in phrases_res.scalars().all()}
 
@@ -159,46 +180,59 @@ async def get_session_cards(subject: str = Query("all"), mode: str = Query("mixe
         })
     return result
 
-# --- 2. СПИСОК ПРЕДМЕТОВ ---
+# --- 2. СПИСОК ПРЕДМЕТОВ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/subjects")
-async def get_available_subjects(db: AsyncSession = Depends(get_db)):
-    stmt = select(Card.subject).distinct()
+async def get_available_subjects(
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Card.subject).filter(Card.user_id == current_user).distinct()
     res = await db.execute(stmt)
     subjects = res.all()
     return [s[0] for s in subjects if s[0]]
 
 # --- 3. ОБРАБОТКА ОТВЕТОВ И ВАЛИДАЦИЯ FSRS В БД ---
 @router.post("/answer")
-async def handle_answer(payload: AnswerIn, db: AsyncSession = Depends(get_db)):
+async def handle_answer(
+    payload: AnswerIn, 
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
     if payload.rating not in (1, 2, 3, 4):
         raise HTTPException(status_code=400, detail="Неверный рейтинг. Допустимо от 1 до 4.")
 
-    stmt = select(Card).filter(Card.id == payload.card_id)
+    stmt = select(Card).filter(Card.id == payload.card_id, Card.user_id == current_user)
     res = await db.execute(stmt)
     card = res.scalar_one_or_none()
     if not card:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+        raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
+
+    # Получаем target_retention из настроек
+    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+    user_setting = setting_res.scalar_one_or_none()
+    target_retention = user_setting.target_retention if user_setting else 0.9
 
     now = datetime.utcnow()
     old_state = card.state
     old_next_review = card.next_review
     
-    # Check if we are in cram mode. If so, do not update FSRS timers.
-    # We can detect cram mode if we pass a special flag, or we can just pass it in AnswerIn
-    is_cram = payload.rating == 0 # we will use rating 0 or pass a flag. Let's add is_cram to AnswerIn later. Actually, wait.
-    # I should add is_cram to AnswerIn.
-    
     scheduled_days = 0
     if card.last_review and old_next_review:
         scheduled_days = (old_next_review - card.last_review).days
 
-    # Расчет интервалов через ядро FSRS
-    stability, difficulty, state, next_review, elapsed_days = calculate_intervals(card, payload.rating, now)
+    # Расчет интервалов через ядро FSRS с учетом response_time и target_retention
+    stability, difficulty, state, next_review, elapsed_days = calculate_intervals(
+        card=card, 
+        rating=payload.rating, 
+        now=now,
+        response_time=payload.response_time,
+        target_retention=target_retention
+    )
 
     if payload.rating == 1:
         card.lapses += 1
 
-    # Валидация и жесткое обновление весов в data_grinder.db, только если не Штурм
+    # Валидация и обновление весов в БД, если не Штурм
     if not payload.is_cram:
         card.stability = stability
         card.difficulty = difficulty
@@ -215,6 +249,7 @@ async def handle_answer(payload: AnswerIn, db: AsyncSession = Depends(get_db)):
 
     log = ReviewLog(
         card_id=card.id,
+        user_id=current_user,
         rating=payload.rating,
         review_time=now,
         state=old_state,

@@ -24,9 +24,8 @@ async def send_telegram_alert(chat_id: str, text: str):
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN, session=session)
         
         # Создаем разметку с кнопкой запуска Mini App
-        webapp_url = "https://datagrinder.site"
         markup = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="[ЗАПУСТИТЬ ГРИНДЕР]", web_app=WebAppInfo(url=webapp_url))]
+            [InlineKeyboardButton(text="[ЗАПУСТИТЬ ГРИНДЕР]", web_app=WebAppInfo(url=settings.WEBAPP_URL))]
         ])
         
         await bot.send_message(
@@ -52,53 +51,57 @@ async def check_and_send_alerts():
             if not users:
                 return
 
-            res_cards = await db.execute(select(func.count(Card.id)))
-            total_cards = res_cards.scalar() or 0
-
-            res_due = await db.execute(
-                select(func.count(Card.id)).filter(
-                    Card.state.in_([1, 2, 3]), 
-                    Card.next_review <= now_utc
-                )
-            )
-            due_count = res_due.scalar() or 0
-
             for user in users:
+                # Считаем карточки строго для данного пользователя
+                res_cards = await db.execute(
+                    select(func.count(Card.id)).filter(Card.user_id == user.telegram_id)
+                )
+                user_total_cards = res_cards.scalar() or 0
+
+                res_due = await db.execute(
+                    select(func.count(Card.id)).filter(
+                        Card.user_id == user.telegram_id,
+                        Card.state.in_([1, 2, 3]), 
+                        Card.next_review <= now_utc
+                    )
+                )
+                user_due_count = res_due.scalar() or 0
+
                 # 1. Утреннее уведомление (09:00 - 09:59)
                 if hour == 9 and user.last_morning_sent != date_str:
-                    if total_cards > 0:
+                    if user_total_cards > 0:
                         user.last_morning_sent = date_str
-                        await db.commit()  # Магнитная фиксация в БД против гонки потоков
+                        await db.commit()  # Фиксация в БД
                         text = (
                             "🧠 **Утренний раунд Data Grinder!**\n\n"
-                            "Новые знания готовы к заучиванию. Начните день с продуктивной сессии повторения!"
+                            "Новые знания готовы к заучиванию. Начни день с продуктивной сессии повторения!"
                         )
                         await send_telegram_alert(user.telegram_id, text)
 
                 # 2. Вечернее уведомление (21:00 - 21:59)
                 if hour == 21 and user.last_evening_sent != date_str:
-                    if due_count > 0:
+                    if user_due_count > 0:
                         user.last_evening_sent = date_str
-                        await db.commit()  # Магнитная фиксация в БД против гонки потоков
+                        await db.commit()
                         text = (
                             "🌙 **Вечерний гринд!**\n\n"
-                            f"У вас осталось *{due_count}* карточек к повторению. Закройте хвосты перед сном, чтобы закрепить материал!"
+                            f"У вас осталось *{user_due_count}* карточек к повторению. Закройте хвосты перед сном!"
                         )
                         await send_telegram_alert(user.telegram_id, text)
 
-                # 3. Моментальное уведомление о новых просроченных картах (не чаще раз в 4 часа или при увеличении)
-                if due_count > 0:
+                # 3. Моментальное уведомление о новых просроченных картах (не чаще раз в 4 часа)
+                if user_due_count > 0:
                     last_time = user.last_due_notified_at or datetime.min
                     last_count = user.last_due_count or 0
                     time_elapsed = now_utc - last_time
 
-                    if due_count > last_count or time_elapsed > timedelta(hours=4):
-                        user.last_due_count = due_count
+                    if user_due_count > last_count or time_elapsed > timedelta(hours=4):
+                        user.last_due_count = user_due_count
                         user.last_due_notified_at = now_utc
                         await db.commit()
                         text = (
                             "⚡ **Data Grinder Alert!**\n\n"
-                            f"В пуле появились новые карты, готовые к повторению по графику ({due_count} шт.)."
+                            f"В вашем пуле появились новые карты, готовые к повторению ({user_due_count} шт.)."
                         )
                         await send_telegram_alert(user.telegram_id, text)
                 else:

@@ -38,6 +38,20 @@ if (window.Telegram && window.Telegram.WebApp) {
     }
 }
 
+// Универсальная обертка для HTTP-запросов с передачей авторизации Telegram
+async function apiFetch(url, options = {}) {
+    const opts = { ...options };
+    opts.headers = { ...(opts.headers || {}) };
+    
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
+        opts.headers['Authorization'] = `tma ${window.Telegram.WebApp.initData}`;
+        opts.headers['X-Telegram-Init-Data'] = window.Telegram.WebApp.initData;
+    }
+    opts.headers['X-User-Id'] = tgId;
+    
+    return fetch(url, opts);
+}
+
 // Global Application State
 let cardsQueue = []; let currentIndex = 0; let isFlipped = false; let currentTab = 'train';
 let localCardsArchive = []; let currentDataFilter = 'all';
@@ -48,6 +62,14 @@ let currentSessionCounters = { new: 0, learning: 0, review: 0 };
 let cardShowTimestamp = 0;
 let isSelectionMode = false;
 let pressTimer = null;
+
+// Экранирование HTML для защиты от XSS
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
 
 // ============================================================================
 // НАСТРОЙКА АДАПТИВНЫХ ПОДСКАЗОК FSRS
@@ -112,8 +134,8 @@ function renderFSRSButtons(cardSubject) {
                                          'text-outline hover:bg-surface-container';
         return `
             <button data-rating="${rating}" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent ${colorClass} transition-all active:scale-95 duration-75 ${rating < 4 ? 'border-r border-outline-variant/30' : ''}">
-                <span class="font-mono font-bold text-xs uppercase tracking-wider">${config.label}</span>
-                <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">${config.hint}</span>
+                <span class="font-mono font-bold text-xs uppercase tracking-wider">${escapeHTML(config.label)}</span>
+                <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">${escapeHTML(config.hint)}</span>
             </button>
         `;
     }).join('');
@@ -384,33 +406,6 @@ function shuffleArray(array) {
     }
 }
 
-function loadConfigTab() {
-    const subjectLabel = document.getElementById('config-subject-label');
-    const presetsContainer = document.getElementById('config-presets-container');
-    const presetsNotice = document.getElementById('config-presets-notice');
-    
-    if (subjectLabel) subjectLabel.innerText = currentSubject;
-    
-    if (currentSubject === 'all') {
-        if (presetsContainer) presetsContainer.classList.add('hidden');
-        if (presetsNotice) presetsNotice.classList.remove('hidden');
-    } else {
-        if (presetsContainer) presetsContainer.classList.remove('hidden');
-        if (presetsNotice) presetsNotice.classList.add('hidden');
-        
-        fetch(`/api/config/limits?subject=${currentSubject}`)
-            .then(res => res.json())
-            .then(data => {
-                const buttons = [10, 20, 30, 10000].map(v => document.getElementById(`btn-preset-${v}`));
-                buttons.forEach(btn => { if (btn) { btn.classList.remove('bg-primary', 'text-on-primary', 'border-primary'); btn.classList.add('text-primary', 'border-outline-variant'); } });
-                const activeBtn = document.getElementById(`btn-preset-${data.limit}`);
-                if (activeBtn) { activeBtn.classList.add('bg-primary', 'text-on-primary', 'border-primary'); activeBtn.classList.remove('text-primary', 'border-outline-variant'); }
-            }).catch(e => console.error("Ошибка загрузки лимита", e));
-    }
-
-    const pref = localStorage.getItem('assoc_preference') || 'acoustic';
-    updateAssocPreferenceUI(pref);
-}
 
 function setAssocPreference(pref) {
     localStorage.setItem('assoc_preference', pref);
@@ -495,7 +490,7 @@ async function startSession(mode) {
 
 async function fetchActiveSession(mode = 'mixed') {
     try {
-        const response = await fetch(`/api/session?subject=${currentSubject}&mode=${mode}`);
+        const response = await apiFetch(`/api/session?subject=${currentSubject}&mode=${mode}`);
         cardsQueue = await response.json();
         shuffleArray(cardsQueue);
         const surveyContainer = document.getElementById('survey-container');
@@ -602,16 +597,17 @@ function renderIntroductionCard(card) {
     
     for (let i = 0; i <= phase && i < blocks.length; i++) {
         const block = blocks[i];
+        const safeContent = escapeHTML(block.content);
         
         html += `
             <div class="w-full text-center introduction-block animate-fade-in" style="animation-delay: ${i * 0.08}s">
                 ${i > 0 ? '<div class="w-full h-px bg-outline-variant/30 my-sm"></div>' : ''}
-                <span class="block text-[10px] text-outline uppercase mb-xs tracking-wider font-mono">${block.label}</span>
+                <span class="block text-[10px] text-outline uppercase mb-xs tracking-wider font-mono">${escapeHTML(block.label)}</span>
                 <div class="text-${block.type === 'term' ? '[24px] sm:text-[28px] font-bold' : 'sm:text-base'} text-primary leading-relaxed break-words px-sm">
-                    ${block.content}
+                    ${safeContent}
                 </div>
                 ${isSpeakable(block.content) || block.type === 'term' ? `
-                    <button onclick="event.stopPropagation(); window.replayAudioForText('${block.content.replace(/'/g, "\\'")}');" 
+                    <button onclick="event.stopPropagation(); window.replayAudioForText('${safeContent.replace(/'/g, "\\'")}');" 
                             class="text-outline hover:text-primary transition-all mt-xs inline-flex items-center gap-xs py-1 px-2 border border-outline-variant/30 rounded-none bg-surface-container-lowest active:scale-95 duration-75">
                         <span class="material-symbols-outlined text-[16px]">volume_up</span>
                         <span class="text-[9px] font-mono uppercase">Прослушать</span>
@@ -631,12 +627,24 @@ function renderIntroductionCard(card) {
             </button>
         `;
     } else {
-        html += `
-            <button onclick="event.stopPropagation(); completeIntroduction()" 
-                    class="mt-auto w-full border border-primary bg-primary text-on-primary py-sm font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase shrink-0">
-                [✓ Я ОЗНАКОМИЛСЯ, НАЧАТЬ УЧИТЬ]
-            </button>
-        `;
+        if (!card._recall_checked) {
+            html += `
+                <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
+                    <div class="text-[10px] text-outline uppercase font-mono text-center mb-0.5">🧠 Проверь себя перед закреплением:</div>
+                    <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
+                            class="w-full border border-dashed border-primary text-primary py-sm font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
+                        [ПОКАЗАТЬ ОТВЕТ И ПРОВЕРИТЬ ПАМЯТЬ]
+                    </button>
+                </div>
+            `;
+        } else {
+            html += `
+                <button onclick="event.stopPropagation(); completeIntroduction()" 
+                        class="mt-auto w-full border border-primary bg-primary text-on-primary py-sm font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase shrink-0">
+                    [✓ Я ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
+                </button>
+            `;
+        }
     }
     
     if (introFront) {
@@ -654,6 +662,14 @@ function renderIntroductionCard(card) {
     cardShowTimestamp = Date.now();
 }
 
+window.toggleIntroRecall = function() {
+    const card = cardsQueue[currentIndex];
+    if (card) {
+        card._recall_checked = true;
+        renderIntroductionCard(card);
+    }
+};
+
 function advanceIntroduction() {
     const card = cardsQueue[currentIndex];
     card.intro_phase = (card.intro_phase || 0) + 1;
@@ -667,7 +683,7 @@ function completeIntroduction() {
     
     // Отправляем на бэкенд
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    fetch('/api/answer', {
+    apiFetch('/api/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -776,7 +792,7 @@ if (document.getElementById('action-buttons')) {
         currentIndex++;
         recalculateQueueCounters(); renderCurrentCard();
 
-        fetch('/api/answer', {
+        apiFetch('/api/answer', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 card_id: payloadCardId, 
@@ -792,7 +808,7 @@ if (document.getElementById('action-buttons')) {
 
 async function updateGlobalBadges() {
     try {
-        const res = await fetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
         window.surveyCompletedToday = data.survey_completed || false;
         window.eveningDueCount = data.due_evening || 0;
         
@@ -881,7 +897,7 @@ async function loadDataTab() {
     const container = document.getElementById('data-container'); 
     if (container) container.innerHTML = '<div class="text-sm font-mono text-outline py-md">Загрузка архива...</div>';
     try {
-        const res = await fetch(`/api/data/cards?subject=${currentSubject}`); const data = await res.json();
+        const res = await apiFetch(`/api/data/cards?subject=${currentSubject}`); const data = await res.json();
         localCardsArchive = data.cards; renderFilteredArchiveDOM();
     } catch (e) { if (container) container.innerHTML = '<div class="text-sm font-mono text-error py-md">Ошибка архива</div>'; }
 }
@@ -897,7 +913,7 @@ function initArchiveFilters() {
     });
 }
 
-// РЕНДЕРИНГ СТРОКИ АРХИВА С ДОБАВЛЕНИЕМ КНОПКИ МИГРАЦИИ КАРТОЧЕК И ЧЕКБОКСОВ
+// РЕНДЕРИНГ СТРОКИ АРХИВА С ДОБАВЛЕНИЕМ КНОПКИ МИГРАЦИИ, РЕДАКТИРОВАНИЯ И ЧЕКБОКСОВ
 function renderFilteredArchiveDOM() {
     const container = document.getElementById('data-container');
     if (!container) return;
@@ -934,15 +950,16 @@ function renderFilteredArchiveDOM() {
                 <div class="flex items-center gap-xs w-full min-w-0">
                     <input type="checkbox" class="card-checkbox hidden rounded-none border-outline text-primary focus:ring-0 mr-xs" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
                     <div class="flex justify-between items-center w-full min-w-0">
-                        <span class="font-bold text-base text-primary w-1/5 truncate select-none">${c.text}</span>
-                        <span class="text-outline w-1/4 truncate text-xs select-none">${c.secondary_text || '---'}</span>
-                        <span class="text-on-surface-variant w-1/3 truncate text-xs select-none">${c.translation}</span>
+                        <span class="font-bold text-base text-primary w-1/5 truncate select-none">${escapeHTML(c.text)}</span>
+                        <span class="text-outline w-1/4 truncate text-xs select-none">${escapeHTML(c.secondary_text) || '---'}</span>
+                        <span class="text-on-surface-variant w-1/3 truncate text-xs select-none">${escapeHTML(c.translation)}</span>
                         <span class="text-[10px] text-outline opacity-60 w-12 text-right font-bold select-none">${labels[c.state] || 'NEW'}</span>
                     </div>
                 </div>
-                <div class="flex items-center gap-sm shrink-0 archive-row-actions">
-                    <button onclick="requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Перенести предмет">➔</button>
-                    <button onclick="requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center">✕</button>
+                <div class="flex items-center gap-xs shrink-0 archive-row-actions">
+                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Редактировать">✏️</button>
+                    <button onclick="event.stopPropagation(); requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Перенести предмет">➔</button>
+                    <button onclick="event.stopPropagation(); requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center">✕</button>
                 </div>
             </div>
         `;
@@ -952,12 +969,11 @@ function renderFilteredArchiveDOM() {
     document.querySelectorAll('.card-checkbox').forEach(cb => cb.style.display = cbStyle);
 }
 
-// АСИНХРОННЫЙ ПЕРЕНОС КАРТОЧКИ МЕЖДУ ПРЕДМЕТАМИ ЧЕРЕЗ СЧИТЫВАНИЕ СЕЛЕКТОРА ДОМ
+// АСИНХРОННЫЙ ПЕРЕНОС КАРТОЧКИ МЕЖДУ ПРЕДМЕТАМИ
 async function requestMoveCard(cardId) {
     const selector = document.getElementById('subject-selector');
     if (!selector) return;
 
-    // Вытягиваем доступные предметы, исключая 'all' и текущий открытый subject
     const options = Array.from(selector.options)
         .map(opt => opt.value)
         .filter(val => val !== 'all' && val !== currentSubject);
@@ -979,7 +995,7 @@ async function requestMoveCard(cardId) {
     }
 
     try {
-        const response = await fetch(`/api/management/cards/${cardId}/move`, {
+        const response = await apiFetch(`/api/management/cards/${cardId}/move`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ target_subject: cleanTarget })
@@ -1002,7 +1018,7 @@ async function requestMoveCard(cardId) {
 async function requestDeleteCard(cardId) {
     if (!confirm("Выжечь эту матрицу знаний из базы данных навсегда?")) return;
     try {
-        const response = await fetch(`/api/management/cards/${cardId}`, { method: 'DELETE' });
+        const response = await apiFetch(`/api/management/cards/${cardId}`, { method: 'DELETE' });
         if (response.ok) {
             localCardsArchive = localCardsArchive.filter(c => c.id !== cardId);
             const row = document.getElementById(`archive-row-${cardId}`); if (row) row.remove();
@@ -1020,7 +1036,7 @@ function makeAsciiBar(progressValue) {
 
 async function loadStatsTab() {
     try {
-        const res = await fetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
         document.getElementById('stat-new').innerText = data.cards_new; document.getElementById('stat-learning').innerText = data.cards_learning;
         document.getElementById('stat-review').innerText = data.cards_review; document.getElementById('stat-progress').innerText = data.progress_percent;
         document.getElementById('stat-retention').innerText = data.retention_rate_30d; document.getElementById('stat-streak').innerText = `${data.streak_days} дней`;
@@ -1035,7 +1051,7 @@ async function loadStatsTab() {
                 return `
                     <div class="flex flex-col py-2 font-mono text-xs gap-xs border-b border-outline-variant/20">
                         <div class="flex justify-between items-center w-full">
-                            <span class="text-on-surface-variant font-bold uppercase truncate max-w-[70%]">${item.label}</span>
+                            <span class="text-on-surface-variant font-bold uppercase truncate max-w-[70%]">${escapeHTML(item.label)}</span>
                             <span class="font-bold text-primary">[${item.progress}%]</span>
                         </div>
                         <div class="text-outline tracking-wider font-bold select-none">${barHtml}</div>
@@ -1058,7 +1074,7 @@ async function loadConfigTab() {
         } else {
             if (presetContainer) presetContainer.classList.remove('hidden');
             if (presetNotice) presetNotice.classList.add('hidden');
-            const res = await fetch(`/api/config?subject=${currentSubject}`); const data = await res.json();
+            const res = await apiFetch(`/api/config?subject=${currentSubject}`); const data = await res.json();
             renderPresetButtonsDOM(data.daily_limit);
         }
     } catch (e) { console.error("Ошибка загрузки конфига:", e); }
@@ -1080,7 +1096,7 @@ function renderPresetButtonsDOM(activeLimit) {
 async function setIntensityPreset(limit) {
     renderPresetButtonsDOM(limit);
     try {
-        fetch(`/api/config?subject=${currentSubject}`, {
+        await apiFetch(`/api/config?subject=${currentSubject}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ daily_limit: limit, focus_mode_default: false })
         });
@@ -1101,7 +1117,7 @@ window.toggleConfigHelp = function() {
 
 async function loadDynamicSubjects() {
     try {
-        const res = await fetch('/api/subjects'); const subjects = await res.json();
+        const res = await apiFetch('/api/subjects'); const subjects = await res.json();
         const selectors = document.querySelectorAll('#subject-selector');
         selectors.forEach(sel => {
             sel.innerHTML = '<option value="all">[ВСЕ ПРЕДМЕТЫ]</option>';
@@ -1133,7 +1149,7 @@ function initPomodoroEngine() {
                     const randomIdx = Math.floor(Math.random() * COGNITIVE_ASCII_ARTS.length);
                     if (asciiContainer) asciiContainer.textContent = COGNITIVE_ASCII_ARTS[randomIdx];
                     if (restOverlay) { restOverlay.classList.remove('hidden'); restOverlay.classList.add('flex'); }
-                    try { await fetch(`/api/timer/rest?tg_id=${tgId}`, { method: 'POST' }); } catch (e) { console.error("Ошибка перерыва:", e); }
+                    try { await apiFetch(`/api/timer/rest?tg_id=${tgId}`, { method: 'POST' }); } catch (e) { console.error("Ошибка перерыва:", e); }
                 } else {
                     isRestPhase = false; timeRemaining = 52 * 60; if (sessionTimer) sessionTimer.textContent = formatTime(timeRemaining);
                     if (restOverlay) { restOverlay.classList.add('hidden'); restOverlay.classList.remove('flex'); }
@@ -1144,7 +1160,7 @@ function initPomodoroEngine() {
     window.startGlobalPomodoro = function() { if (isTimerRunning) return; isTimerRunning = true; runTimerLoop(); };
     window.syncTimerWithServer = async function() {
         try {
-            const res = await fetch(`/api/timer/status?tg_id=${tgId}`); const data = await res.json();
+            const res = await apiFetch(`/api/timer/status?tg_id=${tgId}`); const data = await res.json();
             if (data.is_resting) {
                 isRestPhase = true; timeRemaining = data.seconds_left; isTimerRunning = true;
                 const randomIdx = Math.floor(Math.random() * COGNITIVE_ASCII_ARTS.length);
@@ -1174,28 +1190,48 @@ async function importTextKnowledge() {
 
     if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ МАТРИЦЫ ИИ...]"; }
     try {
-        const response = await fetch('/api/config/import', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text, density: density, volume: volume, priority: priority, assoc_preference: pref })
+        const response = await apiFetch('/api/config/import', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ 
+                text: text, 
+                density: density, 
+                volume: volume, 
+                priority: priority, 
+                assoc_preference: pref,
+                commit_now: false // Направляем в Песочницу!
+            })
         });
         const data = await response.json();
-        if (response.ok && data.status === 'success') {
-            alert(`ИИ-Парсер успешно отработал!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: [${data.subject.toUpperCase()}]`);
+        if (response.ok && data.status === 'staging') {
+            startStagingSession(data);
+        } else if (response.ok && data.status === 'success') {
+            alert(`Импортировано карт: ${data.cards_count}`);
             if (textarea) textarea.value = ""; await loadDynamicSubjects(); updateGlobalBadges();
-        } else { alert("Ошибка ИИ-конвейера: " + (data.message || "Неизвестный сбой.")); }
-    } catch (e) { console.error("Сбой сети при импорте знаний:", e); alert("Критический сбой сети."); } finally { if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } }
+        } else { 
+            alert("Ошибка ИИ-конвейера: " + (data.message || "Неизвестный сбой.")); 
+        }
+    } catch (e) { 
+        console.error("Сбой сети при импорте знаний:", e); 
+        alert("Критический сбой сети."); 
+    } finally { 
+        if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } 
+    }
 }
 
 window.importPreset = async function(presetName) {
     const btn = document.getElementById('btn-import');
     if (btn) { btn.disabled = true; btn.innerText = "[ЗАГРУЗКА БИБЛИОТЕКИ...]"; }
     try {
-        const response = await fetch('/api/config/import/preset', {
+        const response = await apiFetch('/api/config/import/preset', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ preset_name: presetName })
+            body: JSON.stringify({ preset_name: presetName, commit_now: false })
         });
         const data = await response.json();
-        if (response.ok && data.status === 'success') {
+        if (response.ok && data.status === 'staging') {
+            startStagingSession(data);
+        } else if (response.ok && data.status === 'success') {
             alert(`Библиотека успешно импортирована!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: [${data.subject.toUpperCase()}]`);
             await loadDynamicSubjects(); 
             updateGlobalBadges();
@@ -1208,6 +1244,595 @@ window.importPreset = async function(presetName) {
     } finally { 
         if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } 
     }
+};
+
+window.handleFileUpload = async function(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('file-import-status');
+    if (statusEl) {
+        statusEl.textContent = `[ИЗВЛЕЧЕНИЕ ТЕКСТА ИЗ ${file.name.toUpperCase()}...]`;
+        statusEl.classList.remove('hidden');
+    }
+
+    const density = document.getElementById('import-density')?.value || 'medium';
+    const volume = document.getElementById('import-volume')?.value || 'medium';
+    const priority = document.getElementById('import-priority')?.value || 'balanced';
+    const pref = localStorage.getItem('assoc_preference') || 'acoustic';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('density', density);
+    formData.append('volume', volume);
+    formData.append('priority', priority);
+    formData.append('assoc_preference', pref);
+    formData.append('commit_now', 'false');
+
+    try {
+        const response = await apiFetch('/api/config/import/file', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (response.ok && data.status === 'staging') {
+            if (statusEl) statusEl.classList.add('hidden');
+            startStagingSession(data);
+        } else {
+            alert("Ошибка обработки файла: " + (data.detail || data.message || "Сбой"));
+            if (statusEl) statusEl.classList.add('hidden');
+        }
+    } catch (err) {
+        console.error("Сбой загрузки файла:", err);
+        alert("Ошибка сети при отправке файла.");
+        if (statusEl) statusEl.classList.add('hidden');
+    } finally {
+        event.target.value = '';
+    }
+};
+
+window.handleImageOcr = async function(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('file-import-status');
+    if (statusEl) {
+        statusEl.textContent = "[TESSERACT OCR: ИНИЦИАЛИЗАЦИЯ ДВИЖКА...]";
+        statusEl.classList.remove('hidden');
+    }
+
+    if (typeof Tesseract === 'undefined') {
+        alert("Движок Tesseract OCR ещё загружается. Подождите пару секунд и повторите.");
+        if (statusEl) statusEl.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const result = await Tesseract.recognize(
+            file,
+            'rus+eng',
+            {
+                logger: m => {
+                    if (m.status === 'recognizing text' && statusEl) {
+                        const pct = Math.round((m.progress || 0) * 100);
+                        statusEl.textContent = `[TESSERACT OCR: РАСПОЗНАВАНИЕ ${pct}%]`;
+                    }
+                }
+            }
+        );
+
+        const recognizedText = (result && result.data && result.data.text) ? result.data.text.trim() : "";
+        if (!recognizedText) {
+            alert("Не удалось распознать текст на фото. Попробуйте более четкий снимок.");
+            if (statusEl) statusEl.classList.add('hidden');
+            return;
+        }
+
+        if (statusEl) {
+            statusEl.textContent = `[OCR УСПЕШНО! ИЗВЛЕЧЕНО ${recognizedText.length} СИМВОЛОВ, ЗАПУСК ИИ...]`;
+        }
+
+        const textarea = document.getElementById('import-text');
+        if (textarea) textarea.value = recognizedText;
+
+        await importTextKnowledge();
+        if (statusEl) statusEl.classList.add('hidden');
+    } catch (ocrErr) {
+        console.error("Ошибка OCR:", ocrErr);
+        alert("Ошибка распознавания фото: " + ocrErr.message);
+        if (statusEl) statusEl.classList.add('hidden');
+    } finally {
+        event.target.value = '';
+    }
+};
+
+// ============================================================================
+// ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX): СВАЙПЫ, МОДЕРАЦИЯ, ПРЕДПРОСМОТР
+// ============================================================================
+let stagingCards = [];
+let currentStagingIndex = 0;
+let approvedStagingCards = [];
+let rejectedStagingCards = [];
+let stagingSubject = 'generic';
+let stagingTheme = 'Новый блок знаний';
+
+function startStagingSession(data) {
+    stagingCards = (data.cards || []).map((c, idx) => ({ ...c, _orig_idx: idx }));
+    currentStagingIndex = 0;
+    approvedStagingCards = [];
+    rejectedStagingCards = [];
+    stagingSubject = data.subject || 'generic';
+    stagingTheme = data.theme || 'Новый блок знаний';
+
+    if (stagingCards.length === 0) {
+        alert("Не найдено карточек для отображения в песочнице.");
+        return;
+    }
+
+    const overlay = document.getElementById('staging-overlay');
+    const titleEl = document.getElementById('staging-topic-title');
+    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+    if (overlay) {
+        overlay.classList.remove('hidden');
+        overlay.classList.add('flex');
+    }
+
+    renderCurrentStagingCard();
+    initStagingGestures();
+}
+
+function renderCurrentStagingCard() {
+    const cardEl = document.getElementById('staging-card');
+    const commitBtn = document.getElementById('staging-commit-btn');
+    const approvedCnt = document.getElementById('staging-approved-count');
+    const rejectedCnt = document.getElementById('staging-rejected-count');
+    const remainingCnt = document.getElementById('staging-remaining-count');
+
+    const total = stagingCards.length;
+    const remaining = Math.max(0, total - currentStagingIndex);
+
+    if (approvedCnt) approvedCnt.textContent = approvedStagingCards.length;
+    if (rejectedCnt) rejectedCnt.textContent = rejectedStagingCards.length;
+    if (remainingCnt) remainingCnt.textContent = remaining;
+    if (commitBtn) commitBtn.textContent = `СОХРАНИТЬ (${approvedStagingCards.length})`;
+
+    if (currentStagingIndex >= total) {
+        if (cardEl) {
+            cardEl.innerHTML = `
+                <div class="flex-1 flex flex-col items-center justify-center text-center p-md gap-md">
+                    <span class="material-symbols-outlined text-4xl text-primary">task_alt</span>
+                    <h3 class="text-base font-bold uppercase text-primary">Песочница завершена!</h3>
+                    <p class="text-xs text-outline leading-relaxed">
+                        Одобрено карточек: <strong class="text-primary">${approvedStagingCards.length}</strong><br>
+                        Отклонено: <strong class="text-secondary">${rejectedStagingCards.length}</strong>
+                    </p>
+                    <button onclick="commitApprovedStagingCards()" class="w-full border border-primary bg-primary text-on-primary py-sm font-bold uppercase text-xs hover:bg-transparent hover:text-primary transition-all mt-sm">
+                        [СОХРАНИТЬ В БАЗУ ДАННЫХ]
+                    </button>
+                </div>
+            `;
+        }
+        return;
+    }
+
+    const card = stagingCards[currentStagingIndex];
+    if (!card || !cardEl) return;
+
+    cardEl.style.transform = 'translate(0px, 0px) rotate(0deg)';
+    cardEl.style.opacity = '1';
+    
+    const badgeAccept = document.getElementById('staging-badge-accept');
+    const badgeReject = document.getElementById('staging-badge-reject');
+    if (badgeAccept) badgeAccept.style.opacity = '0';
+    if (badgeReject) badgeReject.style.opacity = '0';
+
+    const numEl = document.getElementById('staging-card-number');
+    const tierEl = document.getElementById('staging-card-tier');
+    const textEl = document.getElementById('staging-card-text');
+    const secEl = document.getElementById('staging-card-secondary');
+    const transEl = document.getElementById('staging-card-translation');
+    const exEl = document.getElementById('staging-card-example');
+    const mnemBox = document.getElementById('staging-card-mnemonic-box');
+    const mnemEl = document.getElementById('staging-card-mnemonic');
+
+    if (numEl) numEl.textContent = `Карточка ${currentStagingIndex + 1} из ${total}`;
+    if (tierEl) tierEl.textContent = card.initial_difficulty_tier || 'medium';
+    if (textEl) textEl.textContent = card.text || '---';
+    if (secEl) secEl.textContent = card.secondary_text || '';
+    if (transEl) transEl.textContent = card.translation || '---';
+    if (exEl) {
+        if (card.example) {
+            exEl.textContent = `Пример: ${card.example}`;
+            exEl.classList.remove('hidden');
+        } else {
+            exEl.classList.add('hidden');
+        }
+    }
+
+    if (mnemBox && mnemEl) {
+        let mText = '';
+        if (card.mnemonic) {
+            if (typeof card.mnemonic === 'object' && card.mnemonic.keyword) {
+                mText = `${card.mnemonic.keyword}: ${card.mnemonic.verbal_cue || ''}`;
+            } else if (typeof card.mnemonic === 'string') {
+                mText = card.mnemonic;
+            }
+        }
+        if (mText) {
+            mnemEl.textContent = mText;
+            mnemBox.classList.remove('hidden');
+        } else {
+            mnemBox.classList.add('hidden');
+        }
+    }
+}
+
+window.stagingSwipeRight = function() {
+    if (currentStagingIndex >= stagingCards.length) return;
+    const cardEl = document.getElementById('staging-card');
+    const badgeAccept = document.getElementById('staging-badge-accept');
+    if (badgeAccept) badgeAccept.style.opacity = '1';
+
+    if (cardEl) {
+        cardEl.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+        cardEl.style.transform = 'translate(120%, 20px) rotate(20deg)';
+        cardEl.style.opacity = '0';
+    }
+
+    approvedStagingCards.push(stagingCards[currentStagingIndex]);
+    setTimeout(() => {
+        currentStagingIndex++;
+        if (cardEl) cardEl.style.transition = 'none';
+        renderCurrentStagingCard();
+    }, 250);
+};
+
+window.stagingSwipeLeft = function() {
+    if (currentStagingIndex >= stagingCards.length) return;
+    const cardEl = document.getElementById('staging-card');
+    const badgeReject = document.getElementById('staging-badge-reject');
+    if (badgeReject) badgeReject.style.opacity = '1';
+
+    if (cardEl) {
+        cardEl.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+        cardEl.style.transform = 'translate(-120%, 20px) rotate(-20deg)';
+        cardEl.style.opacity = '0';
+    }
+
+    rejectedStagingCards.push(stagingCards[currentStagingIndex]);
+    setTimeout(() => {
+        currentStagingIndex++;
+        if (cardEl) cardEl.style.transition = 'none';
+        renderCurrentStagingCard();
+    }, 250);
+};
+
+window.stagingAcceptAll = function() {
+    while (currentStagingIndex < stagingCards.length) {
+        approvedStagingCards.push(stagingCards[currentStagingIndex]);
+        currentStagingIndex++;
+    }
+    renderCurrentStagingCard();
+};
+
+window.closeStagingOverlay = function() {
+    const overlay = document.getElementById('staging-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }
+};
+
+window.commitApprovedStagingCards = async function() {
+    if (approvedStagingCards.length === 0) {
+        alert("Нет одобренных карточек для сохранения.");
+        return;
+    }
+
+    const btn = document.getElementById('staging-commit-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "[СОХРАНЕНИЕ В БД...]";
+    }
+
+    try {
+        const response = await apiFetch('/api/config/import/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                subject: stagingSubject,
+                theme: stagingTheme,
+                cards: approvedStagingCards
+            })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.status === 'success') {
+            alert(`Успешно сохранено ${data.cards_count} карточек в предмет [${data.subject.toUpperCase()}]!`);
+            closeStagingOverlay();
+            const textarea = document.getElementById('import-text');
+            if (textarea) textarea.value = '';
+            await loadDynamicSubjects();
+            updateGlobalBadges();
+            if (currentTab === 'data') loadDataTab();
+        } else {
+            alert("Ошибка сохранения: " + (data.detail || data.message || "Неизвестная ошибка"));
+        }
+    } catch (e) {
+        console.error("Сбой фиксации песочницы:", e);
+        alert("Сбой сети при сохранении карточек.");
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+};
+
+let stagingDrag = { isDragging: false, startX: 0, startY: 0, currentX: 0, currentY: 0 };
+
+function initStagingGestures() {
+    const card = document.getElementById('staging-card');
+    if (!card || card._gestures_bound) return;
+    card._gestures_bound = true;
+
+    const onStart = (clientX, clientY) => {
+        stagingDrag.isDragging = true;
+        stagingDrag.startX = clientX;
+        stagingDrag.startY = clientY;
+        stagingDrag.currentX = clientX;
+        stagingDrag.currentY = clientY;
+        card.style.transition = 'none';
+    };
+
+    const onMove = (clientX, clientY) => {
+        if (!stagingDrag.isDragging) return;
+        stagingDrag.currentX = clientX;
+        stagingDrag.currentY = clientY;
+        const deltaX = clientX - stagingDrag.startX;
+        const deltaY = clientY - stagingDrag.startY;
+
+        const rotate = deltaX * 0.07;
+        card.style.transform = `translate(${deltaX}px, ${deltaY * 0.3}px) rotate(${rotate}deg)`;
+
+        const badgeAccept = document.getElementById('staging-badge-accept');
+        const badgeReject = document.getElementById('staging-badge-reject');
+
+        if (deltaX > 25) {
+            if (badgeAccept) badgeAccept.style.opacity = Math.min(1, (deltaX - 25) / 80).toString();
+            if (badgeReject) badgeReject.style.opacity = '0';
+        } else if (deltaX < -25) {
+            if (badgeReject) badgeReject.style.opacity = Math.min(1, (-deltaX - 25) / 80).toString();
+            if (badgeAccept) badgeAccept.style.opacity = '0';
+        } else {
+            if (badgeAccept) badgeAccept.style.opacity = '0';
+            if (badgeReject) badgeReject.style.opacity = '0';
+        }
+    };
+
+    const onEnd = () => {
+        if (!stagingDrag.isDragging) return;
+        stagingDrag.isDragging = false;
+        const deltaX = stagingDrag.currentX - stagingDrag.startX;
+
+        if (deltaX > 80) {
+            stagingSwipeRight();
+        } else if (deltaX < -80) {
+            stagingSwipeLeft();
+        } else {
+            card.style.transition = 'transform 0.2s ease';
+            card.style.transform = 'translate(0px, 0px) rotate(0deg)';
+            const badgeAccept = document.getElementById('staging-badge-accept');
+            const badgeReject = document.getElementById('staging-badge-reject');
+            if (badgeAccept) badgeAccept.style.opacity = '0';
+            if (badgeReject) badgeReject.style.opacity = '0';
+        }
+    };
+
+    card.addEventListener('touchstart', (e) => {
+        if (e.target.closest('button')) return;
+        const t = e.touches[0];
+        onStart(t.clientX, t.clientY);
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+        if (!stagingDrag.isDragging) return;
+        const t = e.touches[0];
+        onMove(t.clientX, t.clientY);
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => {
+        if (stagingDrag.isDragging) onEnd();
+    });
+
+    card.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        onStart(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!stagingDrag.isDragging) return;
+        onMove(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (stagingDrag.isDragging) onEnd();
+    });
+}
+
+// ============================================================================
+// МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ И РУЧНОГО СОЗДАНИЯ КАРТОЧЕК
+// ============================================================================
+window.openManualCardModal = function() {
+    const modal = document.getElementById('card-editor-modal');
+    const title = document.getElementById('card-editor-title');
+    if (title) title.textContent = "СОЗДАНИЕ НОВОЙ КАРТОЧКИ";
+
+    document.getElementById('edit-card-id').value = "";
+    document.getElementById('edit-is-staging').value = "false";
+    document.getElementById('edit-card-subject').value = currentSubject === 'all' ? 'generic' : currentSubject;
+    document.getElementById('edit-card-text').value = "";
+    document.getElementById('edit-card-secondary').value = "";
+    document.getElementById('edit-card-translation').value = "";
+    document.getElementById('edit-card-example').value = "";
+    document.getElementById('edit-card-mnem-keyword').value = "";
+    document.getElementById('edit-card-mnem-cue').value = "";
+
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.requestEditCard = function(cardId) {
+    const card = localCardsArchive.find(c => c.id === cardId);
+    if (!card) return;
+
+    const modal = document.getElementById('card-editor-modal');
+    const title = document.getElementById('card-editor-title');
+    if (title) title.textContent = `РЕДАКТИРОВАНИЕ КАРТОЧКИ #${cardId}`;
+
+    document.getElementById('edit-card-id').value = cardId;
+    document.getElementById('edit-is-staging').value = "false";
+    document.getElementById('edit-card-subject').value = card.subject || currentSubject;
+    document.getElementById('edit-card-text').value = card.text || "";
+    document.getElementById('edit-card-secondary').value = card.secondary_text || "";
+    document.getElementById('edit-card-translation').value = card.translation || "";
+    document.getElementById('edit-card-example').value = card.example || "";
+
+    let kw = "", cue = "";
+    if (card.mnemonic && typeof card.mnemonic === 'object') {
+        kw = card.mnemonic.keyword || "";
+        cue = card.mnemonic.verbal_cue || "";
+    }
+    document.getElementById('edit-card-mnem-keyword').value = kw;
+    document.getElementById('edit-card-mnem-cue').value = cue;
+
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.openStagingEditor = function() {
+    if (currentStagingIndex >= stagingCards.length) return;
+    const card = stagingCards[currentStagingIndex];
+    const modal = document.getElementById('card-editor-modal');
+    const title = document.getElementById('card-editor-title');
+    if (title) title.textContent = "РЕДАКТИРОВАНИЕ КАРТОЧКИ В ПЕСОЧНИЦЕ";
+
+    document.getElementById('edit-card-id').value = "";
+    document.getElementById('edit-is-staging').value = "true";
+    document.getElementById('edit-card-subject').value = stagingSubject;
+    document.getElementById('edit-card-text').value = card.text || "";
+    document.getElementById('edit-card-secondary').value = card.secondary_text || "";
+    document.getElementById('edit-card-translation').value = card.translation || "";
+    document.getElementById('edit-card-example').value = card.example || "";
+
+    let kw = "", cue = "";
+    if (card.mnemonic && typeof card.mnemonic === 'object') {
+        kw = card.mnemonic.keyword || "";
+        cue = card.mnemonic.verbal_cue || "";
+    }
+    document.getElementById('edit-card-mnem-keyword').value = kw;
+    document.getElementById('edit-card-mnem-cue').value = cue;
+
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.closeCardEditorModal = function() {
+    const modal = document.getElementById('card-editor-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.saveCardEditorData = async function() {
+    const cardId = document.getElementById('edit-card-id')?.value;
+    const isStaging = document.getElementById('edit-is-staging')?.value === "true";
+    const subject = document.getElementById('edit-card-subject')?.value.trim() || 'generic';
+    const text = document.getElementById('edit-card-text')?.value.trim();
+    const secondary = document.getElementById('edit-card-secondary')?.value.trim();
+    const translation = document.getElementById('edit-card-translation')?.value.trim();
+    const example = document.getElementById('edit-card-example')?.value.trim();
+    const mnemKw = document.getElementById('edit-card-mnem-keyword')?.value.trim();
+    const mnemCue = document.getElementById('edit-card-mnem-cue')?.value.trim();
+
+    if (!text || !translation) {
+        alert("Лицевая сторона и перевод обязательны к заполнению!");
+        return;
+    }
+
+    if (isStaging) {
+        stagingCards[currentStagingIndex].text = text;
+        stagingCards[currentStagingIndex].secondary_text = secondary;
+        stagingCards[currentStagingIndex].translation = translation;
+        stagingCards[currentStagingIndex].example = example;
+        stagingCards[currentStagingIndex].mnemonic = (mnemKw || mnemCue) ? { keyword: mnemKw, verbal_cue: mnemCue } : null;
+        stagingSubject = subject;
+
+        renderCurrentStagingCard();
+        closeCardEditorModal();
+        return;
+    }
+
+    if (cardId) {
+        try {
+            const res = await apiFetch(`/api/management/cards/${cardId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: text,
+                    secondary_text: secondary,
+                    translation: translation,
+                    example: example,
+                    mnemonic_keyword: mnemKw,
+                    mnemonic_cue: mnemCue
+                })
+            });
+            if (res.ok) {
+                closeCardEditorModal();
+                loadDataTab();
+                updateGlobalBadges();
+            } else {
+                alert("Ошибка сохранения изменений карточки.");
+            }
+        } catch (e) {
+            console.error("Сбой сохранения:", e);
+            alert("Ошибка сети при сохранении карточки.");
+        }
+    } else {
+        try {
+            const res = await apiFetch('/api/management/cards', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    subject: subject,
+                    phrase_title: "Пользовательские карточки",
+                    text: text,
+                    secondary_text: secondary,
+                    translation: translation,
+                    example: example,
+                    mnemonic_keyword: mnemKw,
+                    mnemonic_cue: mnemCue
+                })
+            });
+            if (res.ok) {
+                closeCardEditorModal();
+                alert("Карточка успешно создана!");
+                await loadDynamicSubjects();
+                loadDataTab();
+                updateGlobalBadges();
+            } else {
+                alert("Ошибка создания карточки.");
+            }
+        } catch (e) {
+            console.error("Сбой создания карточки:", e);
+            alert("Ошибка сети при создании карточки.");
+        }
+    }
+};
+
+window.regenerateStagingMnemonic = async function() {
+    if (currentStagingIndex >= stagingCards.length) return;
+    const card = stagingCards[currentStagingIndex];
+    try {
+        const pref = localStorage.getItem('assoc_preference') || 'acoustic';
+        const res = await apiFetch('/api/management/cards/0/regenerate_mnemonic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preference: pref })
+        });
+    } catch (e) {}
 };
 
 // --- ДОПОЛНИТЕЛЬНЫЙ ФУНКЦИОНАЛ: МАССОВЫЕ ДЕЙСТВИЯ И КОГНИТИВНЫЙ ОПРОС ---
@@ -1340,7 +1965,7 @@ window.executeBulkMove = async function() {
     }
     
     try {
-        const response = await fetch('/api/data/cards/move', {
+        const response = await apiFetch('/api/data/cards/move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1389,7 +2014,7 @@ window.submitDailySessionSurvey = async function() {
     const durationSeconds = Math.max(10, (52 * 60) - timeRemaining);
     
     try {
-        const response = await fetch(`/api/stats/daily_session?tg_id=${tgId}`, {
+        const response = await apiFetch(`/api/stats/daily_session?tg_id=${tgId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

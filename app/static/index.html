@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <script>
         tailwind.config = {
@@ -399,9 +400,29 @@
                     </div>
                 </div>
 
-                <button id="btn-import" onclick="importTextKnowledge()" class="w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-colors text-sm font-mono shrink-0">
-                    [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
-                </button>
+                <div class="flex flex-col gap-xs my-xs">
+                    <button id="btn-import" onclick="importTextKnowledge()" class="w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-colors text-sm font-mono shrink-0">
+                        [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
+                    </button>
+                    
+                    <!-- Кодовый импорт файлов и бесплатный OCR -->
+                    <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" class="hidden" onchange="handleFileUpload(event)">
+                        <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
+                            📄 Файл (PDF/TXT/CSV)
+                        </button>
+
+                        <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
+                        <button onclick="document.getElementById('import-image').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
+                            📷 Фото конспекта (OCR)
+                        </button>
+                    </div>
+
+                    <button onclick="openManualCardModal()" class="w-full border border-outline-variant text-outline hover:text-primary hover:border-primary py-1.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 mt-xs">
+                        + СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ
+                    </button>
+                    <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
+                </div>
 
                 <!-- Готовые базы знаний -->
                 <div class="flex flex-col gap-xs mt-md shrink-0">
@@ -450,11 +471,146 @@
             Дайте глазам отдохнуть. Фокус восстанавливается...
         </p>
         
-        <button id="skip-rest" class="border border-primary text-primary px-lg py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-colors text-xs font-mono uppercase">
-            [Продолжить работу]
-        </button>
+    <!-- ===================================================================== -->
+    <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
+    <!-- ===================================================================== -->
+    <div id="staging-overlay" class="hidden fixed inset-0 bg-background/98 z-50 flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="padding-top: max(var(--tg-safe-top, 24px), 24px); padding-bottom: max(var(--tg-safe-bottom, 16px), 16px);">
+        <!-- Верхняя панель песочницы -->
+        <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
+            <div class="flex flex-col">
+                <span class="text-[10px] text-outline uppercase tracking-wider font-bold">ПЕСОЧНИЦА ИМПОРТА</span>
+                <span id="staging-topic-title" class="text-xs font-bold text-primary truncate max-w-[200px]">Новый блок</span>
+            </div>
+            <div class="flex items-center gap-xs text-[10px] font-bold">
+                <span class="text-primary bg-surface-container px-1.5 py-0.5 border border-outline-variant/30">ОДОБРЕНО: <span id="staging-approved-count" class="text-primary font-bold">0</span></span>
+                <span class="text-secondary bg-error-container/20 px-1.5 py-0.5 border border-outline-variant/30">ОТКЛОНЕНО: <span id="staging-rejected-count" class="text-secondary font-bold">0</span></span>
+                <span class="text-outline px-1.5 py-0.5 border border-outline-variant/30">ОСТАЛОСЬ: <span id="staging-remaining-count">0</span></span>
+            </div>
+        </div>
+
+        <!-- Центральная зона карточки песочницы со свайпом -->
+        <div class="flex-1 flex items-center justify-center relative w-full my-auto min-h-0 py-sm" id="staging-card-container">
+            <div id="staging-card" class="relative w-full max-w-[360px] aspect-[4/5] bg-surface-container-lowest border border-outline p-md flex flex-col justify-between transition-transform duration-200 cursor-grab active:cursor-grabbing shadow-md select-none overflow-hidden">
+                <!-- Значки-индикаторы свайпа (штампы APPROVED / DISCARDED) -->
+                <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase tracking-widest rotate-12 opacity-0 pointer-events-none transition-opacity">
+                    ПРИНЯТЬ ✓
+                </div>
+                <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-widest -rotate-12 opacity-0 pointer-events-none transition-opacity">
+                    ОТКЛОНИТЬ ✕
+                </div>
+
+                <div class="w-full flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-xs">
+                    <span id="staging-card-number">Карточка 1 из 1</span>
+                    <span id="staging-card-tier" class="uppercase font-bold text-primary">medium</span>
+                </div>
+
+                <div class="flex-1 flex flex-col justify-center items-center text-center gap-sm overflow-y-auto my-auto py-sm">
+                    <div id="staging-card-text" class="text-2xl sm:text-3xl font-bold text-primary break-words">...</div>
+                    <div id="staging-card-secondary" class="text-xs text-outline font-mono">...</div>
+                    <div class="w-16 h-px bg-outline-variant/40 my-xs"></div>
+                    <div id="staging-card-translation" class="text-sm sm:text-base text-on-surface leading-relaxed break-words">...</div>
+                    <div id="staging-card-example" class="text-[11px] text-outline italic mt-xs max-h-16 overflow-hidden">...</div>
+                    
+                    <div id="staging-card-mnemonic-box" class="w-full mt-xs bg-surface p-2 border border-outline-variant/30 text-[10px] text-left hidden">
+                        <span class="text-primary font-bold uppercase block mb-0.5">Ассоциация:</span>
+                        <span id="staging-card-mnemonic" class="text-on-surface-variant"></span>
+                    </div>
+                </div>
+
+                <!-- Кнопки управления карточкой внутри песочницы -->
+                <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
+                    <button onclick="openStagingEditor()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
+                        ✏️ Редактировать
+                    </button>
+                    <button onclick="regenerateStagingMnemonic()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
+                        🔄 Мнемоника
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Нижняя панель действий свайпа / кнопок -->
+        <div class="flex flex-col gap-xs shrink-0 pt-xs">
+            <div class="grid grid-cols-2 gap-xs h-[50px]">
+                <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase">
+                    <span>✕ ОТКЛОНИТЬ</span>
+                    <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
+                </button>
+                <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase">
+                    <span>✓ ПРИНЯТЬ</span>
+                    <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
+                </button>
+            </div>
+
+            <div class="flex justify-between items-center gap-xs mt-xs text-[10px]">
+                <button onclick="stagingAcceptAll()" class="border border-outline text-outline hover:text-primary py-1.5 px-2 uppercase font-bold flex-1">
+                    [ОДОБРИТЬ ВСЕ]
+                </button>
+                <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-1.5 px-3 uppercase font-bold flex-1 text-center hover:bg-transparent hover:text-primary transition-colors">
+                    СОХРАНИТЬ (0)
+                </button>
+                <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-1.5 px-2 uppercase font-bold">
+                    ОТМЕНА
+                </button>
+            </div>
+        </div>
     </div>
 
-    <script src="/js/app.js?v=22"></script>
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ И РЕДАКТИРОВАНИЯ КАРТОЧЕК                    -->
+    <!-- ===================================================================== -->
+    <div id="card-editor-modal" class="hidden fixed inset-0 bg-background/95 z-50 flex items-center justify-center p-md font-mono select-none">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-primary p-md flex flex-col gap-sm shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-outline-variant pb-xs">
+                <span id="card-editor-title" class="text-xs font-bold text-primary uppercase">РЕДАКТИРОВАНИЕ КАРТОЧКИ</span>
+                <button onclick="closeCardEditorModal()" class="text-outline hover:text-primary font-bold text-sm">✕</button>
+            </div>
+
+            <input type="hidden" id="edit-card-id" value="">
+            <input type="hidden" id="edit-is-staging" value="false">
+
+            <div class="flex flex-col gap-xs text-[10px]">
+                <label class="text-outline uppercase font-bold">Предмет (код):</label>
+                <input type="text" id="edit-card-subject" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-xs text-[10px]">
+                <label class="text-outline uppercase font-bold">Лицевая сторона (Термин / Иероглиф / Функция):</label>
+                <input type="text" id="edit-card-text" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-xs text-[10px]">
+                <label class="text-outline uppercase font-bold">Подсказка (Пиньинь / Статья / Сигнатура):</label>
+                <input type="text" id="edit-card-secondary" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-xs text-[10px]">
+                <label class="text-outline uppercase font-bold">Значение / Определение на русском:</label>
+                <textarea id="edit-card-translation" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0 h-16 resize-none"></textarea>
+            </div>
+
+            <div class="flex flex-col gap-xs text-[10px]">
+                <label class="text-outline uppercase font-bold">Пример использования:</label>
+                <input type="text" id="edit-card-example" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="border-t border-dashed border-outline-variant/50 pt-xs flex flex-col gap-xs text-[10px]">
+                <span class="text-outline font-bold uppercase">Мнемоника:</span>
+                <input type="text" id="edit-card-mnem-keyword" placeholder="Ключевое слово (ассоциация)" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+                <input type="text" id="edit-card-mnem-cue" placeholder="Сюжетная связка" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex justify-end gap-sm pt-sm border-t border-outline-variant">
+                <button onclick="closeCardEditorModal()" class="border border-outline text-outline px-sm py-1 text-xs uppercase font-bold hover:text-primary">
+                    Отмена
+                </button>
+                <button onclick="saveCardEditorData()" class="border border-primary bg-primary text-on-primary px-md py-1 text-xs uppercase font-bold hover:bg-transparent hover:text-primary transition-colors">
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js?v=23"></script>
 </body>
 </html>

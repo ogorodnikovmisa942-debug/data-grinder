@@ -10,8 +10,8 @@ class Settings:
     # Используем SQLite локально, но оставляем возможность переопределить через переменные окружения
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data_grinder.db")
     
-    # Сюда позже вставишь свои реальные токены
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "placeholder_bot_token")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "placeholder_gemini_key")
+    WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site")
 
 settings = Settings()

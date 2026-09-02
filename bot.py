@@ -1,14 +1,13 @@
 # /root/GRINDER/bot.py
 import os
 import asyncio
+from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Загружаем .env: сначала локальный, если отсутствует - по абсолютному пути (для продакшна)
-if os.path.exists(".env"):
-    load_dotenv()
-else:
-    load_dotenv(dotenv_path="/root/GRINDER/.env")
+# Загружаем .env из директории скрипта (работает и на Windows, и на Linux)
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -19,7 +18,8 @@ from app.database.models import UserSession
 from sqlalchemy import select
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-PROXY_URL = os.getenv("TELEGRAM_PROXY")  
+PROXY_URL = os.getenv("TELEGRAM_PROXY")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://datagrinder.site")  
 
 if not BOT_TOKEN:
     raise ValueError("КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: Токен TELEGRAM_BOT_TOKEN не найден в .env!")
@@ -37,8 +37,6 @@ else:
     print("[Grinder Bot] Сеть: запуск напрямую (без прокси)")
 
 
-# Боевой URL твоего Nginx-сервера
-WEBAPP_URL = "https://datagrinder.site"
 dp = Dispatcher()
 
 @dp.message(Command("start"))
