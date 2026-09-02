@@ -409,17 +409,17 @@
                     <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
                         <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" class="hidden" onchange="handleFileUpload(event)">
                         <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            📄 Файл (PDF/TXT/CSV)
+                            [ФАЙЛ: PDF/TXT/CSV]
                         </button>
 
                         <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
                         <button onclick="document.getElementById('import-image').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            📷 Фото конспекта (OCR)
+                            [СКАН / ФОТО (OCR)]
                         </button>
                     </div>
 
                     <button onclick="openManualCardModal()" class="w-full border border-outline-variant text-outline hover:text-primary hover:border-primary py-1.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 mt-xs">
-                        + СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ
+                        [+ СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ]
                     </button>
                     <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
                 </div>
@@ -520,10 +520,10 @@
                 <!-- Кнопки управления карточкой внутри песочницы -->
                 <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
                     <button onclick="openStagingEditor()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
-                        ✏️ Редактировать
+                        [ПРАВИТЬ]
                     </button>
                     <button onclick="regenerateStagingMnemonic()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
-                        🔄 Мнемоника
+                        [МНЕМОНИКА]
                     </button>
                 </div>
             </div>
@@ -533,11 +533,11 @@
         <div class="flex flex-col gap-xs shrink-0 pt-xs">
             <div class="grid grid-cols-2 gap-xs h-[50px]">
                 <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase">
-                    <span>✕ ОТКЛОНИТЬ</span>
+                    <span>[✕] ОТКЛОНИТЬ</span>
                     <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
                 </button>
                 <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase">
-                    <span>✓ ПРИНЯТЬ</span>
+                    <span>[✓] ПРИНЯТЬ</span>
                     <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
                 </button>
             </div>
@@ -611,6 +611,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=23"></script>
+    <script src="/js/app.js?v=24"></script>
 </body>
 </html>

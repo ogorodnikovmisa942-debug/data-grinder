@@ -60,7 +60,7 @@ async def cmd_start(message: types.Message):
     ])
     
     await message.answer(
-        "🧠 **DATA GRINDER v1.0** приветствует тебя.\n\n"
+        "**[DATA GRINDER v1.0]** приветствует тебя.\n\n"
         "Интерфейс когнитивного заучивания и FSRS-интерливинга готов к работе. "
         "Нажми кнопку ниже для старта рабочей сессии.",
         reply_markup=markup,
@@ -99,7 +99,7 @@ async def pomodoro_push_observer():
                 
                 await bot.send_message(
                     chat_id=target_chat_id,
-                    text="🍅 **17 минут отдыха подошли к концу!**\n\n"
+                    text="**[ТАЙМЕР: 17 МИНУТ ОТДЫХА ЗАВЕРШЕНЫ]**\n\n"
                          "Кора головного мозга полностью восстановила ресурсы.\n"
                          "Возвращайся в консоль Data Grinder и запускай новый 52-минутный спринт.",
                     parse_mode="Markdown"

@@ -630,7 +630,7 @@ function renderIntroductionCard(card) {
         if (!card._recall_checked) {
             html += `
                 <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
-                    <div class="text-[10px] text-outline uppercase font-mono text-center mb-0.5">🧠 Проверь себя перед закреплением:</div>
+                    <div class="text-[10px] text-outline uppercase font-mono text-center mb-0.5">САМОПРОВЕРКА ПАМЯТИ ПЕРЕД ЗАКРЕПЛЕНИЕМ:</div>
                     <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
                             class="w-full border border-dashed border-primary text-primary py-sm font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
                         [ПОКАЗАТЬ ОТВЕТ И ПРОВЕРИТЬ ПАМЯТЬ]
@@ -742,7 +742,7 @@ function renderReviewCard(card) {
         const metaLabel = document.getElementById('card-meta-label');
         if (metaLabel) {
             if (card.is_anchored && card.phrase_text) {
-                metaLabel.innerHTML = `⚠️ КОНТЕКСТНЫЙ ЯКОРЬ: <span class="text-secondary font-bold font-mono">${card.phrase_text}</span>`;
+                metaLabel.innerHTML = `[!] КОНТЕКСТНЫЙ ЯКОРЬ: <span class="text-secondary font-bold font-mono">${card.phrase_text}</span>`;
             } else {
                 metaLabel.textContent = (currentSubject === 'chinese_hsk3' || card.text.match(/[\u4e00-\u9fa5]/)) ? 'Pinyin' : 'Контекстная подсказка';
             }
@@ -957,7 +957,7 @@ function renderFilteredArchiveDOM() {
                     </div>
                 </div>
                 <div class="flex items-center gap-xs shrink-0 archive-row-actions">
-                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Редактировать">✏️</button>
+                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Редактировать">✎</button>
                     <button onclick="event.stopPropagation(); requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Перенести предмет">➔</button>
                     <button onclick="event.stopPropagation(); requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center">✕</button>
                 </div>

@@ -73,7 +73,7 @@ async def check_and_send_alerts():
                         user.last_morning_sent = date_str
                         await db.commit()  # Фиксация в БД
                         text = (
-                            "🧠 **Утренний раунд Data Grinder!**\n\n"
+                            "**[DATA GRINDER: УТРЕННИЙ РАУНД]**\n\n"
                             "Новые знания готовы к заучиванию. Начни день с продуктивной сессии повторения!"
                         )
                         await send_telegram_alert(user.telegram_id, text)
@@ -84,7 +84,7 @@ async def check_and_send_alerts():
                         user.last_evening_sent = date_str
                         await db.commit()
                         text = (
-                            "🌙 **Вечерний гринд!**\n\n"
+                            "**[DATA GRINDER: ВЕЧЕРНИЙ СЕАНС]**\n\n"
                             f"У вас осталось *{user_due_count}* карточек к повторению. Закройте хвосты перед сном!"
                         )
                         await send_telegram_alert(user.telegram_id, text)
@@ -100,7 +100,7 @@ async def check_and_send_alerts():
                         user.last_due_notified_at = now_utc
                         await db.commit()
                         text = (
-                            "⚡ **Data Grinder Alert!**\n\n"
+                            "**[DATA GRINDER: ОЧЕРЕДЬ ПОВТОРЕНИЯ]**\n\n"
                             f"В вашем пуле появились новые карты, готовые к повторению ({user_due_count} шт.)."
                         )
                         await send_telegram_alert(user.telegram_id, text)
