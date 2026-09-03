@@ -12,6 +12,7 @@ class Settings:
     
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "placeholder_bot_token")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "placeholder_gemini_key")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site")
 
 settings = Settings()

@@ -98,25 +98,35 @@ TYPE/JSON SCHEMA STRUCTURE:
 """
 
 async def generate_content_with_retry(client, contents: str, config) -> str:
-    # Использование только gemini-3.1-flash-lite с экспоненциальным бэкоффом при временных ошибках 503/429
-    model_name = "gemini-3.1-flash-lite"
-    for attempt in range(3):
-        try:
-            print(f"[Gemini Parser] Attempting generation (attempt {attempt+1}) with model: {model_name}")
-            response = await client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config
-            )
-            return response.text
-        except Exception as e:
-            err_msg = str(e)
-            if attempt < 2 and ("503" in err_msg or "UNAVAILABLE" in err_msg or "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg):
-                sleep_time = (attempt + 1) * 2.0
-                print(f"[WARNING] Gemini model temporary error: {e}. Retrying in {sleep_time}s...")
-                await asyncio.sleep(sleep_time)
-            else:
-                raise e
+    # Каскадный список моделей для отказоустойчивости (Gemini 3.8 Flash -> 3.7 Flash -> 3.5 Flash)
+    primary_model = settings.GEMINI_MODEL
+    fallback_models = [primary_model, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash"]
+    models_to_try = list(dict.fromkeys(fallback_models))
+    
+    last_exception = None
+    for model_name in models_to_try:
+        for attempt in range(2):
+            try:
+                print(f"[Gemini Parser] Generation attempt {attempt + 1} with model: {model_name}")
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                return response.text
+            except Exception as e:
+                last_exception = e
+                err_msg = str(e)
+                print(f"[WARNING] Model {model_name} failed (attempt {attempt + 1}): {err_msg[:120]}")
+                # Если 404 (модель устарела/удалена) или 429/исчерпан лимит - переходим к следующей модели каскада
+                if "404" in err_msg or "NOT_FOUND" in err_msg or "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    break
+                if attempt == 0 and ("503" in err_msg or "UNAVAILABLE" in err_msg):
+                    await asyncio.sleep(1.5)
+    
+    if last_exception:
+        raise last_exception
+    raise RuntimeError("Не удалось сгенерировать контент ни одной моделью из каскада.")
 
 async def parse_raw_text(
     text: str, 
