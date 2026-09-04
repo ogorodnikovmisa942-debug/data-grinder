@@ -337,60 +337,71 @@
                     <textarea id="import-text" placeholder="Вставьте сюда текст лекции, главу учебника, статьи закона, формулы или словарь..." class="w-full bg-surface-container border border-outline-variant rounded-none p-sm text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[140px]"></textarea>
                 </div>
 
-                <!-- Панель бесконфликтной нарезки -->
+                <!-- Панель понятной нарезки (3 интуитивных режима) -->
                 <div class="flex flex-col gap-xs border-t border-dashed border-outline-variant/60 pt-xs mt-xs">
-                    <span class="text-[9px] text-outline uppercase font-bold">3. Формат и параметры нарезки:</span>
-                    
-                    <!-- Режим нарезки -->
-                    <div class="grid grid-cols-3 gap-xs">
-                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-1 text-[9px] font-bold uppercase transition-all">
-                            [АТОМАРНО]
-                        </button>
-                        <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all">
-                            [1 ПОНЯТИЕ]
-                        </button>
-                        <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all">
-                            [ШПАРГАЛКА]
-                        </button>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-outline uppercase font-bold">3. Формат карточек:</span>
+                        <span class="text-[8px] text-secondary font-bold font-mono">[ВЫБЕРИТЕ ТИП]</span>
                     </div>
-
-                    <!-- Настройки Объема и Детализации -->
-                    <div class="grid grid-cols-2 gap-xs mt-xs">
-                        <!-- Объем карточек -->
-                        <div class="flex flex-col gap-0.5">
-                            <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
-                                <span>Объем:</span>
-                                <span id="import-volume-label" class="text-primary font-mono">до 15 карт</span>
-                            </div>
-                            <div id="import-volume-buttons" class="grid grid-cols-4 gap-0.5">
-                                <button type="button" onclick="setVolumeLimit('low')" id="vol-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">5</button>
-                                <button type="button" onclick="setVolumeLimit('medium')" id="vol-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">15</button>
-                                <button type="button" onclick="setVolumeLimit('high')" id="vol-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">30</button>
-                                <button type="button" onclick="setVolumeLimit('max')" id="vol-max" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">MAX</button>
-                            </div>
-                            <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-0.5 text-center text-[9px] text-secondary font-bold">
-                                [ФИКСИРОВАНО: 1 КАРТА]
-                            </div>
-                        </div>
-
-                        <!-- Детализация (Глубина определений) -->
-                        <div class="flex flex-col gap-0.5">
-                            <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
-                                <span>Глубина:</span>
-                                <span id="import-density-label" class="text-primary font-mono">Баланс</span>
-                            </div>
-                            <div class="grid grid-cols-3 gap-0.5">
-                                <button type="button" onclick="setDetailDensity('low')" id="dense-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">КРАТКО</button>
-                                <button type="button" onclick="setDetailDensity('medium')" id="dense-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">БАЛАНС</button>
-                                <button type="button" onclick="setDetailDensity('high')" id="dense-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">ДЕТАЛИ</button>
-                            </div>
-                        </div>
+                    
+                    <!-- 3 понятных режима нарезки -->
+                    <div class="grid grid-cols-3 gap-xs">
+                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center">
+                            <span>[ОБЫЧНЫЕ]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">по терминам</span>
+                        </button>
+                        <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-outline-variant text-outline hover:text-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center">
+                            <span>[1 БОЛЬШАЯ]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">вся тема сразу</span>
+                        </button>
+                        <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-outline-variant text-outline hover:text-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center">
+                            <span>[ШПОРЫ]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">по 1 фразе</span>
+                        </button>
                     </div>
 
                     <!-- Живая расшифровка настроек (Live Hint) -->
-                    <div id="import-mode-explanation" class="text-[9px] text-secondary font-mono border border-outline-variant/40 bg-surface p-1.5 leading-snug mt-xs">
-                        > РЕЖИМ: Атомарная нарезка | Объем: до 15 карт | Глубина: баланс (суть + пример).
+                    <div id="import-mode-explanation" class="text-[9px] text-secondary font-mono border border-outline-variant/40 bg-surface p-1.5 leading-snug">
+                        > РЕЖИМ: Обычные карточки по ключевым терминам (до 15 шт, суть + пример).
                     </div>
+
+                    <!-- Тонкая настройка (по умолчанию свернута, не загромождает экран) -->
+                    <details class="text-[9px] font-mono border border-outline-variant/30 p-1.5 bg-surface-container-lowest">
+                        <summary class="cursor-pointer text-outline hover:text-primary font-bold uppercase select-none">
+                            [+] ТОЧНЫЕ НАСТРОЙКИ: ОБЪЕМ И ГЛУБИНА
+                        </summary>
+                        <div class="grid grid-cols-2 gap-xs mt-1.5 pt-1.5 border-t border-dashed border-outline-variant/30">
+                            <!-- Объем карточек -->
+                            <div class="flex flex-col gap-0.5">
+                                <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
+                                    <span>Объем:</span>
+                                    <span id="import-volume-label" class="text-primary font-mono">до 15 карт</span>
+                                </div>
+                                <div id="import-volume-buttons" class="grid grid-cols-4 gap-0.5">
+                                    <button type="button" onclick="setVolumeLimit('low')" id="vol-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">5</button>
+                                    <button type="button" onclick="setVolumeLimit('medium')" id="vol-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">15</button>
+                                    <button type="button" onclick="setVolumeLimit('high')" id="vol-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">30</button>
+                                    <button type="button" onclick="setVolumeLimit('max')" id="vol-max" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">MAX</button>
+                                </div>
+                                <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-0.5 text-center text-[9px] text-secondary font-bold">
+                                    [ФИКСИРОВАНО: 1 КАРТА]
+                                </div>
+                            </div>
+
+                            <!-- Детализация (Глубина определений) -->
+                            <div class="flex flex-col gap-0.5">
+                                <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
+                                    <span>Глубина:</span>
+                                    <span id="import-density-label" class="text-primary font-mono">Баланс</span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-0.5">
+                                    <button type="button" onclick="setDetailDensity('low')" id="dense-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">КРАТКО</button>
+                                    <button type="button" onclick="setDetailDensity('medium')" id="dense-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">БАЛАНС</button>
+                                    <button type="button" onclick="setDetailDensity('high')" id="dense-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">ДЕТАЛИ</button>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
                 </div>
 
                 <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
@@ -533,7 +544,11 @@
         <p class="text-xs text-outline mb-lg max-w-[280px] leading-relaxed">
             Дайте глазам отдохнуть. Фокус восстанавливается...
         </p>
-        
+        <button id="skip-rest" class="border border-outline text-outline hover:text-primary px-4 py-2 text-xs uppercase font-bold mt-sm">
+            [ПРОПУСТИТЬ ОТДЫХ]
+        </button>
+    </div>
+
     <!-- ===================================================================== -->
     <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
     <!-- ===================================================================== -->
@@ -679,6 +694,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=28"></script>
+    <script src="/js/app.js?v=29"></script>
 </body>
 </html>

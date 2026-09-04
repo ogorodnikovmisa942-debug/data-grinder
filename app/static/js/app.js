@@ -1196,6 +1196,9 @@ async function loadDynamicSubjects() {
             if (currentVal && (subjects.includes(currentVal) || currentVal === '__new__')) {
                 importSel.value = currentVal;
                 if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
+            } else if (currentSubject && currentSubject !== 'all' && subjects.includes(currentSubject)) {
+                importSel.value = currentSubject;
+                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${currentSubject.toUpperCase()}]`;
             } else if (subjects.length > 0) {
                 importSel.value = subjects[0];
                 if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subjects[0].toUpperCase()}]`;
@@ -1287,9 +1290,9 @@ window.setGranularityMode = function(mode) {
         const el = document.getElementById(`gran-${m}`);
         if (el) {
             if (m === mode) {
-                el.className = 'border border-primary bg-primary text-on-primary py-1 text-[9px] font-bold uppercase transition-all';
+                el.className = 'border border-primary bg-primary text-on-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center';
             } else {
-                el.className = 'border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all';
+                el.className = 'border border-outline-variant text-outline hover:text-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center';
             }
         }
     });
@@ -1359,14 +1362,14 @@ function updateImportExplanation() {
 
     if (currentGranularityMode === 'single_deep') {
         const dText = currentDetailDensity === 'low' ? 'краткое резюме' : currentDetailDensity === 'high' ? 'исчерпывающий разбор со всеми подпунктами' : 'определение и контекст';
-        explEl.textContent = `> РЕЖИМ: 1 Мастер-карта | Объем: строго 1 карта | Глубина: ${dText} всей темы в одной карточке.`;
+        explEl.textContent = `> РЕЖИМ: 1 Большая карта | Объем: строго 1 карта | Глубина: ${dText} всей темы.`;
     } else if (currentGranularityMode === 'cheatsheet') {
         const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все термины' : 'до 15 карт';
-        explEl.textContent = `> РЕЖИМ: Шпаргалка-блиц | Объем: ${vText} | Глубина: лаконичные выжимки по 1–2 предложения.`;
+        explEl.textContent = `> РЕЖИМ: Шпоры / Блиц | Объем: ${vText} | Глубина: выжимки по 1–2 предложения.`;
     } else { // atomic
-        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все карточки' : 'до 15 карт';
-        const dText = currentDetailDensity === 'low' ? 'кратко (1–2 фразы)' : currentDetailDensity === 'high' ? 'подробно со всеми деталями' : 'баланс (суть + пример)';
-        explEl.textContent = `> РЕЖИМ: Атомарная нарезка | Объем: ${vText} | Глубина: ${dText}.`;
+        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все термины' : 'до 15 карт';
+        const dText = currentDetailDensity === 'low' ? 'кратко (1–2 фразы)' : currentDetailDensity === 'high' ? 'подробно со всеми деталями' : 'суть + пример';
+        explEl.textContent = `> РЕЖИМ: Обычные карточки по ключевым терминам | Объем: ${vText} | Глубина: ${dText}.`;
     }
 }
 
