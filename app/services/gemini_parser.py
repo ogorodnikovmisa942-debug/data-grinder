@@ -15,13 +15,13 @@ class CardSchema(BaseModel):
     translation: str = Field(description="Точный перевод или подробное определение на русском языке")
     example: str = Field(description="Конкретный пример, кейс или ситуация применения термина (при отсутствии указать пустую строку)")
     initial_difficulty_tier: str = Field(description="Сложность: easy, medium или hard")
-    mnemonic: MnemonicSchema = Field(description="Мнемоническая ассоциация для запоминания")
+    mnemonic: MnemonicSchema
 
 class ParsedDataSchema(BaseModel):
     subject_domain: str = Field(description="Домен дисциплины: language, law, code или generic")
     subject_slug: str = Field(description="Машиночитаемый код предмета в lowercase snake_case")
     phrase_title: str = Field(description="Название темы или родительского блока карточек")
-    cards: list[CardSchema] = Field(description="Список карточек")
+    cards: list[CardSchema]
 
 # Прогрессивный системный промпт для извлечения абстрактных матриц знаний
 UNIVERSAL_GRINDER_PROMPT = """
