@@ -386,10 +386,16 @@ async def import_raw_text(
             preference=payload.assoc_preference
         )
     except Exception as e: 
-        return {"status": "error", "message": f"Ошибка вызова Gemini API: {str(e)}"}
+        err_msg = str(e)
+        if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
+            return {"status": "error", "message": "Лимит или баланс Gemini API исчерпан (RESOURCE_EXHAUSTED). Проверьте баланс или замените ключ в Google AI Studio."}
+        return {"status": "error", "message": f"Ошибка вызова Gemini API: {err_msg}"}
         
     if "error" in parsed_data: 
-        return {"status": "error", "message": parsed_data["error"]}
+        err_msg = str(parsed_data["error"])
+        if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
+            return {"status": "error", "message": "Лимит или баланс Gemini API исчерпан (RESOURCE_EXHAUSTED). Проверьте баланс или замените ключ в Google AI Studio."}
+        return {"status": "error", "message": err_msg}
         
     subject_slug = parsed_data.get("subject_slug", "generic").lower()
     phrase_title = parsed_data.get("phrase_title", "Новый блок знаний")

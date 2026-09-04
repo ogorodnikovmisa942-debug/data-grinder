@@ -11,9 +11,9 @@ class MnemonicSchema(BaseModel):
 
 class CardSchema(BaseModel):
     text: str = Field(description="Текст лицевой стороны (слово, термин, концепт или название функции)")
-    secondary_text: str = Field(default="", description="Транскрипция, пиньинь, номер статьи или контекст")
+    secondary_text: str = Field(description="Транскрипция, пиньинь, номер статьи или контекст (при отсутствии указать пустую строку)")
     translation: str = Field(description="Точный перевод или подробное определение на русском языке")
-    example: str = Field(default="", description="Конкретный пример, кейс или ситуация применения термина")
+    example: str = Field(description="Конкретный пример, кейс или ситуация применения термина (при отсутствии указать пустую строку)")
     initial_difficulty_tier: str = Field(description="Сложность: easy, medium или hard")
     mnemonic: MnemonicSchema = Field(description="Мнемоническая ассоциация для запоминания")
 
