@@ -1115,20 +1115,117 @@ window.toggleConfigHelp = function() {
     }
 }
 
+window.onImportSubjectChange = function(event) {
+    const val = event.target.value;
+    const newSubInput = document.getElementById('import-new-subject-input');
+    const tipEl = document.getElementById('subject-status-tip');
+    if (val === '__new__') {
+        if (newSubInput) {
+            newSubInput.classList.remove('hidden');
+            newSubInput.focus();
+        }
+        if (tipEl) tipEl.textContent = '[НОВЫЙ ПРЕДМЕТ]';
+    } else {
+        if (newSubInput) {
+            newSubInput.classList.add('hidden');
+            newSubInput.value = '';
+        }
+        if (tipEl) tipEl.textContent = val ? `[ВЫБРАН: ${val.toUpperCase()}]` : '[ВЫБЕРИТЕ ПРЕДМЕТ]';
+    }
+};
+
+window.onStagingSubjectChange = function(event) {
+    stagingSubject = event.target.value.trim().toLowerCase();
+    const titleEl = document.getElementById('staging-topic-title');
+    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+};
+
+function getSelectedImportSubject() {
+    const subSel = document.getElementById('import-target-subject');
+    if (!subSel) return '';
+    let targetSubject = subSel.value;
+    if (targetSubject === '__new__') {
+        const newSubInp = document.getElementById('import-new-subject-input');
+        targetSubject = newSubInp ? newSubInp.value.trim() : '';
+    }
+    return (targetSubject || '').trim().toLowerCase();
+}
+
 async function loadDynamicSubjects() {
     try {
-        const res = await apiFetch('/api/subjects'); const subjects = await res.json();
+        const res = await apiFetch('/api/subjects'); 
+        const subjects = await res.json();
+        const subjectNames = { 
+            'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
+            'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 
+            'python_pro': 'PYTHON ADVANCED', 
+            'geometry': 'ГЕОМЕТРИЯ (ФОРМУЛЫ)', 
+            'law_civil_rb': 'ГРАЖДАНСКОЕ ПРАВО РБ' 
+        };
+
+        // 1. Селекторы фильтрации карточек/тренировок
         const selectors = document.querySelectorAll('#subject-selector');
         selectors.forEach(sel => {
             sel.innerHTML = '<option value="all">[ВСЕ ПРЕДМЕТЫ]</option>';
-            const subjectNames = { 'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 'python_pro': 'PYTHON ADVANCED', 'geometry': 'ГЕОМЕТРИЯ (ФОРМУЛЫ)', 'law_civil_rb': 'ГРАЖДАНСКОЕ ПРАВО РБ' };
             subjects.forEach(sub => {
-                const option = document.createElement('option'); option.value = sub;
-                option.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`; sel.appendChild(option);
+                const option = document.createElement('option'); 
+                option.value = sub;
+                option.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`; 
+                sel.appendChild(option);
             });
         });
+
+        // 2. Селектор целевого предмета в панели импорта
+        const importSel = document.getElementById('import-target-subject');
+        if (importSel) {
+            const currentVal = importSel.value;
+            importSel.innerHTML = '<option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>';
+            subjects.forEach(sub => {
+                const opt = document.createElement('option');
+                opt.value = sub;
+                opt.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`;
+                importSel.appendChild(opt);
+            });
+            const newOpt = document.createElement('option');
+            newOpt.value = '__new__';
+            newOpt.textContent = '[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]';
+            importSel.appendChild(newOpt);
+
+            const tipEl = document.getElementById('subject-status-tip');
+            if (currentVal && (subjects.includes(currentVal) || currentVal === '__new__')) {
+                importSel.value = currentVal;
+                if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
+            } else if (subjects.length > 0) {
+                importSel.value = subjects[0];
+                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subjects[0].toUpperCase()}]`;
+            }
+        }
+
+        // 3. Селектор предмета в шапке песочницы (Staging Sandbox)
+        const stagingSel = document.getElementById('staging-subject-select');
+        if (stagingSel) {
+            stagingSel.innerHTML = '';
+            subjects.forEach(sub => {
+                const opt = document.createElement('option');
+                opt.value = sub;
+                opt.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`;
+                stagingSel.appendChild(opt);
+            });
+            if (typeof stagingSubject !== 'undefined' && stagingSubject) {
+                if (!subjects.includes(stagingSubject)) {
+                    const opt = document.createElement('option');
+                    opt.value = stagingSubject;
+                    opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                    stagingSel.appendChild(opt);
+                }
+                stagingSel.value = stagingSubject;
+            }
+        }
+
         bindDOMPointers();
-    } catch (e) { console.error("Ошибка загрузки предметов:", e); }
+    } catch (e) { 
+        console.error("Ошибка загрузки предметов:", e); 
+    }
 }
 
 function initPomodoroEngine() {
@@ -1197,22 +1294,31 @@ window.setGranularityMode = function(mode) {
 };
 
 async function importTextKnowledge() {
-    const textarea = document.getElementById('import-text'); const btn = document.getElementById('btn-import'); const text = textarea ? textarea.value.trim() : "";
+    const textarea = document.getElementById('import-text'); 
+    const btn = document.getElementById('btn-import'); 
+    const text = textarea ? textarea.value.trim() : "";
     if (!text) { alert("Входной буфер пуст. Вставь текст лекции или статьи кодекса!"); return; }
     
+    const targetSubject = getSelectedImportSubject();
+    if (!targetSubject) {
+        alert("Выберите целевой предмет из списка или укажите новый перед запуском парсера!");
+        return;
+    }
+
     const density = document.getElementById('import-density')?.value || 'medium';
     const volume = document.getElementById('import-volume')?.value || 'medium';
     const priority = document.getElementById('import-priority')?.value || 'balanced';
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
     const customInstruction = document.getElementById('import-custom-instruction')?.value.trim() || '';
 
-    if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ МАТРИЦЫ ИИ...]"; }
+    if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ GEMINI 3.7 FLASH...]"; }
     try {
         const response = await apiFetch('/api/config/import', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({ 
                 text: text, 
+                subject: targetSubject,
                 density: density, 
                 volume: volume, 
                 priority: priority, 
@@ -1229,7 +1335,7 @@ async function importTextKnowledge() {
             alert(`Импортировано карт: ${data.cards_count}`);
             if (textarea) textarea.value = ""; await loadDynamicSubjects(); updateGlobalBadges();
         } else { 
-            alert("Ошибка ИИ-конвейера: " + (data.message || "Неизвестный сбой.")); 
+            alert("Ошибка ИИ-конвейера: " + (data.message || data.detail || "Неизвестный сбой.")); 
         }
     } catch (e) { 
         console.error("Сбой сети при импорте знаний:", e); 
@@ -1270,6 +1376,13 @@ window.handleFileUpload = async function(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
 
+    const targetSubject = getSelectedImportSubject();
+    if (!targetSubject) {
+        alert("Выберите целевой предмет из списка или укажите новый перед загрузкой файла!");
+        event.target.value = '';
+        return;
+    }
+
     const statusEl = document.getElementById('file-import-status');
     if (statusEl) {
         statusEl.textContent = `[ИЗВЛЕЧЕНИЕ ТЕКСТА ИЗ ${file.name.toUpperCase()}...]`;
@@ -1283,6 +1396,7 @@ window.handleFileUpload = async function(event) {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('subject', targetSubject);
     formData.append('density', density);
     formData.append('volume', volume);
     formData.append('priority', priority);
@@ -1383,7 +1497,7 @@ function startStagingSession(data) {
     currentStagingIndex = 0;
     approvedStagingCards = [];
     rejectedStagingCards = [];
-    stagingSubject = data.subject || 'generic';
+    stagingSubject = (data.subject || 'generic').toLowerCase();
     stagingTheme = data.theme || 'Новый блок знаний';
 
     if (stagingCards.length === 0) {
@@ -1394,6 +1508,26 @@ function startStagingSession(data) {
     const overlay = document.getElementById('staging-overlay');
     const titleEl = document.getElementById('staging-topic-title');
     if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+
+    // Синхронизация выпадающего списка предметов в шапке песочницы
+    const stagingSel = document.getElementById('staging-subject-select');
+    if (stagingSel) {
+        let hasOpt = false;
+        for (let i = 0; i < stagingSel.options.length; i++) {
+            if (stagingSel.options[i].value === stagingSubject) {
+                hasOpt = true;
+                break;
+            }
+        }
+        if (!hasOpt && stagingSubject) {
+            const opt = document.createElement('option');
+            opt.value = stagingSubject;
+            opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+            stagingSel.appendChild(opt);
+        }
+        stagingSel.value = stagingSubject;
+    }
+
     if (overlay) {
         overlay.classList.remove('hidden');
         overlay.classList.add('flex');
@@ -1780,7 +1914,27 @@ window.saveCardEditorData = async function() {
         stagingCards[currentStagingIndex].translation = translation;
         stagingCards[currentStagingIndex].example = example;
         stagingCards[currentStagingIndex].mnemonic = (mnemKw || mnemCue) ? { keyword: mnemKw, verbal_cue: mnemCue } : null;
-        stagingSubject = subject;
+        stagingSubject = subject.toLowerCase();
+
+        const stagingSel = document.getElementById('staging-subject-select');
+        if (stagingSel) {
+            let hasOpt = false;
+            for (let i = 0; i < stagingSel.options.length; i++) {
+                if (stagingSel.options[i].value === stagingSubject) {
+                    hasOpt = true;
+                    break;
+                }
+            }
+            if (!hasOpt && stagingSubject) {
+                const opt = document.createElement('option');
+                opt.value = stagingSubject;
+                opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                stagingSel.appendChild(opt);
+            }
+            stagingSel.value = stagingSubject;
+        }
+        const titleEl = document.getElementById('staging-topic-title');
+        if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
 
         renderCurrentStagingCard();
         closeCardEditorModal();
@@ -1802,8 +1956,22 @@ window.saveCardEditorData = async function() {
                 })
             });
             if (res.ok) {
+                const cleanSub = subject.toLowerCase();
+                const origCard = (typeof localCardsArchive !== 'undefined' && localCardsArchive) ? localCardsArchive.find(c => c.id == cardId) : null;
+                if (origCard && origCard.subject !== cleanSub && cleanSub) {
+                    try {
+                        await apiFetch(`/api/management/cards/${cardId}/move`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ target_subject: cleanSub })
+                        });
+                    } catch (mErr) {
+                        console.error("Ошибка перемещения карточки:", mErr);
+                    }
+                }
                 closeCardEditorModal();
                 loadDataTab();
+                await loadDynamicSubjects();
                 updateGlobalBadges();
             } else {
                 alert("Ошибка сохранения изменений карточки.");

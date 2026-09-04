@@ -142,13 +142,14 @@ async def call_gemini(prompt: str, system_instruction: str) -> dict:
         temperature=0.2
     )
 
-    models_to_try = [settings.GEMINI_MODEL, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash"]
+    # Каскад 3-го поколения: 3.7 Flash -> 3.5 Flash -> 3.5 Flash-Lite -> 3.1 Flash-Lite
+    models_to_try = [settings.GEMINI_MODEL, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
     models_to_try = list(dict.fromkeys(models_to_try))
 
     last_err = None
     for model_name in models_to_try:
         try:
-            print(f"[AI Gateway / Gemini] Attempting {model_name}...")
+            print(f"[AI Gateway / Gemini] Попытка генерации с моделью: {model_name}...")
             response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -158,18 +159,19 @@ async def call_gemini(prompt: str, system_instruction: str) -> dict:
         except Exception as e:
             last_err = e
             err_str = str(e)
-            print(f"[WARNING] Gemini model {model_name} failed: {err_str[:100]}")
-            if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "404" in err_str:
+            print(f"[WARNING] Gemini model {model_name} failed: {err_str[:120]}")
+            if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "404" in err_str or "NOT_FOUND" in err_str:
                 continue
             await asyncio.sleep(1.0)
 
     if last_err:
         raise last_err
-    raise RuntimeError("Все модели Gemini недоступны.")
+    raise RuntimeError("Все модели Gemini 3.x недоступны.")
 
 # --- УНИВЕРСАЛЬНЫЙ ПАРСЕР ТЕКСТА ---
 async def parse_raw_text(
     text: str,
+    target_subject: str = "",
     density: str = "medium",
     volume: str = "medium",
     priority: str = "balanced",
@@ -178,9 +180,14 @@ async def parse_raw_text(
     custom_instruction: str = ""
 ) -> dict:
     if not text.strip():
-        return {"subject_domain": "generic", "subject_slug": "generic", "phrase_title": "", "cards": []}
+        return {"subject_domain": "generic", "subject_slug": target_subject or "generic", "phrase_title": "", "cards": []}
 
-    system_instruction = COMPACT_SYSTEM_PROMPT + build_granularity_prompt(
+    subject_instruction = ""
+    if target_subject.strip():
+        clean_sub = target_subject.strip().lower()
+        subject_instruction = f"\nTARGET SUBJECT DIRECTIVE: All cards must strictly belong to subject '{clean_sub}'. Set 'subject_slug' to '{clean_sub}'.\n"
+
+    system_instruction = COMPACT_SYSTEM_PROMPT + subject_instruction + build_granularity_prompt(
         granularity_mode, custom_instruction, density, volume
     )
 
@@ -190,26 +197,32 @@ async def parse_raw_text(
     if provider == "deepseek":
         try:
             print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}'...")
-            return await call_deepseek(text, system_instruction)
+            res = await call_deepseek(text, system_instruction)
         except Exception as ds_err:
             print(f"[WARNING] Сбой DeepSeek: {ds_err}. Попытка резервного вызова Gemini...")
             if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "placeholder_gemini_key":
                 try:
-                    return await call_gemini(text, system_instruction)
+                    res = await call_gemini(text, system_instruction)
                 except Exception as gem_err:
                     raise RuntimeError(f"DeepSeek ({ds_err}) и Gemini ({gem_err}) не ответили.")
-            raise ds_err
+            else:
+                raise ds_err
 
     # 2. Если выбран Gemini
     else:
         try:
             print(f"[AI Gateway] Вызов Gemini ({settings.GEMINI_MODEL}) в режиме '{granularity_mode}'...")
-            return await call_gemini(text, system_instruction)
+            res = await call_gemini(text, system_instruction)
         except Exception as gem_err:
             if settings.DEEPSEEK_API_KEY:
                 print(f"[WARNING] Сбой Gemini: {gem_err}. Попытка резервного вызова DeepSeek...")
-                return await call_deepseek(text, system_instruction)
-            raise gem_err
+                res = await call_deepseek(text, system_instruction)
+            else:
+                raise gem_err
+
+    if target_subject.strip() and isinstance(res, dict):
+        res["subject_slug"] = target_subject.strip().lower()
+    return res
 
 # --- РЕГЕНЕРАЦИЯ ОДИНОЧНОЙ МНЕМОНИКИ ---
 async def regenerate_card_mnemonic(text: str, translation: str, subject: str, preference: str = "visual") -> dict:

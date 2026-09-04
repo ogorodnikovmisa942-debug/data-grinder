@@ -25,6 +25,7 @@ class ConfigUpdate(BaseModel):
 
 class ImportIn(BaseModel):
     text: str
+    subject: str = ""                    # Целевой предмет, выбранный человеком
     density: str = "medium"
     volume: str = "medium"
     priority: str = "balanced"
@@ -380,9 +381,15 @@ async def import_raw_text(
 ):
     if not payload.text.strip(): 
         return {"status": "error", "message": "Входящий текст пуст."}
+    
+    target_sub = payload.subject.strip().lower()
+    if not target_sub:
+        return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
+
     try: 
         parsed_data = await parse_raw_text(
             payload.text,
+            target_subject=target_sub,
             density=payload.density,
             volume=payload.volume,
             priority=payload.priority,
@@ -402,7 +409,7 @@ async def import_raw_text(
             return {"status": "error", "message": f"Лимит или баланс ИИ-провайдера ({settings.AI_PROVIDER}) исчерпан (429). Проверьте баланс или ключ API."}
         return {"status": "error", "message": err_msg}
         
-    subject_slug = parsed_data.get("subject_slug", "generic").lower()
+    subject_slug = target_sub
     phrase_title = parsed_data.get("phrase_title", "Новый блок знаний")
     cards = parsed_data.get("cards", [])
 
@@ -467,6 +474,7 @@ async def commit_staging_cards(
 @router.post("/config/import/file")
 async def import_file_at_code_level(
     file: UploadFile = File(...),
+    subject: str = Form(""),
     density: str = Form("medium"),
     volume: str = Form("medium"),
     priority: str = Form("balanced"),
@@ -477,6 +485,9 @@ async def import_file_at_code_level(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    target_sub = subject.strip().lower()
+    if not target_sub:
+        raise HTTPException(status_code=400, detail="Целевой предмет не выбран. Выберите предмет из списка или укажите новый.")
     filename = file.filename.lower()
     contents = await file.read()
     extracted_text = ""
@@ -519,7 +530,7 @@ async def import_file_at_code_level(
                     })
             
             if cards:
-                sub_name = re.sub(r'[^a-z0-9_]', '_', filename.split('.')[0].lower())
+                sub_name = target_sub
                 theme_name = f"Импорт файла {file.filename}"
                 
                 if not commit_now:
@@ -554,10 +565,11 @@ async def import_file_at_code_level(
     if not extracted_text.strip():
         raise HTTPException(status_code=400, detail="Не удалось извлечь текст из файла.")
 
-    # Передаем извлеченный текст в ИИ-структуризатор
+    # Передаем извлеченный текст в ИИ-структуризатор с указанием целевого предмета
     try:
         parsed_data = await parse_raw_text(
             extracted_text,
+            target_subject=target_sub,
             density=density,
             volume=volume,
             priority=priority,
@@ -571,7 +583,7 @@ async def import_file_at_code_level(
     if "error" in parsed_data:
         return {"status": "error", "message": parsed_data["error"]}
 
-    subject_slug = parsed_data.get("subject_slug", "generic").lower()
+    subject_slug = target_sub
     phrase_title = parsed_data.get("phrase_title", f"Импорт: {file.filename}")
     cards = parsed_data.get("cards", [])
 
