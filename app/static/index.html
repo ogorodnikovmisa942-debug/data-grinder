@@ -308,18 +308,145 @@
 
         <!-- Экран CONFIG -->
         <div id="screen-config" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md pt-md overflow-y-auto">
-            <div class="border border-outline-variant p-md bg-surface-container-lowest font-mono text-xs shrink-0">
-                <button onclick="toggleConfigHelp()" class="w-full flex justify-between items-center font-bold text-primary uppercase tracking-tighter">
-                    <span>[ИНФОРМАЦИЯ О СИСТЕМЕ НАГРУЗКИ]</span>
-                    <span id="config-help-icon" class="material-symbols-outlined text-[16px]">expand_more</span>
-                </button>
-                <div id="config-help-content" class="hidden mt-sm border-t border-dashed border-outline-variant/50 pt-sm flex flex-col gap-sm text-on-surface-variant leading-relaxed text-[11px]">
-                    <p><strong>• РАЗМЕРЕННЫЙ (ЛАЙТ):</strong> 10 новых карт в день.</p>
-                    <p><strong>• ОПТИМАЛЬНЫЙ (СТАНДАРТ):</strong> 20 новых карт в день.</p>
-                    <p><strong>• ИНТЕНСИВНЫЙ (СПРИНТ):</strong> 30 новых карт в день.</p>
+            
+            <!-- СЕКЦИЯ 1: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (САМЫЙ ВЕРХ) -->
+            <div class="flex flex-col gap-sm shrink-0 border border-outline-variant p-sm bg-surface-container-lowest font-mono">
+                <div class="flex items-center justify-between border-b border-outline-variant pb-xs">
+                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[ИМПОРТ ЗНАНИЙ: GEMINI 3.7 FLASH]</span>
+                    <span class="text-[9px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
+                </div>
+                
+                <!-- Ручной выбор целевого предмета -->
+                <div class="flex flex-col gap-xs mt-xs">
+                    <label class="text-[9px] text-outline uppercase font-bold">1. Целевой предмет (папка назначения):</label>
+                    <div class="grid grid-cols-2 gap-xs">
+                        <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-outline-variant rounded-none py-1.5 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs">
+                            <option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>
+                            <option value="__new__">[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]</option>
+                        </select>
+                        <input type="text" id="import-new-subject-input" placeholder="Код предмета (напр. civil_law)..." class="hidden w-full bg-surface-container border border-primary rounded-none py-1.5 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs" />
+                    </div>
+                </div>
+
+                <!-- Основное поле ввода лекции / статьи / текста -->
+                <div class="flex flex-col gap-xs mt-xs">
+                    <div class="flex justify-between items-center">
+                        <label for="import-text" class="text-[9px] text-outline uppercase font-bold">2. Исходный текст (конспект, статья кодекса, формулы):</label>
+                        <span class="text-[8px] text-outline opacity-70">РАСТЯГИВАЕТСЯ ВНИЗ ⇲</span>
+                    </div>
+                    <textarea id="import-text" placeholder="Вставьте сюда текст лекции, главу учебника, статьи закона, формулы или словарь..." class="w-full bg-surface-container border border-outline-variant rounded-none p-sm text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[140px]"></textarea>
+                </div>
+
+                <!-- Панель бесконфликтной нарезки -->
+                <div class="flex flex-col gap-xs border-t border-dashed border-outline-variant/60 pt-xs mt-xs">
+                    <span class="text-[9px] text-outline uppercase font-bold">3. Формат и параметры нарезки:</span>
+                    
+                    <!-- Режим нарезки -->
+                    <div class="grid grid-cols-3 gap-xs">
+                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-1 text-[9px] font-bold uppercase transition-all">
+                            [АТОМАРНО]
+                        </button>
+                        <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all">
+                            [1 ПОНЯТИЕ]
+                        </button>
+                        <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all">
+                            [ШПАРГАЛКА]
+                        </button>
+                    </div>
+
+                    <!-- Настройки Объема и Детализации -->
+                    <div class="grid grid-cols-2 gap-xs mt-xs">
+                        <!-- Объем карточек -->
+                        <div class="flex flex-col gap-0.5">
+                            <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
+                                <span>Объем:</span>
+                                <span id="import-volume-label" class="text-primary font-mono">до 15 карт</span>
+                            </div>
+                            <div id="import-volume-buttons" class="grid grid-cols-4 gap-0.5">
+                                <button type="button" onclick="setVolumeLimit('low')" id="vol-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">5</button>
+                                <button type="button" onclick="setVolumeLimit('medium')" id="vol-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">15</button>
+                                <button type="button" onclick="setVolumeLimit('high')" id="vol-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">30</button>
+                                <button type="button" onclick="setVolumeLimit('max')" id="vol-max" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">MAX</button>
+                            </div>
+                            <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-0.5 text-center text-[9px] text-secondary font-bold">
+                                [ФИКСИРОВАНО: 1 КАРТА]
+                            </div>
+                        </div>
+
+                        <!-- Детализация (Глубина определений) -->
+                        <div class="flex flex-col gap-0.5">
+                            <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
+                                <span>Глубина:</span>
+                                <span id="import-density-label" class="text-primary font-mono">Баланс</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-0.5">
+                                <button type="button" onclick="setDetailDensity('low')" id="dense-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">КРАТКО</button>
+                                <button type="button" onclick="setDetailDensity('medium')" id="dense-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">БАЛАНС</button>
+                                <button type="button" onclick="setDetailDensity('high')" id="dense-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">ДЕТАЛИ</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Живая расшифровка настроек (Live Hint) -->
+                    <div id="import-mode-explanation" class="text-[9px] text-secondary font-mono border border-outline-variant/40 bg-surface p-1.5 leading-snug mt-xs">
+                        > РЕЖИМ: Атомарная нарезка | Объем: до 15 карт | Глубина: баланс (суть + пример).
+                    </div>
+                </div>
+
+                <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
+                <div class="flex flex-col gap-xs mt-xs">
+                    <div class="flex justify-between items-center">
+                        <label for="import-custom-instruction" class="text-[9px] text-outline uppercase font-bold">4. Пожелание к ИИ (высший приоритет):</label>
+                        <span class="text-[8px] text-outline opacity-70">ВИДНО ПОЛНОСТЬЮ ⇲</span>
+                    </div>
+                    <textarea id="import-custom-instruction" rows="2" placeholder="Например: выдели только формулы / переведи термины / добавь практические примеры судебных решений..." class="w-full bg-surface-container border border-outline-variant rounded-none p-1.5 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[44px]"></textarea>
+                </div>
+
+                <!-- Главная кнопка запуска -->
+                <div class="flex flex-col gap-xs mt-sm">
+                    <button id="btn-import" onclick="importTextKnowledge()" class="w-full border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-sm font-bold tracking-wide transition-colors text-xs font-mono shrink-0">
+                        [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
+                    </button>
+                    
+                    <!-- Кодовый импорт файлов и бесплатный OCR -->
+                    <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" class="hidden" onchange="handleFileUpload(event)">
+                        <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
+                            [ФАЙЛ: PDF/TXT/CSV]
+                        </button>
+
+                        <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
+                        <button onclick="document.getElementById('import-image').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
+                            [СКАН / ФОТО (OCR)]
+                        </button>
+                    </div>
+
+                    <button onclick="openManualCardModal()" class="w-full border border-outline-variant text-outline hover:text-primary hover:border-primary py-1.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 mt-xs">
+                        [+ СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ]
+                    </button>
+                    <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
+                </div>
+
+                <!-- Готовые базы знаний -->
+                <div class="flex flex-col gap-xs mt-sm pt-xs border-t border-outline-variant/40 shrink-0">
+                    <label class="text-[9px] font-bold tracking-wider uppercase text-outline font-mono">Готовые библиотеки знаний:</label>
+                    <div class="grid grid-cols-3 gap-xs font-mono text-[9px]">
+                        <button onclick="importPreset('hsk3')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
+                            [Китайский HSK3]
+                        </button>
+                        <button onclick="importPreset('python')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
+                            [Python Basics]
+                        </button>
+                        <button onclick="importPreset('law')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
+                            [ГК РБ Статьи]
+                        </button>
+                    </div>
                 </div>
             </div>
 
+            <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
+
+            <!-- СЕКЦИЯ 2: НАСТРОЙКИ СИСТЕМЫ, ТЕМПА И ОБУЧЕНИЯ (НИЗ ЭКРАНА) -->
             <div class="flex flex-col gap-sm shrink-0">
                 <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span>
@@ -365,114 +492,15 @@
                 </div>
             </div>
 
-            <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
-
-            <div class="flex flex-col gap-sm flex-1 min-h-[180px]">
-                <label for="import-text" class="text-xs font-bold tracking-wider uppercase text-outline font-mono">Импорт сырых знаний через Gemini 3.7 Flash</label>
-                
-                <!-- Ручной выбор целевого предмета (100% контроль пользователя) -->
-                <div class="flex flex-col gap-xs font-mono">
-                    <div class="flex items-center justify-between">
-                        <label class="text-[9px] text-outline uppercase font-bold">Целевой предмет (папка):</label>
-                        <span class="text-[8px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-xs">
-                        <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container-lowest border border-outline-variant rounded-none py-1 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs">
-                            <option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>
-                            <option value="__new__">[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]</option>
-                        </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код предмета (например: biology)..." class="hidden w-full bg-surface-container-lowest border border-primary rounded-none py-1 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs" />
-                    </div>
-                </div>
-
-                <textarea id="import-text" placeholder="Вставь сюда лекцию, статью кодекса, список слов или формулы..." class="w-full flex-1 bg-surface-container-lowest border border-outline-variant rounded-none p-sm text-primary focus:border-primary focus:ring-0 font-mono text-xs resize-none min-h-[100px]"></textarea>
-                
-                <!-- Гранулярность и свободные пожелания к импорту -->
-                <div class="flex flex-col gap-xs my-xs font-mono">
-                    <div class="flex items-center justify-between gap-xs">
-                        <label class="text-[9px] text-outline uppercase font-bold">Нарезка:</label>
-                        <div class="grid grid-cols-3 gap-xs flex-1 max-w-[240px]">
-                            <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold uppercase transition-all">
-                                [АТОМАРНО]
-                            </button>
-                            <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all">
-                                [1 ПОНЯТИЕ]
-                            </button>
-                            <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all">
-                                [ШПАРГАЛКА]
-                            </button>
-                        </div>
-                    </div>
-                    <input type="text" id="import-custom-instruction" placeholder="[ПОЖЕЛАНИЕ]: например: выдели только формулы / сократи до 5 слов..." class="w-full bg-surface-container-lowest border border-outline-variant rounded-none py-1 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-[10px]" />
-                </div>
-                
-                <!-- Настройка весов импорта -->
-                <div class="grid grid-cols-3 gap-xs font-mono text-[9px] my-xs">
-                    <div class="flex flex-col gap-xs">
-                        <label class="text-outline uppercase font-bold">Плотность:</label>
-                        <select id="import-density" class="bg-surface-container-lowest border border-outline-variant text-[10px] p-1 text-primary focus:ring-0 focus:border-primary">
-                            <option value="low">Низкая</option>
-                            <option value="medium" selected>Средняя</option>
-                            <option value="high">Высокая</option>
-                        </select>
-                    </div>
-                    <div class="flex flex-col gap-xs">
-                        <label class="text-outline uppercase font-bold">Объем:</label>
-                        <select id="import-volume" class="bg-surface-container-lowest border border-outline-variant text-[10px] p-1 text-primary focus:ring-0 focus:border-primary">
-                            <option value="low">До 5 карт</option>
-                            <option value="medium" selected>До 15 карт</option>
-                            <option value="high">До 30 карт</option>
-                            <option value="max">Максимум (Все данные)</option>
-                        </select>
-                    </div>
-                    <div class="flex flex-col gap-xs">
-                        <label class="text-outline uppercase font-bold">Приоритет:</label>
-                        <select id="import-priority" class="bg-surface-container-lowest border border-outline-variant text-[10px] p-1 text-primary focus:ring-0 focus:border-primary">
-                            <option value="conceptual">Концепты</option>
-                            <option value="practical">Практика</option>
-                            <option value="balanced" selected>Баланс</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-xs my-xs">
-                    <button id="btn-import" onclick="importTextKnowledge()" class="w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-colors text-sm font-mono shrink-0">
-                        [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
-                    </button>
-                    
-                    <!-- Кодовый импорт файлов и бесплатный OCR -->
-                    <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" class="hidden" onchange="handleFileUpload(event)">
-                        <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            [ФАЙЛ: PDF/TXT/CSV]
-                        </button>
-
-                        <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
-                        <button onclick="document.getElementById('import-image').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            [СКАН / ФОТО (OCR)]
-                        </button>
-                    </div>
-
-                    <button onclick="openManualCardModal()" class="w-full border border-outline-variant text-outline hover:text-primary hover:border-primary py-1.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 mt-xs">
-                        [+ СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ]
-                    </button>
-                    <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
-                </div>
-
-                <!-- Готовые базы знаний -->
-                <div class="flex flex-col gap-xs mt-md shrink-0">
-                    <label class="text-xs font-bold tracking-wider uppercase text-outline font-mono">Готовые библиотеки знаний</label>
-                    <div class="grid grid-cols-3 gap-xs font-mono text-[9px]">
-                        <button onclick="importPreset('hsk3')" class="border border-outline hover:border-primary hover:text-primary transition-all p-2 text-center text-outline uppercase font-bold active:scale-95">
-                            [Китайский HSK3]
-                        </button>
-                        <button onclick="importPreset('python')" class="border border-outline hover:border-primary hover:text-primary transition-all p-2 text-center text-outline uppercase font-bold active:scale-95">
-                            [Python Basics]
-                        </button>
-                        <button onclick="importPreset('law')" class="border border-outline hover:border-primary hover:text-primary transition-all p-2 text-center text-outline uppercase font-bold active:scale-95">
-                            [ГК РБ Статьи]
-                        </button>
-                    </div>
+            <div class="border border-outline-variant p-md bg-surface-container-lowest font-mono text-xs shrink-0 mb-md">
+                <button onclick="toggleConfigHelp()" class="w-full flex justify-between items-center font-bold text-primary uppercase tracking-tighter">
+                    <span>[ИНФОРМАЦИЯ О СИСТЕМЕ НАГРУЗКИ]</span>
+                    <span id="config-help-icon" class="material-symbols-outlined text-[16px]">expand_more</span>
+                </button>
+                <div id="config-help-content" class="hidden mt-sm border-t border-dashed border-outline-variant/50 pt-sm flex flex-col gap-sm text-on-surface-variant leading-relaxed text-[11px]">
+                    <p><strong>• РАЗМЕРЕННЫЙ (ЛАЙТ):</strong> 10 новых карт в день.</p>
+                    <p><strong>• ОПТИМАЛЬНЫЙ (СТАНДАРТ):</strong> 20 новых карт в день.</p>
+                    <p><strong>• ИНТЕНСИВНЫЙ (СПРИНТ):</strong> 30 новых карт в день.</p>
                 </div>
             </div>
         </div>
@@ -616,7 +644,7 @@
 
             <div class="flex flex-col gap-xs text-[10px]">
                 <label class="text-outline uppercase font-bold">Лицевая сторона (Термин / Иероглиф / Функция):</label>
-                <input type="text" id="edit-card-text" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+                <textarea id="edit-card-text" rows="2" class="bg-surface-container-lowest border border-outline-variant text-xs p-1.5 text-primary focus:border-primary focus:ring-0 resize-y min-h-[44px]"></textarea>
             </div>
 
             <div class="flex flex-col gap-xs text-[10px]">
@@ -626,18 +654,18 @@
 
             <div class="flex flex-col gap-xs text-[10px]">
                 <label class="text-outline uppercase font-bold">Значение / Определение на русском:</label>
-                <textarea id="edit-card-translation" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0 h-16 resize-none"></textarea>
+                <textarea id="edit-card-translation" rows="3" class="bg-surface-container-lowest border border-outline-variant text-xs p-1.5 text-primary focus:border-primary focus:ring-0 min-h-[64px] resize-y"></textarea>
             </div>
 
             <div class="flex flex-col gap-xs text-[10px]">
                 <label class="text-outline uppercase font-bold">Пример использования:</label>
-                <input type="text" id="edit-card-example" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+                <textarea id="edit-card-example" rows="2" class="bg-surface-container-lowest border border-outline-variant text-xs p-1.5 text-primary focus:border-primary focus:ring-0 min-h-[44px] resize-y"></textarea>
             </div>
 
             <div class="border-t border-dashed border-outline-variant/50 pt-xs flex flex-col gap-xs text-[10px]">
                 <span class="text-outline font-bold uppercase">Мнемоника:</span>
                 <input type="text" id="edit-card-mnem-keyword" placeholder="Ключевое слово (ассоциация)" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
-                <input type="text" id="edit-card-mnem-cue" placeholder="Сюжетная связка" class="bg-surface-container-lowest border border-outline-variant text-xs p-1 text-primary focus:border-primary focus:ring-0">
+                <textarea id="edit-card-mnem-cue" rows="2" placeholder="Сюжетная связка" class="bg-surface-container-lowest border border-outline-variant text-xs p-1.5 text-primary focus:border-primary focus:ring-0 min-h-[44px] resize-y"></textarea>
             </div>
 
             <div class="flex justify-end gap-sm pt-sm border-t border-outline-variant">
@@ -651,6 +679,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=27"></script>
+    <script src="/js/app.js?v=28"></script>
 </body>
 </html>

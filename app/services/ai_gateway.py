@@ -68,9 +68,17 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
     
     # 1. Режим гранулярности
     if granularity_mode == "single_deep":
-        modifiers.append("GRANULARITY DIRECTIVE: Create EXACTLY ONE comprehensive master-card. Synthesize all concepts, sub-clauses, and nuances of the entire text into this single definitive card. Do not create multiple cards.")
+        modifiers.append("GRANULARITY DIRECTIVE: Create EXACTLY ONE comprehensive master-card. Synthesize all concepts, sub-clauses, formulas, and nuances of the entire text into this single definitive card. Do not create multiple cards.")
     elif granularity_mode == "cheatsheet":
         modifiers.append("GRANULARITY DIRECTIVE: Ultra-concise cheat-sheet mode. Simplify definitions to punchy 1-2 sentence core summaries. Maximum brevity.")
+        if volume == "low":
+            modifiers.append("LIMIT: Maximum 5 cards.")
+        elif volume == "medium":
+            modifiers.append("LIMIT: Maximum 15 cards.")
+        elif volume == "high":
+            modifiers.append("LIMIT: Maximum 30 cards.")
+        elif volume == "max":
+            modifiers.append("LIMIT: Extract all relevant items exhaustively.")
     else: # atomic
         modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards.")
         if volume == "low":
@@ -82,11 +90,12 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
         elif volume == "max":
             modifiers.append("LIMIT: Extract all relevant items exhaustively.")
 
-    # 2. Плотность определений
-    if density == "low":
-        modifiers.append("DENSITY: Brief and simple definitions.")
-    elif density == "high":
-        modifiers.append("DENSITY: Deep, exhaustive explanations with fine technical/legal details.")
+    # 2. Плотность определений (глубина)
+    if granularity_mode != "cheatsheet":
+        if density == "low":
+            modifiers.append("DENSITY: Brief and simple definitions (1-2 sentences).")
+        elif density == "high":
+            modifiers.append("DENSITY: Deep, exhaustive explanations with fine technical/legal details, sub-clauses, and exceptions.")
 
     # 3. Пользовательское свободное пожелание (Кастомный промпт)
     if custom_instruction.strip():

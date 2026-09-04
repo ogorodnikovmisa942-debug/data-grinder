@@ -276,6 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentTab !== 'train' && focusToggle) {
         focusToggle.classList.add('hidden');
     }
+    if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
     if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
 });
 
@@ -1277,21 +1278,97 @@ function initPomodoroEngine() {
 }
 
 let currentGranularityMode = 'atomic';
+let currentVolumeLimit = 'medium';
+let currentDetailDensity = 'medium';
 
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
-    const modes = ['atomic', 'single_deep', 'cheatsheet'];
-    modes.forEach(m => {
+    ['atomic', 'single_deep', 'cheatsheet'].forEach(m => {
         const el = document.getElementById(`gran-${m}`);
         if (el) {
             if (m === mode) {
-                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold uppercase transition-all';
+                el.className = 'border border-primary bg-primary text-on-primary py-1 text-[9px] font-bold uppercase transition-all';
             } else {
-                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all';
+                el.className = 'border border-outline-variant text-outline hover:text-primary py-1 text-[9px] font-bold uppercase transition-all';
             }
         }
     });
+
+    const volButtons = document.getElementById('import-volume-buttons');
+    const volLocked = document.getElementById('import-volume-locked');
+    const volLabel = document.getElementById('import-volume-label');
+
+    if (mode === 'single_deep') {
+        if (volButtons) volButtons.classList.add('hidden');
+        if (volLocked) volLocked.classList.remove('hidden');
+        if (volLabel) volLabel.textContent = '1 карта';
+    } else {
+        if (volButtons) volButtons.classList.remove('hidden');
+        if (volLocked) volLocked.classList.add('hidden');
+        updateVolumeLabel();
+    }
+    updateImportExplanation();
 };
+
+window.setVolumeLimit = function(vol) {
+    currentVolumeLimit = vol;
+    ['low', 'medium', 'high', 'max'].forEach(v => {
+        const el = document.getElementById(`vol-${v}`);
+        if (el) {
+            if (v === vol) {
+                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold';
+            } else {
+                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold';
+            }
+        }
+    });
+    updateVolumeLabel();
+    updateImportExplanation();
+};
+
+function updateVolumeLabel() {
+    const volLabel = document.getElementById('import-volume-label');
+    if (!volLabel) return;
+    const map = { 'low': 'до 5 карт', 'medium': 'до 15 карт', 'high': 'до 30 карт', 'max': 'все данные' };
+    volLabel.textContent = map[currentVolumeLimit] || currentVolumeLimit;
+}
+
+window.setDetailDensity = function(density) {
+    currentDetailDensity = density;
+    ['low', 'medium', 'high'].forEach(d => {
+        const el = document.getElementById(`dense-${d}`);
+        if (el) {
+            if (d === density) {
+                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold';
+            } else {
+                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold';
+            }
+        }
+    });
+    const densityLabel = document.getElementById('import-density-label');
+    if (densityLabel) {
+        const map = { 'low': 'Кратко', 'medium': 'Баланс', 'high': 'Подробно' };
+        densityLabel.textContent = map[currentDetailDensity] || currentDetailDensity;
+    }
+    updateImportExplanation();
+};
+
+function updateImportExplanation() {
+    const explEl = document.getElementById('import-mode-explanation');
+    if (!explEl) return;
+
+    if (currentGranularityMode === 'single_deep') {
+        const dText = currentDetailDensity === 'low' ? 'краткое резюме' : currentDetailDensity === 'high' ? 'исчерпывающий разбор со всеми подпунктами' : 'определение и контекст';
+        explEl.textContent = `> РЕЖИМ: 1 Мастер-карта | Объем: строго 1 карта | Глубина: ${dText} всей темы в одной карточке.`;
+    } else if (currentGranularityMode === 'cheatsheet') {
+        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все термины' : 'до 15 карт';
+        explEl.textContent = `> РЕЖИМ: Шпаргалка-блиц | Объем: ${vText} | Глубина: лаконичные выжимки по 1–2 предложения.`;
+    } else { // atomic
+        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все карточки' : 'до 15 карт';
+        const dText = currentDetailDensity === 'low' ? 'кратко (1–2 фразы)' : currentDetailDensity === 'high' ? 'подробно со всеми деталями' : 'баланс (суть + пример)';
+        explEl.textContent = `> РЕЖИМ: Атомарная нарезка | Объем: ${vText} | Глубина: ${dText}.`;
+    }
+}
 
 async function importTextKnowledge() {
     const textarea = document.getElementById('import-text'); 
@@ -1305,9 +1382,6 @@ async function importTextKnowledge() {
         return;
     }
 
-    const density = document.getElementById('import-density')?.value || 'medium';
-    const volume = document.getElementById('import-volume')?.value || 'medium';
-    const priority = document.getElementById('import-priority')?.value || 'balanced';
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
     const customInstruction = document.getElementById('import-custom-instruction')?.value.trim() || '';
 
@@ -1319,9 +1393,9 @@ async function importTextKnowledge() {
             body: JSON.stringify({ 
                 text: text, 
                 subject: targetSubject,
-                density: density, 
-                volume: volume, 
-                priority: priority, 
+                density: currentDetailDensity, 
+                volume: currentVolumeLimit, 
+                priority: 'balanced',
                 assoc_preference: pref,
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
@@ -1389,17 +1463,14 @@ window.handleFileUpload = async function(event) {
         statusEl.classList.remove('hidden');
     }
 
-    const density = document.getElementById('import-density')?.value || 'medium';
-    const volume = document.getElementById('import-volume')?.value || 'medium';
-    const priority = document.getElementById('import-priority')?.value || 'balanced';
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
 
     const formData = new FormData();
     formData.append('file', file);
     formData.append('subject', targetSubject);
-    formData.append('density', density);
-    formData.append('volume', volume);
-    formData.append('priority', priority);
+    formData.append('density', currentDetailDensity);
+    formData.append('volume', currentVolumeLimit);
+    formData.append('priority', 'balanced');
     formData.append('assoc_preference', pref);
     formData.append('granularity_mode', currentGranularityMode);
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
