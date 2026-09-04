@@ -10,8 +10,9 @@ from sqlalchemy import select, func, delete, update
 from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting
-from app.services.gemini_parser import parse_raw_text, regenerate_card_mnemonic
+from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic
 from app.core.auth import get_current_user_id
+from app.core.config import settings
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -28,6 +29,8 @@ class ImportIn(BaseModel):
     volume: str = "medium"
     priority: str = "balanced"
     assoc_preference: str = "acoustic"
+    granularity_mode: str = "atomic"     # "atomic" | "single_deep" | "cheatsheet"
+    custom_instruction: str = ""        # Свободные пожелания пользователя
     commit_now: bool = False  # False = вернуть в Песочницу (Staging)
 
 class PresetImportIn(BaseModel):
@@ -383,18 +386,20 @@ async def import_raw_text(
             density=payload.density,
             volume=payload.volume,
             priority=payload.priority,
-            preference=payload.assoc_preference
+            preference=payload.assoc_preference,
+            granularity_mode=payload.granularity_mode,
+            custom_instruction=payload.custom_instruction
         )
     except Exception as e: 
         err_msg = str(e)
         if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
-            return {"status": "error", "message": "Лимит или баланс Gemini API исчерпан (RESOURCE_EXHAUSTED). Проверьте баланс или замените ключ в Google AI Studio."}
-        return {"status": "error", "message": f"Ошибка вызова Gemini API: {err_msg}"}
+            return {"status": "error", "message": f"Лимит или баланс ИИ-провайдера ({settings.AI_PROVIDER}) исчерпан (429). Проверьте баланс или ключ API."}
+        return {"status": "error", "message": f"Ошибка ИИ-генератора ({settings.AI_PROVIDER}): {err_msg}"}
         
     if "error" in parsed_data: 
         err_msg = str(parsed_data["error"])
         if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
-            return {"status": "error", "message": "Лимит или баланс Gemini API исчерпан (RESOURCE_EXHAUSTED). Проверьте баланс или замените ключ в Google AI Studio."}
+            return {"status": "error", "message": f"Лимит или баланс ИИ-провайдера ({settings.AI_PROVIDER}) исчерпан (429). Проверьте баланс или ключ API."}
         return {"status": "error", "message": err_msg}
         
     subject_slug = parsed_data.get("subject_slug", "generic").lower()
@@ -466,6 +471,8 @@ async def import_file_at_code_level(
     volume: str = Form("medium"),
     priority: str = Form("balanced"),
     assoc_preference: str = Form("acoustic"),
+    granularity_mode: str = Form("atomic"),
+    custom_instruction: str = Form(""),
     commit_now: bool = Form(False),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
@@ -547,17 +554,19 @@ async def import_file_at_code_level(
     if not extracted_text.strip():
         raise HTTPException(status_code=400, detail="Не удалось извлечь текст из файла.")
 
-    # Передаем извлеченный текст в наш Gemini-структуризатор
+    # Передаем извлеченный текст в ИИ-структуризатор
     try:
         parsed_data = await parse_raw_text(
             extracted_text,
             density=density,
             volume=volume,
             priority=priority,
-            preference=assoc_preference
+            preference=assoc_preference,
+            granularity_mode=granularity_mode,
+            custom_instruction=custom_instruction
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка Gemini при структурировании файла: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка ИИ при структурировании файла ({settings.AI_PROVIDER}): {str(e)}")
 
     if "error" in parsed_data:
         return {"status": "error", "message": parsed_data["error"]}

@@ -368,8 +368,27 @@
             <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
 
             <div class="flex flex-col gap-sm flex-1 min-h-[180px]">
-                <label for="import-text" class="text-xs font-bold tracking-wider uppercase text-outline font-mono">Импорт сырых знаний через Gemini 3.8 Flash</label>
+                <label for="import-text" class="text-xs font-bold tracking-wider uppercase text-outline font-mono">Импорт сырых знаний через DeepSeek-V3 / AI</label>
                 <textarea id="import-text" placeholder="Вставь сюда лекцию, статью кодекса, список слов или формулы..." class="w-full flex-1 bg-surface-container-lowest border border-outline-variant rounded-none p-sm text-primary focus:border-primary focus:ring-0 font-mono text-xs resize-none min-h-[100px]"></textarea>
+                
+                <!-- Гранулярность и свободные пожелания к импорту -->
+                <div class="flex flex-col gap-xs my-xs font-mono">
+                    <div class="flex items-center justify-between gap-xs">
+                        <label class="text-[9px] text-outline uppercase font-bold">Нарезка:</label>
+                        <div class="grid grid-cols-3 gap-xs flex-1 max-w-[240px]">
+                            <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold uppercase transition-all">
+                                [АТОМАРНО]
+                            </button>
+                            <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all">
+                                [1 ПОНЯТИЕ]
+                            </button>
+                            <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all">
+                                [ШПАРГАЛКА]
+                            </button>
+                        </div>
+                    </div>
+                    <input type="text" id="import-custom-instruction" placeholder="[ПОЖЕЛАНИЕ]: например: выдели только формулы / сократи до 5 слов..." class="w-full bg-surface-container-lowest border border-outline-variant rounded-none py-1 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-[10px]" />
+                </div>
                 
                 <!-- Настройка весов импорта -->
                 <div class="grid grid-cols-3 gap-xs font-mono text-[9px] my-xs">
@@ -611,6 +630,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=25"></script>
+    <script src="/js/app.js?v=26"></script>
 </body>
 </html>

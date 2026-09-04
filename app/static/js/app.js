@@ -1179,6 +1179,23 @@ function initPomodoroEngine() {
     }
 }
 
+let currentGranularityMode = 'atomic';
+
+window.setGranularityMode = function(mode) {
+    currentGranularityMode = mode;
+    const modes = ['atomic', 'single_deep', 'cheatsheet'];
+    modes.forEach(m => {
+        const el = document.getElementById(`gran-${m}`);
+        if (el) {
+            if (m === mode) {
+                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold uppercase transition-all';
+            } else {
+                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold uppercase transition-all';
+            }
+        }
+    });
+};
+
 async function importTextKnowledge() {
     const textarea = document.getElementById('import-text'); const btn = document.getElementById('btn-import'); const text = textarea ? textarea.value.trim() : "";
     if (!text) { alert("Входной буфер пуст. Вставь текст лекции или статьи кодекса!"); return; }
@@ -1187,6 +1204,7 @@ async function importTextKnowledge() {
     const volume = document.getElementById('import-volume')?.value || 'medium';
     const priority = document.getElementById('import-priority')?.value || 'balanced';
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
+    const customInstruction = document.getElementById('import-custom-instruction')?.value.trim() || '';
 
     if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ МАТРИЦЫ ИИ...]"; }
     try {
@@ -1199,6 +1217,8 @@ async function importTextKnowledge() {
                 volume: volume, 
                 priority: priority, 
                 assoc_preference: pref,
+                granularity_mode: currentGranularityMode,
+                custom_instruction: customInstruction,
                 commit_now: false // Направляем в Песочницу!
             })
         });
@@ -1267,6 +1287,8 @@ window.handleFileUpload = async function(event) {
     formData.append('volume', volume);
     formData.append('priority', priority);
     formData.append('assoc_preference', pref);
+    formData.append('granularity_mode', currentGranularityMode);
+    formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
     try {
