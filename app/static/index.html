@@ -325,27 +325,71 @@
         <!-- Экран CONFIG -->
         <div id="screen-config" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md pt-md overflow-y-auto">
             
-            <!-- СЕКЦИЯ 1: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (САМЫЙ ВЕРХ) -->
-            <div class="flex flex-col gap-sm shrink-0 border border-outline-variant p-sm bg-surface-container-lowest font-mono">
+            <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
+            <div class="flex flex-col gap-sm shrink-0">
+                <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
+                    ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span>
+                </div>
+                
+                <div id="config-presets-container" class="flex flex-col gap-sm font-mono text-xs">
+                    <button id="btn-preset-10" onclick="setIntensityPreset(10)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
+                        <span>[ЛАЙТ] РАЗМЕРЕННЫЙ РЕЖИМ</span>
+                        <span class="font-bold">10 КАРТ</span>
+                    </button>
+                    <button id="btn-preset-20" onclick="setIntensityPreset(20)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
+                        <span>[ОПТИМАЛЬНЫЙ] СТАНДАРТНЫЙ РЕЖИМ</span>
+                        <span class="font-bold">20 КАРТ</span>
+                    </button>
+                    <button id="btn-preset-30" onclick="setIntensityPreset(30)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
+                        <span>[СПРИНТ] ИНТЕНСИВНЫЙ РЕЖИМ</span>
+                        <span class="font-bold">30 КАРТ</span>
+                    </button>
+                    <button id="btn-preset-10000" onclick="setIntensityPreset(10000)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center mt-xs">
+                        <span>[МАКСИМУМ] БЕЗЛИМИТНЫЙ РЕЖИМ</span>
+                        <span class="font-bold">БЕЗ ЛИМИТА</span>
+                    </button>
+                </div>
+
+                <div id="config-presets-notice" class="hidden border border-dashed border-outline p-md text-center text-outline font-mono text-xs leading-relaxed">
+                    [ОЧЕРЕДЬ ПЕРЕМЕШАНА] НАСТРОЙКА ТЕМПА ДОСТУПНА ВНУТРИ КОНКРЕТНЫХ ДИСЦИПЛИН.
+                </div>
+            </div>
+
+            <div class="border border-outline-variant p-md bg-surface-container-lowest font-mono text-xs shrink-0">
+                <button onclick="toggleConfigHelp()" class="w-full flex justify-between items-center font-bold text-primary uppercase tracking-tighter">
+                    <span>[ИНФОРМАЦИЯ О СИСТЕМЕ НАГРУЗКИ]</span>
+                    <span id="config-help-icon" class="material-symbols-outlined text-[16px]">expand_more</span>
+                </button>
+                <div id="config-help-content" class="hidden mt-sm border-t border-dashed border-outline-variant/50 pt-sm flex flex-col gap-sm text-on-surface-variant leading-relaxed text-[11px]">
+                    <p><strong>• РАЗМЕРЕННЫЙ (ЛАЙТ):</strong> 10 новых карт в день.</p>
+                    <p><strong>• ОПТИМАЛЬНЫЙ (СТАНДАРТ):</strong> 20 новых карт в день.</p>
+                    <p><strong>• ИНТЕНСИВНЫЙ (СПРИНТ):</strong> 30 новых карт в день.</p>
+                </div>
+            </div>
+
+            <!-- ТИП АССОЦИАЦИЙ -->
+            <div class="flex flex-col gap-0.5 shrink-0 font-mono">
+                <div class="flex justify-between items-center">
+                    <label class="text-[9px] text-outline uppercase font-bold">ТИП АССОЦИАЦИЙ (МНЕМОНИК):</label>
+                    <span class="text-[8px] text-secondary font-mono font-bold">[ДЛЯ ВСЕХ КАРТОЧЕК]</span>
+                </div>
+                <div class="grid grid-cols-2 gap-0.5 font-mono text-[9px] mt-0.5">
+                    <button type="button" id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
+                        Визуальные / Форма
+                    </button>
+                    <button type="button" id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
+                        Сюжетные / Звук
+                    </button>
+                </div>
+            </div>
+
+            <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
+
+            <!-- СЕКЦИЯ 2: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (DEEPSEEK-V4 FLASH) -->
+            <div class="flex flex-col gap-sm shrink-0 border border-outline-variant p-sm bg-surface-container-lowest font-mono mb-md">
                 <div class="flex items-center justify-between border-b border-outline-variant pb-xs">
                     <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[ИМПОРТ ЗНАНИЙ: DEEPSEEK-V4 FLASH]</span>
                     <span class="text-[9px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
-                </div>
-                
-                <!-- Выбор типа ассоциаций (перенесен наверх) -->
-                <div class="flex flex-col gap-0.5 mt-xs">
-                    <div class="flex justify-between items-center">
-                        <label class="text-[9px] text-outline uppercase font-bold">ТИП АССОЦИАЦИЙ (МНЕМОНИК):</label>
-                        <span class="text-[8px] text-secondary font-mono font-bold">[ДЛЯ КАРТОЧЕК И ПАРСИНГА]</span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-0.5 font-mono text-[9px]">
-                        <button type="button" id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
-                            Визуальные / Форма
-                        </button>
-                        <button type="button" id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
-                            Сюжетные / Звук
-                        </button>
-                    </div>
                 </div>
                 
                 <!-- Ручной выбор целевого предмета -->
@@ -491,51 +535,6 @@
                             [ГК РБ Статьи]
                         </button>
                     </div>
-                </div>
-            </div>
-
-            <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
-
-            <!-- СЕКЦИЯ 2: НАСТРОЙКИ СИСТЕМЫ, ТЕМПА И ОБУЧЕНИЯ (НИЗ ЭКРАНА) -->
-            <div class="flex flex-col gap-sm shrink-0">
-                <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
-                    ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span>
-                </div>
-                
-                <div id="config-presets-container" class="flex flex-col gap-sm font-mono text-xs">
-                    <button id="btn-preset-10" onclick="setIntensityPreset(10)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
-                        <span>[ЛАЙТ] РАЗМЕРЕННЫЙ РЕЖИМ</span>
-                        <span class="font-bold">10 КАРТ</span>
-                    </button>
-                    <button id="btn-preset-20" onclick="setIntensityPreset(20)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
-                        <span>[ОПТИМАЛЬНЫЙ] СТАНДАРТНЫЙ РЕЖИМ</span>
-                        <span class="font-bold">20 КАРТ</span>
-                    </button>
-                    <button id="btn-preset-30" onclick="setIntensityPreset(30)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
-                        <span>[СПРИНТ] ИНТЕНСИВНЫЙ РЕЖИМ</span>
-                        <span class="font-bold">30 КАРТ</span>
-                    </button>
-                    <button id="btn-preset-10000" onclick="setIntensityPreset(10000)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center mt-xs">
-                        <span>[МАКСИМУМ] БЕЗЛИМИТНЫЙ РЕЖИМ</span>
-                        <span class="font-bold">БЕЗ ЛИМИТА</span>
-                    </button>
-                </div>
-
-                <div id="config-presets-notice" class="hidden border border-dashed border-outline p-md text-center text-outline font-mono text-xs leading-relaxed">
-                    [ОЧЕРЕДЬ ПЕРЕМЕШАНА] НАСТРОЙКА ТЕМПА ДОСТУПНА ВНУТРИ КОНКРЕТНЫХ ДИСЦИПЛИН.
-                </div>
-            </div>
-
-
-            <div class="border border-outline-variant p-md bg-surface-container-lowest font-mono text-xs shrink-0 mb-md">
-                <button onclick="toggleConfigHelp()" class="w-full flex justify-between items-center font-bold text-primary uppercase tracking-tighter">
-                    <span>[ИНФОРМАЦИЯ О СИСТЕМЕ НАГРУЗКИ]</span>
-                    <span id="config-help-icon" class="material-symbols-outlined text-[16px]">expand_more</span>
-                </button>
-                <div id="config-help-content" class="hidden mt-sm border-t border-dashed border-outline-variant/50 pt-sm flex flex-col gap-sm text-on-surface-variant leading-relaxed text-[11px]">
-                    <p><strong>• РАЗМЕРЕННЫЙ (ЛАЙТ):</strong> 10 новых карт в день.</p>
-                    <p><strong>• ОПТИМАЛЬНЫЙ (СТАНДАРТ):</strong> 20 новых карт в день.</p>
-                    <p><strong>• ИНТЕНСИВНЫЙ (СПРИНТ):</strong> 30 новых карт в день.</p>
                 </div>
             </div>
         </div>
@@ -720,6 +719,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=35"></script>
+    <script src="/js/app.js?v=36"></script>
 </body>
 </html>
