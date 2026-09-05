@@ -1705,7 +1705,7 @@ async function importTextKnowledge() {
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
     const customInstruction = document.getElementById('import-custom-instruction')?.value.trim() || '';
 
-    if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ GEMINI 3.7 FLASH...]"; }
+    if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ DEEPSEEK-V4 FLASH...]"; }
     try {
         const response = await apiFetch('/api/config/import', {
             method: 'POST', 

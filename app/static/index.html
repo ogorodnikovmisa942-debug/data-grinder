@@ -328,8 +328,24 @@
             <!-- СЕКЦИЯ 1: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (САМЫЙ ВЕРХ) -->
             <div class="flex flex-col gap-sm shrink-0 border border-outline-variant p-sm bg-surface-container-lowest font-mono">
                 <div class="flex items-center justify-between border-b border-outline-variant pb-xs">
-                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[ИМПОРТ ЗНАНИЙ: GEMINI 3.7 FLASH]</span>
+                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[ИМПОРТ ЗНАНИЙ: DEEPSEEK-V4 FLASH]</span>
                     <span class="text-[9px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
+                </div>
+                
+                <!-- Выбор типа ассоциаций (перенесен наверх) -->
+                <div class="flex flex-col gap-0.5 mt-xs">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[9px] text-outline uppercase font-bold">ТИП АССОЦИАЦИЙ (МНЕМОНИК):</label>
+                        <span class="text-[8px] text-secondary font-mono font-bold">[ДЛЯ КАРТОЧЕК И ПАРСИНГА]</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-0.5 font-mono text-[9px]">
+                        <button type="button" id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
+                            Визуальные / Форма
+                        </button>
+                        <button type="button" id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-1.5 transition-all duration-75 uppercase">
+                            Сюжетные / Звук
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- Ручной выбор целевого предмета -->
@@ -425,19 +441,6 @@
                             </div>
                         </div>
                     </details>
-                </div>
-
-                <!-- 3. Тип мнемоник / ассоциаций -->
-                <div class="flex flex-col gap-0.5 mt-xs">
-                    <label class="text-[9px] text-outline uppercase font-bold">3. Тип ассоциаций (мнемоник):</label>
-                    <div class="grid grid-cols-2 gap-0.5 font-mono text-[9px]">
-                        <button type="button" id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-1 transition-all duration-75 uppercase">
-                            Визуальные / Форма
-                        </button>
-                        <button type="button" id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-1 transition-all duration-75 uppercase">
-                            Сюжетные / Звук
-                        </button>
-                    </div>
                 </div>
 
                 <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
@@ -717,6 +720,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=34"></script>
+    <script src="/js/app.js?v=35"></script>
 </body>
 </html>
