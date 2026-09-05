@@ -1,24 +1,46 @@
-#!/usr/bin/env bash
+п»ї#!/usr/bin/env bash
 set -e
 
 echo "=== DATA GRINDER SAFE UPDATE ==="
 
-# 1. Автоматический снапшот текущей базы данных перед любыми действиями с Git
+# 1. РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ Р±СЌРєР°Рї С‚РµРєСѓС‰РµР№ Р±Р°Р·С‹ РґР°РЅРЅС‹С… РїРµСЂРµРґ РѕР±РЅРѕРІР»РµРЅРёРµРј
 if [ -f "data_grinder.db" ]; then
     mkdir -p backups
     BACKUP_NAME="backups/data_grinder_$(date +%Y%m%d_%H%M%S).db"
     cp data_grinder.db "$BACKUP_NAME"
     cp data_grinder.db backups/data_grinder.latest.bak
-    echo "[OK] База данных сохранена в $BACKUP_NAME"
+    echo "[OK] Р РµР·РµСЂРІРЅР°СЏ РєРѕРїРёСЏ Р±Р°Р·С‹ СЃРѕС…СЂР°РЅРµРЅР° РІ $BACKUP_NAME"
 fi
 
-# 2. Убираем локальные конфликты git, если база еще отслеживалась
+# 2. РЈР±РёСЂР°РµРј РёР· РєСЌС€Р° git Р‘Р”, РµСЃР»Рё РїРѕРїР°Р»Р°
 git rm --cached data_grinder.db 2>/dev/null || true
 
-# 3. Подтягиваем свежий код из репозитория
-git pull origin main
+# 3. РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ РїРѕРґС‚СЏРіРёРІР°РµРј СЃРІРµР¶РёР№ РєРѕРґ РёР· СЂРµРїРѕР·РёС‚РѕСЂРёСЏ
+echo "[...] Р—Р°РіСЂСѓР·РєР° РѕР±РЅРѕРІР»РµРЅРёР№ РёР· Git..."
+git fetch origin main
+git reset --hard origin/main
 
-# 4. Перезапускаем веб-сервис
+echo "[OK] РўРµРєСѓС‰РёР№ РєРѕРјРјРёС‚ СЂРµРїРѕР·РёС‚РѕСЂРёСЏ:"
+git log -1 --oneline
+
+# 4. РџСЂРѕРІРµСЂРєР° РїРµСЂРµРјРµРЅРЅС‹С… РѕРєСЂСѓР¶РµРЅРёСЏ РІ .env
+if [ -f ".env" ]; then
+    if ! grep -q "DEEPSEEK_API_KEY" .env || grep -q "DEEPSEEK_API_KEY=$" .env || grep -q 'DEEPSEEK_API_KEY=""' .env; then
+        echo ""
+        echo "========================================================"
+        echo "[!] Р’РќРРњРђРќРР•: Р’ С„Р°Р№Р»Рµ .env РЅРµ Р·Р°РґР°РЅ DEEPSEEK_API_KEY!"
+        echo "Р§С‚РѕР±С‹ РіРµРЅРµСЂР°С†РёСЏ СЂР°Р±РѕС‚Р°Р»Р°, СѓРєР°Р¶РёС‚Рµ РєР»СЋС‡ DeepSeek РІ .env:"
+        echo "nano .env  ->  РґРѕР±Р°РІСЊС‚Рµ: DEEPSEEK_API_KEY=sk-РІР°С€_РєР»СЋС‡"
+        echo "========================================================"
+        echo ""
+    fi
+else
+    echo "[!] Р¤Р°Р№Р» .env РЅРµ РЅР°Р№РґРµРЅ! РЎРѕР·РґР°Р№С‚Рµ РµРіРѕ РёР· .env.example"
+fi
+
+# 5. РџРµСЂРµР·Р°РїСѓСЃРє СЃРµСЂРІРёСЃРѕРІ
+echo "[...] РџРµСЂРµР·Р°РїСѓСЃРє СЃРµСЂРІРёСЃРѕРІ..."
 systemctl restart grinder-web
+systemctl restart grinder-bot 2>/dev/null || true
 
-echo "=== ОБНОВЛЕНИЕ УСПЕШНО ЗАВЕРШЕНО, БАЗА В БЕЗОПАСНОСТИ ==="
+echo "=== РћР‘РќРћР’Р›Р•РќРР• РЈРЎРџР•РЁРќРћ Р—РђР’Р•Р РЁР•РќРћ ==="

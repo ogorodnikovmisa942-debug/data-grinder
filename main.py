@@ -92,7 +92,14 @@ app.include_router(management.router, prefix="/api", tags=["Management"])
 # 4. Отдаем главный файл index.html прямо на корневом URL (http://твой_ip:порт/)
 @app.get("/")
 async def read_index():
-    return FileResponse("app/static/index.html")
+    return FileResponse(
+        "app/static/index.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 # 5. Монтируем папку статики на корневой префикс /
 # Теперь запросы фронтенда к /css/... и /js/... будут отрабатывать корректно
