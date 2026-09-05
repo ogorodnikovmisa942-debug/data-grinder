@@ -402,13 +402,17 @@ async def import_raw_text(
             custom_instruction=payload.custom_instruction
         )
     except Exception as e: 
+        import traceback
+        traceback.print_exc()
         err_msg = str(e)
+        print(f"[ERROR /api/config/import] {err_msg}")
         if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
             return {"status": "error", "message": f"Лимит или баланс ИИ-провайдера ({settings.AI_PROVIDER}) исчерпан (429). Проверьте баланс или ключ API."}
         return {"status": "error", "message": f"Ошибка ИИ-генератора ({settings.AI_PROVIDER}): {err_msg}"}
         
     if "error" in parsed_data: 
         err_msg = str(parsed_data["error"])
+        print(f"[ERROR /api/config/import from parsed_data] {err_msg}")
         if "RESOURCE_EXHAUSTED" in err_msg or "429" in err_msg:
             return {"status": "error", "message": f"Лимит или баланс ИИ-провайдера ({settings.AI_PROVIDER}) исчерпан (429). Проверьте баланс или ключ API."}
         return {"status": "error", "message": err_msg}
@@ -573,6 +577,9 @@ async def import_file_at_code_level(
             if "cards" in parsed_data and isinstance(parsed_data["cards"], list):
                 all_cards.extend(parsed_data["cards"])
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"[ERROR /api/config/import/file] {e}")
             if not all_cards:
                 raise HTTPException(status_code=500, detail=f"Ошибка ИИ при структурировании документов ({settings.AI_PROVIDER}): {str(e)}")
 

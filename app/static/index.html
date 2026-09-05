@@ -128,20 +128,38 @@
                 <div class="relative w-full max-w-[390px] aspect-[4/5] transition-transform duration-500 transform-style-3d border border-outline-variant bg-surface-container-lowest shrink-0 shadow-sm" id="flashcard">
                     
                     <!-- Лицевая сторона -->
-                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-center bg-surface-container-lowest p-md cursor-pointer select-none">
-                        <button id="voice-btn-front" class="absolute top-md left-md text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
-                            <span class="material-symbols-outlined text-[20px]">volume_up</span>
+                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-between bg-surface-container-lowest p-sm sm:p-md cursor-pointer select-none">
+                        <button id="voice-btn-front" class="absolute top-2 left-2 text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
+                            <span class="material-symbols-outlined text-[18px]">volume_up</span>
                         </button>
-                        <div id="card-counter" class="absolute top-md right-md text-xs text-outline opacity-50 font-mono">0 / 0</div>
+                        <div id="card-counter" class="absolute top-2 right-2 text-xs text-outline opacity-50 font-mono">0 / 0</div>
                         
-                        <!-- Обычный режим (Лицевая сторона) -->
-                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-center items-center">
-                            <span id="card-text" class="font-bold text-[28px] sm:text-[32px] text-center leading-relaxed text-primary px-sm break-words">Загрузка...</span>
+                        <!-- Обычный режим (Лицевая сторона повторения) -->
+                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-center items-center py-2">
+                            <span class="text-[9px] font-mono uppercase text-outline tracking-wider mb-2">[ВОПРОС / ТЕРМИН]</span>
+                            <span id="card-text" class="font-bold text-[22px] sm:text-[28px] text-center leading-relaxed text-primary px-sm break-words">Загрузка...</span>
+                            <span id="card-front-hint" class="text-[11px] font-mono text-secondary mt-2 hidden"></span>
+                            <span class="text-[9px] font-mono text-outline/60 mt-4 uppercase tracking-tighter">[НАЖМИТЕ ИЛИ СВАЙПНИТЕ ДЛЯ ОТВЕТА]</span>
                         </div>
 
-                        <!-- Режим знакомства (Поэтапное раскрытие) -->
-                        <div id="card-front-intro" class="hidden w-full h-full flex flex-col overflow-y-auto p-sm pt-[36px]">
-                            <!-- Динамические блоки будут вставляться сюда -->
+                        <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, Вопрос ВСЕГДА закреплен сверху) -->
+                        <div id="card-front-intro" class="hidden w-full h-full flex flex-col justify-between pt-6 pb-1 overflow-hidden">
+                            <!-- Закрепленный намертво заголовок термина/вопроса -->
+                            <div class="w-full shrink-0 flex flex-col items-center border-b border-outline-variant/40 pb-2 mb-2">
+                                <span class="text-[8px] font-mono uppercase text-secondary font-bold tracking-wider mb-0.5">● РЕЖИМ ЗНАКОМСТВА</span>
+                                <div id="card-intro-term" class="text-lg sm:text-xl font-bold text-primary text-center px-1 break-words leading-tight">---</div>
+                                <div id="card-intro-secondary" class="text-[10px] text-outline font-mono mt-0.5 hidden">---</div>
+                            </div>
+
+                            <!-- Центральная область с содержимым (компактная, не уезжает) -->
+                            <div id="card-intro-body" class="w-full flex-1 flex flex-col justify-center items-center gap-2 overflow-y-auto px-1">
+                                <!-- Динамическое наполнение шага 1 (Обзор) или шага 2 (Самопроверка) -->
+                            </div>
+
+                            <!-- Закрепленный внизу блок кнопок управления -->
+                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-1.5 pt-2 border-t border-outline-variant/30">
+                                <!-- Динамические кнопки -->
+                            </div>
                         </div>
                         
                         <!-- Когнитивный опрос FSRS -->
@@ -188,36 +206,51 @@
                         </div>
                     </div>
 
-                    <!-- Обратная сторона -->
-                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-md sm:p-lg flex flex-col justify-center items-center border border-outline-variant gap-sm sm:gap-md text-center overflow-y-auto">
-                        <!-- Бейдж проблемной карты (Leech) -->
-                        <div id="card-leech-badge" class="hidden w-full bg-error-container/20 border border-secondary text-secondary p-1 text-[10px] font-mono uppercase font-bold flex justify-between items-center shrink-0">
-                            <span id="card-leech-text">[!] СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
-                            <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[9px] underline hover:text-primary">[МНЕМОНИКА]</button>
+                    <!-- Обратная сторона (Компактный структурированный вид) -->
+                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-sm sm:p-md flex flex-col justify-between items-center border border-outline-variant text-center overflow-y-auto select-none">
+                        <!-- Верхняя шапка обратной стороны: Leech бейдж + Вопрос-напоминание -->
+                        <div class="w-full shrink-0 flex flex-col items-center gap-1">
+                            <!-- Бейдж проблемной карты (Leech) -->
+                            <div id="card-leech-badge" class="hidden w-full bg-error-container/20 border border-secondary text-secondary p-1 text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0">
+                                <span id="card-leech-text">[!] СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
+                                <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[9px] underline hover:text-primary">[МНЕМОНИКА]</button>
+                            </div>
+
+                            <button id="voice-btn-back" class="absolute top-2 left-2 text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
+                                <span class="material-symbols-outlined text-[18px]">volume_up</span>
+                            </button>
+
+                            <!-- Напоминание вопроса/термина мелким шрифтом -->
+                            <div class="text-[10px] text-outline uppercase font-mono tracking-wider truncate max-w-[85%]">
+                                [ВОПРОС: <span id="card-back-term-text" class="text-primary font-bold">---</span>]
+                            </div>
+                            <div id="card-secondary-container" class="hidden text-[11px] text-secondary font-mono">
+                                <span id="card-secondary-text">---</span>
+                            </div>
                         </div>
 
-                        <button id="voice-btn-back" class="absolute top-md left-md text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
-                            <span class="material-symbols-outlined text-[20px]">volume_up</span>
-                        </button>
-                        <div class="w-full">
-                            <span id="card-meta-label" class="block text-[10px] text-outline uppercase mb-xs tracking-wider font-mono">Подсказка</span>
-                            <h2 id="card-secondary-text" class="text-base sm:text-lg font-bold text-primary truncate">---</h2>
-                        </div>
-                        <div class="w-full h-px bg-outline-variant opacity-50"></div>
-                        <div class="w-full">
-                            <span id="card-main-label" class="block text-[10px] text-outline uppercase mb-xs tracking-wider font-mono">Значение</span>
-                            <h3 id="card-main-text" class="text-lg sm:text-xl md:text-2xl text-on-surface-variant leading-relaxed px-sm break-words">---</h3>
-                        </div>
-                        <div id="card-mnemonic-container" class="w-full mt-2 bg-surface p-sm border border-outline-variant hidden text-center relative group">
-                            <span class="block text-[10px] text-primary uppercase mb-xs tracking-wider font-mono">Ассоциация</span>
-                            <div id="mnemonic-content" class="transition-opacity duration-300">
-                                <p id="card-mnemonic" class="text-[12px] text-on-surface-variant"></p>
-                            </div>
+                        <!-- Центр: Главный ответ / Определение -->
+                        <div class="w-full my-auto flex flex-col items-center justify-center py-1">
+                            <span id="card-main-label" class="block text-[9px] text-outline uppercase mb-0.5 tracking-wider font-mono">Определение</span>
+                            <h3 id="card-main-text" class="text-base sm:text-lg md:text-xl font-medium text-on-surface-variant leading-snug px-sm break-words">---</h3>
                             
-                            <!-- Управление ассоциацией -->
-                            <div class="absolute inset-0 bg-surface/90 flex items-center justify-center gap-md opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                <button onclick="toggleMnemonicVisibility(event)" class="text-[10px] font-bold border border-outline px-2 py-1 uppercase text-outline hover:text-primary hover:border-primary">Скрыть</button>
-                                <button onclick="regenerateMnemonic(event)" class="text-[10px] font-bold border border-primary px-2 py-1 uppercase text-primary hover:bg-primary hover:text-surface-container-lowest">Обновить API</button>
+                            <!-- Пример (если есть) -->
+                            <div id="card-example-container" class="hidden w-full mt-1.5 px-sm">
+                                <p id="card-example-text" class="text-[11px] text-outline italic leading-tight break-words"></p>
+                            </div>
+                        </div>
+
+                        <!-- Низ: Ассоциация / Мнемоника в аккуратной рамке -->
+                        <div id="card-mnemonic-container" class="w-full shrink-0 mt-auto bg-surface p-2 border border-outline-variant/60 hidden text-center relative group font-mono">
+                            <div class="flex items-center justify-between text-[9px] text-primary uppercase font-bold mb-0.5">
+                                <span>[АССОЦИАЦИЯ]</span>
+                                <div class="flex gap-2">
+                                    <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[9px] text-outline">Скрыть</button>
+                                    <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[9px] text-primary">Обновить</button>
+                                </div>
+                            </div>
+                            <div id="mnemonic-content" class="transition-opacity duration-300">
+                                <p id="card-mnemonic" class="text-[11px] text-on-surface-variant leading-snug break-words"></p>
                             </div>
                         </div>
                     </div>
@@ -508,16 +541,16 @@
                         [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
                     </button>
                     
-                    <!-- Кодовый импорт пачки файлов и бесплатный OCR -->
+                    <!-- Кодовый импорт пачки файлов и бесплатный мульти-OCR -->
                     <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.jpg,.jpeg,.png,.webp,image/*" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            [ПАЧКА: PDF/TXT/CSV]
+                            [ДОКУМЕНТЫ: PDF/TXT/CSV]
                         </button>
 
-                        <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
+                        <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">
                         <button onclick="document.getElementById('import-image').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            [СКАН / ФОТО (OCR)]
+                            [ФОТО / СКАНЫ (МУЛЬТИ-OCR)]
                         </button>
                     </div>
 
@@ -709,6 +742,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=37"></script>
+    <script src="/js/app.js?v=38"></script>
 </body>
 </html>

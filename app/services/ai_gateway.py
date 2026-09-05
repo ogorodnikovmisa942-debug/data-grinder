@@ -113,9 +113,45 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
 
     return "\n" + "\n".join(modifiers) + "\n"
 
+import re
+
+def extract_json_payload(content: str) -> dict:
+    """Безопасно извлекает и парсит JSON из ответа LLM (убирая markdown-блоки, переносы и мусор)."""
+    if not content or not content.strip():
+        raise ValueError("Получен пустой ответ от ИИ.")
+    
+    clean = content.strip()
+    # Срезаем обертки ```json ... ``` или ``` ... ```
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean)
+    clean = clean.strip()
+    
+    # Пробуем прямой парсинг
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        pass
+        
+    # Ищем границы внешнего JSON-объекта { ... }
+    match = re.search(r"(\{.*\})", clean, re.DOTALL)
+    if match:
+        raw_json = match.group(1)
+        try:
+            return json.loads(raw_json)
+        except json.JSONDecodeError as err:
+            # Попытка исправить trailing commas
+            fixed = re.sub(r",\s*([\]}])", r"\1", raw_json)
+            try:
+                return json.loads(fixed)
+            except Exception:
+                raise ValueError(f"Ошибка валидации JSON от ИИ: {err}. Исходный фрагмент: {clean[:200]}...")
+                
+    raise ValueError(f"Не удалось обнаружить валидный JSON в ответе ИИ: {clean[:200]}...")
+
 # --- DEEPSEEK ВЫЗОВ (ЧЕРЕЗ HTTPX И OPENAI-СОВМЕСТИМЫЙ REST API) ---
 async def call_deepseek(prompt: str, system_instruction: str) -> dict:
-    """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode."""
+    """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode и отказоустойчивым fallback."""
     api_key = settings.DEEPSEEK_API_KEY
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
@@ -128,8 +164,10 @@ async def call_deepseek(prompt: str, system_instruction: str) -> dict:
         "Content-Type": "application/json"
     }
 
+    target_model = settings.DEEPSEEK_MODEL or "deepseek-chat"
+
     payload = {
-        "model": settings.DEEPSEEK_MODEL,
+        "model": target_model,
         "messages": [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": f"Analyze and structure the following text into JSON flashcards:\n\n{prompt}"}
@@ -139,14 +177,22 @@ async def call_deepseek(prompt: str, system_instruction: str) -> dict:
         "max_tokens": 4096
     }
 
-    print(f"[AI Gateway / DeepSeek] Вызов модели: {settings.DEEPSEEK_MODEL}...")
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model}...")
+    async with httpx.AsyncClient(timeout=90.0) as client:
         response = await client.post(url, headers=headers, json=payload)
+        
+        # Автоматический fallback: если запрошенная модель недоступна/не найдена на сервере провайдера, пробуем deepseek-chat
+        if response.status_code in (400, 404) and target_model != "deepseek-chat":
+            print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем стандартную 'deepseek-chat'...")
+            payload["model"] = "deepseek-chat"
+            response = await client.post(url, headers=headers, json=payload)
+
         if response.status_code == 200:
             data = response.json()
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            return extract_json_payload(content)
         else:
+            print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
 # --- GEMINI ВЫЗОВ (РЕЗЕРВНЫЙ / КАДРИРОВАННЫЙ КАСКАД) ---
@@ -269,9 +315,12 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
             res = await client.post(url, headers=headers, json=payload)
+            if res.status_code in (400, 404) and payload["model"] != "deepseek-chat":
+                payload["model"] = "deepseek-chat"
+                res = await client.post(url, headers=headers, json=payload)
             if res.status_code == 200:
                 content = res.json()["choices"][0]["message"]["content"]
-                return json.loads(content)
+                return extract_json_payload(content)
             else:
                 raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 

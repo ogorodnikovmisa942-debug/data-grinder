@@ -737,7 +737,7 @@ function renderIntroductionCard(card) {
         actionButtons.classList.remove('flex');
     }
     
-    // Переключаем видимость контейнеров на лицевой стороне
+    // Переключаем контейнеры на лицевой стороне
     const normalFront = document.getElementById('card-front-normal');
     const introFront = document.getElementById('card-front-intro');
     const front = document.getElementById('card-front');
@@ -745,100 +745,140 @@ function renderIntroductionCard(card) {
     if (normalFront) normalFront.classList.add('hidden');
     if (introFront) {
         introFront.classList.remove('hidden');
-        introFront.classList.add('flex', 'flex-col', 'items-center', 'justify-between');
+        introFront.classList.add('flex', 'flex-col', 'justify-between');
     }
     if (front) front.classList.add('introduction-mode');
     
-    const phase = card.intro_phase || 0;
-    let mnemonicText = '---';
-    if (card.mnemonic) {
-        const m = card.mnemonic;
-        mnemonicText = typeof m === 'object' ? `${m.keyword}: ${m.verbal_cue}` : m;
-    }
-    
-    // Структура блоков для знакомства
-    const blocks = [
-        { type: 'term', label: 'ТЕРМИН', content: card.text },
-        { type: 'context', label: 'КОНТЕКСТ', content: card.secondary_text || '---' },
-        { type: 'definition', label: 'ОПРЕДЕЛЕНИЕ', content: card.translation },
-        { type: 'example', label: 'ПРИМЕР', content: card.example || '---' },
-        { type: 'mnemonic', label: 'АССОЦИАЦИЯ', content: mnemonicText }
-    ].filter(b => b.content && b.content !== '---');
-    
-    // Рендерим блоки до текущей фазы включительно
-    let html = `<div class="flex flex-col items-center gap-md w-full my-auto overflow-y-auto pr-1" style="max-height: 80%;">`;
-    
-    for (let i = 0; i <= phase && i < blocks.length; i++) {
-        const block = blocks[i];
-        const safeContent = escapeHTML(block.content);
-        
-        html += `
-            <div class="w-full text-center introduction-block animate-fade-in" style="animation-delay: ${i * 0.08}s">
-                ${i > 0 ? '<div class="w-full h-px bg-outline-variant/30 my-sm"></div>' : ''}
-                <span class="block text-[10px] text-outline uppercase mb-xs tracking-wider font-mono">${escapeHTML(block.label)}</span>
-                <div class="text-${block.type === 'term' ? '[24px] sm:text-[28px] font-bold' : 'sm:text-base'} text-primary leading-relaxed break-words px-sm">
-                    ${safeContent}
-                </div>
-                ${block.type === 'term' && isLanguageCard(card) ? `
-                    <button onclick="event.stopPropagation(); window.replayAudioForText('${safeContent.replace(/'/g, "\\'")}');" 
-                            class="text-outline hover:text-primary transition-all mt-xs inline-flex items-center gap-xs py-1 px-2 border border-outline-variant/30 rounded-none bg-surface-container-lowest active:scale-95 duration-75">
-                        <span class="material-symbols-outlined text-[16px]">volume_up</span>
-                        <span class="text-[9px] font-mono uppercase">Прослушать</span>
-                    </button>
-                ` : ''}
-            </div>
-        `;
-    }
-    html += `</div>`;
-    
-    // Кнопка навигации
-    if (phase < blocks.length - 1) {
-        html += `
-            <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
-                <button onclick="event.stopPropagation(); advanceIntroduction()" 
-                        class="w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase">
-                    [→ ${blocks[phase + 1].label}]
-                </button>
-                <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                        class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-xs font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
-                    [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
-                </button>
-            </div>
-        `;
-    } else {
-        if (!card._recall_checked) {
-            html += `
-                <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
-                    <div class="text-[10px] text-outline uppercase font-mono text-center mb-0.5">САМОПРОВЕРКА ПАМЯТИ ПЕРЕД ЗАКРЕПЛЕНИЕМ:</div>
-                    <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                            class="w-full border border-dashed border-primary text-primary py-sm font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
-                        [ПОКАЗАТЬ ОТВЕТ И ПРОВЕРИТЬ ПАМЯТЬ]
-                    </button>
-                    <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-xs font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
-                        [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
-                    </button>
-                </div>
-            `;
+    // 1. Заполняем намертво закрепленный заголовок термина (НИКОГДА НЕ СКРОЛЛИТСЯ)
+    const termEl = document.getElementById('card-intro-term');
+    const secEl = document.getElementById('card-intro-secondary');
+    if (termEl) termEl.textContent = card.text;
+    if (secEl) {
+        if (card.secondary_text && card.secondary_text !== '---') {
+            secEl.textContent = card.secondary_text;
+            secEl.classList.remove('hidden');
         } else {
-            html += `
-                <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
-                    <button onclick="event.stopPropagation(); completeIntroduction()" 
-                            class="w-full border border-primary bg-primary text-on-primary py-sm font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
-                        [✓ Я ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
-                    </button>
-                </div>
-            `;
+            secEl.classList.add('hidden');
         }
     }
     
-    if (introFront) {
-        introFront.innerHTML = html;
-        // Scroll to bottom
-        setTimeout(() => {
-            const scrollableDiv = introFront.querySelector('.overflow-y-auto');
-            if (scrollableDiv) scrollableDiv.scrollTop = scrollableDiv.scrollHeight;
-        }, 50);
+    // 2. Форматирование мнемоники
+    let mnemonicFormatted = '';
+    if (card.mnemonic) {
+        const m = card.mnemonic;
+        mnemonicFormatted = typeof m === 'object' ? `<b>${escapeHTML(m.keyword)}</b>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
+    }
+    
+    // Фаза: 0 - Обзор (Preview), 1 - Самопроверка (Recall)
+    const phase = card.intro_phase || 0;
+    const bodyEl = document.getElementById('card-intro-body');
+    const footerEl = document.getElementById('card-intro-footer');
+    
+    if (phase === 0) {
+        // ШАГ 1: КОМПАКТНЫЙ ОБЗОР (Вопрос + Определение + Мнемоника на одном экране!)
+        if (bodyEl) {
+            bodyEl.innerHTML = `
+                <div class="w-full flex flex-col gap-2 my-auto animate-fade-in text-center">
+                    <!-- Определение -->
+                    <div class="bg-surface p-2 border border-outline-variant/50">
+                        <span class="block text-[9px] text-outline uppercase font-mono tracking-wider mb-1">[ОПРЕДЕЛЕНИЕ]</span>
+                        <div class="text-sm sm:text-base text-primary font-medium leading-relaxed break-words">
+                            ${escapeHTML(card.translation)}
+                        </div>
+                    </div>
+                    
+                    <!-- Мнемоника / Ассоциация (если есть) -->
+                    ${mnemonicFormatted ? `
+                        <div class="bg-surface p-2 border border-primary/40 font-mono text-left">
+                            <span class="block text-[8px] text-primary uppercase font-bold tracking-wider mb-0.5">[АССОЦИАЦИЯ ДЛЯ ЗАПОМИНАНИЯ]</span>
+                            <div class="text-xs text-on-surface-variant leading-snug break-words">
+                                ${mnemonicFormatted}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- Пример (если есть) -->
+                    ${card.example && card.example !== '---' ? `
+                        <div class="text-[11px] text-outline italic text-center px-1 break-words">
+                            Пример: ${escapeHTML(card.example)}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        if (footerEl) {
+            footerEl.innerHTML = `
+                <button onclick="event.stopPropagation(); advanceIntroduction()" 
+                        class="w-full border border-primary bg-primary text-on-primary py-2 font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
+                    [→ ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ]
+                </button>
+                <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
+                        class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                    [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                </button>
+            `;
+        }
+    } else {
+        // ШАГ 2: САМОПРОВЕРКА (Вопрос на виду, проверяем память)
+        if (!card._recall_checked) {
+            if (bodyEl) {
+                bodyEl.innerHTML = `
+                    <div onclick="event.stopPropagation(); window.toggleIntroRecall()" 
+                         class="w-full h-full my-auto flex flex-col items-center justify-center border-2 border-dashed border-primary/50 bg-surface/50 p-4 cursor-pointer hover:bg-primary/5 transition-all text-center animate-fade-in group">
+                        <span class="material-symbols-outlined text-primary text-3xl mb-1 group-hover:scale-110 transition-transform">visibility</span>
+                        <div class="text-xs font-mono font-bold text-primary uppercase">[ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ]</div>
+                        <div class="text-[10px] text-outline font-mono mt-1">Попробуйте воспроизвести значение по памяти</div>
+                    </div>
+                `;
+            }
+            if (footerEl) {
+                footerEl.innerHTML = `
+                    <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
+                            class="w-full border border-primary text-primary py-2 font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
+                        [ПОКАЗАТЬ ОТВЕТ]
+                    </button>
+                    <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
+                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                        [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                    </button>
+                `;
+            }
+        } else {
+            // Ответ раскрыт после самопроверки
+            if (bodyEl) {
+                bodyEl.innerHTML = `
+                    <div class="w-full flex flex-col gap-2 my-auto animate-fade-in text-center">
+                        <div class="bg-surface p-2 border border-outline-variant/50">
+                            <span class="block text-[9px] text-outline uppercase font-mono tracking-wider mb-1">[ОПРЕДЕЛЕНИЕ]</span>
+                            <div class="text-sm sm:text-base text-primary font-medium leading-relaxed break-words">
+                                ${escapeHTML(card.translation)}
+                            </div>
+                        </div>
+                        ${mnemonicFormatted ? `
+                            <div class="bg-surface p-2 border border-primary/40 font-mono text-left">
+                                <span class="block text-[8px] text-primary uppercase font-bold tracking-wider mb-0.5">[АССОЦИАЦИЯ]</span>
+                                <div class="text-xs text-on-surface-variant leading-snug break-words">
+                                    ${mnemonicFormatted}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+            if (footerEl) {
+                footerEl.innerHTML = `
+                    <button onclick="event.stopPropagation(); completeIntroduction()" 
+                            class="w-full border border-primary bg-primary text-on-primary py-2 font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
+                        [✓ ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
+                    </button>
+                    <button onclick="event.stopPropagation(); stepBackIntroduction()" 
+                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                        [← ВЕРНУТЬСЯ К ОБЗОРУ]
+                    </button>
+                `;
+            }
+        }
     }
     
     if (cardCounter) cardCounter.textContent = `${currentIndex + 1} / ${cardsQueue.length}`;
@@ -846,6 +886,15 @@ function renderIntroductionCard(card) {
     
     cardShowTimestamp = Date.now();
 }
+
+window.stepBackIntroduction = function() {
+    const card = cardsQueue[currentIndex];
+    if (card) {
+        card.intro_phase = 0;
+        card._recall_checked = false;
+        renderIntroductionCard(card);
+    }
+};
 
 window.toggleIntroRecall = function() {
     const card = cardsQueue[currentIndex];
@@ -857,8 +906,11 @@ window.toggleIntroRecall = function() {
 
 function advanceIntroduction() {
     const card = cardsQueue[currentIndex];
-    card.intro_phase = (card.intro_phase || 0) + 1;
-    renderIntroductionCard(card);
+    if (card) {
+        card.intro_phase = 1;
+        card._recall_checked = false;
+        renderIntroductionCard(card);
+    }
 }
 
 function completeIntroduction() {
@@ -866,7 +918,6 @@ function completeIntroduction() {
     card.has_seen_intro = true;
     card.state = 1; // Learning
     
-    // Отправляем на бэкенд
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
         method: 'POST',
@@ -923,13 +974,23 @@ function renderReviewCard(card) {
     if (normalFront) normalFront.classList.remove('hidden');
     if (introFront) {
         introFront.classList.add('hidden');
-        introFront.classList.remove('flex', 'flex-col', 'items-center', 'justify-between');
+        introFront.classList.remove('flex');
     }
     if (front) front.classList.remove('introduction-mode');
     
     if (cardText) cardText.textContent = card.text;
     
-    // Показываем/скрываем кнопки повторного озвучивания для языковых карточек
+    const hintEl = document.getElementById('card-front-hint');
+    if (hintEl) {
+        if (card.secondary_text && card.secondary_text !== '---') {
+            hintEl.textContent = `[${card.secondary_text}]`;
+            hintEl.classList.remove('hidden');
+        } else {
+            hintEl.classList.add('hidden');
+        }
+    }
+    
+    // Показываем/скрываем кнопки повторного озвучивания только для языковых карточек
     const showVoice = isLanguageCard(card);
     const btnFront = document.getElementById('voice-btn-front');
     const btnBack = document.getElementById('voice-btn-back');
@@ -946,15 +1007,30 @@ function renderReviewCard(card) {
     renderFSRSButtons(card.subject);
 
     setTimeout(() => {
-        if (cardSecondaryText) cardSecondaryText.textContent = card.secondary_text || '---'; 
+        // Заполняем оборотную сторону
+        const backTerm = document.getElementById('card-back-term-text');
+        if (backTerm) backTerm.textContent = card.text;
+
+        const secContainer = document.getElementById('card-secondary-container');
+        if (secContainer && cardSecondaryText) {
+            if (card.secondary_text && card.secondary_text !== '---') {
+                cardSecondaryText.textContent = card.secondary_text;
+                secContainer.classList.remove('hidden');
+            } else {
+                secContainer.classList.add('hidden');
+            }
+        }
+        
         if (cardMainText) cardMainText.textContent = card.translation; 
         
-        const metaLabel = document.getElementById('card-meta-label');
-        if (metaLabel) {
-            if (card.is_anchored && card.phrase_text) {
-                metaLabel.innerHTML = `[!] КОНТЕКСТНЫЙ ЯКОРЬ: <span class="text-secondary font-bold font-mono">${card.phrase_text}</span>`;
+        const exampleContainer = document.getElementById('card-example-container');
+        const exampleText = document.getElementById('card-example-text');
+        if (exampleContainer && exampleText) {
+            if (card.example && card.example.trim() && card.example !== '---') {
+                exampleText.textContent = `Пример: ${card.example}`;
+                exampleContainer.classList.remove('hidden');
             } else {
-                metaLabel.textContent = (currentSubject === 'chinese_hsk3' || card.text.match(/[\u4e00-\u9fa5]/)) ? 'Pinyin' : 'Контекстная подсказка';
+                exampleContainer.classList.add('hidden');
             }
         }
 
@@ -963,7 +1039,9 @@ function renderReviewCard(card) {
                 let m = card.mnemonic;
                 cardMnemonic.textContent = typeof m === 'object' ? `${m.keyword}: ${m.verbal_cue}` : m;
                 cardMnemonicContainer.classList.remove('hidden');
-            } else { cardMnemonicContainer.classList.add('hidden'); }
+            } else { 
+                cardMnemonicContainer.classList.add('hidden'); 
+            }
         }
 
         // Показываем/скрываем бейдж проблемной карты (Leech)
@@ -980,7 +1058,7 @@ function renderReviewCard(card) {
                 leechBadge.classList.remove('flex');
             }
         }
-    }, 200);
+    }, 150);
 
     if (cardCounter) cardCounter.textContent = `${currentIndex + 1} / ${cardsQueue.length}`;
     if (progressFill) progressFill.style.width = `${(currentIndex / cardsQueue.length) * 100}%`;
@@ -1839,60 +1917,89 @@ window.handleFileUpload = async function(event) {
 };
 
 window.handleImageOcr = async function(event) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    if (files.length === 0) return;
+
+    const targetSubject = getSelectedImportSubject();
+    if (!targetSubject) {
+        alert("Выберите целевой предмет из списка или укажите новый перед распознаванием фото!");
+        event.target.value = '';
+        return;
+    }
 
     const statusEl = document.getElementById('file-import-status');
     if (statusEl) {
-        statusEl.textContent = "[TESSERACT OCR: ИНИЦИАЛИЗАЦИЯ ДВИЖКА...]";
+        statusEl.textContent = files.length === 1 
+            ? "[TESSERACT OCR: ИНИЦИАЛИЗАЦИЯ ДВИЖКА...]" 
+            : `[TESSERACT OCR: ПОДГОТОВКА ПАЧКИ ИЗ ${files.length} ФОТО...]`;
         statusEl.classList.remove('hidden');
     }
 
     if (typeof Tesseract === 'undefined') {
         alert("Движок Tesseract OCR ещё загружается. Подождите пару секунд и повторите.");
         if (statusEl) statusEl.classList.add('hidden');
+        event.target.value = '';
         return;
     }
 
+    const recognizedPages = [];
+    const totalFiles = files.length;
+
     try {
-        const result = await Tesseract.recognize(
-            file,
-            'rus+eng',
-            {
-                logger: m => {
-                    if (m.status === 'recognizing text' && statusEl) {
-                        const pct = Math.round((m.progress || 0) * 100);
-                        statusEl.textContent = `[TESSERACT OCR: РАСПОЗНАВАНИЕ ${pct}%]`;
+        for (let idx = 0; idx < totalFiles; idx++) {
+            const file = files[idx];
+            const pageNum = idx + 1;
+            
+            if (statusEl) {
+                statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: РАСПОЗНАВАНИЕ ФОТО...]`;
+            }
+
+            const result = await Tesseract.recognize(
+                file,
+                'rus+eng',
+                {
+                    logger: m => {
+                        if (m.status === 'recognizing text' && statusEl) {
+                            const pct = Math.round((m.progress || 0) * 100);
+                            statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: ${pct}%]`;
+                        }
                     }
                 }
+            );
+
+            let pageText = (result && result.data && result.data.text) ? result.data.text : "";
+            // Санитизация OCR-текста
+            pageText = pageText
+                .replace(/\r\n/g, '\n')
+                .replace(/[ \t]+/g, ' ')
+                .replace(/\n\s*\n\s*\n+/g, '\n\n')
+                .trim();
+
+            if (pageText) {
+                const header = totalFiles > 1 ? `=== СТРАНИЦА / ФОТО ${pageNum} (${file.name}) ===\n` : '';
+                recognizedPages.push(header + pageText);
             }
-        );
+        }
 
-        let recognizedText = (result && result.data && result.data.text) ? result.data.text : "";
-        // Санитизация OCR-текста: удаление артефактов и сжатие пробелов (экономия токенов)
-        recognizedText = recognizedText
-            .replace(/\r\n/g, '\n')
-            .replace(/[ \t]+/g, ' ')
-            .replace(/\n\s*\n\s*\n+/g, '\n\n')
-            .trim();
+        const combinedText = recognizedPages.join('\n\n');
 
-        if (!recognizedText) {
-            alert("Не удалось распознать текст на фото. Попробуйте более четкий снимок.");
+        if (!combinedText.trim()) {
+            alert("Не удалось распознать текст на выбранных фото. Попробуйте более четкие снимки.");
             if (statusEl) statusEl.classList.add('hidden');
             return;
         }
 
         if (statusEl) {
-            statusEl.textContent = `[OCR УСПЕШНО! ИЗВЛЕЧЕНО ${recognizedText.length} СИМВОЛОВ, ЗАПУСК ИИ...]`;
+            statusEl.textContent = `[OCR ЗАВЕРШЕН! ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} СИМВ.), ЗАПУСК ИИ...]`;
         }
 
         const textarea = document.getElementById('import-text');
-        if (textarea) textarea.value = recognizedText;
+        if (textarea) textarea.value = combinedText;
 
         await importTextKnowledge();
         if (statusEl) statusEl.classList.add('hidden');
     } catch (ocrErr) {
-        console.error("Ошибка OCR:", ocrErr);
+        console.error("Ошибка пакетного OCR:", ocrErr);
         alert("Ошибка распознавания фото: " + ocrErr.message);
         if (statusEl) statusEl.classList.add('hidden');
     } finally {
