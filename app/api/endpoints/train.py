@@ -180,6 +180,8 @@ async def get_session_cards(
         })
     return result
 
+DEFAULT_SYSTEM_SUBJECTS = ["chinese_hsk3", "law_civil", "python_pro", "geometry", "law_civil_rb"]
+
 # --- 2. СПИСОК ПРЕДМЕТОВ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/subjects")
 async def get_available_subjects(
@@ -188,8 +190,10 @@ async def get_available_subjects(
 ):
     stmt = select(Card.subject).filter(Card.user_id == current_user).distinct()
     res = await db.execute(stmt)
-    subjects = res.all()
-    return [s[0] for s in subjects if s[0]]
+    subjects = [s[0] for s in res.all() if s[0]]
+    # Всегда гарантируем наличие базовых библиотек + пользовательских предметов
+    combined = list(dict.fromkeys(subjects + DEFAULT_SYSTEM_SUBJECTS))
+    return combined
 
 # --- 3. ОБРАБОТКА ОТВЕТОВ И ВАЛИДАЦИЯ FSRS В БД ---
 @router.post("/answer")

@@ -106,10 +106,12 @@
 
             <!-- Очередь сессии -->
             <div id="train-session-counters" class="w-full flex justify-between items-center font-mono text-[10px] border border-neutral-300 dark:border-outline-variant/30 p-2 bg-surface-container-lowest mb-md select-none shrink-0 rounded-none">
-                <span class="text-outline font-bold uppercase tracking-wider">Очередь сессии</span>
+                <button onclick="exitToSessionMenu()" class="border border-outline-variant text-outline hover:text-primary hover:border-primary px-2 py-0.5 font-bold uppercase transition-all">
+                    [← РЕЖИМ СЕССИИ]
+                </button>
                 <div class="flex gap-2">
                     <span class="px-2 py-0.5 border border-neutral-300 dark:border-outline-variant/30 text-primary font-mono text-[10px] font-bold bg-neutral-100 dark:bg-primary-container">ОЧЕРЕДЬ: <span class="data-cnt-queue ml-0.5">0</span></span>
-                    <span class="px-2 py-0.5 border border-neutral-300 dark:border-outline-variant/30 text-primary font-mono text-[10px] font-bold bg-neutral-200 dark:bg-surface-container-high">К ВЕЧЕРУ (21:00): <span class="data-cnt-evening ml-0.5">0</span></span>
+                    <span class="px-2 py-0.5 border border-neutral-300 dark:border-outline-variant/30 text-primary font-mono text-[10px] font-bold bg-neutral-200 dark:bg-surface-container-high">К ВЕЧЕРУ: <span class="data-cnt-evening ml-0.5">0</span></span>
                 </div>
             </div>
 
@@ -411,6 +413,19 @@
                     </details>
                 </div>
 
+                <!-- 3. Тип мнемоник / ассоциаций -->
+                <div class="flex flex-col gap-0.5 mt-xs">
+                    <label class="text-[9px] text-outline uppercase font-bold">3. Тип ассоциаций (мнемоник):</label>
+                    <div class="grid grid-cols-2 gap-0.5 font-mono text-[9px]">
+                        <button type="button" id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-1 transition-all duration-75 uppercase">
+                            Визуальные / Форма
+                        </button>
+                        <button type="button" id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-1 transition-all duration-75 uppercase">
+                            Сюжетные / Звук
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
                 <div class="flex flex-col gap-xs mt-xs">
                     <div class="flex justify-between items-center">
@@ -426,11 +441,11 @@
                         [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
                     </button>
                     
-                    <!-- Кодовый импорт файлов и бесплатный OCR -->
+                    <!-- Кодовый импорт пачки файлов и бесплатный OCR -->
                     <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button onclick="document.getElementById('import-file').click()" class="border border-outline text-primary hover:border-primary p-2 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest">
-                            [ФАЙЛ: PDF/TXT/CSV]
+                            [ПАЧКА: PDF/TXT/CSV]
                         </button>
 
                         <input type="file" id="import-image" accept="image/*" capture="environment" class="hidden" onchange="handleImageOcr(event)">
@@ -494,21 +509,6 @@
                 </div>
             </div>
 
-            <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
-            
-            <div class="flex flex-col gap-sm shrink-0">
-                <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
-                    ТИП АССОЦИАЦИЙ ПРИ ГЕНЕРАЦИИ:
-                </div>
-                <div class="grid grid-cols-2 gap-sm font-mono text-[10px]">
-                    <button id="btn-assoc-visual" onclick="setAssocPreference('visual')" class="w-full text-center border p-sm transition-all duration-75 uppercase">
-                        Визуальные / Структурные
-                    </button>
-                    <button id="btn-assoc-acoustic" onclick="setAssocPreference('acoustic')" class="w-full text-center border p-sm transition-all duration-75 uppercase">
-                        Акустические / Сюжетные
-                    </button>
-                </div>
-            </div>
 
             <div class="border border-outline-variant p-md bg-surface-container-lowest font-mono text-xs shrink-0 mb-md">
                 <button onclick="toggleConfigHelp()" class="w-full flex justify-between items-center font-bold text-primary uppercase tracking-tighter">
@@ -559,89 +559,91 @@
     <!-- ===================================================================== -->
     <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
     <!-- ===================================================================== -->
-    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: max(var(--tg-safe-top, 24px), 24px); padding-bottom: max(var(--tg-safe-bottom, 16px), 16px);">
-        <!-- Верхняя панель песочницы -->
-        <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
-            <div class="flex flex-col gap-0.5">
-                <span class="text-[9px] text-outline uppercase tracking-wider font-bold">ПЕСОЧНИЦА ИМПОРТА</span>
-                <div class="flex items-center gap-xs">
-                    <span class="text-[9px] text-outline uppercase font-bold">ПРЕДМЕТ:</span>
-                    <select id="staging-subject-select" onchange="onStagingSubjectChange(event)" class="bg-surface-container-lowest border border-primary text-primary font-bold font-mono text-[10px] py-0.5 px-1 focus:ring-0 max-w-[140px] truncate">
-                    </select>
+    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
+        <div class="max-w-md mx-auto w-full h-full flex flex-col justify-between">
+            <!-- Верхняя панель песочницы -->
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
+                <div class="flex flex-col gap-0.5">
+                    <span class="text-[9px] text-outline uppercase tracking-wider font-bold">ПЕСОЧНИЦА ИМПОРТА</span>
+                    <div class="flex items-center gap-xs">
+                        <span class="text-[9px] text-outline uppercase font-bold">ПРЕДМЕТ:</span>
+                        <select id="staging-subject-select" onchange="onStagingSubjectChange(event)" class="bg-surface-container-lowest border border-primary text-primary font-bold font-mono text-[10px] py-0.5 px-1 focus:ring-0 max-w-[140px] truncate">
+                        </select>
+                    </div>
+                    <span id="staging-topic-title" class="text-[9px] text-outline truncate max-w-[180px]">Новый блок</span>
                 </div>
-                <span id="staging-topic-title" class="text-[9px] text-outline truncate max-w-[180px]">Новый блок</span>
+                <div class="flex items-center gap-xs text-[9px] font-bold">
+                    <span class="text-primary bg-surface-container px-1.5 py-0.5 border border-outline-variant/30">ОДОБРЕНО: <span id="staging-approved-count" class="text-primary font-bold">0</span></span>
+                    <span class="text-secondary bg-error-container/20 px-1.5 py-0.5 border border-outline-variant/30">ОТКЛОНЕНО: <span id="staging-rejected-count" class="text-secondary font-bold">0</span></span>
+                    <span class="text-outline px-1.5 py-0.5 border border-outline-variant/30">ОСТАЛОСЬ: <span id="staging-remaining-count">0</span></span>
+                </div>
             </div>
-            <div class="flex items-center gap-xs text-[9px] font-bold">
-                <span class="text-primary bg-surface-container px-1.5 py-0.5 border border-outline-variant/30">ОДОБРЕНО: <span id="staging-approved-count" class="text-primary font-bold">0</span></span>
-                <span class="text-secondary bg-error-container/20 px-1.5 py-0.5 border border-outline-variant/30">ОТКЛОНЕНО: <span id="staging-rejected-count" class="text-secondary font-bold">0</span></span>
-                <span class="text-outline px-1.5 py-0.5 border border-outline-variant/30">ОСТАЛОСЬ: <span id="staging-remaining-count">0</span></span>
-            </div>
-        </div>
 
-        <!-- Центральная зона карточки песочницы со свайпом -->
-        <div class="flex-1 flex items-center justify-center relative w-full my-auto min-h-0 py-sm" id="staging-card-container">
-            <div id="staging-card" class="relative w-full max-w-[360px] aspect-[4/5] bg-surface-container-lowest border border-outline p-md flex flex-col justify-between transition-transform duration-200 cursor-grab active:cursor-grabbing shadow-md select-none overflow-hidden">
-                <!-- Значки-индикаторы свайпа (штампы APPROVED / DISCARDED) -->
-                <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase tracking-widest rotate-12 opacity-0 pointer-events-none transition-opacity">
-                    [✓ ОДОБРЕНО]
-                </div>
-                <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-widest -rotate-12 opacity-0 pointer-events-none transition-opacity">
-                    [✕ ОТКЛОНЕНО]
-                </div>
+            <!-- Центральная зона карточки песочницы со свайпом -->
+            <div class="flex-1 flex items-center justify-center relative w-full my-auto min-h-0 py-sm" id="staging-card-container">
+                <div id="staging-card" class="relative w-full max-w-[360px] aspect-[4/5] bg-surface-container-lowest border border-outline p-md flex flex-col justify-between transition-transform duration-200 cursor-grab active:cursor-grabbing shadow-md select-none overflow-hidden">
+                    <!-- Значки-индикаторы свайпа (штампы APPROVED / DISCARDED) -->
+                    <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase tracking-widest rotate-12 opacity-0 pointer-events-none transition-opacity">
+                        [✓ ОДОБРЕНО]
+                    </div>
+                    <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-widest -rotate-12 opacity-0 pointer-events-none transition-opacity">
+                        [✕ ОТКЛОНЕНО]
+                    </div>
 
-                <div class="w-full flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-xs">
-                    <span id="staging-card-number">Карточка 1 из 1</span>
-                    <span id="staging-card-tier" class="uppercase font-bold text-primary">medium</span>
-                </div>
+                    <div class="w-full flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-xs">
+                        <span id="staging-card-number">Карточка 1 из 1</span>
+                        <span id="staging-card-tier" class="uppercase font-bold text-primary">medium</span>
+                    </div>
 
-                <div class="flex-1 flex flex-col justify-center items-center text-center gap-sm overflow-y-auto my-auto py-sm">
-                    <div id="staging-card-text" class="text-2xl sm:text-3xl font-bold text-primary break-words">...</div>
-                    <div id="staging-card-secondary" class="text-xs text-outline font-mono">...</div>
-                    <div class="w-16 h-px bg-outline-variant/40 my-xs"></div>
-                    <div id="staging-card-translation" class="text-sm sm:text-base text-on-surface leading-relaxed break-words">...</div>
-                    <div id="staging-card-example" class="text-[11px] text-outline italic mt-xs max-h-16 overflow-hidden">...</div>
-                    
-                    <div id="staging-card-mnemonic-box" class="w-full mt-xs bg-surface p-2 border border-outline-variant/30 text-[10px] text-left hidden">
-                        <span class="text-primary font-bold uppercase block mb-0.5">Ассоциация:</span>
-                        <span id="staging-card-mnemonic" class="text-on-surface-variant"></span>
+                    <div class="flex-1 flex flex-col justify-center items-center text-center gap-sm overflow-y-auto my-auto py-sm">
+                        <div id="staging-card-text" class="text-2xl sm:text-3xl font-bold text-primary break-words">...</div>
+                        <div id="staging-card-secondary" class="text-xs text-outline font-mono">...</div>
+                        <div class="w-16 h-px bg-outline-variant/40 my-xs"></div>
+                        <div id="staging-card-translation" class="text-sm sm:text-base text-on-surface leading-relaxed break-words">...</div>
+                        <div id="staging-card-example" class="text-[11px] text-outline italic mt-xs max-h-16 overflow-hidden">...</div>
+                        
+                        <div id="staging-card-mnemonic-box" class="w-full mt-xs bg-surface p-2 border border-outline-variant/30 text-[10px] text-left hidden">
+                            <span class="text-primary font-bold uppercase block mb-0.5">Ассоциация:</span>
+                            <span id="staging-card-mnemonic" class="text-on-surface-variant"></span>
+                        </div>
+                    </div>
+
+                    <!-- Кнопки управления карточкой внутри песочницы -->
+                    <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
+                        <button onclick="openStagingEditor()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
+                            [ПРАВИТЬ]
+                        </button>
+                        <button onclick="regenerateStagingMnemonic()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
+                            [МНЕМОНИКА]
+                        </button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Кнопки управления карточкой внутри песочницы -->
-                <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
-                    <button onclick="openStagingEditor()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
-                        [ПРАВИТЬ]
+            <!-- Нижняя панель действий свайпа / кнопок -->
+            <div class="flex flex-col gap-xs shrink-0 pt-xs">
+                <div class="grid grid-cols-2 gap-xs h-[50px]">
+                    <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase">
+                        <span>[✕] ОТКЛОНИТЬ</span>
+                        <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
                     </button>
-                    <button onclick="regenerateStagingMnemonic()" class="border border-outline text-primary text-[10px] py-1 uppercase font-bold hover:bg-surface-container">
-                        [МНЕМОНИКА]
+                    <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase">
+                        <span>[✓] ПРИНЯТЬ</span>
+                        <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
                     </button>
                 </div>
-            </div>
-        </div>
 
-        <!-- Нижняя панель действий свайпа / кнопок -->
-        <div class="flex flex-col gap-xs shrink-0 pt-xs">
-            <div class="grid grid-cols-2 gap-xs h-[50px]">
-                <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase">
-                    <span>[✕] ОТКЛОНИТЬ</span>
-                    <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
-                </button>
-                <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase">
-                    <span>[✓] ПРИНЯТЬ</span>
-                    <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
-                </button>
-            </div>
-
-            <div class="flex justify-between items-center gap-xs mt-xs text-[10px]">
-                <button onclick="stagingAcceptAll()" class="border border-outline text-outline hover:text-primary py-1.5 px-2 uppercase font-bold flex-1">
-                    [ОДОБРИТЬ ВСЕ]
-                </button>
-                <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-1.5 px-3 uppercase font-bold flex-1 text-center hover:bg-transparent hover:text-primary transition-colors">
-                    СОХРАНИТЬ (0)
-                </button>
-                <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-1.5 px-2 uppercase font-bold">
-                    ОТМЕНА
-                </button>
+                <div class="flex justify-between items-center gap-xs mt-xs text-[10px]">
+                    <button onclick="stagingAcceptAll()" class="border border-outline text-outline hover:text-primary py-1.5 px-2 uppercase font-bold flex-1">
+                        [ОДОБРИТЬ ВСЕ]
+                    </button>
+                    <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-1.5 px-3 uppercase font-bold flex-1 text-center hover:bg-transparent hover:text-primary transition-colors">
+                        СОХРАНИТЬ (0)
+                    </button>
+                    <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-1.5 px-2 uppercase font-bold">
+                        ОТМЕНА
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -701,6 +703,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=31"></script>
+    <script src="/js/app.js?v=32"></script>
 </body>
 </html>

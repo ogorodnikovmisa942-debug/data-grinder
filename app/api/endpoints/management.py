@@ -3,6 +3,7 @@ import asyncio
 import io
 import csv
 import re
+from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -470,13 +471,14 @@ async def commit_staging_cards(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения из песочницы: {str(e)}")
 
-# --- 4.2 ЗАГРУЗКА ФАЙЛОВ НА КОДОВОМ УРОВНЕ (БЕЗ ДОРОГОГО LLM) ---
+# --- 4.2 ЗАГРУЗКА ПАЧЕК ФАЙЛОВ НА КОДОВОМ УРОВНЕ (PDF, TXT, MD, CSV) ---
 @router.post("/config/import/file")
 async def import_file_at_code_level(
-    file: UploadFile = File(...),
+    files: Optional[list[UploadFile]] = File(None),
+    file: Optional[UploadFile] = File(None),
     subject: str = Form(""),
     density: str = Form("medium"),
-    volume: str = Form("medium"),
+    volume: str = Form("auto"),
     priority: str = Form("balanced"),
     assoc_preference: str = Form("acoustic"),
     granularity_mode: str = Form("atomic"),
@@ -488,117 +490,109 @@ async def import_file_at_code_level(
     target_sub = subject.strip().lower()
     if not target_sub:
         raise HTTPException(status_code=400, detail="Целевой предмет не выбран. Выберите предмет из списка или укажите новый.")
-    filename = file.filename.lower()
-    contents = await file.read()
-    extracted_text = ""
+    
+    upload_list: list[UploadFile] = []
+    if files:
+        upload_list.extend(files)
+    if file and file not in upload_list:
+        upload_list.append(file)
+    
+    if not upload_list:
+        raise HTTPException(status_code=400, detail="Не передано ни одного файла.")
 
-    # 1. Формат PDF: бесплатное извлечение на чистом Python через pypdf
-    if filename.endswith(".pdf"):
+    all_cards: list[dict] = []
+    all_extracted_texts: list[str] = []
+    file_titles: list[str] = []
+
+    for up_file in upload_list:
+        filename = (up_file.filename or "file").lower()
+        file_titles.append(up_file.filename or "файл")
+        contents = await up_file.read()
+        extracted_text = ""
+
+        # 1. Формат PDF: извлечение через pypdf
+        if filename.endswith(".pdf"):
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(io.BytesIO(contents))
+                pages_text = []
+                for idx, page in enumerate(reader.pages):
+                    txt = page.extract_text() or ""
+                    if txt.strip():
+                        pages_text.append(f"--- {up_file.filename}: Стр. {idx+1} ---\n{txt}")
+                extracted_text = "\n\n".join(pages_text)
+            except Exception as e:
+                print(f"[WARN] Ошибка чтения PDF {up_file.filename}: {e}")
+
+        # 2. Формат CSV / TSV: прямой парсинг
+        elif filename.endswith(".csv") or filename.endswith(".tsv"):
+            delimiter = "\t" if filename.endswith(".tsv") else ","
+            try:
+                text_stream = io.StringIO(contents.decode("utf-8-sig", errors="ignore"))
+                reader = csv.reader(text_stream, delimiter=delimiter)
+                for row in reader:
+                    if len(row) >= 2 and row[0].strip() and row[1].strip():
+                        all_cards.append({
+                            "text": row[0].strip(),
+                            "secondary_text": row[2].strip() if len(row) > 2 else "",
+                            "translation": row[1].strip(),
+                            "example": "",
+                            "initial_difficulty_tier": "medium",
+                            "mnemonic": None
+                        })
+            except Exception as e:
+                print(f"[WARN] Ошибка чтения CSV {up_file.filename}: {e}")
+
+        # 3. Обычный текстовый или Markdown файл
+        elif filename.endswith(".txt") or filename.endswith(".md"):
+            try:
+                extracted_text = contents.decode("utf-8-sig", errors="ignore")
+            except Exception as e:
+                print(f"[WARN] Ошибка чтения TXT {up_file.filename}: {e}")
+
+        if extracted_text.strip():
+            all_extracted_texts.append(f"=== ДОКУМЕНТ: {up_file.filename} ===\n" + extracted_text.strip())
+
+    # Если были текстовые/PDF документы, прогоняем через ИИ
+    if all_extracted_texts:
+        combined_text = "\n\n".join(all_extracted_texts)
         try:
-            import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(contents))
-            pages_text = []
-            for idx, page in enumerate(reader.pages):
-                txt = page.extract_text() or ""
-                if txt.strip():
-                    pages_text.append(f"--- Страница {idx+1} ---\n{txt}")
-            extracted_text = "\n\n".join(pages_text)
+            parsed_data = await parse_raw_text(
+                combined_text,
+                target_subject=target_sub,
+                density=density,
+                volume=volume,
+                priority=priority,
+                preference=assoc_preference,
+                granularity_mode=granularity_mode,
+                custom_instruction=custom_instruction
+            )
+            if "cards" in parsed_data and isinstance(parsed_data["cards"], list):
+                all_cards.extend(parsed_data["cards"])
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Ошибка чтения PDF файла: {str(e)}")
+            if not all_cards:
+                raise HTTPException(status_code=500, detail=f"Ошибка ИИ при структурировании документов ({settings.AI_PROVIDER}): {str(e)}")
 
-    # 2. Формат CSV / TSV: парсинг без LLM вообще!
-    elif filename.endswith(".csv") or filename.endswith(".tsv"):
-        delimiter = "\t" if filename.endswith(".tsv") else ","
-        try:
-            text_stream = io.StringIO(contents.decode("utf-8-sig", errors="ignore"))
-            reader = csv.reader(text_stream, delimiter=delimiter)
-            rows = list(reader)
-            
-            cards = []
-            for row in rows:
-                if len(row) >= 2 and row[0].strip() and row[1].strip():
-                    front = row[0].strip()
-                    back = row[1].strip()
-                    hint = row[2].strip() if len(row) > 2 else ""
-                    cards.append({
-                        "text": front,
-                        "secondary_text": hint,
-                        "translation": back,
-                        "example": "",
-                        "initial_difficulty_tier": "medium",
-                        "mnemonic": None
-                    })
-            
-            if cards:
-                sub_name = target_sub
-                theme_name = f"Импорт файла {file.filename}"
-                
-                if not commit_now:
-                    return {
-                        "status": "staging",
-                        "subject": sub_name,
-                        "theme": theme_name,
-                        "cards": cards
-                    }
-                else:
-                    cards_created, clean_sub, clean_title = await save_cards_to_database(
-                        cards_data=cards,
-                        subject_slug=sub_name,
-                        phrase_title=theme_name,
-                        user_id=current_user,
-                        db=db
-                    )
-                    await db.commit()
-                    return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Ошибка парсинга CSV: {str(e)}")
-
-    # 3. Обычный текстовый или Markdown файл
-    elif filename.endswith(".txt") or filename.endswith(".md"):
-        try:
-            extracted_text = contents.decode("utf-8-sig", errors="ignore")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Ошибка чтения текста: {str(e)}")
-    else:
-        raise HTTPException(status_code=400, detail="Неподдерживаемый формат. Используйте .pdf, .txt, .md, .csv, .tsv")
-
-    if not extracted_text.strip():
-        raise HTTPException(status_code=400, detail="Не удалось извлечь текст из файла.")
-
-    # Передаем извлеченный текст в ИИ-структуризатор с указанием целевого предмета
-    try:
-        parsed_data = await parse_raw_text(
-            extracted_text,
-            target_subject=target_sub,
-            density=density,
-            volume=volume,
-            priority=priority,
-            preference=assoc_preference,
-            granularity_mode=granularity_mode,
-            custom_instruction=custom_instruction
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка ИИ при структурировании файла ({settings.AI_PROVIDER}): {str(e)}")
-
-    if "error" in parsed_data:
-        return {"status": "error", "message": parsed_data["error"]}
+    if not all_cards:
+        raise HTTPException(status_code=400, detail="Не удалось извлечь карточки из переданных файлов.")
 
     subject_slug = target_sub
-    phrase_title = parsed_data.get("phrase_title", f"Импорт: {file.filename}")
-    cards = parsed_data.get("cards", [])
+    theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
+    if len(file_titles) > 2:
+        theme_name += f" и ещё {len(file_titles) - 2}"
 
     if not commit_now:
         return {
             "status": "staging",
             "subject": subject_slug,
-            "theme": phrase_title,
-            "cards": cards
+            "theme": theme_name,
+            "cards": all_cards
         }
     else:
         cards_created, clean_sub, clean_title = await save_cards_to_database(
-            cards_data=cards,
+            cards_data=all_cards,
             subject_slug=subject_slug,
-            phrase_title=phrase_title,
+            phrase_title=theme_name,
             user_id=current_user,
             db=db
         )

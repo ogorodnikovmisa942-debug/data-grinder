@@ -277,30 +277,67 @@ document.addEventListener('DOMContentLoaded', async () => {
         focusToggle.classList.add('hidden');
     }
     if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
+    if (typeof updateAssocPreferenceUI === 'function') {
+        updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
+    }
     if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
 });
 
+function isLanguageCard(card) {
+    if (!card) return false;
+    const sub = ((card.subject || currentSubject || '') + '').toLowerCase();
+    // Исключаем право, программирование, геометрию, общие предметы
+    if (sub.startsWith('law_') || sub.startsWith('python_') || sub.startsWith('code_') || sub === 'geometry' || sub === 'generic') {
+        return false;
+    }
+    const textToSpeak = card.text || '';
+    const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
+    if (containsChinese) return true;
+
+    const isLangSubject = sub.includes('chinese') || sub.includes('hsk') || 
+                          sub.includes('english') || sub.includes('eng_') || 
+                          sub.includes('german') || sub.includes('de_') ||
+                          sub.includes('spanish') || sub.includes('es_') ||
+                          sub.includes('french') || sub.includes('fr_') ||
+                          sub.includes('vocab') || sub.includes('lang');
+    return isLangSubject;
+}
+
+function isSpeakable(text) {
+    if (!text || text === '---') return false;
+    const sub = (currentSubject || '').toLowerCase();
+    if (sub.startsWith('law_') || sub.startsWith('python_') || sub.startsWith('code_') || sub === 'geometry' || sub === 'generic') {
+        return false;
+    }
+    const containsChinese = /[\u4e00-\u9fa5]/.test(text);
+    if (containsChinese) return true;
+
+    const isLangSubject = sub.includes('chinese') || sub.includes('hsk') || 
+                          sub.includes('english') || sub.includes('eng_') || 
+                          sub.includes('german') || sub.includes('de_') ||
+                          sub.includes('spanish') || sub.includes('es_') ||
+                          sub.includes('french') || sub.includes('fr_') ||
+                          sub.includes('vocab') || sub.includes('lang');
+    return isLangSubject;
+}
+
 function executeVoiceSynthesis(textToSpeak) {
-    if (!window.speechSynthesis) return;
+    if (!window.speechSynthesis || !textToSpeak) return;
+    if (!isSpeakable(textToSpeak)) return;
     
     let lang = null;
     const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
-    const containsCyrillic = /[а-яА-ЯёЁ]/.test(textToSpeak);
-    const containsLatin = /[a-zA-Z]/.test(textToSpeak);
+    const sub = (currentSubject || '').toLowerCase();
     
-    if (containsCyrillic) {
-        lang = 'ru-RU';
-    } else if (containsChinese) {
+    if (containsChinese || sub.includes('chinese') || sub === 'chinese_hsk3') {
         lang = 'zh-CN';
-    } else if (currentSubject.includes('chinese') || currentSubject === 'chinese_hsk3') {
-        lang = 'zh-CN';
-    } else if (currentSubject.includes('english') || currentSubject.includes('eng_') || (containsLatin && !containsCyrillic)) {
+    } else if (sub.includes('english') || sub.includes('eng_')) {
         lang = 'en-US';
-    } else if (currentSubject.includes('german') || currentSubject.includes('de_')) {
+    } else if (sub.includes('german') || sub.includes('de_')) {
         lang = 'de-DE';
-    } else if (currentSubject.includes('spanish') || currentSubject.includes('es_')) {
+    } else if (sub.includes('spanish') || sub.includes('es_')) {
         lang = 'es-ES';
-    } else if (currentSubject.includes('french') || currentSubject.includes('fr_')) {
+    } else if (sub.includes('french') || sub.includes('fr_')) {
         lang = 'fr-FR';
     }
     
@@ -316,62 +353,23 @@ function executeVoiceSynthesis(textToSpeak) {
     } catch (e) { console.error("Сбой аудио-канала:", e); }
 }
 
-function isLanguageCard(card) {
-    if (!card) return false;
-    const textToSpeak = card.text;
-    const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
-    const containsCyrillic = /[а-яА-ЯёЁ]/.test(textToSpeak);
-    const containsLatin = /[a-zA-Z]/.test(textToSpeak);
-    
-    return containsChinese || 
-           containsCyrillic ||
-           currentSubject.includes('chinese') || 
-           currentSubject === 'chinese_hsk3' || 
-           currentSubject.includes('english') || 
-           currentSubject.includes('eng_') || 
-           currentSubject.includes('german') ||
-           currentSubject.includes('spanish') ||
-           currentSubject.includes('french') ||
-           (containsLatin && !containsCyrillic);
-}
-
-function isSpeakable(text) {
-    if (!text || text === '---') return false;
-    const containsChinese = /[\u4e00-\u9fa5]/.test(text);
-    const containsCyrillic = /[а-яА-ЯёЁ]/.test(text);
-    const containsLatin = /[a-zA-Z]/.test(text);
-    
-    return containsChinese || 
-           containsCyrillic ||
-           currentSubject.includes('chinese') || 
-           currentSubject === 'chinese_hsk3' || 
-           currentSubject.includes('english') || 
-           currentSubject.includes('eng_') || 
-           currentSubject.includes('german') ||
-           currentSubject.includes('spanish') ||
-           currentSubject.includes('french') ||
-           (containsLatin && !containsCyrillic);
-}
-
 window.replayAudioForText = function(text) {
     if (!window.speechSynthesis || !text) return;
+    if (!isSpeakable(text)) return;
     
     let lang = null;
     const containsChinese = /[\u4e00-\u9fa5]/.test(text);
-    const containsCyrillic = /[а-яА-ЯёЁ]/.test(text);
-    const containsLatin = /[a-zA-Z]/.test(text);
+    const sub = (currentSubject || '').toLowerCase();
     
-    if (containsCyrillic) {
-        lang = 'ru-RU';
-    } else if (containsChinese || currentSubject.includes('chinese')) {
+    if (containsChinese || sub.includes('chinese')) {
         lang = 'zh-CN';
-    } else if (currentSubject.includes('english') || currentSubject.includes('eng_') || (containsLatin && !containsCyrillic)) {
+    } else if (sub.includes('english') || sub.includes('eng_')) {
         lang = 'en-US';
-    } else if (currentSubject.includes('german') || currentSubject.includes('de_')) {
+    } else if (sub.includes('german') || sub.includes('de_')) {
         lang = 'de-DE';
-    } else if (currentSubject.includes('spanish') || currentSubject.includes('es_')) {
+    } else if (sub.includes('spanish') || sub.includes('es_')) {
         lang = 'es-ES';
-    } else if (currentSubject.includes('french') || currentSubject.includes('fr_')) {
+    } else if (sub.includes('french') || sub.includes('fr_')) {
         lang = 'fr-FR';
     }
     
@@ -391,7 +389,9 @@ window.replayAudioForText = function(text) {
 window.replayAudio = function() {
     if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
     const currentCard = cardsQueue[currentIndex];
-    executeVoiceSynthesis(currentCard.text);
+    if (currentCard && isLanguageCard(currentCard)) {
+        executeVoiceSynthesis(currentCard.text);
+    }
 };
 
 function renderTopCounters() {
@@ -412,6 +412,7 @@ function setAssocPreference(pref) {
     localStorage.setItem('assoc_preference', pref);
     updateAssocPreferenceUI(pref);
 }
+window.setAssocPreference = setAssocPreference;
 
 function updateAssocPreferenceUI(pref) {
     const btnVis = document.getElementById('btn-assoc-visual');
@@ -431,6 +432,7 @@ function updateAssocPreferenceUI(pref) {
         }
     }
 }
+window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
 function showSurveyDirectly() {
     if (window.surveyCompletedToday) {
@@ -475,6 +477,18 @@ function showSessionStarter() {
     if (progressBar) progressBar.classList.add('hidden');
     if (actionButtons) actionButtons.classList.add('hidden');
 }
+
+window.exitToSessionMenu = function() {
+    cardsQueue = [];
+    currentIndex = 0;
+    isFlipped = false;
+    if (flashcard) flashcard.classList.remove('rotate-y-180');
+    const surveyContainer = document.getElementById('survey-container');
+    if (surveyContainer) surveyContainer.classList.add('hidden');
+    showSessionStarter();
+    renderTopCounters();
+    updateGlobalBadges();
+};
 
 async function startSession(mode) {
     currentSessionMode = mode;
@@ -607,7 +621,7 @@ function renderIntroductionCard(card) {
                 <div class="text-${block.type === 'term' ? '[24px] sm:text-[28px] font-bold' : 'sm:text-base'} text-primary leading-relaxed break-words px-sm">
                     ${safeContent}
                 </div>
-                ${isSpeakable(block.content) || block.type === 'term' ? `
+                ${block.type === 'term' && isLanguageCard(card) ? `
                     <button onclick="event.stopPropagation(); window.replayAudioForText('${safeContent.replace(/'/g, "\\'")}');" 
                             class="text-outline hover:text-primary transition-all mt-xs inline-flex items-center gap-xs py-1 px-2 border border-outline-variant/30 rounded-none bg-surface-container-lowest active:scale-95 duration-75">
                         <span class="material-symbols-outlined text-[16px]">volume_up</span>
@@ -1154,8 +1168,28 @@ function getSelectedImportSubject() {
 
 async function loadDynamicSubjects() {
     try {
-        const res = await apiFetch('/api/subjects'); 
-        const subjects = await res.json();
+        let subjects = [];
+        try {
+            const res = await apiFetch('/api/subjects'); 
+            if (res.ok) {
+                subjects = await res.json();
+                if (Array.isArray(subjects) && subjects.length > 0) {
+                    localStorage.setItem('grinder_cached_subjects', JSON.stringify(subjects));
+                }
+            }
+        } catch (netErr) {
+            console.warn("Сбой сети при запросе предметов, пробуем локальный кэш:", netErr);
+        }
+
+        if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
+            const cached = localStorage.getItem('grinder_cached_subjects');
+            if (cached) {
+                try { subjects = JSON.parse(cached); } catch (e) {}
+            }
+        }
+        if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
+            subjects = ['chinese_hsk3', 'law_civil', 'python_pro', 'geometry', 'law_civil_rb'];
+        }
         const subjectNames = { 
             'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
             'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 
@@ -1464,8 +1498,8 @@ window.importPreset = async function(presetName) {
 };
 
 window.handleFileUpload = async function(event) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     const targetSubject = getSelectedImportSubject();
     if (!targetSubject) {
@@ -1476,14 +1510,21 @@ window.handleFileUpload = async function(event) {
 
     const statusEl = document.getElementById('file-import-status');
     if (statusEl) {
-        statusEl.textContent = `[ИЗВЛЕЧЕНИЕ ТЕКСТА ИЗ ${file.name.toUpperCase()}...]`;
+        const fileNames = Array.from(files).map(f => f.name).join(', ');
+        statusEl.textContent = files.length === 1 
+            ? `[ИЗВЛЕЧЕНИЕ: ${files[0].name.toUpperCase()}...]` 
+            : `[ОБРАБОТКА ПАЧКИ: ${files.length} ФАЙЛОВ (${fileNames.substring(0, 30)}...)...]`;
         statusEl.classList.remove('hidden');
     }
 
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
 
     const formData = new FormData();
-    formData.append('file', file);
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    // Сохраняем 'file' для обратной совместимости
+    formData.append('file', files[0]);
     formData.append('subject', targetSubject);
     formData.append('density', currentDetailDensity);
     formData.append('volume', currentVolumeLimit);
