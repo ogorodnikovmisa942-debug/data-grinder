@@ -78,6 +78,9 @@ class BulkCardMoveIn(BaseModel):
     card_ids: list[int]
     target_subject: str
 
+class BulkCardDeleteIn(BaseModel):
+    card_ids: list[int]
+
 class RegenerateMnemonicIn(BaseModel):
     preference: str = "visual"
 
@@ -838,6 +841,31 @@ async def bulk_move_cards(
         "moved_count": len(payload.card_ids),
         "target_subject": target_sub
     }
+
+# --- 8.5 МАССОВОЕ УДАЛЕНИЕ КАРТОЧЕК И ОЧИСТКА ПРЕДМЕТА ---
+@router.post("/data/cards/delete")
+async def bulk_delete_cards(
+    payload: BulkCardDeleteIn,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    if not payload.card_ids:
+        raise HTTPException(status_code=400, detail="Список идентификаторов пуст")
+    await db.execute(delete(Card).where(Card.id.in_(payload.card_ids), Card.user_id == current_user))
+    await db.commit()
+    return {"status": "success", "deleted_count": len(payload.card_ids)}
+
+@router.delete("/data/subjects/{subject_slug}")
+async def delete_subject_all(
+    subject_slug: str,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    sub = subject_slug.strip().lower()
+    await db.execute(delete(Card).where(Card.subject == sub, Card.user_id == current_user))
+    await db.execute(delete(Phrase).where(Phrase.subject == sub, Phrase.user_id == current_user))
+    await db.commit()
+    return {"status": "success", "deleted_subject": sub}
 
 # --- 9. ТАЙМЕР ПОМОДОРО ---
 @router.post("/timer/rest")

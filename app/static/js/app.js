@@ -1350,6 +1350,11 @@ async function loadConfigTab() {
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
+        const deleteSubBtn = document.getElementById('btn-delete-subject');
+        if (deleteSubBtn) {
+            if (currentSubject === 'all') deleteSubBtn.classList.add('hidden');
+            else deleteSubBtn.classList.remove('hidden');
+        }
         const presetContainer = document.getElementById('config-presets-container');
         const presetNotice = document.getElementById('config-presets-notice');
         if (currentSubject === 'all') {
@@ -1381,10 +1386,12 @@ async function setIntensityPreset(limit) {
     renderPresetButtonsDOM(limit);
     try {
         await apiFetch(`/api/config?subject=${currentSubject}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ daily_limit: limit, focus_mode_default: false })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ daily_limit: limit })
         });
-    } catch (e) { console.error("Фоновый сбой сохранения пресета:", e); }
+        await fetchActiveSession();
+    } catch (e) { console.error("Ошибка записи лимита:", e); }
 }
 
 window.toggleConfigHelp = function() {
@@ -1439,25 +1446,24 @@ async function loadDynamicSubjects() {
     try {
         let subjects = [];
         try {
-            const res = await apiFetch('/api/subjects'); 
+            const res = await apiFetch('/api/subjects');
             if (res.ok) {
-                subjects = await res.json();
-                if (Array.isArray(subjects) && subjects.length > 0) {
+                const serverSubs = await res.json();
+                if (Array.isArray(serverSubs)) {
+                    subjects = serverSubs;
                     localStorage.setItem('grinder_cached_subjects', JSON.stringify(subjects));
                 }
             }
         } catch (netErr) {
             console.warn("Сбой сети при запросе предметов, пробуем локальный кэш:", netErr);
-        }
-
-        if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
             const cached = localStorage.getItem('grinder_cached_subjects');
             if (cached) {
                 try { subjects = JSON.parse(cached); } catch (e) {}
             }
         }
-        if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
-            subjects = ['chinese_hsk3', 'law_civil', 'python_pro', 'geometry', 'law_civil_rb'];
+
+        if (!subjects || !Array.isArray(subjects)) {
+            subjects = [];
         }
         const subjectNames = { 
             'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
@@ -1496,15 +1502,22 @@ async function loadDynamicSubjects() {
             importSel.appendChild(newOpt);
 
             const tipEl = document.getElementById('subject-status-tip');
+            const inputNew = document.getElementById('import-new-subject-input');
             if (currentVal && (subjects.includes(currentVal) || currentVal === '__new__')) {
                 importSel.value = currentVal;
                 if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
             } else if (currentSubject && currentSubject !== 'all' && subjects.includes(currentSubject)) {
                 importSel.value = currentSubject;
                 if (tipEl) tipEl.textContent = `[ВЫБРАН: ${currentSubject.toUpperCase()}]`;
+                if (inputNew) inputNew.classList.add('hidden');
             } else if (subjects.length > 0) {
                 importSel.value = subjects[0];
                 if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subjects[0].toUpperCase()}]`;
+                if (inputNew) inputNew.classList.add('hidden');
+            } else {
+                importSel.value = '__new__';
+                if (inputNew) inputNew.classList.remove('hidden');
+                if (tipEl) tipEl.textContent = '[СОЗДАЙТЕ ПРЕДМЕТ]';
             }
         }
 
@@ -2596,6 +2609,87 @@ window.executeBulkMove = async function() {
     } catch (e) {
         console.error("Сбой массового переноса:", e);
         alert("Ошибка сети при массовом переносе.");
+    }
+};
+
+window.executeBulkDelete = async function() {
+    const checkedBoxes = document.querySelectorAll('.card-checkbox:checked');
+    const cardIds = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-card-id')));
+    
+    if (cardIds.length === 0) {
+        alert("Не выбрано ни одной карточки.");
+        return;
+    }
+    
+    if (!confirm(`Вы действительно хотите безвозвратно удалить ${cardIds.length} выбранных карточек?`)) {
+        return;
+    }
+    
+    try {
+        const response = await apiFetch('/api/data/cards/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ card_ids: cardIds })
+        });
+        
+        if (response.ok) {
+            cardIds.forEach(id => {
+                const row = document.getElementById(`archive-row-${id}`);
+                if (row) {
+                    row.style.transition = 'all 0.3s ease';
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateX(-20px)';
+                    setTimeout(() => {
+                        row.remove();
+                    }, 300);
+                }
+                localCardsArchive = localCardsArchive.filter(c => c.id !== id);
+            });
+            
+            deactivateSelectionMode();
+            updateGlobalBadges();
+            await loadDynamicSubjects();
+        } else {
+            const errData = await response.json();
+            alert("Ошибка при массовом удалении: " + (errData.detail || "Неизвестная ошибка"));
+        }
+    } catch (e) {
+        console.error("Сбой массового удаления:", e);
+        alert("Ошибка сети при массовом удалении.");
+    }
+};
+
+window.deleteCurrentSubject = async function() {
+    if (!currentSubject || currentSubject === 'all') {
+        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        return;
+    }
+    
+    const subName = currentSubject.toUpperCase();
+    if (!confirm(`ВНИМАНИЕ! Удалить предмет [${subName}] и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
+        return;
+    }
+    
+    try {
+        const response = await apiFetch(`/api/data/subjects/${encodeURIComponent(currentSubject)}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert(`Предмет [${subName}] успешно удален.`);
+            currentSubject = 'all';
+            const mainSel = document.getElementById('subject-selector');
+            if (mainSel) mainSel.value = 'all';
+            await loadDynamicSubjects();
+            await fetchActiveSession();
+            await loadConfigTab();
+        } else {
+            const errData = await response.json();
+            alert("Ошибка при удалении предмета: " + (errData.detail || "Неизвестная ошибка"));
+        }
+    } catch (e) {
+        console.error("Сбой при удалении предмета:", e);
+        alert("Ошибка сети при удалении предмета.");
     }
 };
 

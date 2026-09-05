@@ -184,20 +184,18 @@ async def get_session_cards(
         })
     return result
 
-DEFAULT_SYSTEM_SUBJECTS = ["chinese_hsk3", "law_civil", "python_pro", "geometry", "law_civil_rb"]
-
 # --- 2. СПИСОК ПРЕДМЕТОВ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/subjects")
 async def get_available_subjects(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(Card.subject).filter(Card.user_id == current_user).distinct()
-    res = await db.execute(stmt)
-    subjects = [s[0] for s in res.all() if s[0]]
-    # Всегда гарантируем наличие базовых библиотек + пользовательских предметов
-    combined = list(dict.fromkeys(subjects + DEFAULT_SYSTEM_SUBJECTS))
-    return combined
+    stmt_cards = select(Card.subject).filter(Card.user_id == current_user).distinct()
+    stmt_phrases = select(Phrase.subject).filter(Phrase.user_id == current_user).distinct()
+    res_cards = await db.execute(stmt_cards)
+    res_phrases = await db.execute(stmt_phrases)
+    subjects = list(dict.fromkeys([s[0] for s in res_cards.all() if s[0]] + [s[0] for s in res_phrases.all() if s[0]]))
+    return sorted(subjects)
 
 # --- 3. ОБРАБОТКА ОТВЕТОВ И ВАЛИДАЦИЯ FSRS В БД ---
 @router.post("/answer")

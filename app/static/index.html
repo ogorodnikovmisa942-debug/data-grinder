@@ -281,6 +281,9 @@
                     <button id="bulk-move-btn" onclick="executeBulkMove()" class="bg-primary text-on-primary px-sm py-1 border border-primary font-bold hover:bg-transparent hover:text-primary transition-all uppercase">
                         [ПЕРЕНЕСТИ]
                     </button>
+                    <button id="bulk-delete-btn" onclick="executeBulkDelete()" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-sm py-1 font-bold transition-all uppercase">
+                        [УДАЛИТЬ]
+                    </button>
                 </div>
             </div>
         </div>
@@ -327,8 +330,11 @@
             
             <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
             <div class="flex flex-col gap-sm shrink-0">
-                <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
-                    ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span>
+                <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
+                    <div>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></div>
+                    <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="hidden text-[9px] border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-2 py-0.5 font-bold uppercase transition-all">
+                        [УДАЛИТЬ ПРЕДМЕТ]
+                    </button>
                 </div>
                 
                 <div id="config-presets-container" class="flex flex-col gap-sm font-mono text-xs">
@@ -520,22 +526,6 @@
                     </button>
                     <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
                 </div>
-
-                <!-- Готовые базы знаний -->
-                <div class="flex flex-col gap-xs mt-sm pt-xs border-t border-outline-variant/40 shrink-0">
-                    <label class="text-[9px] font-bold tracking-wider uppercase text-outline font-mono">Готовые библиотеки знаний:</label>
-                    <div class="grid grid-cols-3 gap-xs font-mono text-[9px]">
-                        <button onclick="importPreset('hsk3')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
-                            [Китайский HSK3]
-                        </button>
-                        <button onclick="importPreset('python')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
-                            [Python Basics]
-                        </button>
-                        <button onclick="importPreset('law')" class="border border-outline hover:border-primary hover:text-primary transition-all p-1.5 text-center text-outline uppercase font-bold active:scale-95">
-                            [ГК РБ Статьи]
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -719,6 +709,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=36"></script>
+    <script src="/js/app.js?v=37"></script>
 </body>
 </html>
