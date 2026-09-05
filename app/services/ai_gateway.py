@@ -66,25 +66,35 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
     """Формирует компактные модификаторы промпта для управления глубиной и пожеланиями пользователя."""
     modifiers = []
     
-    # 1. Режим гранулярности
+    # 1. Режим гранулярности и лимиты объема
     if granularity_mode == "single_deep":
         modifiers.append("GRANULARITY DIRECTIVE: Create EXACTLY ONE comprehensive master-card. Synthesize all concepts, sub-clauses, formulas, and nuances of the entire text into this single definitive card. Do not create multiple cards.")
     elif granularity_mode == "cheatsheet":
         modifiers.append("GRANULARITY DIRECTIVE: Ultra-concise cheat-sheet mode. Simplify definitions to punchy 1-2 sentence core summaries. Maximum brevity.")
-        if volume == "low":
+        if volume == "auto":
+            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze content density and extract the optimal number of punchy blitz-cards (typically 5 to 15 cards).")
+        elif volume in ("low", "low_5"):
             modifiers.append("LIMIT: Maximum 5 cards.")
-        elif volume == "medium":
+        elif volume == "med_10":
+            modifiers.append("LIMIT: Maximum 10 cards.")
+        elif volume in ("medium", "med_15"):
             modifiers.append("LIMIT: Maximum 15 cards.")
-        elif volume == "high":
-            modifiers.append("LIMIT: Maximum 30 cards.")
-        elif volume == "max":
+        elif volume == "high_20":
+            modifiers.append("LIMIT: Maximum 20 cards.")
+        elif volume in ("high", "max"):
             modifiers.append("LIMIT: Extract all relevant items exhaustively.")
     else: # atomic
         modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards.")
-        if volume == "low":
+        if volume == "auto":
+            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze source text length and conceptual density. Automatically determine the optimal number of atomic flashcards (typically 5 to 20 cards). Do not generate filler cards; capture every key concept exhaustively.")
+        elif volume in ("low", "low_5"):
             modifiers.append("LIMIT: Maximum 5 cards.")
-        elif volume == "medium":
+        elif volume == "med_10":
+            modifiers.append("LIMIT: Maximum 10 cards.")
+        elif volume in ("medium", "med_15"):
             modifiers.append("LIMIT: Maximum 15 cards.")
+        elif volume == "high_20":
+            modifiers.append("LIMIT: Maximum 20 cards.")
         elif volume == "high":
             modifiers.append("LIMIT: Maximum 30 cards.")
         elif volume == "max":
@@ -148,11 +158,18 @@ async def call_gemini(prompt: str, system_instruction: str) -> dict:
         system_instruction=system_instruction,
         response_mime_type="application/json",
         response_schema=ParsedDataSchema,
+        thinking_config=types.ThinkingConfig(include_thoughts=False),
         temperature=0.2
     )
 
-    # Каскад 3-го поколения: 3.7 Flash -> 3.5 Flash -> 3.5 Flash-Lite -> 3.1 Flash-Lite
-    models_to_try = [settings.GEMINI_MODEL, "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+    # Каскад моделей: 3.5 Flash-Lite (основная дешевая) -> 3.7 Flash (запасная) -> 3.1 Flash-Lite -> 2.5 Flash-Lite
+    models_to_try = [
+        settings.GEMINI_MODEL,
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-lite"
+    ]
     models_to_try = list(dict.fromkeys(models_to_try))
 
     last_err = None
@@ -175,7 +192,7 @@ async def call_gemini(prompt: str, system_instruction: str) -> dict:
 
     if last_err:
         raise last_err
-    raise RuntimeError("Все модели Gemini 3.x недоступны.")
+    raise RuntimeError("Все модели Gemini недоступны.")
 
 # --- УНИВЕРСАЛЬНЫЙ ПАРСЕР ТЕКСТА ---
 async def parse_raw_text(
@@ -188,7 +205,11 @@ async def parse_raw_text(
     granularity_mode: str = "atomic",
     custom_instruction: str = ""
 ) -> dict:
-    if not text.strip():
+    import re
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text).strip()
+
+    if not text:
         return {"subject_domain": "generic", "subject_slug": target_subject or "generic", "phrase_title": "", "cards": []}
 
     subject_instruction = ""

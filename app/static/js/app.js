@@ -1281,8 +1281,17 @@ function initPomodoroEngine() {
 }
 
 let currentGranularityMode = 'atomic';
-let currentVolumeLimit = 'medium';
+let currentVolumeLimit = 'auto';
 let currentDetailDensity = 'medium';
+
+const VOLUME_SLIDER_STEPS = [
+    { value: 'auto', label: '[АВТО] Баланс ИИ', desc: 'оптимальный баланс ИИ' },
+    { value: 'low_5', label: '5 карт (минимум)', desc: 'до 5 карт' },
+    { value: 'med_10', label: '10 карт (сжато)', desc: 'до 10 карт' },
+    { value: 'med_15', label: '15 карт (стандарт)', desc: 'до 15 карт' },
+    { value: 'high_20', label: '20 карт (подробно)', desc: 'до 20 карт' },
+    { value: 'max', label: 'МАКСИМУМ (все данные)', desc: 'все ключевые термины' }
+];
 
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
@@ -1297,34 +1306,38 @@ window.setGranularityMode = function(mode) {
         }
     });
 
-    const volButtons = document.getElementById('import-volume-buttons');
+    const volSliderContainer = document.getElementById('import-volume-slider-container');
     const volLocked = document.getElementById('import-volume-locked');
     const volLabel = document.getElementById('import-volume-label');
 
     if (mode === 'single_deep') {
-        if (volButtons) volButtons.classList.add('hidden');
+        if (volSliderContainer) volSliderContainer.classList.add('hidden');
         if (volLocked) volLocked.classList.remove('hidden');
         if (volLabel) volLabel.textContent = '1 карта';
     } else {
-        if (volButtons) volButtons.classList.remove('hidden');
+        if (volSliderContainer) volSliderContainer.classList.remove('hidden');
         if (volLocked) volLocked.classList.add('hidden');
         updateVolumeLabel();
     }
     updateImportExplanation();
 };
 
+window.onVolumeSliderChange = function(sliderVal) {
+    const idx = parseInt(sliderVal, 10);
+    const step = VOLUME_SLIDER_STEPS[idx] || VOLUME_SLIDER_STEPS[0];
+    currentVolumeLimit = step.value;
+    const volLabel = document.getElementById('import-volume-label');
+    if (volLabel) volLabel.textContent = step.label;
+    updateImportExplanation();
+};
+
 window.setVolumeLimit = function(vol) {
     currentVolumeLimit = vol;
-    ['low', 'medium', 'high', 'max'].forEach(v => {
-        const el = document.getElementById(`vol-${v}`);
-        if (el) {
-            if (v === vol) {
-                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold';
-            } else {
-                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold';
-            }
-        }
-    });
+    const slider = document.getElementById('import-volume-slider');
+    const idx = VOLUME_SLIDER_STEPS.findIndex(s => s.value === vol || s.value.startsWith(vol));
+    if (slider && idx !== -1) {
+        slider.value = idx;
+    }
     updateVolumeLabel();
     updateImportExplanation();
 };
@@ -1332,8 +1345,8 @@ window.setVolumeLimit = function(vol) {
 function updateVolumeLabel() {
     const volLabel = document.getElementById('import-volume-label');
     if (!volLabel) return;
-    const map = { 'low': 'до 5 карт', 'medium': 'до 15 карт', 'high': 'до 30 карт', 'max': 'все данные' };
-    volLabel.textContent = map[currentVolumeLimit] || currentVolumeLimit;
+    const step = VOLUME_SLIDER_STEPS.find(s => s.value === currentVolumeLimit || (currentVolumeLimit === 'medium' && s.value === 'med_15') || (currentVolumeLimit === 'low' && s.value === 'low_5') || (currentVolumeLimit === 'high' && s.value === 'high_20'));
+    volLabel.textContent = step ? step.label : currentVolumeLimit;
 }
 
 window.setDetailDensity = function(density) {
@@ -1360,14 +1373,15 @@ function updateImportExplanation() {
     const explEl = document.getElementById('import-mode-explanation');
     if (!explEl) return;
 
+    const currentStep = VOLUME_SLIDER_STEPS.find(s => s.value === currentVolumeLimit || (currentVolumeLimit === 'medium' && s.value === 'med_15') || (currentVolumeLimit === 'low' && s.value === 'low_5') || (currentVolumeLimit === 'high' && s.value === 'high_20'));
+    const vText = currentStep ? currentStep.desc : (currentVolumeLimit === 'auto' ? 'оптимальный баланс ИИ' : currentVolumeLimit);
+
     if (currentGranularityMode === 'single_deep') {
         const dText = currentDetailDensity === 'low' ? 'краткое резюме' : currentDetailDensity === 'high' ? 'исчерпывающий разбор со всеми подпунктами' : 'определение и контекст';
         explEl.textContent = `> РЕЖИМ: 1 Большая карта | Объем: строго 1 карта | Глубина: ${dText} всей темы.`;
     } else if (currentGranularityMode === 'cheatsheet') {
-        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все термины' : 'до 15 карт';
         explEl.textContent = `> РЕЖИМ: Шпоры / Блиц | Объем: ${vText} | Глубина: выжимки по 1–2 предложения.`;
     } else { // atomic
-        const vText = currentVolumeLimit === 'low' ? 'до 5 карт' : currentVolumeLimit === 'high' ? 'до 30 карт' : currentVolumeLimit === 'max' ? 'все термины' : 'до 15 карт';
         const dText = currentDetailDensity === 'low' ? 'кратко (1–2 фразы)' : currentDetailDensity === 'high' ? 'подробно со всеми деталями' : 'суть + пример';
         explEl.textContent = `> РЕЖИМ: Обычные карточки по ключевым терминам | Объем: ${vText} | Глубина: ${dText}.`;
     }
@@ -1531,7 +1545,14 @@ window.handleImageOcr = async function(event) {
             }
         );
 
-        const recognizedText = (result && result.data && result.data.text) ? result.data.text.trim() : "";
+        let recognizedText = (result && result.data && result.data.text) ? result.data.text : "";
+        // Санитизация OCR-текста: удаление артефактов и сжатие пробелов (экономия токенов)
+        recognizedText = recognizedText
+            .replace(/\r\n/g, '\n')
+            .replace(/[ \t]+/g, ' ')
+            .replace(/\n\s*\n\s*\n+/g, '\n\n')
+            .trim();
+
         if (!recognizedText) {
             alert("Не удалось распознать текст на фото. Попробуйте более четкий снимок.");
             if (statusEl) statusEl.classList.add('hidden');
@@ -1605,6 +1626,8 @@ function startStagingSession(data) {
     if (overlay) {
         overlay.classList.remove('hidden');
         overlay.classList.add('flex');
+        document.getElementById('bottom-nav')?.classList.add('hidden');
+        document.body.classList.add('overflow-hidden');
     }
 
     renderCurrentStagingCard();
@@ -1751,6 +1774,8 @@ window.closeStagingOverlay = function() {
         overlay.classList.add('hidden');
         overlay.classList.remove('flex');
     }
+    document.getElementById('bottom-nav')?.classList.remove('hidden');
+    document.body.classList.remove('overflow-hidden');
 };
 
 window.commitApprovedStagingCards = async function() {

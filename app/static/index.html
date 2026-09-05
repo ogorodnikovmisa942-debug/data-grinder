@@ -375,15 +375,22 @@
                             <div class="flex flex-col gap-0.5">
                                 <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
                                     <span>Объем:</span>
-                                    <span id="import-volume-label" class="text-primary font-mono">до 15 карт</span>
+                                    <span id="import-volume-label" class="text-primary font-mono">[АВТО] Баланс ИИ</span>
                                 </div>
-                                <div id="import-volume-buttons" class="grid grid-cols-4 gap-0.5">
-                                    <button type="button" onclick="setVolumeLimit('low')" id="vol-low" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">5</button>
-                                    <button type="button" onclick="setVolumeLimit('medium')" id="vol-medium" class="border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold">15</button>
-                                    <button type="button" onclick="setVolumeLimit('high')" id="vol-high" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">30</button>
-                                    <button type="button" onclick="setVolumeLimit('max')" id="vol-max" class="border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold">MAX</button>
+                                <div id="import-volume-slider-container" class="flex flex-col gap-1 mt-1">
+                                    <input type="range" id="import-volume-slider" min="0" max="5" step="1" value="0"
+                                           oninput="onVolumeSliderChange(this.value)"
+                                           class="w-full accent-primary cursor-pointer h-1.5 bg-surface-container border border-outline-variant/60 appearance-none">
+                                    <div class="flex justify-between text-[7px] font-mono text-outline uppercase select-none px-0.5">
+                                        <span class="text-primary font-bold">[АВТО]</span>
+                                        <span>5</span>
+                                        <span>10</span>
+                                        <span>15</span>
+                                        <span>20</span>
+                                        <span>MAX</span>
+                                    </div>
                                 </div>
-                                <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-0.5 text-center text-[9px] text-secondary font-bold">
+                                <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-1 text-center text-[9px] text-secondary font-bold">
                                     [ФИКСИРОВАНО: 1 КАРТА]
                                 </div>
                             </div>
@@ -552,7 +559,7 @@
     <!-- ===================================================================== -->
     <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
     <!-- ===================================================================== -->
-    <div id="staging-overlay" class="hidden fixed inset-0 bg-background/98 z-50 flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="padding-top: max(var(--tg-safe-top, 24px), 24px); padding-bottom: max(var(--tg-safe-bottom, 16px), 16px);">
+    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: max(var(--tg-safe-top, 24px), 24px); padding-bottom: max(var(--tg-safe-bottom, 16px), 16px);">
         <!-- Верхняя панель песочницы -->
         <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
             <div class="flex flex-col gap-0.5">
@@ -642,7 +649,7 @@
     <!-- ===================================================================== -->
     <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ И РЕДАКТИРОВАНИЯ КАРТОЧЕК                    -->
     <!-- ===================================================================== -->
-    <div id="card-editor-modal" class="hidden fixed inset-0 bg-background/95 z-50 flex items-center justify-center p-md font-mono select-none">
+    <div id="card-editor-modal" class="hidden fixed inset-0 bg-black/70 z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
         <div class="w-full max-w-md bg-surface-container-lowest border border-primary p-md flex flex-col gap-sm shadow-xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center border-b border-outline-variant pb-xs">
                 <span id="card-editor-title" class="text-xs font-bold text-primary uppercase">РЕДАКТИРОВАНИЕ КАРТОЧКИ</span>
@@ -694,6 +701,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=29"></script>
+    <script src="/js/app.js?v=31"></script>
 </body>
 </html>
