@@ -115,7 +115,7 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
 
 # --- DEEPSEEK ВЫЗОВ (ЧЕРЕЗ HTTPX И OPENAI-СОВМЕСТИМЫЙ REST API) ---
 async def call_deepseek(prompt: str, system_instruction: str) -> dict:
-    """Вызывает DeepSeek 4 поколения (v4-flash / v4-pro) через стандартный REST API с поддержкой JSON Mode."""
+    """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode."""
     api_key = settings.DEEPSEEK_API_KEY
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
@@ -128,50 +128,26 @@ async def call_deepseek(prompt: str, system_instruction: str) -> dict:
         "Content-Type": "application/json"
     }
 
-    # Каскад моделей 4 поколения: deepseek-v4-flash -> deepseek-v4-pro -> deepseek-chat
-    models_to_try = [
-        settings.DEEPSEEK_MODEL,
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "deepseek-chat"
-    ]
-    models_to_try = list(dict.fromkeys(models_to_try))
+    payload = {
+        "model": settings.DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": f"Analyze and structure the following text into JSON flashcards:\n\n{prompt}"}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+        "max_tokens": 4096
+    }
 
-    last_err = None
-    for model_name in models_to_try:
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": f"Analyze and structure the following text into JSON flashcards:\n\n{prompt}"}
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.2,
-            "max_tokens": 4096
-        }
-
-        try:
-            print(f"[AI Gateway / DeepSeek] Попытка генерации с моделью: {model_name}...")
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, headers=headers, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    content = data["choices"][0]["message"]["content"]
-                    return json.loads(content)
-                else:
-                    err_msg = f"DeepSeek API error ({response.status_code}): {response.text}"
-                    print(f"[WARNING] Модель {model_name} вернула ошибку: {err_msg[:140]}")
-                    last_err = RuntimeError(err_msg)
-                    if response.status_code in (400, 404, 429, 503):
-                        continue
-        except Exception as e:
-            last_err = e
-            print(f"[WARNING] Сбой при вызове {model_name}: {e}")
-            await asyncio.sleep(0.5)
-
-    if last_err:
-        raise last_err
-    raise RuntimeError("Все модели DeepSeek недоступны.")
+    print(f"[AI Gateway / DeepSeek] Вызов модели: {settings.DEEPSEEK_MODEL}...")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            return json.loads(content)
+        else:
+            raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
 # --- GEMINI ВЫЗОВ (РЕЗЕРВНЫЙ / КАДРИРОВАННЫЙ КАСКАД) ---
 async def call_gemini(prompt: str, system_instruction: str) -> dict:
@@ -251,30 +227,13 @@ async def parse_raw_text(
     
     # 1. Если выбран DeepSeek
     if provider == "deepseek":
-        try:
-            print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}'...")
-            res = await call_deepseek(text, system_instruction)
-        except Exception as ds_err:
-            print(f"[WARNING] Сбой DeepSeek: {ds_err}. Попытка резервного вызова Gemini...")
-            if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "placeholder_gemini_key":
-                try:
-                    res = await call_gemini(text, system_instruction)
-                except Exception as gem_err:
-                    raise RuntimeError(f"DeepSeek ({ds_err}) и Gemini ({gem_err}) не ответили.")
-            else:
-                raise ds_err
+        print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}'...")
+        res = await call_deepseek(text, system_instruction)
 
     # 2. Если выбран Gemini
     else:
-        try:
-            print(f"[AI Gateway] Вызов Gemini ({settings.GEMINI_MODEL}) в режиме '{granularity_mode}'...")
-            res = await call_gemini(text, system_instruction)
-        except Exception as gem_err:
-            if settings.DEEPSEEK_API_KEY:
-                print(f"[WARNING] Сбой Gemini: {gem_err}. Попытка резервного вызова DeepSeek...")
-                res = await call_deepseek(text, system_instruction)
-            else:
-                raise gem_err
+        print(f"[AI Gateway] Вызов Gemini ({settings.GEMINI_MODEL}) в режиме '{granularity_mode}'...")
+        res = await call_gemini(text, system_instruction)
 
     if target_subject.strip() and isinstance(res, dict):
         res["subject_slug"] = target_subject.strip().lower()
@@ -294,35 +253,27 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
 
     system_instruction = "You are an expert mnemonic generator. Return strictly a raw JSON object with 'keyword' and 'verbal_cue'. No markdown."
 
-    if settings.AI_PROVIDER.lower() == "deepseek" and settings.DEEPSEEK_API_KEY:
-        models_to_try = [
-            settings.DEEPSEEK_MODEL,
-            "deepseek-v4-flash",
-            "deepseek-v4-pro",
-            "deepseek-chat"
-        ]
-        models_to_try = list(dict.fromkeys(models_to_try))
-        for model_name in models_to_try:
-            try:
-                url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
-                headers = {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-                payload = {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": system_instruction},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.3
-                }
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    res = await client.post(url, headers=headers, json=payload)
-                    if res.status_code == 200:
-                        content = res.json()["choices"][0]["message"]["content"]
-                        return json.loads(content)
-                    print(f"[AI Gateway] DeepSeek ({model_name}) mnemonic error: {res.text[:120]}")
-            except Exception as e:
-                print(f"[AI Gateway] Ошибка регенерации мнемоники через {model_name}: {e}")
+    if settings.AI_PROVIDER.lower() == "deepseek":
+        if not settings.DEEPSEEK_API_KEY:
+            raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
+        url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
+        headers = {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+        payload = {
+            "model": settings.DEEPSEEK_MODEL,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.3
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                content = res.json()["choices"][0]["message"]["content"]
+                return json.loads(content)
+            else:
+                raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 
     # Fallback to Gemini
     try:
