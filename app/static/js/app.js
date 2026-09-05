@@ -180,6 +180,124 @@ const COGNITIVE_ASCII_ARTS = [
 
 let flashcard, actionButtons, focusToggle, subjectSelector, body, cardText, cardSecondaryText, cardMainText, cardMnemonic, cardMnemonicContainer, cardCounter, progressFill;
 
+let trainDrag = { isDragging: false, hasMoved: false, startX: 0, startY: 0, currentX: 0, currentY: 0 };
+
+function initTrainGestures() {
+    const card = document.getElementById('flashcard');
+    if (!card || card._train_gestures_bound) return;
+    card._train_gestures_bound = true;
+
+    const onStart = (clientX, clientY) => {
+        const currentCard = cardsQueue[currentIndex];
+        if (!currentCard || (currentCard.state === 0 && !currentCard.has_seen_intro)) return;
+        if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+
+        trainDrag.isDragging = true;
+        trainDrag.hasMoved = false;
+        trainDrag.startX = clientX;
+        trainDrag.startY = clientY;
+        trainDrag.currentX = clientX;
+        trainDrag.currentY = clientY;
+        card.style.transition = 'none';
+    };
+
+    const onMove = (clientX, clientY) => {
+        if (!trainDrag.isDragging) return;
+        trainDrag.currentX = clientX;
+        trainDrag.currentY = clientY;
+        const deltaX = clientX - trainDrag.startX;
+        const deltaY = clientY - trainDrag.startY;
+
+        if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
+            trainDrag.hasMoved = true;
+        }
+
+        const rotate = deltaX * 0.05;
+        const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
+        card.style.transform = `translate(${deltaX}px, ${deltaY * 0.2}px) ${baseFlip}rotate(${rotate}deg)`;
+
+        const badgeGood = document.getElementById('train-badge-good');
+        const badgeAgain = document.getElementById('train-badge-again');
+
+        if (deltaX > 20) {
+            if (badgeGood) badgeGood.style.opacity = Math.min(1, (deltaX - 20) / 60).toString();
+            if (badgeAgain) badgeAgain.style.opacity = '0';
+        } else if (deltaX < -20) {
+            if (badgeAgain) badgeAgain.style.opacity = Math.min(1, (-deltaX - 20) / 60).toString();
+            if (badgeGood) badgeGood.style.opacity = '0';
+        } else {
+            if (badgeGood) badgeGood.style.opacity = '0';
+            if (badgeAgain) badgeAgain.style.opacity = '0';
+        }
+    };
+
+    const onEnd = () => {
+        if (!trainDrag.isDragging) return;
+        trainDrag.isDragging = false;
+        const deltaX = trainDrag.currentX - trainDrag.startX;
+        const badgeGood = document.getElementById('train-badge-good');
+        const badgeAgain = document.getElementById('train-badge-again');
+
+        if (deltaX > 75) {
+            card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+            const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
+            card.style.transform = `translate(120%, 20px) ${baseFlip}rotate(15deg)`;
+            card.style.opacity = '0';
+            if (badgeGood) badgeGood.style.opacity = '1';
+
+            setTimeout(() => {
+                card.style.transition = 'none';
+                card.style.transform = '';
+                card.style.opacity = '1';
+                if (badgeGood) badgeGood.style.opacity = '0';
+                submitCardRating(3);
+            }, 200);
+        } else if (deltaX < -75) {
+            card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+            const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
+            card.style.transform = `translate(-120%, 20px) ${baseFlip}rotate(-15deg)`;
+            card.style.opacity = '0';
+            if (badgeAgain) badgeAgain.style.opacity = '1';
+
+            setTimeout(() => {
+                card.style.transition = 'none';
+                card.style.transform = '';
+                card.style.opacity = '1';
+                if (badgeAgain) badgeAgain.style.opacity = '0';
+                submitCardRating(1);
+            }, 200);
+        } else {
+            card.style.transition = 'transform 0.2s ease';
+            card.style.transform = '';
+            if (badgeGood) badgeGood.style.opacity = '0';
+            if (badgeAgain) badgeAgain.style.opacity = '0';
+        }
+    };
+
+    card.addEventListener('touchstart', (e) => {
+        if (e.target.closest('button, select, input, textarea, a')) return;
+        const touch = e.touches[0];
+        onStart(touch.clientX, touch.clientY);
+    }, { passive: true });
+
+    card.addEventListener('touchmove', (e) => {
+        if (!trainDrag.isDragging) return;
+        const touch = e.touches[0];
+        onMove(touch.clientX, touch.clientY);
+    }, { passive: true });
+
+    card.addEventListener('touchend', () => onEnd());
+    card.addEventListener('touchcancel', () => onEnd());
+
+    card.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button, select, input, textarea, a')) return;
+        onStart(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup', () => onEnd());
+}
+
 function bindDOMPointers() {
     flashcard = document.getElementById('flashcard');
     actionButtons = document.getElementById('action-buttons');
@@ -217,6 +335,7 @@ function bindDOMPointers() {
 
     if (cardFront) {
         cardFront.onclick = () => {
+            if (trainDrag && trainDrag.hasMoved) return;
             const card = cardsQueue[currentIndex];
             if (!card) return;
             
@@ -236,13 +355,16 @@ function bindDOMPointers() {
 
     if (cardBack) {
         cardBack.onclick = (e) => {
-            if (e.target.closest('button')) return; 
+            if (e.target.closest('button, select, input, textarea, a')) return; 
+            if (trainDrag && trainDrag.hasMoved) return;
             if (cardsQueue.length === 0 || !isFlipped) return;
             isFlipped = false; 
             if (flashcard) flashcard.classList.remove('rotate-y-180');
             if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
         };
     }
+
+    initTrainGestures();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -281,6 +403,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
     }
     if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+
+    window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+        if (currentTab !== 'train') return;
+        if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+        const card = cardsQueue[currentIndex];
+        if (!card || (card.state === 0 && !card.has_seen_intro)) return;
+
+        if (e.code === 'Space') {
+            e.preventDefault();
+            if (!isFlipped) {
+                isFlipped = true;
+                if (flashcard) flashcard.classList.add('rotate-y-180');
+                if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
+                executeVoiceSynthesis(card.text);
+                if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
+            } else {
+                isFlipped = false;
+                if (flashcard) flashcard.classList.remove('rotate-y-180');
+                if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
+            }
+        } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(e.code)) {
+            if (isFlipped) {
+                e.preventDefault();
+                const ratingMap = {
+                    'Digit1': 1, 'Numpad1': 1,
+                    'Digit2': 2, 'Numpad2': 2,
+                    'Digit3': 3, 'Numpad3': 3,
+                    'Digit4': 4, 'Numpad4': 4
+                };
+                if (typeof window.submitCardRating === 'function') {
+                    window.submitCardRating(ratingMap[e.code]);
+                }
+            }
+        }
+    });
 });
 
 function isLanguageCard(card) {
@@ -636,10 +794,16 @@ function renderIntroductionCard(card) {
     // Кнопка навигации
     if (phase < blocks.length - 1) {
         html += `
-            <button onclick="event.stopPropagation(); advanceIntroduction()" 
-                    class="mt-auto w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase shrink-0">
-                [→ ${blocks[phase + 1].label}]
-            </button>
+            <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
+                <button onclick="event.stopPropagation(); advanceIntroduction()" 
+                        class="w-full border border-primary text-primary py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase">
+                    [→ ${blocks[phase + 1].label}]
+                </button>
+                <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
+                        class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-xs font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                    [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                </button>
+            </div>
         `;
     } else {
         if (!card._recall_checked) {
@@ -650,14 +814,20 @@ function renderIntroductionCard(card) {
                             class="w-full border border-dashed border-primary text-primary py-sm font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
                         [ПОКАЗАТЬ ОТВЕТ И ПРОВЕРИТЬ ПАМЯТЬ]
                     </button>
+                    <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
+                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-xs font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                        [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                    </button>
                 </div>
             `;
         } else {
             html += `
-                <button onclick="event.stopPropagation(); completeIntroduction()" 
-                        class="mt-auto w-full border border-primary bg-primary text-on-primary py-sm font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase shrink-0">
-                    [✓ Я ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
-                </button>
+                <div class="mt-auto w-full flex flex-col gap-xs shrink-0">
+                    <button onclick="event.stopPropagation(); completeIntroduction()" 
+                            class="w-full border border-primary bg-primary text-on-primary py-sm font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
+                        [✓ Я ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
+                    </button>
+                </div>
             `;
         }
     }
@@ -715,6 +885,31 @@ function completeIntroduction() {
     renderCurrentCard();
 }
 
+window.fastTrackIntroduction = function() {
+    const card = cardsQueue[currentIndex];
+    if (!card) return;
+    card.has_seen_intro = true;
+    card.state = 2; // Сразу в Review
+    
+    const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
+    apiFetch('/api/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            card_id: card.id,
+            rating: 4, // Easy
+            response_time: responseTimeMs,
+            is_introduction: true,
+            is_fast_track: true
+        })
+    }).then(res => { if (res.ok) updateGlobalBadges(); })
+      .catch(err => console.error("Ошибка fast-track синхронизации:", err));
+    
+    currentIndex++;
+    recalculateQueueCounters();
+    renderCurrentCard();
+};
+
 function renderReviewCard(card) {
     isFlipped = false;
     if (flashcard) flashcard.classList.remove('rotate-y-180'); 
@@ -770,6 +965,21 @@ function renderReviewCard(card) {
                 cardMnemonicContainer.classList.remove('hidden');
             } else { cardMnemonicContainer.classList.add('hidden'); }
         }
+
+        // Показываем/скрываем бейдж проблемной карты (Leech)
+        const leechBadge = document.getElementById('card-leech-badge');
+        const leechText = document.getElementById('card-leech-text');
+        const isLeech = card.is_leech || (card.lapses && card.lapses >= 4);
+        if (leechBadge) {
+            if (isLeech) {
+                if (leechText) leechText.textContent = `[!] СЛОЖНАЯ КАРТА (СБОЕВ: ${card.lapses || 4})`;
+                leechBadge.classList.remove('hidden');
+                leechBadge.classList.add('flex');
+            } else {
+                leechBadge.classList.add('hidden');
+                leechBadge.classList.remove('flex');
+            }
+        }
     }, 200);
 
     if (cardCounter) cardCounter.textContent = `${currentIndex + 1} / ${cardsQueue.length}`;
@@ -778,46 +988,105 @@ function renderReviewCard(card) {
     cardShowTimestamp = Date.now();
 }
 
+window.regenerateMnemonic = async function(e) {
+    if (e) e.stopPropagation();
+    const currentCard = cardsQueue[currentIndex];
+    if (!currentCard) return;
+    
+    const pref = localStorage.getItem('assoc_preference') || 'acoustic';
+    const leechBtn = e ? e.target : null;
+    const oldBtnText = leechBtn ? leechBtn.textContent : '';
+    if (leechBtn) leechBtn.textContent = '...';
+    
+    try {
+        const res = await apiFetch(`/api/management/cards/${currentCard.id}/regenerate_mnemonic`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preference: pref })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.mnemonic) {
+                currentCard.mnemonic = data.mnemonic;
+                const m = data.mnemonic;
+                if (cardMnemonicContainer && cardMnemonic) {
+                    cardMnemonic.textContent = typeof m === 'object' ? `${m.keyword}: ${m.verbal_cue}` : m;
+                    cardMnemonicContainer.classList.remove('hidden');
+                }
+            }
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(err.detail || "Ошибка перегенерации мнемоники");
+        }
+    } catch (err) {
+        console.error("Ошибка мнемоники:", err);
+        alert("Ошибка сети при генерации мнемоники");
+    } finally {
+        if (leechBtn) leechBtn.textContent = oldBtnText;
+    }
+};
+
+window.submitCardRating = function(rating) {
+    if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+    const currentCard = cardsQueue[currentIndex];
+    if (!currentCard) return;
+
+    const payloadCardId = currentCard.id;
+    const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
+    const hasAssoc = currentCard.mnemonic ? true : false;
+
+    if (rating === 1) { 
+        if (currentCard.state === 2) {
+            currentCard.state = 3; 
+            currentCard.is_anchored = true;
+        }
+        currentCard.lapses = (currentCard.lapses || 0) + 1;
+        if (currentCard.lapses >= 4) {
+            currentCard.is_leech = true;
+        }
+        const copy = { ...currentCard, _intra_relearn: true };
+        const remainingCount = cardsQueue.length - (currentIndex + 1);
+        if (remainingCount >= 4) {
+            // Вставляем через 3-4 карточки внутри сессии
+            const offset = 3 + Math.floor(Math.random() * 2);
+            const insertIndex = currentIndex + 1 + offset;
+            cardsQueue.splice(insertIndex, 0, copy);
+        } else {
+            cardsQueue.push(copy);
+        }
+    }
+
+    currentIndex++;
+    recalculateQueueCounters(); 
+    renderCurrentCard();
+
+    apiFetch('/api/answer', {
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            card_id: payloadCardId, 
+            rating: rating,
+            response_time: responseTimeMs,
+            has_association: hasAssoc,
+            is_cram: currentSessionMode === 'cram'
+        })
+    }).then(res => { if (res.ok) updateGlobalBadges(); })
+      .catch(err => console.error("[Data Grinder] Фоновая ошибка синхронизации:", err));
+};
+
+function submitCardRating(rating) {
+    return window.submitCardRating(rating);
+}
+
 if (document.getElementById('action-buttons')) {
     document.getElementById('action-buttons').addEventListener('click', (e) => {
-        const targetButton = e.target.closest('button'); if (!targetButton) return;
+        const targetButton = e.target.closest('button'); 
+        if (!targetButton) return;
         e.stopPropagation(); 
         const rating = parseInt(targetButton.getAttribute('data-rating'));
-        const currentCard = cardsQueue[currentIndex]; if (!currentCard) return;
-
-        const payloadCardId = currentCard.id;
-        const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-        const hasAssoc = currentCard.mnemonic ? true : false;
-
-        if (rating === 1) { 
-            if (currentCard.state === 2) {
-                currentCard.state = 3; currentCard.is_anchored = true;
-            }
-            const copy = {...currentCard};
-            const remainingCount = cardsQueue.length - (currentIndex + 1);
-            if (remainingCount > 0) {
-                const randomOffset = Math.floor(Math.random() * (remainingCount + 1));
-                const insertIndex = currentIndex + 1 + randomOffset;
-                cardsQueue.splice(insertIndex, 0, copy);
-            } else {
-                cardsQueue.push(copy);
-            }
+        if (rating && typeof window.submitCardRating === 'function') {
+            window.submitCardRating(rating);
         }
-
-        currentIndex++;
-        recalculateQueueCounters(); renderCurrentCard();
-
-        apiFetch('/api/answer', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                card_id: payloadCardId, 
-                rating: rating,
-                response_time: responseTimeMs,
-                has_association: hasAssoc,
-                is_cram: currentSessionMode === 'cram'
-            })
-        }).then(res => { if (res.ok) updateGlobalBadges(); })
-          .catch(err => console.error("[Data Grinder] Фоновая ошибка синхронизации:", err));
     });
 }
 

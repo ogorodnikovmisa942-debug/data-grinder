@@ -20,6 +20,7 @@ class AnswerIn(BaseModel):
     has_association: bool | None = None
     is_cram: bool = False
     is_introduction: bool = False
+    is_fast_track: bool = False
 
 def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
     """
@@ -163,6 +164,7 @@ async def get_session_cards(
     for c in full_pool:
         phrase_text = phrase_map.get(c.phrase_id, "") if c.is_anchored else ""
 
+        lapses_count = c.lapses or 0
         result.append({
             "id": c.id, 
             "text": c.text, 
@@ -176,7 +178,9 @@ async def get_session_cards(
             "has_seen_intro": c.has_seen_intro,
             "intro_phase": c.intro_phase,
             "content_type": c.content_type,
-            "example": c.example if c.example else ""
+            "example": c.example if c.example else "",
+            "lapses": lapses_count,
+            "is_leech": lapses_count >= 4
         })
     return result
 
@@ -243,7 +247,7 @@ async def handle_answer(
         card.state = state
         card.next_review = next_review
         card.last_review = now
-        if payload.is_introduction:
+        if payload.is_introduction or payload.is_fast_track:
             card.has_seen_intro = True
 
     # Определяем наличие ассоциации, если не передано явно

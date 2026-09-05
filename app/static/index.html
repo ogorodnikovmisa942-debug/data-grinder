@@ -117,6 +117,14 @@
 
             <!-- Главная зона карточки: Теперь полностью свободна от наложений -->
             <div class="flex-1 flex items-center justify-center relative perspective-1000 w-full min-h-0 py-md" id="card-zone">
+                <!-- Визуальные бейджи свайпа тренировки -->
+                <div id="train-badge-good" class="absolute top-8 right-8 z-30 pointer-events-none opacity-0 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase font-mono rotate-12 transition-opacity duration-150 bg-surface-container-lowest/90">
+                    [✓ ВСПОМНИЛ]
+                </div>
+                <div id="train-badge-again" class="absolute top-8 left-8 z-30 pointer-events-none opacity-0 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase font-mono -rotate-12 transition-opacity duration-150 bg-surface-container-lowest/90">
+                    [✕ НЕ ВСПОМНИЛ]
+                </div>
+
                 <div class="relative w-full max-w-[390px] aspect-[4/5] transition-transform duration-500 transform-style-3d border border-outline-variant bg-surface-container-lowest shrink-0 shadow-sm" id="flashcard">
                     
                     <!-- Лицевая сторона -->
@@ -182,6 +190,12 @@
 
                     <!-- Обратная сторона -->
                     <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-md sm:p-lg flex flex-col justify-center items-center border border-outline-variant gap-sm sm:gap-md text-center overflow-y-auto">
+                        <!-- Бейдж проблемной карты (Leech) -->
+                        <div id="card-leech-badge" class="hidden w-full bg-error-container/20 border border-secondary text-secondary p-1 text-[10px] font-mono uppercase font-bold flex justify-between items-center shrink-0">
+                            <span id="card-leech-text">[!] СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
+                            <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[9px] underline hover:text-primary">[МНЕМОНИКА]</button>
+                        </div>
+
                         <button id="voice-btn-back" class="absolute top-md left-md text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
                             <span class="material-symbols-outlined text-[20px]">volume_up</span>
                         </button>
@@ -703,6 +717,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=32"></script>
+    <script src="/js/app.js?v=33"></script>
 </body>
 </html>

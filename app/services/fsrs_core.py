@@ -6,6 +6,17 @@ from datetime import datetime, timedelta
 # Стандартные веса FSRS v4 для базовой настройки интервалов
 W = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.28, 2.61]
 
+def calculate_target_interval(stability: float, target_retention: float) -> int:
+    """
+    Рассчитывает интервал в днях на основе стабильности (S) и целевого Retention (R).
+    Формула FSRS: I = S * (ln(R) / ln(0.9))
+    При R=0.9 множитель = 1.0. При R=0.8 интервалы длиннее (~2.1x), при R=0.95 — короче (~0.49x).
+    """
+    safe_r = max(0.70, min(0.98, target_retention))
+    factor = math.log(safe_r) / math.log(0.9)
+    raw_interval = stability * factor
+    return max(1, round(raw_interval))
+
 def apply_fuzz(interval_days: int) -> int:
     """
     Добавляет псевдослучайный джиттер (+/- 8%) к интервалу повторения,
@@ -43,6 +54,8 @@ def calculate_intervals(
         # Мгновенное вспоминание (<2.5с) слегка снижает сложность
         latency_penalty = -0.2
 
+    safe_retention = max(0.70, min(0.98, target_retention))
+
     # 1. Если карточка новая (First review)
     if card.state == 0:
         new_stability = W[rating - 1]
@@ -52,8 +65,8 @@ def calculate_intervals(
             new_state = 1  # Переводим в этап обучения (Learning)
             next_review = now + timedelta(minutes=5)
         elif rating == 4:
-            new_state = 2  # Сразу в Review (интервал в днях)
-            interval_days = apply_fuzz(max(1, round(new_stability)))
+            new_state = 2  # Сразу в Review (интервал в днях с учетом retention)
+            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
             next_review = now + timedelta(days=interval_days)
         else:
             new_state = 1
@@ -67,16 +80,15 @@ def calculate_intervals(
             next_review = now + timedelta(minutes=5)
             return float(card.stability), float(card.difficulty), card.state, next_review, elapsed_days
         else:
-            new_stability = W[2] if rating == 3 else W[1]
+            new_stability = W[3] if rating == 4 else (W[2] if rating == 3 else W[1])
             new_difficulty = max(1.0, min(10.0, card.difficulty - W[6] * (rating - 3) + latency_penalty))
             new_state = 2
-            interval_days = apply_fuzz(max(1, round(new_stability)))
+            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
             next_review = now + timedelta(days=interval_days)
             return float(new_stability), max(1.0, min(10.0, float(new_difficulty))), new_state, next_review, elapsed_days
 
     # 3. Основной цикл повторения (Review)
     elif card.state == 2:
-        safe_retention = max(0.7, min(0.98, target_retention))
         if card.stability > 0:
             retrievability = math.exp(math.log(safe_retention) * elapsed_days / card.stability)
         else:
@@ -98,7 +110,7 @@ def calculate_intervals(
             new_stability *= hard_modifier * easy_modifier
             new_state = 2
             
-            interval_days = apply_fuzz(max(1, round(new_stability)))
+            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
             next_review = now + timedelta(days=interval_days)
 
         return max(0.1, float(new_stability)), max(1.0, min(10.0, float(new_difficulty))), new_state, next_review, elapsed_days
