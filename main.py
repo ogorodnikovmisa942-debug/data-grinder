@@ -9,7 +9,24 @@ from app.database.models import Base
 # 1. Создание таблиц при запуске (асинхронно через lifespan) и запуск миграций
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создаем новые таблицы, если они не существуют
+    # 0. Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек)
+    import os
+    import shutil
+    from datetime import datetime
+    
+    db_file = "data_grinder.db"
+    if os.path.exists(db_file) and os.path.getsize(db_file) > 0:
+        try:
+            os.makedirs("backups", exist_ok=True)
+            shutil.copy2(db_file, "backups/data_grinder.latest.bak")
+            today_bak = f"backups/data_grinder_{datetime.now().strftime('%Y%m%d')}.bak"
+            if not os.path.exists(today_bak):
+                shutil.copy2(db_file, today_bak)
+            print("[SAFE-BACKUP] Автоматический бэкап базы успешно сохранен в backups/")
+        except Exception as b_err:
+            print(f"[WARNING] Не удалось создать автобэкап базы: {b_err}")
+
+    # 1. Создаем новые таблицы, если они не существуют
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
