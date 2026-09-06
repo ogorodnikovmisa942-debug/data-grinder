@@ -47,6 +47,7 @@ class CardStagingItem(BaseModel):
     example: str = ""
     initial_difficulty_tier: str = "medium"
     mnemonic: dict | str | None = None
+    theme: str = ""
 
 class StagingCommitIn(BaseModel):
     subject: str
@@ -100,14 +101,8 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
     clean_sub = subject_slug.strip().lower() or "generic"
     clean_title = phrase_title.strip() or "Новый блок знаний"
     
-    phrase_res = await db.execute(
-        select(Phrase).filter(Phrase.text == clean_title, Phrase.subject == clean_sub, Phrase.user_id == user_id)
-    )
-    phrase = phrase_res.scalar_one_or_none()
-    if not phrase:
-        phrase = Phrase(text=clean_title, subject=clean_sub, user_id=user_id)
-        db.add(phrase)
-        await db.flush()
+    # Кэш тем (Phrases) для поддержки мульти-тематической кластеризации в одном пакете карточек
+    phrase_cache = {}
 
     cards_created = 0
     now = datetime.utcnow()
@@ -116,6 +111,21 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
         c_trans = c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")
         if not c_text or not c_trans:
             continue
+
+        c_theme = (c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "") or "").strip() or clean_title
+
+        if c_theme not in phrase_cache:
+            phrase_res = await db.execute(
+                select(Phrase).filter(Phrase.text == c_theme, Phrase.subject == clean_sub, Phrase.user_id == user_id)
+            )
+            phrase = phrase_res.scalar_one_or_none()
+            if not phrase:
+                phrase = Phrase(text=c_theme, subject=clean_sub, user_id=user_id)
+                db.add(phrase)
+                await db.flush()
+            phrase_cache[c_theme] = phrase
+
+        target_phrase = phrase_cache[c_theme]
 
         c_sec = c.get("secondary_text", "") if isinstance(c, dict) else getattr(c, "secondary_text", "")
         c_ex = c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")
@@ -136,7 +146,7 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
                 stability = 1.5
 
         card = Card(
-            phrase_id=phrase.id,
+            phrase_id=target_phrase.id,
             user_id=user_id,
             subject=clean_sub,
             text=c_text,

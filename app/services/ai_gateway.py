@@ -19,6 +19,7 @@ class CardSchema(BaseModel):
     example: str = Field(description="Пример применения или кейс")
     initial_difficulty_tier: str = Field(description="easy, medium или hard")
     mnemonic: Optional[MnemonicSchema] = None
+    theme: Optional[str] = Field(default="", description="Название темы или подраздела для кластеризации")
 
 class ParsedDataSchema(BaseModel):
     subject_domain: str = Field(description="language, law, code или generic")
@@ -75,7 +76,13 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
 - single_deep: Synthesize the entirety of the text into exactly ONE master reference card.
 - cheatsheet: Ultra-compact blitz cards with punchy 1-2 sentence core summaries.
 
-4. STRICT MINIFIED JSON SCHEMA SPECIFICATION:
+4. MULTI-SOURCE THEMATIC CLUSTERING & GROUPING:
+- When input contains multiple photos, scanned pages, or mixed notes (e.g. photos of different topics taken in random order):
+  * Semantically cluster and group related concepts into their respective topics/themes.
+  * Set 'h' on each card to its specific thematic cluster or topic name (e.g., 'Договор купли-продажи' vs 'Состав преступления').
+  * Exhaustively extract cards across ALL provided photos/pages. Never restrict cards to just the first photo or first topic.
+
+5. STRICT MINIFIED JSON SCHEMA SPECIFICATION:
 To conserve bandwidth, eliminate token waste, and maximize inference speed, output ONLY a valid raw JSON object matching this exact minified key structure:
 {
   "domain": "language|law|code|generic",
@@ -87,7 +94,8 @@ To conserve bandwidth, eliminate token waste, and maximize inference speed, outp
       "s": "Secondary context / hint / article / signature",
       "d": "Back definition / answer / translation",
       "e": "Concrete example / code snippet / judicial case",
-      "l": "easy|medium|hard"
+      "l": "easy|medium|hard",
+      "h": "Specific thematic topic / cluster name (especially if source has multiple mixed topics)"
     }
   ]
 }
@@ -175,13 +183,15 @@ def unpack_minified_cards(raw_data: dict, fallback_subject: str = "generic") -> 
         if not str(front).strip() and not str(back).strip():
             continue
 
+        theme = item.get("h") or item.get("theme") or item.get("topic") or title
         cards.append({
             "text": str(front).strip(),
             "secondary_text": str(sec).strip(),
             "translation": str(back).strip(),
             "example": str(ex).strip(),
             "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
-            "mnemonic": None  # Ленивая генерация мнемоник
+            "mnemonic": None,  # Ленивая генерация мнемоник
+            "theme": str(theme).strip() or title
         })
 
     return {
@@ -407,6 +417,12 @@ async def parse_raw_text(
         f"VOLUME DIRECTIVE: {volume}",
         f"EXPLANATION DENSITY: {density}"
     ]
+    if "=== МАТЕРИАЛ" in text or "=== СТРАНИЦА" in text or "--- Стр." in text or "=== ДОКУМЕНТ" in text:
+        user_directives.append(
+            "MULTI-SOURCE / MULTI-PAGE CLUSTERING (CRITICAL): The source contains multiple pages or separate photos with potentially mixed topics. "
+            "Group cards into their respective thematic clusters, specify 'h' (topic name) for each card, "
+            "and ensure proportional coverage across ALL provided photos and pages without omitting any page."
+        )
     if custom_instruction.strip():
         user_directives.append(f"USER CUSTOM OVERRIDE (HIGHEST PRIORITY): {custom_instruction.strip()}")
 

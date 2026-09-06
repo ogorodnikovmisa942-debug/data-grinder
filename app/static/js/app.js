@@ -1311,7 +1311,7 @@ function renderFilteredArchiveDOM() {
     container.innerHTML = filtered.map(c => {
         const labels = ['NEW', 'LRN', 'REV', 'REL'];
         return `
-            <div class="flex justify-between items-center py-2 font-mono text-sm gap-sm border-b border-outline-variant/30 archive-row cursor-pointer" 
+            <div class="flex justify-between items-center py-2.5 px-2 font-mono text-sm gap-sm border-b border-outline-variant/30 archive-row cursor-pointer rounded-xl hover:bg-neutral-100/70 dark:hover:bg-neutral-800/50 transition-colors" 
                  id="archive-row-${c.id}" 
                  data-card-id="${c.id}"
                  onmousedown="startPress(event, ${c.id})"
@@ -1322,7 +1322,7 @@ function renderFilteredArchiveDOM() {
                  ontouchmove="cancelPress()"
                  onclick="onRowClick(event, ${c.id})">
                 <div class="flex items-center gap-xs w-full min-w-0">
-                    <input type="checkbox" class="card-checkbox hidden rounded-none border-outline text-primary focus:ring-0 mr-xs" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
+                    <input type="checkbox" class="card-checkbox hidden rounded-md border-neutral-300 dark:border-neutral-700 text-primary focus:ring-0 mr-xs" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
                     <div class="flex justify-between items-center w-full min-w-0">
                         <span class="font-bold text-base text-primary w-1/5 truncate select-none">${escapeHTML(c.text)}</span>
                         <span class="text-outline w-1/4 truncate text-xs select-none">${escapeHTML(c.secondary_text) || '---'}</span>
@@ -1469,9 +1469,9 @@ function renderPresetButtonsDOM(activeLimit) {
         const btn = document.getElementById(`btn-preset-${val}`);
         if (btn) {
             if (val === activeLimit) {
-                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase";
+                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs";
             } else {
-                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-primary border-outline-variant font-mono text-xs uppercase";
+                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-primary border-neutral-300 dark:border-neutral-700 font-mono text-xs uppercase rounded-xl shadow-xs hover:border-primary";
             }
         }
     });
@@ -2016,6 +2016,63 @@ window.handleFileUpload = async function(event) {
     }
 };
 
+// Предварительная оптимизация изображения перед передачей в OCR (защита от OOM в мобильном браузере и ускорение в 3-5 раз)
+async function preprocessImageForOcr(file) {
+    return new Promise((resolve) => {
+        try {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                const maxDim = 1800; // Оптимальное разрешение для четкого OCR текста без утечек памяти
+                let width = img.width;
+                let height = img.height;
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Преобразование в grayscale и повышение резкости/контраста
+                try {
+                    const imgData = ctx.getImageData(0, 0, width, height);
+                    const d = imgData.data;
+                    const contrast = 1.2;
+                    const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+                    for (let i = 0; i < d.length; i += 4) {
+                        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+                        const adjusted = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
+                        d[i] = adjusted;
+                        d[i + 1] = adjusted;
+                        d[i + 2] = adjusted;
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                } catch (pxErr) {}
+
+                canvas.toBlob((blob) => {
+                    resolve(blob || file);
+                }, 'image/jpeg', 0.88);
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve(file);
+            };
+            img.src = url;
+        } catch (err) {
+            resolve(file);
+        }
+    });
+}
+
 window.handleImageOcr = async function(event) {
     const files = event.target.files ? Array.from(event.target.files) : [];
     if (files.length === 0) return;
@@ -2030,8 +2087,9 @@ window.handleImageOcr = async function(event) {
     const statusEl = document.getElementById('file-import-status');
     if (statusEl) {
         statusEl.textContent = files.length === 1 
-            ? "[TESSERACT OCR: ИНИЦИАЛИЗАЦИЯ ДВИЖКА...]" 
-            : `[TESSERACT OCR: ПОДГОТОВКА ПАЧКИ ИЗ ${files.length} ФОТО...]`;
+            ? "[OCR: ОПТИМИЗАЦИЯ ФОТО...]" 
+            : `[OCR: ОПТИМИЗАЦИЯ ПАЧКИ ИЗ ${files.length} ФОТО...]`;
+        statusEl.className = "text-[10px] font-mono text-center text-primary font-bold py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 border border-neutral-300 dark:border-neutral-700 block";
         statusEl.classList.remove('hidden');
     }
 
@@ -2044,60 +2102,90 @@ window.handleImageOcr = async function(event) {
 
     const recognizedPages = [];
     const totalFiles = files.length;
+    let failedCount = 0;
 
     try {
         for (let idx = 0; idx < totalFiles; idx++) {
-            const file = files[idx];
+            const rawFile = files[idx];
             const pageNum = idx + 1;
             
             if (statusEl) {
-                statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: РАСПОЗНАВАНИЕ ФОТО...]`;
+                statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: СЖАТИЕ ФОТО (${rawFile.name})...]`;
             }
 
-            const result = await Tesseract.recognize(
-                file,
-                'rus+eng',
-                {
-                    logger: m => {
-                        if (m.status === 'recognizing text' && statusEl) {
-                            const pct = Math.round((m.progress || 0) * 100);
-                            statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: ${pct}%]`;
+            // Предварительное сжатие фото на canvas (избегаем OOM крашей в мобильном браузере)
+            const processedBlob = await preprocessImageForOcr(rawFile);
+
+            if (statusEl) {
+                statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: РАСПОЗНАВАНИЕ ТЕКСТА...]`;
+            }
+
+            try {
+                const result = await Tesseract.recognize(
+                    processedBlob,
+                    'rus+eng',
+                    {
+                        logger: m => {
+                            if (m.status === 'recognizing text' && statusEl) {
+                                const pct = Math.round((m.progress || 0) * 100);
+                                statusEl.textContent = `[OCR ${pageNum}/${totalFiles}: ${pct}%]`;
+                            }
                         }
                     }
+                );
+
+                let pageText = (result && result.data && result.data.text) ? result.data.text : "";
+                // Санитизация OCR-текста
+                pageText = pageText
+                    .replace(/\r\n/g, '\n')
+                    .replace(/[ \t]+/g, ' ')
+                    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+                    .trim();
+
+                if (pageText) {
+                    const header = `=== МАТЕРИАЛ: ФОТО ${pageNum} (${rawFile.name}) ===\n`;
+                    recognizedPages.push(header + pageText);
+                } else {
+                    console.warn(`[OCR WARN] Не удалось извлечь текст из фото ${pageNum} (${rawFile.name})`);
+                    failedCount++;
                 }
-            );
-
-            let pageText = (result && result.data && result.data.text) ? result.data.text : "";
-            // Санитизация OCR-текста
-            pageText = pageText
-                .replace(/\r\n/g, '\n')
-                .replace(/[ \t]+/g, ' ')
-                .replace(/\n\s*\n\s*\n+/g, '\n\n')
-                .trim();
-
-            if (pageText) {
-                const header = totalFiles > 1 ? `=== СТРАНИЦА / ФОТО ${pageNum} (${file.name}) ===\n` : '';
-                recognizedPages.push(header + pageText);
+            } catch (singleErr) {
+                console.error(`[OCR ERROR] Сбой при распознавании фото ${pageNum}:`, singleErr);
+                failedCount++;
             }
         }
 
         const combinedText = recognizedPages.join('\n\n');
 
         if (!combinedText.trim()) {
-            alert("Не удалось распознать текст на выбранных фото. Попробуйте более четкие снимки.");
+            alert("Не удалось распознать текст на выбранных фото. Попробуйте сделать более четкие или контрастные снимки.");
             if (statusEl) statusEl.classList.add('hidden');
             return;
         }
 
-        if (statusEl) {
-            statusEl.textContent = `[OCR ЗАВЕРШЕН! ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} СИМВ.), ЗАПУСК ИИ...]`;
+        // Помещаем распознанный текст в текстовое поле импорта (добавляем или перезаписываем)
+        const textarea = document.getElementById('import-text');
+        if (textarea) {
+            if (textarea.value.trim()) {
+                textarea.value = textarea.value.trim() + '\n\n' + combinedText;
+            } else {
+                textarea.value = combinedText;
+            }
+            // Плавная прокрутка к полю с текстом
+            textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
-        const textarea = document.getElementById('import-text');
-        if (textarea) textarea.value = combinedText;
+        // ВАЖНО: Больше НЕ вызываем importTextKnowledge() автоматически!
+        // Пользователь сам проверяет текст, настраивает пожелания и нажимает [СЕЙЧАС] или [НОЧЬЮ]!
+        if (statusEl) {
+            statusEl.textContent = `[✓ РАСПОЗНАНО ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} ЗНАКОВ)]`;
+            statusEl.className = "text-[10px] font-mono text-center text-primary font-bold py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 border border-neutral-300 dark:border-neutral-700 block";
+        }
 
-        await importTextKnowledge();
-        if (statusEl) statusEl.classList.add('hidden');
+        alert(
+            `Успешно распознано: ${recognizedPages.length} из ${totalFiles} фото (${combinedText.length} символов).\n\n` +
+            `Текст помещен в поле ввода.\nПроверьте предмет и нажмите «[⚡ СЕЙЧАС]» или «[🌙 НОЧЬЮ -50%]» для нарезки карточек ИИ.`
+        );
     } catch (ocrErr) {
         console.error("Ошибка пакетного OCR:", ocrErr);
         alert("Ошибка распознавания фото: " + ocrErr.message);
@@ -2219,6 +2307,17 @@ function renderCurrentStagingCard() {
     const mnemEl = document.getElementById('staging-card-mnemonic');
 
     if (numEl) numEl.textContent = `Карточка ${currentStagingIndex + 1} из ${total}`;
+    const themeBadge = document.getElementById('staging-card-theme-badge');
+    if (themeBadge) {
+        const cTheme = (card.theme || '').trim();
+        if (cTheme && cTheme !== stagingTheme) {
+            themeBadge.textContent = cTheme.toUpperCase();
+            themeBadge.title = `Тематический кластер: ${cTheme}`;
+            themeBadge.classList.remove('hidden');
+        } else {
+            themeBadge.classList.add('hidden');
+        }
+    }
     if (tierEl) tierEl.textContent = card.initial_difficulty_tier || 'medium';
     if (textEl) textEl.textContent = card.text || '---';
     if (secEl) secEl.textContent = card.secondary_text || '';
