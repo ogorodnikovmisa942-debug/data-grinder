@@ -5,16 +5,23 @@
     <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
     <title>Data Grinder - Панель Управления</title>
     
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     
     <script>
         tailwind.config = {
             darkMode: "class",
             theme: {
                 extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+                    },
                     "colors": {
                         "surface-container-highest": "#d4e4fc", "on-tertiary-container": "#868382",
                         "outline-variant": "#c4c7c7", "inverse-on-surface": "#eaf1ff",
@@ -125,30 +132,41 @@
                     [✕ НЕ ВСПОМНИЛ]
                 </div>
 
-                <div class="relative w-full max-w-[390px] aspect-[4/5] transition-transform duration-500 transform-style-3d border border-outline-variant bg-surface-container-lowest shrink-0 shadow-sm" id="flashcard">
+                <div class="relative w-full max-w-[390px] aspect-[4/5] min-h-[460px] transition-transform duration-500 transform-style-3d rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-surface-container-lowest shrink-0 shadow-lg shadow-neutral-900/5 dark:shadow-black/40" id="flashcard">
                     
                     <!-- Лицевая сторона -->
-                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-between bg-surface-container-lowest p-sm sm:p-md cursor-pointer select-none">
-                        <button id="voice-btn-front" class="absolute top-2 left-2 text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
+                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-between bg-surface-container-lowest p-5 sm:p-6 rounded-2xl cursor-pointer select-none">
+                        <button id="voice-btn-front" class="absolute top-3 left-3 text-neutral-400 hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
                             <span class="material-symbols-outlined text-[18px]">volume_up</span>
                         </button>
-                        <div id="card-counter" class="absolute top-2 right-2 text-xs text-outline opacity-50 font-mono">0 / 0</div>
+                        <div id="card-counter" class="absolute top-3 right-3 text-xs text-neutral-400 dark:text-neutral-500 font-mono font-medium">0 / 0</div>
                         
                         <!-- Обычный режим (Лицевая сторона повторения) -->
-                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-center items-center py-2">
-                            <span class="text-[9px] font-mono uppercase text-outline tracking-wider mb-2">[ВОПРОС / ТЕРМИН]</span>
-                            <span id="card-text" class="font-bold text-[22px] sm:text-[28px] text-center leading-relaxed text-primary px-sm break-words">Загрузка...</span>
-                            <span id="card-front-hint" class="text-[11px] font-mono text-secondary mt-2 hidden"></span>
-                            <span class="text-[9px] font-mono text-outline/60 mt-4 uppercase tracking-tighter">[НАЖМИТЕ ИЛИ СВАЙПНИТЕ ДЛЯ ОТВЕТА]</span>
+                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-center items-center py-4 text-center">
+                            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 mb-4">
+                                <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                                <span class="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 font-mono">ВОПРОС</span>
+                            </div>
+                            
+                            <h2 id="card-text" class="font-bold text-2xl sm:text-3xl text-neutral-900 dark:text-neutral-100 leading-snug px-3 break-words">Загрузка...</h2>
+                            
+                            <div id="card-front-hint" class="text-xs font-medium text-amber-600 dark:text-amber-400 mt-2.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 hidden"></div>
+                            
+                            <div class="mt-8 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
+                                <span class="material-symbols-outlined text-[14px]">touch_app</span>
+                                <span>Нажмите или свайпните для ответа</span>
+                            </div>
                         </div>
 
                         <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, Вопрос ВСЕГДА закреплен сверху) -->
                         <div id="card-front-intro" class="hidden w-full h-full flex flex-col justify-between pt-6 pb-1 overflow-hidden">
                             <!-- Закрепленный намертво заголовок термина/вопроса -->
-                            <div class="w-full shrink-0 flex flex-col items-center border-b border-outline-variant/40 pb-2 mb-2">
-                                <span class="text-[8px] font-mono uppercase text-secondary font-bold tracking-wider mb-0.5">● РЕЖИМ ЗНАКОМСТВА</span>
-                                <div id="card-intro-term" class="text-lg sm:text-xl font-bold text-primary text-center px-1 break-words leading-tight">---</div>
-                                <div id="card-intro-secondary" class="text-[10px] text-outline font-mono mt-0.5 hidden">---</div>
+                            <div class="w-full shrink-0 flex flex-col items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3 mb-2">
+                                <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider mb-1.5">
+                                    ● РЕЖИМ ЗНАКОМСТВА
+                                </div>
+                                <div id="card-intro-term" class="text-xl sm:text-2xl font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-tight">---</div>
+                                <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
                             </div>
 
                             <!-- Центральная область с содержимым (компактная, не уезжает) -->
@@ -157,20 +175,20 @@
                             </div>
 
                             <!-- Закрепленный внизу блок кнопок управления -->
-                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-1.5 pt-2 border-t border-outline-variant/30">
+                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-2 pt-2.5 border-t border-neutral-200/60 dark:border-neutral-800">
                                 <!-- Динамические кнопки -->
                             </div>
                         </div>
                         
                         <!-- Когнитивный опрос FSRS -->
-                        <div id="survey-container" class="hidden absolute inset-0 bg-surface-container-lowest p-md flex flex-col items-center justify-center font-mono text-xs gap-sm select-none" onclick="event.stopPropagation()">
-                            <h2 class="font-bold text-base text-secondary mb-xs uppercase tracking-wider">Сессия Завершена</h2>
-                            <p class="text-outline text-center mb-md leading-relaxed text-[11px]">Оцените когнитивные метрики сессии для аналитики FSRS:</p>
+                        <div id="survey-container" class="hidden absolute inset-0 bg-surface-container-lowest p-5 rounded-2xl flex flex-col items-center justify-center text-xs gap-3 select-none" onclick="event.stopPropagation()">
+                            <h2 class="font-bold text-base text-secondary uppercase tracking-wider font-mono">Сессия Завершена</h2>
+                            <p class="text-neutral-500 dark:text-neutral-400 text-center leading-relaxed text-[11px]">Оцените когнитивные метрики сессии для аналитики FSRS:</p>
                             
-                            <div class="w-full flex flex-col gap-xs text-[10px]">
-                                <div class="flex justify-between items-center border-b border-outline-variant/30 pb-xs">
-                                    <span class="text-outline">1. Умственная нагрузка (1-5):</span>
-                                    <select id="survey-mental" class="bg-transparent border border-outline-variant text-[10px] p-0.5 text-primary focus:ring-0 focus:border-primary font-bold">
+                            <div class="w-full flex flex-col gap-2 text-[11px]">
+                                <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-1.5">
+                                    <span class="text-neutral-600 dark:text-neutral-300">1. Умственная нагрузка:</span>
+                                    <select id="survey-mental" class="bg-transparent border border-neutral-300 dark:border-neutral-700 text-xs p-1 rounded text-primary focus:ring-primary focus:border-primary font-bold">
                                         <option value="1">1 - Легко</option>
                                         <option value="2">2</option>
                                         <option value="3" selected>3 - Средне</option>
@@ -178,9 +196,9 @@
                                         <option value="5">5 - Тяжело</option>
                                     </select>
                                 </div>
-                                <div class="flex justify-between items-center border-b border-outline-variant/30 pb-xs mt-xs">
-                                    <span class="text-outline">2. Польза ассоциаций (1-5):</span>
-                                    <select id="survey-assoc" class="bg-transparent border border-outline-variant text-[10px] p-0.5 text-primary focus:ring-0 focus:border-primary font-bold">
+                                <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-1.5">
+                                    <span class="text-neutral-600 dark:text-neutral-300">2. Польза ассоциаций:</span>
+                                    <select id="survey-assoc" class="bg-transparent border border-neutral-300 dark:border-neutral-700 text-xs p-1 rounded text-primary focus:ring-primary focus:border-primary font-bold">
                                         <option value="1">1 - Нет пользы</option>
                                         <option value="2">2</option>
                                         <option value="3" selected>3 - Полезно</option>
@@ -188,9 +206,9 @@
                                         <option value="5">5 - Отлично</option>
                                     </select>
                                 </div>
-                                <div class="flex justify-between items-center border-b border-outline-variant/30 pb-xs mt-xs">
-                                    <span class="text-outline">3. Уверенность в памяти (1-5):</span>
-                                    <select id="survey-retention" class="bg-transparent border border-outline-variant text-[10px] p-0.5 text-primary focus:ring-0 focus:border-primary font-bold">
+                                <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-1.5">
+                                    <span class="text-neutral-600 dark:text-neutral-300">3. Уверенность в памяти:</span>
+                                    <select id="survey-retention" class="bg-transparent border border-neutral-300 dark:border-neutral-700 text-xs p-1 rounded text-primary focus:ring-primary focus:border-primary font-bold">
                                         <option value="1">1 - Низкая</option>
                                         <option value="2">2</option>
                                         <option value="3" selected>3 - Средняя</option>
@@ -200,57 +218,64 @@
                                 </div>
                             </div>
                             
-                            <button id="survey-submit-btn" class="w-full border border-primary text-primary mt-lg py-sm font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono">
+                            <button id="survey-submit-btn" class="w-full bg-primary text-on-primary mt-3 py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase">
                                 [ОТПРАВИТЬ ОТЧЕТ СЕССИИ]
                             </button>
                         </div>
                     </div>
 
-                    <!-- Обратная сторона (Компактный структурированный вид) -->
-                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-sm sm:p-md flex flex-col justify-between items-center border border-outline-variant text-center overflow-y-auto select-none">
-                        <!-- Верхняя шапка обратной стороны: Leech бейдж + Вопрос-напоминание -->
-                        <div class="w-full shrink-0 flex flex-col items-center gap-1">
+                    <!-- Обратная сторона (Гармоничная 3-зонная структура) -->
+                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-5 sm:p-6 rounded-2xl flex flex-col justify-between items-center text-center overflow-y-auto select-none">
+                        <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
+                        <div class="w-full shrink-0 flex flex-col items-center gap-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
-                            <div id="card-leech-badge" class="hidden w-full bg-error-container/20 border border-secondary text-secondary p-1 text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0">
+                            <div id="card-leech-badge" class="hidden w-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 p-1.5 rounded-lg text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0 mb-1">
                                 <span id="card-leech-text">[!] СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
-                                <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[9px] underline hover:text-primary">[МНЕМОНИКА]</button>
+                                <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[10px] underline hover:text-primary">[МНЕМОНИКА]</button>
                             </div>
 
-                            <button id="voice-btn-back" class="absolute top-2 left-2 text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
+                            <button id="voice-btn-back" class="absolute top-3 left-3 text-neutral-400 hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
                                 <span class="material-symbols-outlined text-[18px]">volume_up</span>
                             </button>
 
-                            <!-- Напоминание вопроса/термина мелким шрифтом -->
-                            <div class="text-[10px] text-outline uppercase font-mono tracking-wider truncate max-w-[85%]">
-                                [ВОПРОС: <span id="card-back-term-text" class="text-primary font-bold">---</span>]
+                            <!-- Четкий заголовок вопроса/термина -->
+                            <div class="flex items-center gap-1.5 max-w-[85%]">
+                                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 shrink-0">ВОПРОС:</span>
+                                <span id="card-back-term-text" class="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 truncate">---</span>
                             </div>
-                            <div id="card-secondary-container" class="hidden text-[11px] text-secondary font-mono">
-                                <span id="card-secondary-text">---</span>
-                            </div>
-                        </div>
-
-                        <!-- Центр: Главный ответ / Определение -->
-                        <div class="w-full my-auto flex flex-col items-center justify-center py-1">
-                            <span id="card-main-label" class="block text-[9px] text-outline uppercase mb-0.5 tracking-wider font-mono">Определение</span>
-                            <h3 id="card-main-text" class="text-base sm:text-lg md:text-xl font-medium text-on-surface-variant leading-snug px-sm break-words">---</h3>
                             
-                            <!-- Пример (если есть) -->
-                            <div id="card-example-container" class="hidden w-full mt-1.5 px-sm">
-                                <p id="card-example-text" class="text-[11px] text-outline italic leading-tight break-words"></p>
+                            <!-- Контекстный бейдж (Pinyin, подтема и т.д.) -->
+                            <div id="card-secondary-container" class="hidden">
+                                <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">---</span>
                             </div>
                         </div>
 
-                        <!-- Низ: Ассоциация / Мнемоника в аккуратной рамке -->
-                        <div id="card-mnemonic-container" class="w-full shrink-0 mt-auto bg-surface p-2 border border-outline-variant/60 hidden text-center relative group font-mono">
-                            <div class="flex items-center justify-between text-[9px] text-primary uppercase font-bold mb-0.5">
-                                <span>[АССОЦИАЦИЯ]</span>
+                        <!-- Центральная зона: Определение (Крупный понятный шрифт, без пустот) -->
+                        <div class="w-full flex-1 flex flex-col items-center justify-center py-3 my-auto">
+                            <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1.5">ОПРЕДЕЛЕНИЕ</span>
+                            <h3 id="card-main-text" class="text-lg sm:text-xl md:text-2xl font-semibold text-neutral-900 dark:text-neutral-100 leading-relaxed px-2 break-words">---</h3>
+                            
+                            <!-- Пример (стилизован как элегантная цитата с акцентной чертой) -->
+                            <div id="card-example-container" class="hidden w-full mt-3 px-2">
+                                <div class="border-l-2 border-primary/50 pl-3 py-0.5 text-left">
+                                    <p id="card-example-text" class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 italic leading-relaxed break-words"></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
+                        <div id="card-mnemonic-container" class="w-full shrink-0 bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left relative group hidden">
+                            <div class="flex items-center justify-between text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
+                                <span class="flex items-center gap-1 font-mono">
+                                    <span>💡</span> АССОЦИАЦИЯ
+                                </span>
                                 <div class="flex gap-2">
-                                    <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[9px] text-outline">Скрыть</button>
-                                    <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[9px] text-primary">Обновить</button>
+                                    <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Скрыть</button>
+                                    <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[10px] text-amber-600 dark:text-amber-400 font-mono">Обновить</button>
                                 </div>
                             </div>
                             <div id="mnemonic-content" class="transition-opacity duration-300">
-                                <p id="card-mnemonic" class="text-[11px] text-on-surface-variant leading-snug break-words"></p>
+                                <p id="card-mnemonic" class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words"></p>
                             </div>
                         </div>
                     </div>
@@ -259,22 +284,22 @@
             </div>
 
             <!-- Блок управляющих кнопок сессии -->
-            <div class="w-full flex items-center border border-outline-variant/40 mt-md shrink-0 bg-surface-container-lowest h-[60px]" id="action-buttons">
-                <button data-rating="1" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent text-secondary hover:bg-error-container/20 transition-all active:scale-95 duration-75 border-r border-outline-variant/30">
-                    <span class="font-mono font-bold text-xs uppercase tracking-wider">Again</span>
-                    <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">Вообще мимо</span>
+            <div class="w-full flex items-center gap-1.5 p-1 border border-neutral-200/80 dark:border-neutral-800 mt-md shrink-0 bg-neutral-100/80 dark:bg-neutral-900/60 rounded-2xl h-[64px]" id="action-buttons">
+                <button data-rating="1" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 active:scale-95 transition-all duration-100 border border-rose-200/60 dark:border-rose-900/40">
+                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Again</span>
+                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Вообще мимо</span>
                 </button>
-                <button data-rating="2" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent text-secondary hover:bg-error-container/20 transition-all active:scale-95 duration-75 border-r border-outline-variant/30">
-                    <span class="font-mono font-bold text-xs uppercase tracking-wider">Hard</span>
-                    <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">С трудом</span>
+                <button data-rating="2" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 active:scale-95 transition-all duration-100 border border-amber-200/60 dark:border-amber-900/40">
+                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Hard</span>
+                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">С трудом</span>
                 </button>
-                <button data-rating="3" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent text-primary hover:bg-surface-container transition-all active:scale-95 duration-75 border-r border-outline-variant/30">
-                    <span class="font-mono font-bold text-xs uppercase tracking-wider">Good</span>
-                    <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">Вспомнил</span>
+                <button data-rating="3" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 active:scale-95 transition-all duration-100 border border-emerald-200/60 dark:border-emerald-900/40">
+                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Good</span>
+                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Вспомнил</span>
                 </button>
-                <button data-rating="4" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent text-outline hover:bg-surface-container transition-all active:scale-95 duration-75">
-                    <span class="font-mono font-bold text-xs uppercase tracking-wider">Easy</span>
-                    <span class="text-[8px] opacity-70 uppercase tracking-tighter mt-0.5">Слишком легко</span>
+                <button data-rating="4" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 active:scale-95 transition-all duration-100 border border-sky-200/60 dark:border-sky-900/40">
+                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Easy</span>
+                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Слишком легко</span>
                 </button>
             </div>
         </div>
@@ -742,6 +767,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=38"></script>
+    <script src="/js/app.js?v=39"></script>
 </body>
 </html>

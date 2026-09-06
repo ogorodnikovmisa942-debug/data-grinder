@@ -12,9 +12,16 @@
     transform: rotateY(180deg);
 }
 
-/* Стабильные 100% высоты WebView без вылетов за границы экрана */
-body {
+html, body {
     height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+#flashcard {
+    will-change: transform;
+    transform-style: preserve-3d;
 }
 
 /* Изменение прозрачности для плавного скрытия статус-бара */
@@ -88,13 +95,11 @@ body {
     filter: blur(0);
 }
 
-/* Право: Строгий стиль для кодексов */
+/* Право: Строгий акцентный стиль для кодексов */
 .template-law #card-main-text {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    border-left: 3px solid var(--primary);
-    padding-left: 12px;
+    border-left: 3px solid #2563eb;
+    padding-left: 14px;
     text-align: left;
-    font-size: 0.9em;
 }
 
 /* Карточка в режиме знакомства — убираем cursor-pointer, т.к. клик не переворачивает */

@@ -126,16 +126,20 @@ function renderFSRSButtons(cardSubject) {
     const container = document.getElementById('action-buttons');
     if (!container) return;
     
+    const colorStyles = {
+        1: 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200/60 dark:border-rose-900/40',
+        2: 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-amber-200/60 dark:border-amber-900/40',
+        3: 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40',
+        4: 'text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 border-sky-200/60 dark:border-sky-900/40'
+    };
+    
     container.innerHTML = [1, 2, 3, 4].map(rating => {
         const config = labels[rating];
-        const colorClass = rating === 1 ? 'text-secondary hover:bg-error-container/20' : 
-                          rating === 2 ? 'text-secondary hover:bg-error-container/20' :
-                          rating === 3 ? 'text-primary hover:bg-surface-container' :
-                                         'text-outline hover:bg-surface-container';
+        const style = colorStyles[rating];
         return `
-            <button data-rating="${rating}" class="flex-1 h-full flex flex-col items-center justify-center bg-transparent ${colorClass} transition-all active:scale-95 duration-75 ${rating < 4 ? 'border-r border-outline-variant/30' : ''}">
-                <span class="font-mono font-bold text-xs uppercase tracking-wider">${escapeHTML(config.label)}</span>
-                <span class="text-[8px] text-outline opacity-70 uppercase tracking-tighter mt-0.5">${escapeHTML(config.hint)}</span>
+            <button data-rating="${rating}" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest ${style} active:scale-95 transition-all duration-100 border">
+                <span class="font-bold text-xs uppercase tracking-wider font-mono">${escapeHTML(config.label)}</span>
+                <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">${escapeHTML(config.hint)}</span>
             </button>
         `;
     }).join('');
@@ -766,7 +770,7 @@ function renderIntroductionCard(card) {
     let mnemonicFormatted = '';
     if (card.mnemonic) {
         const m = card.mnemonic;
-        mnemonicFormatted = typeof m === 'object' ? `<b>${escapeHTML(m.keyword)}</b>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
+        mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
     }
     
     // Фаза: 0 - Обзор (Preview), 1 - Самопроверка (Recall)
@@ -778,20 +782,20 @@ function renderIntroductionCard(card) {
         // ШАГ 1: КОМПАКТНЫЙ ОБЗОР (Вопрос + Определение + Мнемоника на одном экране!)
         if (bodyEl) {
             bodyEl.innerHTML = `
-                <div class="w-full flex flex-col gap-2 my-auto animate-fade-in text-center">
+                <div class="w-full flex flex-col gap-2.5 my-auto animate-fade-in text-center">
                     <!-- Определение -->
-                    <div class="bg-surface p-2 border border-outline-variant/50">
-                        <span class="block text-[9px] text-outline uppercase font-mono tracking-wider mb-1">[ОПРЕДЕЛЕНИЕ]</span>
-                        <div class="text-sm sm:text-base text-primary font-medium leading-relaxed break-words">
+                    <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
+                        <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
+                        <div class="text-base sm:text-lg text-neutral-900 dark:text-neutral-100 font-semibold leading-relaxed break-words">
                             ${escapeHTML(card.translation)}
                         </div>
                     </div>
                     
                     <!-- Мнемоника / Ассоциация (если есть) -->
                     ${mnemonicFormatted ? `
-                        <div class="bg-surface p-2 border border-primary/40 font-mono text-left">
-                            <span class="block text-[8px] text-primary uppercase font-bold tracking-wider mb-0.5">[АССОЦИАЦИЯ ДЛЯ ЗАПОМИНАНИЯ]</span>
-                            <div class="text-xs text-on-surface-variant leading-snug break-words">
+                        <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
+                            <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono">💡 АССОЦИАЦИЯ</span>
+                            <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
                                 ${mnemonicFormatted}
                             </div>
                         </div>
@@ -799,8 +803,10 @@ function renderIntroductionCard(card) {
 
                     <!-- Пример (если есть) -->
                     ${card.example && card.example !== '---' ? `
-                        <div class="text-[11px] text-outline italic text-center px-1 break-words">
-                            Пример: ${escapeHTML(card.example)}
+                        <div class="border-l-2 border-primary/50 pl-3 py-0.5 text-left">
+                            <div class="text-xs text-neutral-500 dark:text-neutral-400 italic break-words">
+                                «${escapeHTML(card.example)}»
+                            </div>
                         </div>
                     ` : ''}
                 </div>
@@ -810,11 +816,11 @@ function renderIntroductionCard(card) {
         if (footerEl) {
             footerEl.innerHTML = `
                 <button onclick="event.stopPropagation(); advanceIntroduction()" 
-                        class="w-full border border-primary bg-primary text-on-primary py-2 font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
+                        class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs">
                     [→ ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ]
                 </button>
                 <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                        class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
                     [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
                 </button>
             `;
@@ -825,21 +831,21 @@ function renderIntroductionCard(card) {
             if (bodyEl) {
                 bodyEl.innerHTML = `
                     <div onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                         class="w-full h-full my-auto flex flex-col items-center justify-center border-2 border-dashed border-primary/50 bg-surface/50 p-4 cursor-pointer hover:bg-primary/5 transition-all text-center animate-fade-in group">
-                        <span class="material-symbols-outlined text-primary text-3xl mb-1 group-hover:scale-110 transition-transform">visibility</span>
+                         class="w-full h-full my-auto flex flex-col items-center justify-center border-2 border-dashed border-primary/40 bg-primary/5 rounded-xl p-5 cursor-pointer hover:bg-primary/10 transition-all text-center animate-fade-in group">
+                        <span class="material-symbols-outlined text-primary text-3xl mb-2 group-hover:scale-110 transition-transform">visibility</span>
                         <div class="text-xs font-mono font-bold text-primary uppercase">[ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ]</div>
-                        <div class="text-[10px] text-outline font-mono mt-1">Попробуйте воспроизвести значение по памяти</div>
+                        <div class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">Попробуйте воспроизвести значение по памяти</div>
                     </div>
                 `;
             }
             if (footerEl) {
                 footerEl.innerHTML = `
                     <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                            class="w-full border border-primary text-primary py-2 font-bold tracking-wide hover:bg-surface-container transition-all text-xs font-mono uppercase">
+                            class="w-full border border-primary text-primary py-2.5 rounded-xl font-bold tracking-wide hover:bg-primary/10 transition-all text-xs font-mono uppercase">
                         [ПОКАЗАТЬ ОТВЕТ]
                     </button>
                     <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
                         [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
                     </button>
                 `;
@@ -848,17 +854,17 @@ function renderIntroductionCard(card) {
             // Ответ раскрыт после самопроверки
             if (bodyEl) {
                 bodyEl.innerHTML = `
-                    <div class="w-full flex flex-col gap-2 my-auto animate-fade-in text-center">
-                        <div class="bg-surface p-2 border border-outline-variant/50">
-                            <span class="block text-[9px] text-outline uppercase font-mono tracking-wider mb-1">[ОПРЕДЕЛЕНИЕ]</span>
-                            <div class="text-sm sm:text-base text-primary font-medium leading-relaxed break-words">
+                    <div class="w-full flex flex-col gap-2.5 my-auto animate-fade-in text-center">
+                        <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
+                            <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
+                            <div class="text-base sm:text-lg text-neutral-900 dark:text-neutral-100 font-semibold leading-relaxed break-words">
                                 ${escapeHTML(card.translation)}
                             </div>
                         </div>
                         ${mnemonicFormatted ? `
-                            <div class="bg-surface p-2 border border-primary/40 font-mono text-left">
-                                <span class="block text-[8px] text-primary uppercase font-bold tracking-wider mb-0.5">[АССОЦИАЦИЯ]</span>
-                                <div class="text-xs text-on-surface-variant leading-snug break-words">
+                            <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
+                                <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono">💡 АССОЦИАЦИЯ</span>
+                                <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
                                     ${mnemonicFormatted}
                                 </div>
                             </div>
@@ -869,11 +875,11 @@ function renderIntroductionCard(card) {
             if (footerEl) {
                 footerEl.innerHTML = `
                     <button onclick="event.stopPropagation(); completeIntroduction()" 
-                            class="w-full border border-primary bg-primary text-on-primary py-2 font-bold tracking-wide hover:bg-transparent hover:text-primary transition-all text-xs font-mono uppercase">
+                            class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs">
                         [✓ ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
                     </button>
                     <button onclick="event.stopPropagation(); stepBackIntroduction()" 
-                            class="w-full border border-outline-variant/40 text-outline hover:text-primary hover:border-primary py-1 font-bold tracking-wide transition-all text-[10px] font-mono uppercase">
+                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
                         [← ВЕРНУТЬСЯ К ОБЗОРУ]
                     </button>
                 `;
@@ -1027,7 +1033,7 @@ function renderReviewCard(card) {
         const exampleText = document.getElementById('card-example-text');
         if (exampleContainer && exampleText) {
             if (card.example && card.example.trim() && card.example !== '---') {
-                exampleText.textContent = `Пример: ${card.example}`;
+                exampleText.textContent = `«${card.example.trim()}»`;
                 exampleContainer.classList.remove('hidden');
             } else {
                 exampleContainer.classList.add('hidden');
@@ -1037,7 +1043,11 @@ function renderReviewCard(card) {
         if (cardMnemonicContainer && cardMnemonic) {
             if (card.mnemonic) {
                 let m = card.mnemonic;
-                cardMnemonic.textContent = typeof m === 'object' ? `${m.keyword}: ${m.verbal_cue}` : m;
+                if (typeof m === 'object') {
+                    cardMnemonic.innerHTML = `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}`;
+                } else {
+                    cardMnemonic.textContent = m;
+                }
                 cardMnemonicContainer.classList.remove('hidden');
             } else { 
                 cardMnemonicContainer.classList.add('hidden'); 
