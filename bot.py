@@ -17,7 +17,7 @@ from app.database.session import AsyncSessionLocal
 from app.database.models import UserSession, GenerationJob
 from app.api.endpoints.management import save_cards_to_database
 from app.services.ai_gateway import parse_raw_text
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PROXY_URL = os.getenv("TELEGRAM_PROXY")
@@ -130,6 +130,19 @@ def is_deepseek_offpeak() -> bool:
 async def night_grind_worker():
     """Фоновый воркер Ночного Грайндера: обработка отложенных очередей в часы скидок."""
     print("[Night Grind Worker] Воркер ночной очереди успешно запущен (окно 19:30 - 03:30 МСК).")
+    
+    # Сброс зависших задач, если бот перезагружался во время обработки
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(GenerationJob)
+                .filter(GenerationJob.status == "processing")
+                .values(status="pending")
+            )
+            await db.commit()
+    except Exception as reset_err:
+        print(f"[Night Grind] Замечание при сбросе очереди: {reset_err}")
+
     while True:
         await asyncio.sleep(20)  # Проверка очереди каждые 20 секунд
         
@@ -176,6 +189,9 @@ async def night_grind_worker():
                 custom_instruction=job_data["custom_instruction"]
             )
             cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
+            if not cards:
+                raise ValueError("ИИ не смог выделить карточки из переданного материала.")
+
             theme_name = parsed.get("phrase_title") or job_data["theme"]
 
             created_count = 0
@@ -197,20 +213,23 @@ async def night_grind_worker():
 
             print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.")
 
-            # Отправка Telegram Push пользователю
+            # Отправка Telegram Push пользователю (безопасный HTML без сбоев на спецсимволах)
             if job_data.get("telegram_id"):
                 try:
+                    import html
                     chat_id = int(job_data["telegram_id"])
+                    escaped_theme = html.escape(str(theme_name))
+                    escaped_sub = html.escape(str(job_data['subject']))
                     msg_text = (
-                        "**[DATA GRINDER: НОЧНОЙ ЦИКЛ ЗАВЕРШЕН]**\n\n"
-                        f"Материал «{theme_name}» деконструирован по ночному тарифу (-50% стоимости).\n"
-                        f"Сформировано: **{created_count} новых карточек** по предмету `{job_data['subject']}`.\n\n"
+                        "<b>[DATA GRINDER: НОЧНОЙ ЦИКЛ ЗАВЕРШЕН]</b>\n\n"
+                        f"Материал «{escaped_theme}» деконструирован по ночному тарифу (-50% стоимости).\n"
+                        f"Сформировано: <b>{created_count} новых карточек</b> по предмету <code>{escaped_sub}</code>.\n\n"
                         "Карточки размещены в базе знаний и готовы к интерливингу."
                     )
                     markup = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="[ОТКРЫТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
                     ])
-                    await bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup, parse_mode="Markdown")
+                    await bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup, parse_mode="HTML")
                     print(f"[Night Grind] Push успешно доставлен пользователю {chat_id}.")
                 except Exception as tg_err:
                     print(f"[Night Grind] Ошибка отправки push: {tg_err}")
