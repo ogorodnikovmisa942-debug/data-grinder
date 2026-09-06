@@ -85,6 +85,10 @@ class BulkCardDeleteIn(BaseModel):
 class RegenerateMnemonicIn(BaseModel):
     preference: str = "visual"
 
+class SubjectRenameIn(BaseModel):
+    old_subject: str
+    new_subject: str
+
 class DailySessionIn(BaseModel):
     mental_effort: int
     association_utility: int
@@ -952,6 +956,89 @@ async def bulk_delete_cards(
     await db.commit()
     return {"status": "success", "deleted_count": len(payload.card_ids)}
 
+# --- 8.1 УПРАВЛЕНИЕ ПРЕДМЕТАМИ (СПИСОК, ПЕРЕИМЕНОВАНИЕ, УДАЛЕНИЕ) ---
+@router.get("/data/subjects/details")
+async def get_subjects_details(
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(Card.subject, func.count(Card.id))
+        .filter(Card.user_id == current_user)
+        .group_by(Card.subject)
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    phrase_stmt = select(Phrase.subject).filter(Phrase.user_id == current_user).distinct()
+    phrase_res = await db.execute(phrase_stmt)
+    phrase_subs = [s[0] for s in phrase_res.all() if s[0]]
+
+    counts_map = {sub: count for sub, count in rows if sub}
+    for ps in phrase_subs:
+        if ps not in counts_map:
+            counts_map[ps] = 0
+
+    subjects_list = [
+        {"slug": sub, "name": sub.upper(), "cards_count": counts_map[sub]}
+        for sub in sorted(counts_map.keys())
+    ]
+    return {"status": "success", "subjects": subjects_list}
+
+@router.post("/data/subjects/rename")
+async def rename_subject(
+    payload: SubjectRenameIn,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    old_sub = payload.old_subject.strip().lower()
+    new_sub = payload.new_subject.strip().lower()
+    
+    if not old_sub or not new_sub:
+        raise HTTPException(status_code=400, detail="Название предмета не может быть пустым.")
+    if old_sub == "all" or new_sub == "all":
+        raise HTTPException(status_code=400, detail="Нельзя использовать зарезервированное имя 'all'.")
+    if old_sub == new_sub:
+        return {"status": "success", "message": "Имена совпадают", "subject": new_sub, "cards_updated": 0}
+
+    # 1. Обновляем карточки
+    card_res = await db.execute(
+        update(Card)
+        .where(Card.subject == old_sub, Card.user_id == current_user)
+        .values(subject=new_sub)
+    )
+    cards_updated = card_res.rowcount
+
+    # 2. Обновляем темы (Phrase)
+    await db.execute(
+        update(Phrase)
+        .where(Phrase.subject == old_sub, Phrase.user_id == current_user)
+        .values(subject=new_sub)
+    )
+
+    # 3. Обновляем задачи генерации (GenerationJob)
+    await db.execute(
+        update(GenerationJob)
+        .where(GenerationJob.subject == old_sub, GenerationJob.user_id == current_user)
+        .values(subject=new_sub)
+    )
+
+    # 4. Обновляем лимиты в UserSetting
+    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+    setting = setting_res.scalar_one_or_none()
+    if setting and setting.subject_limits and old_sub in setting.subject_limits:
+        limits = dict(setting.subject_limits)
+        limits[new_sub] = limits.pop(old_sub)
+        setting.subject_limits = limits
+
+    await db.commit()
+    return {
+        "status": "success",
+        "old_subject": old_sub,
+        "new_subject": new_sub,
+        "cards_updated": cards_updated
+    }
+
 @router.delete("/data/subjects/{subject_slug}")
 async def delete_subject_all(
     subject_slug: str,
@@ -959,10 +1046,29 @@ async def delete_subject_all(
     db: AsyncSession = Depends(get_db)
 ):
     sub = subject_slug.strip().lower()
-    await db.execute(delete(Card).where(Card.subject == sub, Card.user_id == current_user))
+    if sub == "all":
+        raise HTTPException(status_code=400, detail="Нельзя удалить служебный фильтр 'all'.")
+
+    # Удаляем ReviewLog карточек предмета, чтобы не оставалось повисших записей
+    card_ids_res = await db.execute(select(Card.id).where(Card.subject == sub, Card.user_id == current_user))
+    card_ids = card_ids_res.scalars().all()
+    if card_ids:
+        await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
+        await db.execute(delete(Card).where(Card.id.in_(card_ids)))
+
     await db.execute(delete(Phrase).where(Phrase.subject == sub, Phrase.user_id == current_user))
+    await db.execute(delete(GenerationJob).where(GenerationJob.subject == sub, GenerationJob.user_id == current_user))
+
+    # Очищаем лимиты из UserSetting
+    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+    setting = setting_res.scalar_one_or_none()
+    if setting and setting.subject_limits and sub in setting.subject_limits:
+        limits = dict(setting.subject_limits)
+        del limits[sub]
+        setting.subject_limits = limits
+
     await db.commit()
-    return {"status": "success", "deleted_subject": sub}
+    return {"status": "success", "deleted_subject": sub, "deleted_cards": len(card_ids)}
 
 # --- 9. ТАЙМЕР ПОМОДОРО ---
 @router.post("/timer/rest")

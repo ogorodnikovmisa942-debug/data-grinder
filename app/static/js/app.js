@@ -1445,6 +1445,11 @@ async function loadConfigTab() {
             if (currentSubject === 'all') deleteSubBtn.classList.add('hidden');
             else deleteSubBtn.classList.remove('hidden');
         }
+        const renameSubBtn = document.getElementById('btn-rename-subject');
+        if (renameSubBtn) {
+            if (currentSubject === 'all') renameSubBtn.classList.add('hidden');
+            else renameSubBtn.classList.remove('hidden');
+        }
         const presetContainer = document.getElementById('config-presets-container');
         const presetNotice = document.getElementById('config-presets-notice');
         if (currentSubject === 'all') {
@@ -2861,30 +2866,212 @@ window.executeBulkDelete = async function() {
     }
 };
 
-window.deleteCurrentSubject = async function() {
-    if (!currentSubject || currentSubject === 'all') {
-        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+// ============================================================================
+// УПРАВЛЕНИЕ ПРЕДМЕТАМИ (СПИСОК, ПЕРЕИМЕНОВАНИЕ, УДАЛЕНИЕ)
+// ============================================================================
+
+window.openSubjectsManagerModal = async function() {
+    const modal = document.getElementById('subjects-manager-modal');
+    if (modal) modal.classList.remove('hidden');
+    await loadSubjectsManagerList();
+};
+
+window.closeSubjectsManagerModal = function() {
+    const modal = document.getElementById('subjects-manager-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.loadSubjectsManagerList = async function() {
+    const container = document.getElementById('subjects-manager-list');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка предметов...</div>';
+    
+    try {
+        const res = await apiFetch('/api/data/subjects/details');
+        if (!res.ok) {
+            container.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Не удалось загрузить предметы</div>';
+            return;
+        }
+        const data = await res.json();
+        const subjects = data.subjects || [];
+        
+        if (subjects.length === 0) {
+            container.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Нет созданных предметов</div>';
+            return;
+        }
+        
+        container.innerHTML = '';
+        subjects.forEach(sub => {
+            const row = document.createElement('div');
+            row.className = "flex items-center justify-between py-2.5 px-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 rounded-xl transition-colors";
+            
+            const isCurrent = sub.slug === currentSubject;
+            const badgeHtml = isCurrent ? '<span class="text-[9px] px-1.5 py-0.5 bg-primary text-on-primary font-bold rounded">ТЕКУЩИЙ</span>' : '';
+            
+            row.innerHTML = `
+                <div class="flex flex-col min-w-0 pr-2">
+                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 font-mono truncate uppercase flex items-center gap-1.5">
+                        <span class="truncate">${escapeHTML(sub.name || sub.slug.toUpperCase())}</span>
+                        ${badgeHtml}
+                    </div>
+                    <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
+                        Карточек: <span class="font-bold text-neutral-600 dark:text-neutral-300">${sub.cards_count}</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button onclick="openSubjectRenameModal('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-all" title="Переименовать предмет">
+                        Имя
+                    </button>
+                    <button onclick="deleteSubjectByName('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-lg transition-all" title="Удалить предмет">
+                        Удалить
+                    </button>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    } catch (e) {
+        console.error("Сбой загрузки списка предметов:", e);
+        container.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Ошибка загрузки списка предметов</div>';
+    }
+};
+
+window.openSubjectRenameModal = function(subjectSlug) {
+    if (!subjectSlug || subjectSlug === 'all') {
+        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        return;
+    }
+    const oldInput = document.getElementById('rename-old-subject');
+    const oldLabel = document.getElementById('rename-old-label');
+    const newInput = document.getElementById('rename-new-input');
+    const modal = document.getElementById('subject-rename-modal');
+    
+    if (oldInput) oldInput.value = subjectSlug;
+    if (oldLabel) oldLabel.textContent = subjectSlug.toUpperCase();
+    if (newInput) {
+        newInput.value = subjectSlug;
+    }
+    if (modal) {
+        modal.classList.remove('hidden');
+        if (newInput) {
+            setTimeout(() => {
+                newInput.focus();
+                newInput.select();
+            }, 50);
+        }
+    }
+};
+
+window.closeSubjectRenameModal = function() {
+    const modal = document.getElementById('subject-rename-modal');
+    if (modal) modal.classList.add('hidden');
+    const newInput = document.getElementById('rename-new-input');
+    if (newInput) newInput.value = '';
+};
+
+window.submitSubjectRename = async function() {
+    const oldSub = (document.getElementById('rename-old-subject')?.value || '').trim().toLowerCase();
+    const newSub = (document.getElementById('rename-new-input')?.value || '').trim().toLowerCase();
+    
+    if (!oldSub || !newSub) {
+        alert("Название предмета не может быть пустым.");
+        return;
+    }
+    if (newSub === 'all') {
+        alert("Нельзя использовать имя 'all' (зарезервировано).");
+        return;
+    }
+    if (oldSub === newSub) {
+        closeSubjectRenameModal();
         return;
     }
     
-    const subName = currentSubject.toUpperCase();
+    try {
+        const response = await apiFetch('/api/data/subjects/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_subject: oldSub, new_subject: newSub })
+        });
+        
+        if (response.ok) {
+            const resData = await response.json();
+            closeSubjectRenameModal();
+            
+            if (currentSubject === oldSub) {
+                currentSubject = newSub;
+                localStorage.setItem('selected_subject', currentSubject);
+            }
+            
+            await loadDynamicSubjects();
+            const mainSel = document.getElementById('subject-selector');
+            if (mainSel && currentSubject) mainSel.value = currentSubject;
+            
+            const managerModal = document.getElementById('subjects-manager-modal');
+            if (managerModal && !managerModal.classList.contains('hidden')) {
+                await loadSubjectsManagerList();
+            }
+            
+            if (currentTab === 'config') await loadConfigTab();
+            if (currentTab === 'data') await loadArchiveData();
+            if (currentTab === 'stats') await loadStatsTab();
+            await fetchActiveSession();
+            
+            alert(`Предмет успешно переименован в [${newSub.toUpperCase()}]. Обновлено карточек: ${resData.cards_updated || 0}.`);
+        } else {
+            const errData = await response.json();
+            alert("Ошибка при переименовании: " + (errData.detail || "Неизвестная ошибка"));
+        }
+    } catch (e) {
+        console.error("Сбой переименования предмета:", e);
+        alert("Ошибка сети при переименовании предмета.");
+    }
+};
+
+window.renameCurrentSubject = function() {
+    if (!currentSubject || currentSubject === 'all') {
+        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        return;
+    }
+    openSubjectRenameModal(currentSubject);
+};
+
+window.deleteSubjectByName = async function(subjectSlug) {
+    if (!subjectSlug || subjectSlug === 'all') {
+        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ].");
+        return;
+    }
+    
+    const subName = subjectSlug.toUpperCase();
     if (!confirm(`ВНИМАНИЕ! Удалить предмет [${subName}] и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
         return;
     }
     
     try {
-        const response = await apiFetch(`/api/data/subjects/${encodeURIComponent(currentSubject)}`, {
+        const response = await apiFetch(`/api/data/subjects/${encodeURIComponent(subjectSlug)}`, {
             method: 'DELETE'
         });
         
         if (response.ok) {
-            alert(`Предмет [${subName}] успешно удален.`);
-            currentSubject = 'all';
-            const mainSel = document.getElementById('subject-selector');
-            if (mainSel) mainSel.value = 'all';
+            if (currentSubject === subjectSlug) {
+                currentSubject = 'all';
+                localStorage.setItem('selected_subject', 'all');
+            }
+            
             await loadDynamicSubjects();
+            const mainSel = document.getElementById('subject-selector');
+            if (mainSel) mainSel.value = currentSubject;
+            
+            const managerModal = document.getElementById('subjects-manager-modal');
+            if (managerModal && !managerModal.classList.contains('hidden')) {
+                await loadSubjectsManagerList();
+            }
+            
+            if (currentTab === 'config') await loadConfigTab();
+            if (currentTab === 'data') await loadArchiveData();
+            if (currentTab === 'stats') await loadStatsTab();
             await fetchActiveSession();
-            await loadConfigTab();
+            
+            alert(`Предмет [${subName}] успешно удален.`);
         } else {
             const errData = await response.json();
             alert("Ошибка при удалении предмета: " + (errData.detail || "Неизвестная ошибка"));
@@ -2893,6 +3080,14 @@ window.deleteCurrentSubject = async function() {
         console.error("Сбой при удалении предмета:", e);
         alert("Ошибка сети при удалении предмета.");
     }
+};
+
+window.deleteCurrentSubject = async function() {
+    if (!currentSubject || currentSubject === 'all') {
+        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        return;
+    }
+    await deleteSubjectByName(currentSubject);
 };
 
 window.submitDailySessionSurvey = async function() {

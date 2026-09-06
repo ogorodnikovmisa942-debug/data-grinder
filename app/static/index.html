@@ -72,11 +72,16 @@
         
         <!-- Верхняя панель управления -->
         <div class="w-full flex justify-between items-center font-mono text-xs py-3 border-b border-outline-variant/30 shrink-0 select-none">
-            <div class="relative max-w-[65%] overflow-hidden">
-                <select id="subject-selector" class="bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate">
-                    <option value="all">[ВСЕ ПРЕДМЕТЫ]</option>
-                </select>
-                <span class="material-symbols-outlined absolute right-0 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none text-outline">expand_more</span>
+            <div class="relative max-w-[65%] flex items-center gap-1.5 overflow-hidden">
+                <div class="relative overflow-hidden flex-1 min-w-0">
+                    <select id="subject-selector" class="w-full bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate">
+                        <option value="all">[ВСЕ ПРЕДМЕТЫ]</option>
+                    </select>
+                    <span class="material-symbols-outlined absolute right-0 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none text-outline">expand_more</span>
+                </div>
+                <button onclick="openSubjectsManagerModal()" class="text-outline hover:text-primary p-0.5 transition-colors shrink-0 flex items-center" title="Управление предметами">
+                    <span class="material-symbols-outlined text-[15px]">tune</span>
+                </button>
             </div>
             
             <!-- Правый блок: Таймер и иконка фокуса интегрированы в общую линию -->
@@ -390,10 +395,23 @@
             <div class="flex flex-col gap-sm shrink-0">
                 <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></div>
-                    <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="hidden text-[9px] border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-2 py-0.5 font-bold uppercase transition-all">
-                        [УДАЛИТЬ ПРЕДМЕТ]
-                    </button>
+                    <div class="flex items-center gap-1">
+                        <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all">
+                            [ПЕРЕИМЕНОВАТЬ]
+                        </button>
+                        <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="hidden text-[9px] border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-2 py-0.5 font-bold uppercase transition-all">
+                            [УДАЛИТЬ ПРЕДМЕТ]
+                        </button>
+                    </div>
                 </div>
+
+                <button onclick="openSubjectsManagerModal()" class="w-full flex items-center justify-between border border-outline-variant/60 hover:border-primary p-2 bg-surface-container-lowest font-mono text-[11px] font-bold text-primary transition-all">
+                    <span class="flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">folder_managed</span>
+                        <span>[УПРАВЛЕНИЕ ВСЕМИ ПРЕДМЕТАМИ]</span>
+                    </span>
+                    <span class="text-outline text-[9px]">СПИСОК И ПЕРЕИМЕНОВАНИЕ ➜</span>
+                </button>
                 
                 <div id="config-presets-container" class="flex flex-col gap-sm font-mono text-xs">
                     <button id="btn-preset-10" onclick="setIntensityPreset(10)" class="w-full text-left border p-md transition-all duration-75 flex justify-between items-center">
@@ -775,6 +793,65 @@
                     Отмена
                 </button>
                 <button onclick="saveCardEditorData()" class="border border-primary bg-primary text-on-primary px-md py-1 text-xs uppercase font-bold hover:bg-transparent hover:text-primary transition-colors">
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно управления предметами (Список, переименование, удаление) -->
+    <div id="subjects-manager-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-md max-h-[85vh] flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
+            <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-xl">folder_managed</span>
+                    <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Управление предметами</h3>
+                </div>
+                <button onclick="closeSubjectsManagerModal()" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-lg">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Список всех созданных предметов. Вы можете быстро переименовать любую дисциплину или удалить ненужный предмет вместе с карточками.
+            </p>
+
+            <!-- Контейнер списка предметов -->
+            <div id="subjects-manager-list" class="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/80 pr-1 flex flex-col gap-1 min-h-[120px] max-h-[45vh]">
+                <div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка предметов...</div>
+            </div>
+
+            <div class="flex justify-end pt-3 border-t border-neutral-200/60 dark:border-neutral-800">
+                <button onclick="closeSubjectsManagerModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно переименования предмета -->
+    <div id="subject-rename-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-sm flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
+            <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2">
+                <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Переименовать предмет</h3>
+                <button onclick="closeSubjectRenameModal()" class="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+            <input type="hidden" id="rename-old-subject">
+            <div class="flex flex-col gap-1 text-xs">
+                <label class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Текущее имя:</label>
+                <div id="rename-old-label" class="font-bold font-mono text-neutral-800 dark:text-neutral-200 py-1">---</div>
+            </div>
+            <div class="flex flex-col gap-1 text-xs">
+                <label for="rename-new-input" class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Новое название предмета:</label>
+                <input type="text" id="rename-new-input" onkeydown="if(event.key==='Enter') submitSubjectRename(); if(event.key==='Escape') closeSubjectRenameModal();" placeholder="Например: civil_law или Гражданское право" class="bg-surface-container-lowest border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-xs text-primary focus:border-primary focus:ring-0 font-medium">
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-neutral-200/60 dark:border-neutral-800">
+                <button onclick="closeSubjectRenameModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-3 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                    Отмена
+                </button>
+                <button onclick="submitSubjectRename()" class="bg-primary text-on-primary px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:opacity-90 transition-all shadow-xs">
                     Сохранить
                 </button>
             </div>
