@@ -18,7 +18,7 @@ class CardSchema(BaseModel):
     translation: str = Field(description="Точный перевод или определение на русском языке")
     example: str = Field(description="Пример применения или кейс")
     initial_difficulty_tier: str = Field(description="easy, medium или hard")
-    mnemonic: MnemonicSchema
+    mnemonic: Optional[MnemonicSchema] = None
 
 class ParsedDataSchema(BaseModel):
     subject_domain: str = Field(description="language, law, code или generic")
@@ -26,41 +26,170 @@ class ParsedDataSchema(BaseModel):
     phrase_title: str = Field(description="Название темы или блока карточек")
     cards: list[CardSchema]
 
-# --- ОПТИМИЗИРОВАННЫЙ СЖАТЫЙ СИСТЕМНЫЙ ПРОМПТ (В 3 РАЗА МЕНЬШЕ ТОКЕНОВ) ---
-COMPACT_SYSTEM_PROMPT = """ROLE: Expert cognitive psychologist and Data Grinder knowledge deconstructor.
-TASK: Analyze the user's raw text and output a strict, valid JSON object containing atomic flashcards for spaced repetition (FSRS).
+# --- СТАТИЧНЫЙ ЭТАЛОННЫЙ СИСТЕМНЫЙ ПРОМПТ DEEPSEEK (КЭШИРУЕМЫЙ ПРЕФИКС > 1024 ТОКЕНОВ) ---
+# ВАЖНО: Этот промпт является абсолютно статичным. Он кэшируется на серверах DeepSeek (Context Caching),
+# обеспечивая 90% скидку на входные токены ($0.014 днем, $0.007 в часы скидок). Не добавлять динамических переменных!
+DEEPSEEK_CACHED_SYSTEM_PROMPT = """ROLE: Expert cognitive psychologist, neuro-education engineer, and Data Grinder knowledge deconstructor.
+MISSION: Analyze raw unstructured source material and synthesize an optimized JSON package containing atomic flashcards for the Free Spaced Repetition Scheduler (FSRS).
+CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interfering conceptual atoms. Every card must minimize cognitive load while maximizing retrieval strength.
 
-DISCIPLINE RULES:
-- language: text=Foreign word; secondary_text=Pronunciation/pinyin (with tone diacritics); translation=Precise Russian meaning; example=Sentence in Russian/source.
-- law: text=Legal term/doctrine; secondary_text=Article/code reference (strict '_rb' suffix for Belarus, '_rf' for Russia); translation=Definitive legal meaning in Russian; example=Real application case.
-- code: text=Function/concept/pattern; secondary_text=Signature/context; translation=Technical breakdown; example=Minimal code snippet.
-- generic: text=Formula/core concept; secondary_text=Section/params; translation=Full explanation/proof; example=Application scenario.
+1. ATOMICITY & COGNITIVE DESIGN RULES:
+- Minimum Information Principle: One card = One atomic fact, rule, pattern, or distinction. Never bundle multiple concepts into one card.
+- Eliminate Redundancy: Strip introductory filler, narrative padding, rhetorical questions, and pleasantries.
+- Contrast & Non-Interference: Inverted pairs or easily confused terms must have clear distinct cues in the secondary text.
+- Cognitive Anchor: The front side must act as a precise retrieval prompt, not a vague topic header.
+- Definite Answer: The back side must provide a crisp, authoritative definition or explanation without unnecessary disclaimers.
+- Real-World Grounding: The example field must contain a concise, concrete case, minimal code snippet, sentence in context, or legal precedent.
 
-MNEMONICS RULE: For every card, generate a memorable Russian association (keyword and verbal_cue). Keep it vivid and concise (1-2 sentences).
-DIFFICULTY: Assign 'initial_difficulty_tier' strictly from: ["easy", "medium", "hard"].
+2. DISCIPLINE DIRECTIVES & TAXONOMY:
+- language (Foreign languages & Linguistics):
+  * t (Front): Foreign word, idiom, or grammatical construction in standard orthography.
+  * s (Secondary): Phonetic transcription, IPA, or Chinese Pinyin with explicit tone diacritics.
+  * d (Back): Precise definition and translation in Russian. Nuance and register notes if critical.
+  * e (Example): Natural exemplar sentence illustrating idiomatic usage.
+  * l (Difficulty): 'easy' for high-frequency cognates, 'medium' for regular lexis, 'hard' for false friends or irregulars.
 
-CRITICAL JSON RULES:
-- Return ONLY a single raw JSON object matching the schema below.
-- Do NOT wrap in markdown formatting (no ```json). Do NOT add conversational prose.
-- Never use unescaped double quotes inside text values; use single quotes instead.
+- law (Jurisprudence, Statutes & Doctrine):
+  * t (Front): Legal term, Latin maxim, constitutional principle, or statutory doctrine.
+  * s (Secondary): Exact article and code identifier with jurisdiction code (e.g., 'ст. 303 ГК РФ' or 'ст. 100 УК РБ').
+  * d (Back): Authoritative legal definition, disposition, qualifying signs, or legal consequences.
+  * e (Example): Authentic judicial scenario, dispute resolution case, or qualifying factual circumstance.
+  * l (Difficulty): 'easy' for standard terms, 'medium' for multi-element rules, 'hard' for competing doctrines/exceptions.
 
-SCHEMA STRUCTURE:
+- code (Software Engineering, CS & Algorithms):
+  * t (Front): Algorithm, design pattern, function name, API concept, or data structure.
+  * s (Secondary): Language name, standard library path, or signature (e.g., 'Python 3.12 / asyncio.gather(*coros)').
+  * d (Back): Rigorous technical breakdown, invariant, algorithmic time/space complexity O(N), or core mechanics.
+  * e (Example): Minimal valid code snippet (1-4 lines) demonstrating usage or idiomatic edge-case trap.
+  * l (Difficulty): 'easy' for syntax, 'medium' for standard patterns, 'hard' for concurrency/memory traps.
+
+- generic (Science, Medicine, History, Engineering, General Knowledge):
+  * t (Front): Core theorem, physiological mechanism, formula, diagnosis, or historical event.
+  * s (Secondary): Sub-discipline, category, unit of measurement, or time period.
+  * d (Back): Exhaustive causal explanation, physical meaning, proof idea, or clinical presentation.
+  * e (Example): Practical lab observation, clinical case, historical trigger, or industrial calculation.
+  * l (Difficulty): Strictly select from: 'easy', 'medium', 'hard'.
+
+3. GRANULARITY MODES:
+- atomic: Decompose concepts into standalone cards. Each card represents one testable memory unit.
+- single_deep: Synthesize the entirety of the text into exactly ONE master reference card.
+- cheatsheet: Ultra-compact blitz cards with punchy 1-2 sentence core summaries.
+
+4. STRICT MINIFIED JSON SCHEMA SPECIFICATION:
+To conserve bandwidth, eliminate token waste, and maximize inference speed, output ONLY a valid raw JSON object matching this exact minified key structure:
 {
-  "subject_domain": "language/law/code/generic",
-  "subject_slug": "lowercase_snake_case_slug",
-  "phrase_title": "Clear Topic Header",
-  "cards": [
+  "domain": "language|law|code|generic",
+  "slug": "machine_readable_subject_slug_in_snake_case",
+  "title": "Clean Informative Deck Title",
+  "c": [
     {
-      "text": "Front side term",
-      "secondary_text": "Pinyin/article/hint",
-      "translation": "Back side definition",
-      "example": "Practical example/usage",
-      "initial_difficulty_tier": "easy/medium/hard",
-      "mnemonic": {"keyword": "Ключевое слово", "verbal_cue": "Сюжетная ассоциация"}
+      "t": "Front prompt / question / term",
+      "s": "Secondary context / hint / article / signature",
+      "d": "Back definition / answer / translation",
+      "e": "Concrete example / code snippet / judicial case",
+      "l": "easy|medium|hard"
     }
   ]
 }
+
+FEW-SHOT SYNTACTIC EXAMPLES:
+
+Example 1 (Language - Chinese):
+{
+  "domain": "language",
+  "slug": "chinese_hsk",
+  "title": "HSK 4 Бизнес-лексика",
+  "c": [
+    {
+      "t": "合同",
+      "s": "hétong",
+      "d": "Контракт, письменный договор",
+      "e": "双方签订了正式合同 (Обе стороны подписали официальный контракт)",
+      "l": "medium"
+    }
+  ]
+}
+
+Example 2 (Law - Criminal Procedure):
+{
+  "domain": "law",
+  "slug": "criminal_procedure_rf",
+  "title": "Меры пресечения в УПК РФ",
+  "c": [
+    {
+      "t": "Презумпция невиновности",
+      "s": "ст. 14 УПК РФ",
+      "d": "Обвиняемый считается невиновным, пока его виновность не будет доказана в предусмотренном законом порядке и установлена вступившим в законную силу приговором суда. Бремя доказывания лежит на обвинении.",
+      "e": "Неустранимые сомнения в виновности лица толкуются в пользу обвиняемого при оценке косвенных улик.",
+      "l": "easy"
+    }
+  ]
+}
+
+Example 3 (Code - Python Concurrency):
+{
+  "domain": "code",
+  "slug": "python_asyncio",
+  "title": "Python AsyncIO Primitives",
+  "c": [
+    {
+      "t": "asyncio.shield()",
+      "s": "asyncio.tasks.shield(arg)",
+      "d": "Предотвращает отмену переданной корутины или Future при отмене родительской задачи. Если родитель отменен, внутренняя задача продолжает выполняться в фоне.",
+      "e": "res = await asyncio.shield(save_critical_transaction_to_db())",
+      "l": "hard"
+    }
+  ]
+}
+
+5. CRITICAL FORMATTING & SYNTAX CONSTRAINTS:
+- Return strictly raw JSON. Never enclose the JSON payload in markdown code blocks (no ```json or ```).
+- Never add commentary, introductory greetings, concluding remarks, or metadata outside the JSON object.
+- Escape all internal quotation marks properly or use single quotes inside strings. Ensure absolute JSON validity.
+- Do not generate mnemonics in this initial decomposition batch (mnemonics are generated lazily on demand).
 """
+
+def unpack_minified_cards(raw_data: dict, fallback_subject: str = "generic") -> dict:
+    """Десериализует минифицированный JSON от DeepSeek (ключи c, t, s, d, e, l) в стандартный формат карточек Data Grinder."""
+    if not isinstance(raw_data, dict):
+        return {"subject_domain": "generic", "subject_slug": fallback_subject, "phrase_title": "Новый блок знаний", "cards": []}
+
+    domain = raw_data.get("domain") or raw_data.get("subject_domain") or "generic"
+    slug = raw_data.get("slug") or raw_data.get("subject_slug") or fallback_subject
+    title = raw_data.get("title") or raw_data.get("phrase_title") or "Новый блок знаний"
+
+    raw_cards = raw_data.get("c") or raw_data.get("cards") or []
+    if not isinstance(raw_cards, list):
+        raw_cards = []
+
+    cards = []
+    for item in raw_cards:
+        if not isinstance(item, dict):
+            continue
+        front = item.get("t") or item.get("text") or ""
+        sec = item.get("s") or item.get("secondary_text") or ""
+        back = item.get("d") or item.get("translation") or item.get("definition") or ""
+        ex = item.get("e") or item.get("example") or ""
+        diff = item.get("l") or item.get("initial_difficulty_tier") or "medium"
+
+        if not str(front).strip() and not str(back).strip():
+            continue
+
+        cards.append({
+            "text": str(front).strip(),
+            "secondary_text": str(sec).strip(),
+            "translation": str(back).strip(),
+            "example": str(ex).strip(),
+            "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
+            "mnemonic": None  # Ленивая генерация мнемоник
+        })
+
+    return {
+        "subject_domain": domain,
+        "subject_slug": slug,
+        "phrase_title": title,
+        "cards": cards
+    }
 
 def build_granularity_prompt(granularity_mode: str, custom_instruction: str, density: str, volume: str) -> str:
     """Формирует компактные модификаторы промпта для управления глубиной и пожеланиями пользователя."""
@@ -150,8 +279,8 @@ def extract_json_payload(content: str) -> dict:
     raise ValueError(f"Не удалось обнаружить валидный JSON в ответе ИИ: {clean[:200]}...")
 
 # --- DEEPSEEK ВЫЗОВ (ЧЕРЕЗ HTTPX И OPENAI-СОВМЕСТИМЫЙ REST API) ---
-async def call_deepseek(prompt: str, system_instruction: str) -> dict:
-    """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode и отказоустойчивым fallback."""
+async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject: str = "generic") -> dict:
+    """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
     api_key = settings.DEEPSEEK_API_KEY
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
@@ -170,14 +299,14 @@ async def call_deepseek(prompt: str, system_instruction: str) -> dict:
         "model": target_model,
         "messages": [
             {"role": "system", "content": system_instruction},
-            {"role": "user", "content": f"Analyze and structure the following text into JSON flashcards:\n\n{prompt}"}
+            {"role": "user", "content": user_prompt}
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
         "max_tokens": 4096
     }
 
-    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model}...")
+    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
     async with httpx.AsyncClient(timeout=90.0) as client:
         response = await client.post(url, headers=headers, json=payload)
         
@@ -189,8 +318,17 @@ async def call_deepseek(prompt: str, system_instruction: str) -> dict:
 
         if response.status_code == 200:
             data = response.json()
+            
+            # Логируем метрики эффективности кэширования DeepSeek
+            usage = data.get("usage", {})
+            cache_hit = usage.get("prompt_cache_hit_tokens", 0)
+            cache_miss = usage.get("prompt_cache_miss_tokens", 0)
+            output_tokens = usage.get("completion_tokens", 0)
+            print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit} токенов (-90% цена) | Мисс: {cache_miss} токенов | Вывод: {output_tokens} токенов")
+
             content = data["choices"][0]["message"]["content"]
-            return extract_json_payload(content)
+            raw_payload = extract_json_payload(content)
+            return unpack_minified_cards(raw_payload, fallback_subject=fallback_subject)
         else:
             print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
@@ -257,32 +395,44 @@ async def parse_raw_text(
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text).strip()
 
+    clean_sub = target_subject.strip().lower() or "generic"
+
     if not text:
-        return {"subject_domain": "generic", "subject_slug": target_subject or "generic", "phrase_title": "", "cards": []}
+        return {"subject_domain": "generic", "subject_slug": clean_sub, "phrase_title": "", "cards": []}
 
-    subject_instruction = ""
-    if target_subject.strip():
-        clean_sub = target_subject.strip().lower()
-        subject_instruction = f"\nTARGET SUBJECT DIRECTIVE: All cards must strictly belong to subject '{clean_sub}'. Set 'subject_slug' to '{clean_sub}'.\n"
+    # Формируем динамическое user-сообщение (оставляя системный промпт строго статичным для кэширования)
+    user_directives = [
+        f"TARGET SUBJECT: {clean_sub}",
+        f"GRANULARITY DIRECTIVE: {granularity_mode}",
+        f"VOLUME DIRECTIVE: {volume}",
+        f"EXPLANATION DENSITY: {density}"
+    ]
+    if custom_instruction.strip():
+        user_directives.append(f"USER CUSTOM OVERRIDE (HIGHEST PRIORITY): {custom_instruction.strip()}")
 
-    system_instruction = COMPACT_SYSTEM_PROMPT + subject_instruction + build_granularity_prompt(
-        granularity_mode, custom_instruction, density, volume
+    user_prompt = (
+        "[PROCESSING PARAMETERS]\n"
+        + "\n".join(user_directives)
+        + "\n\n[RAW SOURCE TEXT TO DECONSTRUCT]\n"
+        + text
     )
 
     provider = settings.AI_PROVIDER.lower()
     
-    # 1. Если выбран DeepSeek
+    # 1. Если выбран DeepSeek (основной экономичный провайдер с Prompt Caching)
     if provider == "deepseek":
-        print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}'...")
-        res = await call_deepseek(text, system_instruction)
+        print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}' с Prompt Caching...")
+        res = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
 
-    # 2. Если выбран Gemini
+    # 2. Если выбран Gemini (резервный)
     else:
         print(f"[AI Gateway] Вызов Gemini ({settings.GEMINI_MODEL}) в режиме '{granularity_mode}'...")
-        res = await call_gemini(text, system_instruction)
+        res = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        if isinstance(res, dict) and ("c" in res or "domain" in res):
+            res = unpack_minified_cards(res, fallback_subject=clean_sub)
 
-    if target_subject.strip() and isinstance(res, dict):
-        res["subject_slug"] = target_subject.strip().lower()
+    if clean_sub and isinstance(res, dict):
+        res["subject_slug"] = clean_sub
     return res
 
 # --- РЕГЕНЕРАЦИЯ ОДИНОЧНОЙ МНЕМОНИКИ ---

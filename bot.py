@@ -14,7 +14,9 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.client.session.aiohttp import AiohttpSession  
 from app.database.session import AsyncSessionLocal
-from app.database.models import UserSession
+from app.database.models import UserSession, GenerationJob
+from app.api.endpoints.management import save_cards_to_database
+from app.services.ai_gateway import parse_raw_text
 from sqlalchemy import select
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -117,9 +119,117 @@ async def pomodoro_push_observer():
             except Exception as e:
                 print(f"[Observer] Ошибка обработки/отправки пуша для {telegram_id}: {e}")
 
+# --- ФОНОВЫЙ ВОРКЕР «НОЧНОЙ ГРАЙНД» (ДЕКОМПОЗИЦИЯ СО СКИДКОЙ 50%) ---
+def is_deepseek_offpeak() -> bool:
+    """Проверяет, активно ли внепиковое окно со скидкой 50% у DeepSeek (16:30-00:30 UTC / 19:30-03:30 МСК)."""
+    now_utc = datetime.utcnow()
+    minutes = now_utc.hour * 60 + now_utc.minute
+    # 16:30 UTC = 990 мин, 00:30 UTC = 30 мин
+    return minutes >= 990 or minutes < 30
+
+async def night_grind_worker():
+    """Фоновый воркер Ночного Грайндера: обработка отложенных очередей в часы скидок."""
+    print("[Night Grind Worker] Воркер ночной очереди успешно запущен (окно 19:30 - 03:30 МСК).")
+    while True:
+        await asyncio.sleep(20)  # Проверка очереди каждые 20 секунд
+        
+        # Проверяем, наступило ли внепиковое окно скидки
+        if not is_deepseek_offpeak():
+            continue
+
+        job_data = None
+        try:
+            async with AsyncSessionLocal() as db:
+                stmt = select(GenerationJob).filter(GenerationJob.status == "pending").order_by(GenerationJob.id.asc()).limit(1)
+                res = await db.execute(stmt)
+                job = res.scalar_one_or_none()
+                if job:
+                    job.status = "processing"
+                    await db.commit()
+                    job_data = {
+                        "id": job.id,
+                        "user_id": job.user_id,
+                        "telegram_id": job.telegram_id,
+                        "subject": job.subject,
+                        "theme": job.theme,
+                        "raw_text": job.raw_text,
+                        "granularity_mode": job.granularity_mode,
+                        "density": job.density,
+                        "volume": job.volume,
+                        "custom_instruction": job.custom_instruction
+                    }
+        except Exception as db_err:
+            print(f"[Night Grind] Ошибка чтения базы данных: {db_err}")
+            continue
+
+        if not job_data:
+            continue
+
+        print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по ночному тарифу DeepSeek...")
+        try:
+            parsed = await parse_raw_text(
+                text=job_data["raw_text"],
+                target_subject=job_data["subject"],
+                density=job_data["density"],
+                volume=job_data["volume"],
+                granularity_mode=job_data["granularity_mode"],
+                custom_instruction=job_data["custom_instruction"]
+            )
+            cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
+            theme_name = parsed.get("phrase_title") or job_data["theme"]
+
+            created_count = 0
+            async with AsyncSessionLocal() as db:
+                created_count, _, _ = await save_cards_to_database(
+                    cards_data=cards,
+                    subject_slug=job_data["subject"],
+                    phrase_title=theme_name,
+                    user_id=job_data["user_id"],
+                    db=db
+                )
+                stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
+                j = (await db.execute(stmt)).scalar_one_or_none()
+                if j:
+                    j.status = "completed"
+                    j.cards_count = created_count
+                    j.processed_at = datetime.utcnow()
+                    await db.commit()
+
+            print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.")
+
+            # Отправка Telegram Push пользователю
+            if job_data.get("telegram_id"):
+                try:
+                    chat_id = int(job_data["telegram_id"])
+                    msg_text = (
+                        "**[DATA GRINDER: НОЧНОЙ ЦИКЛ ЗАВЕРШЕН]**\n\n"
+                        f"Материал «{theme_name}» деконструирован по ночному тарифу (-50% стоимости).\n"
+                        f"Сформировано: **{created_count} новых карточек** по предмету `{job_data['subject']}`.\n\n"
+                        "Карточки размещены в базе знаний и готовы к интерливингу."
+                    )
+                    markup = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="[ОТКРЫТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
+                    ])
+                    await bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup, parse_mode="Markdown")
+                    print(f"[Night Grind] Push успешно доставлен пользователю {chat_id}.")
+                except Exception as tg_err:
+                    print(f"[Night Grind] Ошибка отправки push: {tg_err}")
+
+        except Exception as proc_err:
+            print(f"[Night Grind ERROR] Сбой задачи #{job_data['id']}: {proc_err}")
+            async with AsyncSessionLocal() as db:
+                stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
+                j = (await db.execute(stmt)).scalar_one_or_none()
+                if j:
+                    j.status = "failed"
+                    j.error_message = str(proc_err)[:500]
+                    j.processed_at = datetime.utcnow()
+                    await db.commit()
+
 async def main():
-    asyncio.create_task(pomodoro_push_observer())  # Корректный вызов без лишних аргументов
-    print("[Grinder Bot] Фоновый пушер и обработчик команд инициализированы успешно.")
+    asyncio.create_task(pomodoro_push_observer())
+    asyncio.create_task(night_grind_worker())
+    print("[Grinder Bot] Фоновый пушер и ночной воркер инициализированы успешно.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

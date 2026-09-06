@@ -560,11 +560,25 @@
                     <textarea id="import-custom-instruction" rows="2" placeholder="Например: выдели только формулы / переведи термины / добавь практические примеры судебных решений..." class="w-full bg-surface-container border border-outline-variant rounded-none p-1.5 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[44px]"></textarea>
                 </div>
 
-                <!-- Главная кнопка запуска -->
-                <div class="flex flex-col gap-xs mt-sm">
-                    <button id="btn-import" onclick="importTextKnowledge()" class="w-full border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-sm font-bold tracking-wide transition-colors text-xs font-mono shrink-0">
-                        [ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]
-                    </button>
+                <!-- Индикатор тарифа DeepSeek и окно Ночного Грайндера -->
+                <div id="tariff-banner" class="flex justify-between items-center text-[9px] font-mono border border-outline-variant/40 p-1.5 bg-surface mt-xs select-none">
+                    <span id="tariff-status-title" class="text-outline">ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span></span>
+                    <span id="tariff-status-badge" class="text-secondary font-bold font-mono">[НОЧНАЯ СКИДКА 50% В 19:30]</span>
+                </div>
+
+                <!-- Кнопки запуска: Мгновенно или Ночной Грайнд со скидкой 50% -->
+                <div class="flex flex-col gap-xs mt-xs">
+                    <div class="grid grid-cols-2 gap-xs">
+                        <button id="btn-import-instant" onclick="importTextKnowledge(false)" class="border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-2 font-bold tracking-wide transition-colors text-xs font-mono shrink-0">
+                            [⚡ СЕЙЧАС]
+                        </button>
+                        <button id="btn-import-deferred" onclick="importTextKnowledge(true)" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary py-2 font-bold tracking-wide transition-colors text-xs font-mono shrink-0">
+                            [🌙 НОЧЬЮ -50%]
+                        </button>
+                    </div>
+                    <div id="night-queue-indicator" class="hidden text-[9px] font-mono text-center text-secondary border border-dashed border-secondary/40 p-1 bg-surface-container">
+                        ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА: <span id="night-queue-count" class="font-bold">0</span> ЗАДАЧ
+                    </div>
                     
                     <!-- Кодовый импорт пачки файлов и бесплатный мульти-OCR -->
                     <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">

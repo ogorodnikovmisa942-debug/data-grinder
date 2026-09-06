@@ -142,4 +142,26 @@ class UserSetting(Base):
     target_retention = Column(Float, default=0.9)
     assoc_preference = Column(String, default="acoustic")
     subject_limits = Column(JSON, nullable=True) # например {"law_civil_rb": 15, "all": 10}
+
+
+class GenerationJob(Base):
+    """Очередь отложенных задач генерации карточек (Ночной Грайнд со скидкой 50%)."""
+    __tablename__ = "generation_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    telegram_id = Column(String, nullable=True)
+    subject = Column(String, nullable=False)
+    theme = Column(String, nullable=False, default="Новый блок знаний")
+    raw_text = Column(String, nullable=False)
+    granularity_mode = Column(String, default="atomic")
+    density = Column(String, default="medium")
+    volume = Column(String, default="medium")
+    custom_instruction = Column(String, default="")
+    status = Column(String, default="pending", index=True)  # pending | processing | completed | failed
+    error_message = Column(String, nullable=True)
+    cards_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
 

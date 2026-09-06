@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting
+from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob
 from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic
 from app.core.auth import get_current_user_id
 from app.core.config import settings
@@ -33,7 +33,8 @@ class ImportIn(BaseModel):
     assoc_preference: str = "acoustic"
     granularity_mode: str = "atomic"     # "atomic" | "single_deep" | "cheatsheet"
     custom_instruction: str = ""        # Свободные пожелания пользователя
-    commit_now: bool = False  # False = вернуть в Песочницу (Staging)
+    commit_now: bool = False            # False = вернуть в Песочницу (Staging)
+    is_deferred: bool = False           # True = отправить в очередь Ночного Грайндера (-50% стоимости)
 
 class PresetImportIn(BaseModel):
     preset_name: str
@@ -390,6 +391,32 @@ async def import_raw_text(
     if not target_sub:
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
+    # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости в 19:30-03:30 МСК)
+    if payload.is_deferred:
+        first_line = payload.text.strip().split("\n")[0][:40].strip()
+        job = GenerationJob(
+            user_id=current_user,
+            telegram_id=current_user if current_user.isdigit() else None,
+            subject=target_sub,
+            theme=first_line or "Новый блок знаний",
+            raw_text=payload.text.strip(),
+            granularity_mode=payload.granularity_mode,
+            density=payload.density,
+            volume=payload.volume,
+            custom_instruction=payload.custom_instruction.strip(),
+            status="pending"
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return {
+            "status": "queued",
+            "job_id": job.id,
+            "subject": target_sub,
+            "theme": job.theme,
+            "message": "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
+        }
+
     try: 
         parsed_data = await parse_raw_text(
             payload.text,
@@ -491,6 +518,7 @@ async def import_file_at_code_level(
     granularity_mode: str = Form("atomic"),
     custom_instruction: str = Form(""),
     commit_now: bool = Form(False),
+    is_deferred: bool = Form(False),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
@@ -560,7 +588,37 @@ async def import_file_at_code_level(
         if extracted_text.strip():
             all_extracted_texts.append(f"=== ДОКУМЕНТ: {up_file.filename} ===\n" + extracted_text.strip())
 
-    # Если были текстовые/PDF документы, прогоняем через ИИ
+    # Если включен режим «Ночной Грайнд» (-50% стоимости) для документов
+    if is_deferred and all_extracted_texts:
+        combined_text = "\n\n".join(all_extracted_texts)
+        theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
+        if len(file_titles) > 2:
+            theme_name += f" и ещё {len(file_titles) - 2}"
+
+        job = GenerationJob(
+            user_id=current_user,
+            telegram_id=current_user if current_user.isdigit() else None,
+            subject=target_sub,
+            theme=theme_name,
+            raw_text=combined_text,
+            granularity_mode=granularity_mode,
+            density=density,
+            volume=volume,
+            custom_instruction=custom_instruction,
+            status="pending"
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return {
+            "status": "queued",
+            "job_id": job.id,
+            "subject": target_sub,
+            "theme": theme_name,
+            "message": f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
+        }
+
+    # Если были текстовые/PDF документы, прогоняем через ИИ мгновенно
     if all_extracted_texts:
         combined_text = "\n\n".join(all_extracted_texts)
         try:
@@ -608,6 +666,38 @@ async def import_file_at_code_level(
         )
         await db.commit()
         return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
+
+# --- 4.2.1 ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА ---
+@router.get("/config/import/queue")
+async def get_import_queue(
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Возвращает статус задач пользователя в очереди Ночного Грайндера."""
+    stmt = (
+        select(GenerationJob)
+        .filter(GenerationJob.user_id == current_user)
+        .order_by(GenerationJob.id.desc())
+        .limit(10)
+    )
+    res = await db.execute(stmt)
+    jobs = res.scalars().all()
+    return {
+        "status": "success",
+        "jobs": [
+            {
+                "id": j.id,
+                "subject": j.subject,
+                "theme": j.theme,
+                "status": j.status,
+                "cards_count": j.cards_count,
+                "error_message": j.error_message,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+                "processed_at": j.processed_at.isoformat() if j.processed_at else None
+            }
+            for j in jobs
+        ]
+    }
 
 # --- 4.3 ИМПОРТ ГОТОВОЙ БИБЛИОТЕКИ ---
 @router.post("/config/import/preset")

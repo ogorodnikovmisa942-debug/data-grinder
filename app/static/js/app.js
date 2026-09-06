@@ -403,6 +403,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         focusToggle.classList.add('hidden');
     }
     if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
+    if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
+    if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
     if (typeof updateAssocPreferenceUI === 'function') {
         updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
     }
@@ -1791,9 +1793,62 @@ function updateImportExplanation() {
     }
 }
 
-async function importTextKnowledge() {
+function isOffPeakWindow() {
+    const now = new Date();
+    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    return utcMinutes >= 990 || utcMinutes < 30; // 16:30 - 00:30 UTC / 19:30 - 03:30 MSK
+}
+
+window.updateTariffBanner = function() {
+    const bannerTitle = document.getElementById('tariff-status-title');
+    const bannerBadge = document.getElementById('tariff-status-badge');
+    const btnDeferred = document.getElementById('btn-import-deferred');
+    if (!bannerBadge) return;
+
+    const isOffPeak = isOffPeakWindow();
+    if (isOffPeak) {
+        if (bannerTitle) bannerTitle.innerHTML = `ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
+        bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
+        if (btnDeferred) btnDeferred.textContent = "[🌙 СКИДКА -50% (СЕЙЧАС)]";
+    } else {
+        const now = new Date();
+        const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+        let diffMinutes = 990 - utcMinutes;
+        if (diffMinutes < 0) diffMinutes += 1440;
+        const h = Math.floor(diffMinutes / 60);
+        const m = diffMinutes % 60;
+
+        if (bannerTitle) bannerTitle.innerHTML = `ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        bannerBadge.className = "text-secondary font-bold font-mono";
+        bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
+        if (btnDeferred) btnDeferred.textContent = "[🌙 НОЧЬЮ -50%]";
+    }
+};
+
+window.checkNightQueueStatus = async function() {
+    try {
+        const res = await apiFetch('/api/config/import/queue');
+        if (!res.ok) return;
+        const data = await res.json();
+        const indicator = document.getElementById('night-queue-indicator');
+        const countSpan = document.getElementById('night-queue-count');
+        if (!indicator || !countSpan) return;
+
+        const pending = (data.jobs || []).filter(j => j.status === 'pending' || j.status === 'processing');
+        if (pending.length > 0) {
+            countSpan.textContent = pending.length;
+            indicator.classList.remove('hidden');
+        } else {
+            indicator.classList.add('hidden');
+        }
+    } catch (e) {}
+};
+
+async function importTextKnowledge(isDeferred = false) {
     const textarea = document.getElementById('import-text'); 
-    const btn = document.getElementById('btn-import'); 
+    const btnInstant = document.getElementById('btn-import-instant'); 
+    const btnDeferred = document.getElementById('btn-import-deferred'); 
     const text = textarea ? textarea.value.trim() : "";
     if (!text) { alert("Входной буфер пуст. Вставь текст лекции или статьи кодекса!"); return; }
     
@@ -1806,7 +1861,15 @@ async function importTextKnowledge() {
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
     const customInstruction = document.getElementById('import-custom-instruction')?.value.trim() || '';
 
-    if (btn) { btn.disabled = true; btn.innerText = "[ПАРСИНГ DEEPSEEK-V4 FLASH...]"; }
+    if (btnInstant) btnInstant.disabled = true;
+    if (btnDeferred) btnDeferred.disabled = true;
+
+    if (isDeferred) {
+        if (btnDeferred) btnDeferred.innerText = "[ОЧЕРЕДЬ...]";
+    } else {
+        if (btnInstant) btnInstant.innerText = "[DEEPSEEK...]";
+    }
+
     try {
         const response = await apiFetch('/api/config/import', {
             method: 'POST', 
@@ -1820,11 +1883,16 @@ async function importTextKnowledge() {
                 assoc_preference: pref,
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
-                commit_now: false // Направляем в Песочницу!
+                commit_now: false, // Направляем в Песочницу
+                is_deferred: isDeferred
             })
         });
         const data = await response.json();
-        if (response.ok && data.status === 'staging') {
+        if (response.ok && data.status === 'queued') {
+            alert(`🌙 ${data.message}`);
+            if (textarea) textarea.value = "";
+            checkNightQueueStatus();
+        } else if (response.ok && data.status === 'staging') {
             startStagingSession(data);
         } else if (response.ok && data.status === 'success') {
             alert(`Импортировано карт: ${data.cards_count}`);
@@ -1836,7 +1904,8 @@ async function importTextKnowledge() {
         console.error("Сбой сети при импорте знаний:", e); 
         alert("Критический сбой сети."); 
     } finally { 
-        if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } 
+        if (btnInstant) { btnInstant.disabled = false; btnInstant.innerText = "[⚡ СЕЙЧАС]"; }
+        if (btnDeferred) { btnDeferred.disabled = false; btnDeferred.innerText = isOffPeakWindow() ? "[🌙 СКИДКА -50% (СЕЙЧАС)]" : "[🌙 НОЧЬЮ -50%]"; }
     }
 }
 
@@ -1904,13 +1973,29 @@ window.handleFileUpload = async function(event) {
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
+    // Предложение ночной очереди, если сейчас не внепиковое окно
+    const isOffPeak = isOffPeakWindow();
+    let isDeferred = false;
+    if (!isOffPeak && files.length > 0) {
+        isDeferred = confirm(
+            "Поставить файлы в очередь «Ночной Грайнд» со скидкой 50%?\n\n" +
+            "[OK] — В ночную очередь (обработка в 19:30 МСК по тарифу -50%)\n" +
+            "[Отмена] — Обработать немедленно"
+        );
+    }
+    formData.append('is_deferred', isDeferred ? 'true' : 'false');
+
     try {
         const response = await apiFetch('/api/config/import/file', {
             method: 'POST',
             body: formData
         });
         const data = await response.json();
-        if (response.ok && data.status === 'staging') {
+        if (response.ok && data.status === 'queued') {
+            if (statusEl) statusEl.classList.add('hidden');
+            alert(`🌙 ${data.message}`);
+            checkNightQueueStatus();
+        } else if (response.ok && data.status === 'staging') {
             if (statusEl) statusEl.classList.add('hidden');
             startStagingSession(data);
         } else {
