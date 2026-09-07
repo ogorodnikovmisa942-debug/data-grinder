@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
+import json
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -16,7 +17,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from app.database.session import AsyncSessionLocal
 from app.database.models import UserSession, GenerationJob
 from app.api.endpoints.management import save_cards_to_database
-from app.services.ai_gateway import parse_raw_text
+from app.services.ai_gateway import parse_raw_text, split_text_into_chunks
 from sqlalchemy import select, update
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -144,16 +145,20 @@ async def night_grind_worker():
         print(f"[Night Grind] Замечание при сбросе очереди: {reset_err}")
 
     while True:
-        await asyncio.sleep(20)  # Проверка очереди каждые 20 секунд
+        await asyncio.sleep(10)  # Проверка очереди каждые 10 секунд
         
-        # Проверяем, наступило ли внепиковое окно скидки
-        if not is_deepseek_offpeak():
-            continue
-
+        is_offpeak = is_deepseek_offpeak()
+        
         job_data = None
         try:
             async with AsyncSessionLocal() as db:
-                stmt = select(GenerationJob).filter(GenerationJob.status == "pending").order_by(GenerationJob.id.asc()).limit(1)
+                stmt = select(GenerationJob).filter(GenerationJob.status == "pending")
+                # Если сейчас дневное пиковое время (без ночной скидки 50%),
+                # обрабатываем только фоновые задачи без требования ночной скидки (is_deferred == False)
+                if not is_offpeak:
+                    stmt = stmt.filter(GenerationJob.is_deferred == False)
+                stmt = stmt.order_by(GenerationJob.id.asc()).limit(1)
+
                 res = await db.execute(stmt)
                 job = res.scalar_one_or_none()
                 if job:
@@ -169,7 +174,8 @@ async def night_grind_worker():
                         "granularity_mode": job.granularity_mode,
                         "density": job.density,
                         "volume": job.volume,
-                        "custom_instruction": job.custom_instruction
+                        "custom_instruction": job.custom_instruction,
+                        "is_deferred": getattr(job, "is_deferred", False)
                     }
         except Exception as db_err:
             print(f"[Night Grind] Ошибка чтения базы данных: {db_err}")
@@ -178,29 +184,54 @@ async def night_grind_worker():
         if not job_data:
             continue
 
-        print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по ночному тарифу DeepSeek...", flush=True)
+        tariff_label = "ночному тарифу (-50% стоимости)" if is_offpeak else "дневному фоновому тарифу"
+        print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по {tariff_label}...", flush=True)
         try:
             import re
             clean_text_no_headers = re.sub(r'=== [^=]+ ===', '', job_data["raw_text"]).strip()
+            clean_text_no_headers = re.sub(r'--- [^\n]+ ---', '', clean_text_no_headers).strip()
             if len(clean_text_no_headers) < 15:
-                raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, OCR на фото не смог различить текст.")
+                raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-            parsed = await parse_raw_text(
-                text=job_data["raw_text"],
-                target_subject=job_data["subject"],
-                density=job_data["density"],
-                volume=job_data["volume"],
-                granularity_mode=job_data["granularity_mode"],
-                custom_instruction=job_data["custom_instruction"]
-            )
-            cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
-            if not cards:
-                print(f"[Night Grind WARN] Задача #{job_data['id']}: ИИ вернул ответ без карточек: {parsed}", flush=True)
+            # Умное разбиение на смысловые чанки (~15 страниц / до 30 000 знаков)
+            chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=30000)
+            print(f"[Night Grind] Задача #{job_data['id']}: материал разбит на {len(chunks)} частей по ~15 страниц для предотвращения переполнения токенов.", flush=True)
+
+            all_collected_cards = []
+            seen_card_texts = set()
+            extracted_theme = job_data["theme"]
+
+            for chunk_idx, chunk_text in enumerate(chunks, 1):
+                print(f"[Night Grind] Задача #{job_data['id']}: нарезка части {chunk_idx}/{len(chunks)} ({len(chunk_text)} знаков)...", flush=True)
+                try:
+                    parsed = await parse_raw_text(
+                        text=chunk_text,
+                        target_subject=job_data["subject"],
+                        density=job_data["density"],
+                        volume=job_data["volume"],
+                        granularity_mode=job_data["granularity_mode"],
+                        custom_instruction=job_data["custom_instruction"]
+                    )
+                    if isinstance(parsed, dict):
+                        if parsed.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", ""):
+                            extracted_theme = parsed["phrase_title"]
+                        chunk_cards = parsed.get("cards", [])
+                        if isinstance(chunk_cards, list):
+                            for c in chunk_cards:
+                                c_text = (c.get("text") or "").strip().lower()
+                                if c_text and c_text not in seen_card_texts:
+                                    seen_card_texts.add(c_text)
+                                    all_collected_cards.append(c)
+                except Exception as chunk_err:
+                    print(f"[Night Grind WARN] Ошибка в части {chunk_idx}/{len(chunks)}: {chunk_err}", flush=True)
+
+                if chunk_idx < len(chunks):
+                    await asyncio.sleep(1.5)
+
+            if not all_collected_cards:
+                print(f"[Night Grind WARN] Задача #{job_data['id']}: ИИ не смог сформировать карточки.", flush=True)
                 raise ValueError("ИИ не смог выделить карточки из переданного материала.")
 
-            theme_name = parsed.get("phrase_title") or job_data["theme"]
-
-            created_count = 0
             async with AsyncSessionLocal() as db:
                 stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
                 j = (await db.execute(stmt)).scalar_one_or_none()
@@ -208,38 +239,39 @@ async def night_grind_worker():
                     print(f"[Night Grind] Задача #{job_data['id']} была отменена пользователем. Карточки не сохраняются.", flush=True)
                     continue
 
-                created_count, _, _ = await save_cards_to_database(
-                    cards_data=cards,
-                    subject_slug=job_data["subject"],
-                    phrase_title=theme_name,
-                    user_id=job_data["user_id"],
-                    db=db
-                )
-                j.status = "completed"
-                j.cards_count = created_count
+                j.result_cards_json = json.dumps(all_collected_cards, ensure_ascii=False)
+                j.cards_count = len(all_collected_cards)
+                j.theme = extracted_theme
+                j.status = "ready_for_review"
                 j.processed_at = datetime.utcnow()
                 await db.commit()
 
-            print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.", flush=True)
+            print(f"[Night Grind] Задача #{job_data['id']} выполнена! Сформировано {len(all_collected_cards)} карточек (статус ready_for_review).", flush=True)
 
-            # Отправка Telegram Push пользователю (безопасный HTML без сбоев на спецсимволах)
+            # Отправка Telegram Push пользователю с кнопкой перехода прямо в Песочницу!
             if job_data.get("telegram_id"):
                 try:
                     import html
                     chat_id = int(job_data["telegram_id"])
-                    escaped_theme = html.escape(str(theme_name))
+                    escaped_theme = html.escape(str(extracted_theme))
                     escaped_sub = html.escape(str(job_data['subject']))
+                    total_cards = len(all_collected_cards)
+
                     msg_text = (
-                        "<b>[DATA GRINDER: НОЧНОЙ ЦИКЛ ЗАВЕРШЕН]</b>\n\n"
-                        f"Материал «{escaped_theme}» деконструирован по ночному тарифу (-50% стоимости).\n"
-                        f"Сформировано: <b>{created_count} новых карточек</b> по предмету <code>{escaped_sub}</code>.\n\n"
-                        "Карточки размещены в базе знаний и готовы к интерливингу."
+                        "<b>[DATA GRINDER: МАТЕРИАЛ ОБРАБОТАН]</b>\n\n"
+                        f"Тема: «<b>{escaped_theme}</b>»\n"
+                        f"Предмет: <code>{escaped_sub}</code>\n"
+                        f"ИИ сформировал: <b>{total_cards} карточек</b>.\n\n"
+                        "Нажмите кнопку ниже, чтобы открыть Песочницу и разобрать карточки (свайпы влево/вправо)."
                     )
                     markup = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="[ОТКРЫТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
+                        [InlineKeyboardButton(
+                            text=f"🔍 Разобрать карточки ({total_cards} шт.)",
+                            web_app=WebAppInfo(url=f"{WEBAPP_URL}#staging_job_{job_data['id']}")
+                        )]
                     ])
                     await bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup, parse_mode="HTML")
-                    print(f"[Night Grind] Push успешно доставлен пользователю {chat_id}.", flush=True)
+                    print(f"[Night Grind] Push с кнопкой разбора карточек успешно доставлен пользователю {chat_id}.", flush=True)
                 except Exception as tg_err:
                     print(f"[Night Grind] Ошибка отправки push: {tg_err}", flush=True)
 
@@ -255,6 +287,7 @@ async def night_grind_worker():
                     j.error_message = str(proc_err)[:500]
                     j.processed_at = datetime.utcnow()
                     await db.commit()
+
 
 async def main():
     asyncio.create_task(pomodoro_push_observer())

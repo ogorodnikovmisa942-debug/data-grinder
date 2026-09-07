@@ -3,6 +3,7 @@ import asyncio
 import io
 import csv
 import re
+import json
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ from sqlalchemy import select, func, delete, update
 from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob
-from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic
+from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic, split_text_into_chunks
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from datetime import datetime, timedelta
@@ -53,6 +54,8 @@ class StagingCommitIn(BaseModel):
     subject: str
     theme: str
     cards: list[CardStagingItem]
+    job_id: Optional[int] = None
+
 
 class ManualCardIn(BaseModel):
     subject: str
@@ -406,7 +409,9 @@ async def import_raw_text(
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
     # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости в 19:30-03:30 МСК)
-    if payload.is_deferred:
+    # ИЛИ объем текста превышает 35 000 знаков (автоматический фоновый режим во избежание таймаута)
+    is_too_large = len(payload.text.strip()) > 35000
+    if payload.is_deferred or is_too_large:
         # Извлекаем осмысленное имя темы (пропуская служебные технические разделители OCR)
         meaningful_lines = [
             l.strip() for l in payload.text.strip().split("\n")
@@ -428,18 +433,26 @@ async def import_raw_text(
             density=payload.density,
             volume=payload.volume,
             custom_instruction=payload.custom_instruction.strip(),
+            is_deferred=payload.is_deferred,
             status="pending"
         )
         db.add(job)
         await db.commit()
         await db.refresh(job)
+
+        msg = (
+            "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
+            if payload.is_deferred else
+            f"Материал слишком объемный ({len(payload.text.strip())} знаков). Он отправлен в фоновую нарезку. Можете закрыть приложение — бот пришлет кнопку для разбора карточек!"
+        )
         return {
             "status": "queued",
             "job_id": job.id,
             "subject": target_sub,
             "theme": job.theme,
-            "message": "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
+            "message": msg
         }
+
 
     try: 
         parsed_data = await parse_raw_text(
@@ -518,6 +531,15 @@ async def commit_staging_cards(
             user_id=current_user,
             db=db
         )
+        # Если карточки были импортированы из фоновой задачи, помечаем её завершенной
+        if payload.job_id:
+            stmt_job = select(GenerationJob).filter(GenerationJob.id == payload.job_id, GenerationJob.user_id == current_user)
+            res_job = await db.execute(stmt_job)
+            job = res_job.scalar_one_or_none()
+            if job:
+                job.status = "completed"
+                job.cards_count = cards_created
+                job.result_cards_json = None  # Освобождаем место в БД после фиксации в карточки
         await db.commit()
         return {
             "status": "success", 
@@ -580,19 +602,16 @@ async def import_file_at_code_level(
                 reader = pypdf.PdfReader(io.BytesIO(contents))
                 pages_text = []
                 total_pages = len(reader.pages)
-                # Ограничиваем разумный объем для одной нарезки (до 40 страниц),
-                # чтобы не переполнить контекстное окно DeepSeek и не вызвать HTTP 504 таймаут
-                max_pages = min(total_pages, 40)
+                # Безопасно извлекаем до 500 страниц книги
+                max_pages = min(total_pages, 500)
                 for idx in range(max_pages):
                     txt = reader.pages[idx].extract_text() or ""
                     if txt.strip():
-                        pages_text.append(f"--- {up_file.filename}: Стр. {idx+1} ---\n{txt}")
+                        pages_text.append(f"--- {up_file.filename}: Стр. {idx+1} ---\n{txt.strip()}")
                 
-                if total_pages > max_pages:
-                    pages_text.append(f"\n[УВЕДОМЛЕНИЕ: Документ содержит {total_pages} стр. Для лучшего качества карточек извлечены первые {max_pages} стр. Рекомендуется загружать учебники по главам.]")
-
                 extracted_text = "\n\n".join(pages_text)
                 print(f"[PDF Import] {up_file.filename}: извлечено {len(pages_text)} из {total_pages} страниц ({len(extracted_text)} знаков).")
+
             except Exception as e:
                 print(f"[WARN] Ошибка чтения PDF {up_file.filename}: {e}")
 
@@ -626,34 +645,46 @@ async def import_file_at_code_level(
             all_extracted_texts.append(f"=== ДОКУМЕНТ: {up_file.filename} ===\n" + extracted_text.strip())
 
     # Если включен режим «Ночной Грайнд» (-50% стоимости) для документов
-    if is_deferred and all_extracted_texts:
+    # ИЛИ объем документов превышает 30 000 знаков / более 1 документа (автоматический фоновый режим)
+    if all_extracted_texts:
         combined_text = "\n\n".join(all_extracted_texts)
-        theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
-        if len(file_titles) > 2:
-            theme_name += f" и ещё {len(file_titles) - 2}"
+        is_large = len(combined_text) > 30000 or len(upload_list) > 1
 
-        job = GenerationJob(
-            user_id=current_user,
-            telegram_id=current_user if current_user.isdigit() else None,
-            subject=target_sub,
-            theme=theme_name,
-            raw_text=combined_text,
-            granularity_mode=granularity_mode,
-            density=density,
-            volume=volume,
-            custom_instruction=custom_instruction,
-            status="pending"
-        )
-        db.add(job)
-        await db.commit()
-        await db.refresh(job)
-        return {
-            "status": "queued",
-            "job_id": job.id,
-            "subject": target_sub,
-            "theme": theme_name,
-            "message": f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
-        }
+        if is_deferred or is_large:
+            theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
+            if len(file_titles) > 2:
+                theme_name += f" и ещё {len(file_titles) - 2}"
+
+            job = GenerationJob(
+                user_id=current_user,
+                telegram_id=current_user if current_user.isdigit() else None,
+                subject=target_sub,
+                theme=theme_name,
+                raw_text=combined_text,
+                granularity_mode=granularity_mode,
+                density=density,
+                volume=volume,
+                custom_instruction=custom_instruction,
+                is_deferred=is_deferred,
+                status="pending"
+            )
+            db.add(job)
+            await db.commit()
+            await db.refresh(job)
+
+            if is_deferred:
+                msg = f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
+            else:
+                msg = f"Документ принят в фоновую обработку ({len(combined_text)} знаков). Можете закрыть приложение! Когда ИИ завершит разбор, бот пришлет кнопку для перехода в Песочницу."
+
+            return {
+                "status": "queued",
+                "job_id": job.id,
+                "subject": target_sub,
+                "theme": theme_name,
+                "message": msg
+            }
+
 
     # Если были текстовые/PDF документы, прогоняем через ИИ мгновенно
     if all_extracted_texts:
@@ -704,13 +735,50 @@ async def import_file_at_code_level(
         await db.commit()
         return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
 
-# --- 4.2.1 ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА ---
+# --- 4.2.0 ВЫГРУЗКА КАРТОЧЕК ИЗ ЗАДАЧИ В ПЕСОЧНИЦУ (STAGING SANDBOX) ---
+@router.get("/config/import/staging/job/{job_id}")
+async def get_staging_job_cards(
+    job_id: int,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Возвращает сформированные карточки фоновой задачи для разбора в Песочнице."""
+    stmt = select(GenerationJob).filter(GenerationJob.id == job_id, GenerationJob.user_id == current_user)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена или нет прав доступа.")
+
+    if not job.result_cards_json:
+        if job.status in ("pending", "processing"):
+            raise HTTPException(status_code=400, detail="Карточки ещё нарезаются ИИ в фоновом режиме. Пожалуйста, подождите завершения.")
+        elif job.status == "failed":
+            raise HTTPException(status_code=400, detail=f"Ошибка обработки: {job.error_message or 'Неизвестная ошибка'}")
+        elif job.status == "completed":
+            raise HTTPException(status_code=400, detail="Карточки из этой задачи уже были сохранены в базу знаний.")
+        else:
+            raise HTTPException(status_code=400, detail="Для этой задачи нет готовых карточек.")
+
+    try:
+        cards = json.loads(job.result_cards_json)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка распаковки карточек: {str(e)}")
+
+    return {
+        "status": "staging",
+        "job_id": job.id,
+        "subject": job.subject,
+        "theme": job.theme,
+        "cards": cards
+    }
+
+# --- 4.2.1 ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА И ФОНОВЫХ ЗАДАЧ ---
 @router.get("/config/import/queue")
 async def get_import_queue(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Возвращает статус задач пользователя в очереди Ночного Грайндера."""
+    """Возвращает статус задач пользователя в очереди Ночного Грайндера и фоновых задач."""
     stmt = (
         select(GenerationJob)
         .filter(GenerationJob.user_id == current_user)
@@ -728,6 +796,7 @@ async def get_import_queue(
                 "theme": j.theme,
                 "status": j.status,
                 "cards_count": j.cards_count,
+                "has_cards": bool(j.result_cards_json),
                 "error_message": j.error_message,
                 "created_at": j.created_at.isoformat() if j.created_at else None,
                 "processed_at": j.processed_at.isoformat() if j.processed_at else None

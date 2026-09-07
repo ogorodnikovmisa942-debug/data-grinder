@@ -158,10 +158,13 @@ class GenerationJob(Base):
     density = Column(String, default="medium")
     volume = Column(String, default="medium")
     custom_instruction = Column(String, default="")
-    status = Column(String, default="pending", index=True)  # pending | processing | completed | failed
+    status = Column(String, default="pending", index=True)  # pending | processing | ready_for_review | completed | failed | cancelled
     error_message = Column(String, nullable=True)
     cards_count = Column(Integer, default=0)
+    result_cards_json = Column(String, nullable=True)  # JSON массив готовых карточек для модерации в Песочнице
+    is_deferred = Column(Boolean, default=False)  # True = ждать ночного окна скидок, False = обработка сейчас в фоне
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
+
 
 

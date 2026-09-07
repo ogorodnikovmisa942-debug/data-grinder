@@ -73,6 +73,14 @@ async def lifespan(app: FastAPI):
             if "last_due_count" not in columns_users:
                 await db.execute(text("ALTER TABLE user_sessions ADD COLUMN last_due_count INTEGER DEFAULT 0"))
 
+            # Миграции для generation_jobs (хранение карточек для модерации в Песочнице и флаг ночной очереди)
+            res_jobs = await db.execute(text("PRAGMA table_info(generation_jobs)"))
+            columns_jobs = [row[1] for row in res_jobs.fetchall()]
+            if "result_cards_json" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN result_cards_json TEXT"))
+            if "is_deferred" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN is_deferred BOOLEAN DEFAULT 0"))
+
             await db.commit()
             
     # Запускаем фоновый планировщик уведомлений Telegram

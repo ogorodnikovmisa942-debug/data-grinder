@@ -1,5 +1,6 @@
 import json
 import asyncio
+import re
 from typing import Optional
 import httpx
 from google import genai
@@ -638,3 +639,70 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         return json.loads(res.text)
     except Exception as e:
         return {"error": str(e)}
+
+# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ ---
+def split_text_into_chunks(text: str, max_chunk_chars: int = 30000) -> list[str]:
+    """
+    Интеллектуальное разбиение длинного документа на смысловые чанки (~15 страниц / до 30 000 знаков).
+    Сохраняет границы страниц (--- Стр. X ---), документов (=== ДОКУМЕНТ: ...) и абзацев (\\n\\n).
+    """
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_chunk_chars:
+        return [text]
+
+    # Паттерн ищет границы страниц или документов
+    split_pattern = r'(?=(?:\n--- [^\n]+: Стр\. \d+ ---|\n=== [^\n]+ ===))'
+    sections = re.split(split_pattern, text)
+    sections = [s.strip() for s in sections if s.strip()]
+
+    # Если маркеров страниц/документов не было или всего одна секция, делим по параграфам
+    if len(sections) <= 1:
+        sections = text.split("\n\n")
+        sections = [s.strip() for s in sections if s.strip()]
+
+    # Если все еще одна крупная секция, делим по строкам
+    if len(sections) <= 1:
+        sections = text.split("\n")
+        sections = [s.strip() for s in sections if s.strip()]
+
+    chunks = []
+    current_chunk = []
+    current_len = 0
+
+    for sec in sections:
+        sec_len = len(sec)
+        # Если отдельная секция сама по себе превышает max_chunk_chars, режем её принудительно
+        if sec_len > max_chunk_chars:
+            if current_chunk:
+                chunks.append("\n\n".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            
+            start = 0
+            while start < sec_len:
+                end = min(start + max_chunk_chars, sec_len)
+                if end < sec_len:
+                    last_period = sec.rfind(". ", start, end)
+                    if last_period != -1 and last_period > start + (max_chunk_chars // 2):
+                        end = last_period + 1
+                piece = sec[start:end].strip()
+                if piece:
+                    chunks.append(piece)
+                start = end
+            continue
+
+        if current_len + sec_len + 2 > max_chunk_chars and current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+            current_chunk = [sec]
+            current_len = sec_len
+        else:
+            current_chunk.append(sec)
+            current_len += sec_len + 2
+
+    if current_chunk:
+        chunks.append("\n\n".join(current_chunk))
+
+    return chunks
+

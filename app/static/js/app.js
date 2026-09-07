@@ -405,6 +405,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
     if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
     if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
+    if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
+    window.addEventListener('hashchange', () => {
+        if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
+    });
     if (typeof updateAssocPreferenceUI === 'function') {
         updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
     }
@@ -1853,6 +1857,43 @@ window.updateTariffBanner = function() {
     }
 };
 
+window.currentStagingJobId = null;
+
+window.openStagingJob = async function(jobId) {
+    try {
+        const res = await apiFetch(`/api/config/import/staging/job/${jobId}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'staging') {
+            window.currentStagingJobId = jobId;
+            startStagingSession(data);
+        } else {
+            alert(data.detail || data.message || "Не удалось загрузить карточки задачи.");
+        }
+    } catch (e) {
+        console.error("Ошибка открытия песочницы для задачи:", e);
+        alert("Сбой сети при загрузке карточек.");
+    }
+};
+
+window.checkDeepLinkOrHash = async function() {
+    let jobId = null;
+    const hash = window.location.hash || '';
+    const matchHash = hash.match(/#staging_job_?(\d+)/i);
+    if (matchHash) {
+        jobId = matchHash[1];
+    } else if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
+        const startParam = window.Telegram.WebApp.initDataUnsafe.start_param || '';
+        const matchParam = startParam.match(/staging_job_?(\d+)/i);
+        if (matchParam) {
+            jobId = matchParam[1];
+        }
+    }
+
+    if (jobId) {
+        await window.openStagingJob(jobId);
+    }
+};
+
 window.checkNightQueueStatus = async function() {
     try {
         const res = await apiFetch('/api/config/import/queue');
@@ -1864,22 +1905,37 @@ window.checkNightQueueStatus = async function() {
         if (!indicator || !countSpan) return;
 
         const jobs = data.jobs || [];
-        const pending = jobs.filter(j => j.status === 'pending' || j.status === 'processing');
-        if (pending.length > 0) {
-            countSpan.textContent = pending.length;
+        const activeJobs = jobs.filter(j => ['pending', 'processing', 'ready_for_review'].includes(j.status));
+        if (activeJobs.length > 0) {
+            countSpan.textContent = activeJobs.length;
             indicator.classList.remove('hidden');
             if (listEl) {
-                listEl.innerHTML = pending.map(j => `
-                    <div class="flex items-center justify-between py-1 text-[10px] font-mono">
-                        <div class="truncate max-w-[65%]">
-                            <span class="font-bold text-on-surface">${escapeHTML(j.theme || 'Материал')}</span>
-                            <span class="text-[9px] text-secondary">(${j.status === 'processing' ? 'обрабатывается...' : 'в очереди'})</span>
+                listEl.innerHTML = activeJobs.map(j => {
+                    if (j.status === 'ready_for_review') {
+                        return `
+                            <div class="flex items-center justify-between py-1.5 px-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 rounded-lg text-[10px] font-mono my-1">
+                                <div class="truncate max-w-[60%]">
+                                    <span class="font-bold text-emerald-700 dark:text-emerald-300">✓ ${escapeHTML(j.theme || 'Материал')}</span>
+                                    <span class="text-[9px] text-neutral-600 dark:text-neutral-400 block font-sans">${j.cards_count} карт. готовы к разбору</span>
+                                </div>
+                                <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm">
+                                    [🔍 РАЗОБРАТЬ]
+                                </button>
+                            </div>
+                        `;
+                    }
+                    return `
+                        <div class="flex items-center justify-between py-1 text-[10px] font-mono">
+                            <div class="truncate max-w-[65%]">
+                                <span class="font-bold text-on-surface">${escapeHTML(j.theme || 'Материал')}</span>
+                                <span class="text-[9px] text-secondary">(${j.status === 'processing' ? 'обрабатывается...' : 'в очереди'})</span>
+                            </div>
+                            <button onclick="cancelQueuedJob(${j.id})" class="px-2 py-0.5 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-md text-[9px] font-bold uppercase transition-all">
+                                [✕ Отменить]
+                            </button>
                         </div>
-                        <button onclick="cancelQueuedJob(${j.id})" class="px-2 py-0.5 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-md text-[9px] font-bold uppercase transition-all">
-                            [✕ Отменить]
-                        </button>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             }
         } else {
             indicator.classList.add('hidden');
@@ -1887,6 +1943,7 @@ window.checkNightQueueStatus = async function() {
         }
     } catch (e) {}
 };
+
 
 window.cancelQueuedJob = async function(jobId) {
     if (!confirm("Отменить эту задачу создания карточек?")) return;
@@ -2545,24 +2602,34 @@ window.commitApprovedStagingCards = async function() {
     }
 
     try {
+        const payload = {
+            subject: stagingSubject,
+            theme: stagingTheme,
+            cards: approvedStagingCards
+        };
+        if (window.currentStagingJobId) {
+            payload.job_id = window.currentStagingJobId;
+        }
+
         const response = await apiFetch('/api/config/import/commit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                subject: stagingSubject,
-                theme: stagingTheme,
-                cards: approvedStagingCards
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json();
         if (response.ok && data.status === 'success') {
             alert(`Успешно сохранено ${data.cards_count} карточек в предмет [${data.subject.toUpperCase()}]!`);
+            window.currentStagingJobId = null;
+            if (window.location.hash.includes('staging_job')) {
+                try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
+            }
             closeStagingOverlay();
             const textarea = document.getElementById('import-text');
             if (textarea) textarea.value = '';
             await loadDynamicSubjects();
             updateGlobalBadges();
+            if (typeof checkNightQueueStatus === 'function') checkNightQueueStatus();
             if (currentTab === 'data') loadDataTab();
         } else {
             alert("Ошибка сохранения: " + (data.detail || data.message || "Неизвестная ошибка"));
