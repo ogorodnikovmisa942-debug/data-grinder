@@ -335,7 +335,7 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
 import re
 
 def extract_json_payload(content: str) -> dict:
-    """Безопасно извлекает и парсит JSON из ответа LLM (убирая markdown-блоки, переносы и мусор)."""
+    """Безопасно извлекает и парсит JSON из ответа LLM (убирая markdown-блоки, переносы, висячие запятые и обрывы токенов)."""
     if not content or not content.strip():
         raise ValueError("Получен пустой ответ от ИИ.")
     
@@ -346,26 +346,60 @@ def extract_json_payload(content: str) -> dict:
         clean = re.sub(r"\s*```$", "", clean)
     clean = clean.strip()
     
-    # Пробуем прямой парсинг
+    # 1. Прямой парсинг
     try:
         return json.loads(clean)
     except json.JSONDecodeError:
         pass
-        
-    # Ищем границы внешнего JSON-объекта { ... }
-    match = re.search(r"(\{.*\})", clean, re.DOTALL)
-    if match:
-        raw_json = match.group(1)
-        try:
-            return json.loads(raw_json)
-        except json.JSONDecodeError as err:
-            # Попытка исправить trailing commas
-            fixed = re.sub(r",\s*([\]}])", r"\1", raw_json)
+
+    # 2. Ищем границы внешнего JSON-объекта { ... }
+    start_brace = clean.find('{')
+    if start_brace != -1:
+        candidate = clean[start_brace:]
+        last_brace = candidate.rfind('}')
+        if last_brace != -1:
+            slice_candidate = candidate[:last_brace + 1]
             try:
+                return json.loads(slice_candidate)
+            except json.JSONDecodeError:
+                # Попытка исправить trailing commas
+                fixed = re.sub(r",\s*([\]}])", r"\1", slice_candidate)
+                try:
+                    return json.loads(fixed)
+                except json.JSONDecodeError:
+                    pass
+
+        # 3. Авто-восстановление при обрыве на лимите токенов (Truncated JSON Repair)
+        # Если ответ оборвался на полуслове, находим последний ЦЕЛЫЙ закрытый объект карточки '}'
+        match_array = re.search(r'["\'](?:c|cards|items|flashcards)["\']\s*:\s*\[', candidate)
+        if match_array:
+            start_arr_idx = match_array.end()
+            search_from = candidate.rfind('}')
+            while search_from > start_arr_idx:
+                chunk = candidate[:search_from + 1].strip()
+                if chunk.endswith(','):
+                    chunk = chunk[:-1].strip()
+                # Добавляем закрывающие скобки массива и внешнего объекта
+                repaired = chunk + "\n]}"
+                # Чистим висячие запятые
+                repaired = re.sub(r",\s*([\]}])", r"\1", repaired)
+                try:
+                    res = json.loads(repaired)
+                    saved_count = len(res.get('c') or res.get('cards') or [])
+                    print(f"[AI Gateway] Успешно восстановлен обрезанный JSON ответ от ИИ! Сохранено карточек: {saved_count}")
+                    return res
+                except json.JSONDecodeError:
+                    search_from = candidate.rfind('}', 0, search_from)
+        
+        # Попытка закрыть незакрытые кавычки и скобки
+        trimmed = candidate.rstrip()
+        for closer in ['"]}', '"}', '"]', '}', ']}']:
+            try:
+                fixed = re.sub(r",\s*([\]}])", r"\1", trimmed + closer)
                 return json.loads(fixed)
-            except Exception:
-                raise ValueError(f"Ошибка валидации JSON от ИИ: {err}. Исходный фрагмент: {clean[:200]}...")
-                
+            except json.JSONDecodeError:
+                pass
+
     raise ValueError(f"Не удалось обнаружить валидный JSON в ответе ИИ: {clean[:200]}...")
 
 # --- DEEPSEEK ВЫЗОВ (ЧЕРЕЗ HTTPX И OPENAI-СОВМЕСТИМЫЙ REST API) ---
@@ -393,7 +427,7 @@ async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CAC
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
-        "max_tokens": 4096
+        "max_tokens": 8192
     }
 
     print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
@@ -494,9 +528,18 @@ async def parse_raw_text(
     user_directives = [
         f"TARGET SUBJECT: {clean_sub}",
         f"GRANULARITY DIRECTIVE: {granularity_mode}",
-        f"VOLUME DIRECTIVE: {volume}",
         f"EXPLANATION DENSITY: {density}"
     ]
+    if volume in ("auto", "medium", "med_15"):
+        user_directives.append("CARD VOLUME: Extract the 15 to 25 highest-value atomic cards. Do not exceed 25 cards per batch to prevent output truncation.")
+    elif volume in ("low", "low_5"):
+        user_directives.append("CARD VOLUME: Maximum 5 cards.")
+    elif volume == "med_10":
+        user_directives.append("CARD VOLUME: Maximum 10 cards.")
+    elif volume == "high_20":
+        user_directives.append("CARD VOLUME: Maximum 20 cards.")
+    elif volume in ("high", "max"):
+        user_directives.append("CARD VOLUME: Maximum 30 cards.")
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")
