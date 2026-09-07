@@ -266,7 +266,7 @@ async def night_grind_worker():
                     )
                     markup = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(
-                            text=f"🔍 Разобрать карточки ({total_cards} шт.)",
+                            text=f"[◈ РАЗОБРАТЬ КАРТОЧКИ ({total_cards} ШТ.)]",
                             web_app=WebAppInfo(url=f"{WEBAPP_URL}#staging_job_{job_data['id']}")
                         )]
                     ])

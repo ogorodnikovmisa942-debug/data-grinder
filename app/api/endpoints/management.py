@@ -409,9 +409,12 @@ async def import_raw_text(
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
     # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости в 19:30-03:30 МСК)
-    # ИЛИ объем текста превышает 35 000 знаков (автоматический фоновый режим во избежание таймаута)
+    # ИЛИ объем текста превышает 35 000 знаков (автоматический перевод на скидочное время)
     is_too_large = len(payload.text.strip()) > 35000
     if payload.is_deferred or is_too_large:
+        # Крупные материалы ВСЕГДА отправляются на скидочное время (is_deferred = True)
+        effective_deferred = True if is_too_large else payload.is_deferred
+
         # Извлекаем осмысленное имя темы (пропуская служебные технические разделители OCR)
         meaningful_lines = [
             l.strip() for l in payload.text.strip().split("\n")
@@ -433,18 +436,18 @@ async def import_raw_text(
             density=payload.density,
             volume=payload.volume,
             custom_instruction=payload.custom_instruction.strip(),
-            is_deferred=payload.is_deferred,
+            is_deferred=effective_deferred,
             status="pending"
         )
         db.add(job)
         await db.commit()
         await db.refresh(job)
 
-        msg = (
-            "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
-            if payload.is_deferred else
-            f"Материал слишком объемный ({len(payload.text.strip())} знаков). Он отправлен в фоновую нарезку. Можете закрыть приложение — бот пришлет кнопку для разбора карточек!"
-        )
+        if is_too_large:
+            msg = f"Материал объемный ({len(payload.text.strip())} знаков) и автоматически направлен в очередь «Ночной Грайнд» (-50% стоимости, 19:30-03:30 МСК). Можете закрыть приложение — бот пришлет кнопку разбора!"
+        else:
+            msg = "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
+
         return {
             "status": "queued",
             "job_id": job.id,
@@ -651,6 +654,8 @@ async def import_file_at_code_level(
         is_large = len(combined_text) > 30000 or len(upload_list) > 1
 
         if is_deferred or is_large:
+            # Крупные файлы и книги ВСЕГДА отправляются на скидочное время (-50%)
+            effective_deferred = True if is_large else is_deferred
             theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
             if len(file_titles) > 2:
                 theme_name += f" и ещё {len(file_titles) - 2}"
@@ -665,17 +670,17 @@ async def import_file_at_code_level(
                 density=density,
                 volume=volume,
                 custom_instruction=custom_instruction,
-                is_deferred=is_deferred,
+                is_deferred=effective_deferred,
                 status="pending"
             )
             db.add(job)
             await db.commit()
             await db.refresh(job)
 
-            if is_deferred:
-                msg = f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
+            if is_large:
+                msg = f"Большой документ ({len(combined_text)} знаков) автоматически направлен в очередь скидок (-50% стоимости, 19:30-03:30 МСК). Можете закрыть приложение — бот уведомит о готовности!"
             else:
-                msg = f"Документ принят в фоновую обработку ({len(combined_text)} знаков). Можете закрыть приложение! Когда ИИ завершит разбор, бот пришлет кнопку для перехода в Песочницу."
+                msg = f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
 
             return {
                 "status": "queued",

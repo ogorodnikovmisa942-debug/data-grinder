@@ -1918,8 +1918,9 @@ window.checkNightQueueStatus = async function() {
                                     <span class="font-bold text-emerald-700 dark:text-emerald-300">✓ ${escapeHTML(j.theme || 'Материал')}</span>
                                     <span class="text-[9px] text-neutral-600 dark:text-neutral-400 block font-sans">${j.cards_count} карт. готовы к разбору</span>
                                 </div>
-                                <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm">
-                                    [🔍 РАЗОБРАТЬ]
+                                <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm flex items-center gap-1 font-mono">
+                                    <span class="material-symbols-outlined text-[13px]">style</span>
+                                    <span>[РАЗОБРАТЬ]</span>
                                 </button>
                             </div>
                         `;
