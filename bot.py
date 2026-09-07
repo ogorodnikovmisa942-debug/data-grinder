@@ -180,6 +180,11 @@ async def night_grind_worker():
 
         print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по ночному тарифу DeepSeek...", flush=True)
         try:
+            import re
+            clean_text_no_headers = re.sub(r'=== [^=]+ ===', '', job_data["raw_text"]).strip()
+            if len(clean_text_no_headers) < 15:
+                raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, OCR на фото не смог различить текст.")
+
             parsed = await parse_raw_text(
                 text=job_data["raw_text"],
                 target_subject=job_data["subject"],
@@ -190,6 +195,7 @@ async def night_grind_worker():
             )
             cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
             if not cards:
+                print(f"[Night Grind WARN] Задача #{job_data['id']}: ИИ вернул ответ без карточек: {parsed}", flush=True)
                 raise ValueError("ИИ не смог выделить карточки из переданного материала.")
 
             theme_name = parsed.get("phrase_title") or job_data["theme"]

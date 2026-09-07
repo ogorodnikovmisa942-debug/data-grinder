@@ -407,12 +407,22 @@ async def import_raw_text(
 
     # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости в 19:30-03:30 МСК)
     if payload.is_deferred:
-        first_line = payload.text.strip().split("\n")[0][:40].strip()
+        # Извлекаем осмысленное имя темы (пропуская служебные технические разделители OCR)
+        meaningful_lines = [
+            l.strip() for l in payload.text.strip().split("\n")
+            if l.strip() and not l.strip().startswith("===") and not l.strip().startswith("---")
+        ]
+        if meaningful_lines:
+            extracted_theme = meaningful_lines[0][:40].strip()
+        else:
+            first_line = payload.text.strip().split("\n")[0][:40].strip()
+            extracted_theme = first_line.replace("===", "").strip() or "Новый блок знаний"
+
         job = GenerationJob(
             user_id=current_user,
             telegram_id=current_user if current_user.isdigit() else None,
             subject=target_sub,
-            theme=first_line or "Новый блок знаний",
+            theme=extracted_theme,
             raw_text=payload.text.strip(),
             granularity_mode=payload.granularity_mode,
             density=payload.density,

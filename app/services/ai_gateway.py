@@ -157,33 +157,113 @@ Example 3 (Code - Python Concurrency):
 - Do not generate mnemonics in this initial decomposition batch (mnemonics are generated lazily on demand).
 """
 
-def unpack_minified_cards(raw_data: dict, fallback_subject: str = "generic") -> dict:
-    """Десериализует минифицированный JSON от DeepSeek (ключи c, t, s, d, e, l) в стандартный формат карточек Data Grinder."""
-    if not isinstance(raw_data, dict):
+def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> dict:
+    """Десериализует минифицированный JSON от DeepSeek (ключи c, t, s, d, e, l) в стандартный формат карточек Data Grinder.
+    
+    Максимально устойчив к вариациям формата LLM:
+    - плоский список в корне или ключ 'c' / 'cards' / 'items' / 'flashcards' / 'data'
+    - вложенные кластеры / темы ('clusters', 'themes', 'topics', 'groups', 'sections', 'pages')
+    - словарь вида { "Тема 1": [карточки], "Тема 2": [карточки] }
+    - синонимы полей (front/back, question/answer, term/definition и др.)
+    """
+    if isinstance(raw_data, list):
+        raw_cards = raw_data
+        raw_data = {}
+    elif not isinstance(raw_data, dict):
         return {"subject_domain": "generic", "subject_slug": fallback_subject, "phrase_title": "Новый блок знаний", "cards": []}
+    else:
+        # 1. Проверяем стандартные ключи плоского списка карточек
+        raw_cards = (
+            raw_data.get("c") 
+            or raw_data.get("cards") 
+            or raw_data.get("items") 
+            or raw_data.get("flashcards") 
+            or raw_data.get("data")
+            or raw_data.get("deck")
+            or []
+        )
+        if not isinstance(raw_cards, list):
+            raw_cards = []
+
+        # 2. Если плоского списка нет, проверяем вложенную кластеризацию по темам
+        if not raw_cards:
+            for group_key in ("clusters", "themes", "topics", "groups", "sections", "pages"):
+                groups = raw_data.get(group_key)
+                if isinstance(groups, list):
+                    for g in groups:
+                        if isinstance(g, dict):
+                            g_theme = g.get("theme") or g.get("topic") or g.get("title") or g.get("name") or ""
+                            sub_cards = g.get("c") or g.get("cards") or g.get("items") or g.get("flashcards") or []
+                            if isinstance(sub_cards, list):
+                                for sc in sub_cards:
+                                    if isinstance(sc, dict) and g_theme and "h" not in sc and "theme" not in sc:
+                                        sc["h"] = g_theme
+                                raw_cards.extend(sub_cards)
+                        elif isinstance(g, list):
+                            raw_cards.extend(g)
+                    if raw_cards:
+                        break
+
+        # 3. Если всё ещё не найдено, проверяем структуру вида { "Тема А": [карточки], "Тема Б": [карточки] }
+        if not raw_cards:
+            for k, v in raw_data.items():
+                if k in ("domain", "slug", "title", "subject_domain", "subject_slug", "phrase_title", "status"):
+                    continue
+                if isinstance(v, list) and v and isinstance(v[0], dict):
+                    for item in v:
+                        if isinstance(item, dict) and "h" not in item and "theme" not in item:
+                            item["h"] = k
+                    raw_cards.extend(v)
 
     domain = raw_data.get("domain") or raw_data.get("subject_domain") or "generic"
     slug = raw_data.get("slug") or raw_data.get("subject_slug") or fallback_subject
     title = raw_data.get("title") or raw_data.get("phrase_title") or "Новый блок знаний"
 
-    raw_cards = raw_data.get("c") or raw_data.get("cards") or []
-    if not isinstance(raw_cards, list):
-        raw_cards = []
-
     cards = []
     for item in raw_cards:
         if not isinstance(item, dict):
             continue
-        front = item.get("t") or item.get("text") or ""
-        sec = item.get("s") or item.get("secondary_text") or ""
-        back = item.get("d") or item.get("translation") or item.get("definition") or ""
-        ex = item.get("e") or item.get("example") or ""
-        diff = item.get("l") or item.get("initial_difficulty_tier") or "medium"
+        front = (
+            item.get("t") 
+            or item.get("text") 
+            or item.get("front") 
+            or item.get("question") 
+            or item.get("q") 
+            or item.get("term") 
+            or item.get("prompt") 
+            or item.get("concept")
+            or item.get("title")
+            or ""
+        )
+        sec = (
+            item.get("s") 
+            or item.get("secondary_text") 
+            or item.get("hint") 
+            or item.get("context") 
+            or item.get("signature") 
+            or item.get("pinyin") 
+            or item.get("article") 
+            or ""
+        )
+        back = (
+            item.get("d") 
+            or item.get("translation") 
+            or item.get("definition") 
+            or item.get("back") 
+            or item.get("answer") 
+            or item.get("a") 
+            or item.get("explanation") 
+            or item.get("desc") 
+            or item.get("description") 
+            or ""
+        )
+        ex = item.get("e") or item.get("example") or item.get("sample") or item.get("case") or item.get("code") or ""
+        diff = item.get("l") or item.get("initial_difficulty_tier") or item.get("difficulty") or item.get("tier") or "medium"
 
         if not str(front).strip() and not str(back).strip():
             continue
 
-        theme = item.get("h") or item.get("theme") or item.get("topic") or title
+        theme = item.get("h") or item.get("theme") or item.get("topic") or item.get("cluster") or title
         cards.append({
             "text": str(front).strip(),
             "secondary_text": str(sec).strip(),
@@ -417,11 +497,23 @@ async def parse_raw_text(
         f"VOLUME DIRECTIVE: {volume}",
         f"EXPLANATION DENSITY: {density}"
     ]
-    if "=== МАТЕРИАЛ" in text or "=== СТРАНИЦА" in text or "--- Стр." in text or "=== ДОКУМЕНТ" in text:
+    source_count = (
+        text.count("=== МАТЕРИАЛ")
+        + text.count("=== СТРАНИЦА")
+        + text.count("--- Стр.")
+        + text.count("=== ДОКУМЕНТ")
+    )
+    if source_count > 1:
         user_directives.append(
-            "MULTI-SOURCE / MULTI-PAGE CLUSTERING (CRITICAL): The source contains multiple pages or separate photos with potentially mixed topics. "
-            "Group cards into their respective thematic clusters, specify 'h' (topic name) for each card, "
-            "and ensure proportional coverage across ALL provided photos and pages without omitting any page."
+            "MULTI-SOURCE THEMATIC CLUSTERING: The source contains multiple photos, pages, or separate documents. "
+            "Group cards into their respective thematic clusters, assign 'h' (topic name) to each card, "
+            "keep all cards in the single root 'c' array (do NOT create nested 'clusters' objects), "
+            "and ensure proportional coverage across ALL provided materials without omitting any page."
+        )
+    elif source_count == 1:
+        user_directives.append(
+            "THEMATIC FOCUS: Analyze the provided material, group cards logically by setting 'h' (topic name) on each card, "
+            "and keep all cards inside the single root 'c' array."
         )
     if custom_instruction.strip():
         user_directives.append(f"USER CUSTOM OVERRIDE (HIGHEST PRIORITY): {custom_instruction.strip()}")
