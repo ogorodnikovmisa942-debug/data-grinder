@@ -4,7 +4,7 @@ import io
 import csv
 import re
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
@@ -532,32 +532,36 @@ async def commit_staging_cards(
 # --- 4.2 ЗАГРУЗКА ПАЧЕК ФАЙЛОВ НА КОДОВОМ УРОВНЕ (PDF, TXT, MD, CSV) ---
 @router.post("/config/import/file")
 async def import_file_at_code_level(
-    files: Optional[list[UploadFile]] = File(None),
-    file: Optional[UploadFile] = File(None),
-    subject: str = Form(""),
-    density: str = Form("medium"),
-    volume: str = Form("auto"),
-    priority: str = Form("balanced"),
-    assoc_preference: str = Form("acoustic"),
-    granularity_mode: str = Form("atomic"),
-    custom_instruction: str = Form(""),
-    commit_now: bool = Form(False),
-    is_deferred: bool = Form(False),
+    request: Request,
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    target_sub = subject.strip().lower()
-    if not target_sub:
-        raise HTTPException(status_code=400, detail="Целевой предмет не выбран. Выберите предмет из списка или укажите новый.")
+    form = await request.form()
     
-    upload_list: list[UploadFile] = []
-    if files:
-        upload_list.extend(files)
-    if file and file not in upload_list:
-        upload_list.append(file)
+    # Извлекаем все переданные файлы (поддерживаем ключи 'files' и 'file', единичные и множественные)
+    raw_files = form.getlist("files")
+    if not raw_files and "file" in form:
+        raw_files = [form.get("file")]
     
+    upload_list: list[UploadFile] = [
+        f for f in raw_files 
+        if hasattr(f, "filename") and f.filename
+    ]
     if not upload_list:
         raise HTTPException(status_code=400, detail="Не передано ни одного файла.")
+
+    target_sub = str(form.get("subject", "")).strip().lower()
+    if not target_sub:
+        raise HTTPException(status_code=400, detail="Целевой предмет не выбран. Выберите предмет из списка или укажите новый.")
+
+    density = str(form.get("density", "medium"))
+    volume = str(form.get("volume", "auto"))
+    priority = str(form.get("priority", "balanced"))
+    assoc_preference = str(form.get("assoc_preference", "acoustic"))
+    granularity_mode = str(form.get("granularity_mode", "atomic"))
+    custom_instruction = str(form.get("custom_instruction", "")).strip()
+    commit_now = str(form.get("commit_now", "")).lower() == "true"
+    is_deferred = str(form.get("is_deferred", "")).lower() == "true"
 
     all_cards: list[dict] = []
     all_extracted_texts: list[str] = []

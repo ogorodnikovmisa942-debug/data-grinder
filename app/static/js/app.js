@@ -2078,17 +2078,19 @@ window.handleFileUpload = async function(event) {
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
-    // Предложение ночной очереди или мгновенной обработки
+    // Если сейчас УЖЕ действует ночная скидка (19:30 - 03:30 МСК), сразу генерируем со скидкой 50%!
+    // Предлагаем отложить в очередь ТОЛЬКО в дневные часы, чтобы пользователь мог сэкономить 50%.
     const isOffPeak = isOffPeakWindow();
-    const offPeakHint = isOffPeak 
-        ? "Сейчас активно окно ночной скидки 50%!" 
-        : "В ночной очереди (19:30-03:30 МСК) действует скидка 50%!";
-    const isDeferred = confirm(
-        `Документ: ${fileName} (${fileSizeMb} МБ)\n${offPeakHint}\n\n` +
-        `Поставить в фоновую очередь «Ночной Грайнд» со скидкой 50%?\n\n` +
-        `[OK] — В фоновую очередь (не блокирует экран, мы пришлем уведомление)\n` +
-        `[Отмена] — Создать карточки прямо сейчас`
-    );
+    let isDeferred = false;
+    if (!isOffPeak && files.length > 0) {
+        isDeferred = confirm(
+            `Документ: ${fileName} (${fileSizeMb} МБ)\n\n` +
+            `Сейчас действует стандартный дневной тариф.\n` +
+            `Поставить в очередь «Ночной Грайнд» со скидкой 50% (обработка в 19:30 МСК)?\n\n` +
+            `[OK] — В очередь со скидкой 50%\n` +
+            `[Отмена] — Создать карточки прямо сейчас`
+        );
+    }
     formData.append('is_deferred', isDeferred ? 'true' : 'false');
 
     if (!isDeferred) {
@@ -2121,7 +2123,15 @@ window.handleFileUpload = async function(event) {
             if (statusEl) statusEl.classList.add('hidden');
             startStagingSession(data);
         } else {
-            alert("Ошибка обработки файла: " + (data.detail || data.message || "Сбой"));
+            let errorText = data.detail || data.message || "Неизвестная ошибка";
+            if (typeof errorText === 'object') {
+                if (Array.isArray(errorText)) {
+                    errorText = errorText.map(e => (typeof e === 'object' ? (e.msg || JSON.stringify(e)) : e)).join(', ');
+                } else {
+                    errorText = JSON.stringify(errorText);
+                }
+            }
+            alert("Ошибка обработки файла: " + errorText);
             if (statusEl) statusEl.classList.add('hidden');
         }
     } catch (err) {
