@@ -2062,13 +2062,13 @@ window.handleFileUpload = async function(event) {
     }
 
     const pref = localStorage.getItem('assoc_preference') || 'acoustic';
+    const fileSizeMb = (files[0].size / (1024 * 1024)).toFixed(1);
+    const fileName = files.length === 1 ? files[0].name : `${files.length} файлов`;
 
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
     }
-    // Сохраняем 'file' для обратной совместимости
-    formData.append('file', files[0]);
     formData.append('subject', targetSubject);
     formData.append('density', currentDetailDensity);
     formData.append('volume', currentVolumeLimit);
@@ -2078,16 +2078,17 @@ window.handleFileUpload = async function(event) {
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
-    // Предложение ночной очереди, если сейчас не внепиковое окно
+    // Предложение ночной очереди или мгновенной обработки
     const isOffPeak = isOffPeakWindow();
-    let isDeferred = false;
-    if (!isOffPeak && files.length > 0) {
-        isDeferred = confirm(
-            "Поставить файлы в очередь «Ночной Грайнд» со скидкой 50%?\n\n" +
-            "[OK] — В ночную очередь (обработка в 19:30 МСК по тарифу -50%)\n" +
-            "[Отмена] — Обработать немедленно"
-        );
-    }
+    const offPeakHint = isOffPeak 
+        ? "Сейчас активно окно ночной скидки 50%!" 
+        : "В ночной очереди (19:30-03:30 МСК) действует скидка 50%!";
+    const isDeferred = confirm(
+        `Документ: ${fileName} (${fileSizeMb} МБ)\n${offPeakHint}\n\n` +
+        `Поставить в фоновую очередь «Ночной Грайнд» со скидкой 50%?\n\n` +
+        `[OK] — В фоновую очередь (не блокирует экран, мы пришлем уведомление)\n` +
+        `[Отмена] — Создать карточки прямо сейчас`
+    );
     formData.append('is_deferred', isDeferred ? 'true' : 'false');
 
     if (!isDeferred) {
@@ -2104,6 +2105,13 @@ window.handleFileUpload = async function(event) {
             signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
             body: formData
         });
+
+        if (response.status === 413) {
+            alert(`Файл слишком большой для веб-сервера (${fileSizeMb} МБ). Nginx ограничил размер загрузки. Рекомендуем разбить документ по главам.`);
+            if (statusEl) statusEl.classList.add('hidden');
+            return;
+        }
+
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
             if (statusEl) statusEl.classList.add('hidden');
@@ -2122,7 +2130,7 @@ window.handleFileUpload = async function(event) {
             return;
         }
         console.error("Сбой загрузки файла:", err);
-        alert("Ошибка сети при отправке файла.");
+        alert(`Ошибка сети при отправке файла (${fileSizeMb} МБ). Если размер превышает 1 МБ, сервер Nginx может блокировать запрос лимитом client_max_body_size.`);
         if (statusEl) statusEl.classList.add('hidden');
     } finally {
         activeImportAbortController = null;

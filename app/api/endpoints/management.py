@@ -569,17 +569,26 @@ async def import_file_at_code_level(
         contents = await up_file.read()
         extracted_text = ""
 
-        # 1. Формат PDF: извлечение через pypdf
+        # 1. Формат PDF: извлечение через pypdf (с безопасным ограничением на объем)
         if filename.endswith(".pdf"):
             try:
                 import pypdf
                 reader = pypdf.PdfReader(io.BytesIO(contents))
                 pages_text = []
-                for idx, page in enumerate(reader.pages):
-                    txt = page.extract_text() or ""
+                total_pages = len(reader.pages)
+                # Ограничиваем разумный объем для одной нарезки (до 40 страниц),
+                # чтобы не переполнить контекстное окно DeepSeek и не вызвать HTTP 504 таймаут
+                max_pages = min(total_pages, 40)
+                for idx in range(max_pages):
+                    txt = reader.pages[idx].extract_text() or ""
                     if txt.strip():
                         pages_text.append(f"--- {up_file.filename}: Стр. {idx+1} ---\n{txt}")
+                
+                if total_pages > max_pages:
+                    pages_text.append(f"\n[УВЕДОМЛЕНИЕ: Документ содержит {total_pages} стр. Для лучшего качества карточек извлечены первые {max_pages} стр. Рекомендуется загружать учебники по главам.]")
+
                 extracted_text = "\n\n".join(pages_text)
+                print(f"[PDF Import] {up_file.filename}: извлечено {len(pages_text)} из {total_pages} страниц ({len(extracted_text)} знаков).")
             except Exception as e:
                 print(f"[WARN] Ошибка чтения PDF {up_file.filename}: {e}")
 
