@@ -178,7 +178,7 @@ async def night_grind_worker():
         if not job_data:
             continue
 
-        print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по ночному тарифу DeepSeek...")
+        print(f"[Night Grind] Старт обработки задачи #{job_data['id']} («{job_data['theme']}») по ночному тарифу DeepSeek...", flush=True)
         try:
             parsed = await parse_raw_text(
                 text=job_data["raw_text"],
@@ -199,7 +199,7 @@ async def night_grind_worker():
                 stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
                 j = (await db.execute(stmt)).scalar_one_or_none()
                 if not j or j.status == "cancelled":
-                    print(f"[Night Grind] Задача #{job_data['id']} была отменена пользователем. Карточки не сохраняются.")
+                    print(f"[Night Grind] Задача #{job_data['id']} была отменена пользователем. Карточки не сохраняются.", flush=True)
                     continue
 
                 created_count, _, _ = await save_cards_to_database(
@@ -214,7 +214,7 @@ async def night_grind_worker():
                 j.processed_at = datetime.utcnow()
                 await db.commit()
 
-            print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.")
+            print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.", flush=True)
 
             # Отправка Telegram Push пользователю (безопасный HTML без сбоев на спецсимволах)
             if job_data.get("telegram_id"):
@@ -233,12 +233,14 @@ async def night_grind_worker():
                         [InlineKeyboardButton(text="[ОТКРЫТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
                     ])
                     await bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=markup, parse_mode="HTML")
-                    print(f"[Night Grind] Push успешно доставлен пользователю {chat_id}.")
+                    print(f"[Night Grind] Push успешно доставлен пользователю {chat_id}.", flush=True)
                 except Exception as tg_err:
-                    print(f"[Night Grind] Ошибка отправки push: {tg_err}")
+                    print(f"[Night Grind] Ошибка отправки push: {tg_err}", flush=True)
 
         except Exception as proc_err:
-            print(f"[Night Grind ERROR] Сбой задачи #{job_data['id']}: {proc_err}")
+            import traceback
+            trace_err = traceback.format_exc()
+            print(f"[Night Grind ERROR] Сбой задачи #{job_data['id']}: {proc_err}\n{trace_err}", flush=True)
             async with AsyncSessionLocal() as db:
                 stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
                 j = (await db.execute(stmt)).scalar_one_or_none()
