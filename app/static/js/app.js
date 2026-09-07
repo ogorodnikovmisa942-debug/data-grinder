@@ -796,7 +796,9 @@ function renderIntroductionCard(card) {
                     <!-- Мнемоника / Ассоциация (если есть) -->
                     ${mnemonicFormatted ? `
                         <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
-                            <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono">💡 АССОЦИАЦИЯ</span>
+                            <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
+                            </span>
                             <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
                                 ${mnemonicFormatted}
                             </div>
@@ -822,8 +824,9 @@ function renderIntroductionCard(card) {
                     [→ ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ]
                 </button>
                 <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
-                    [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
+                    <span class="material-symbols-outlined text-[14px]">verified</span>
+                    <span>[ЗНАЮ НАИЗУСТЬ]</span>
                 </button>
             `;
         }
@@ -847,8 +850,9 @@ function renderIntroductionCard(card) {
                         [ПОКАЗАТЬ ОТВЕТ]
                     </button>
                     <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
-                        [⚡ УЖЕ ЗНАЮ НАИЗУСТЬ]
+                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">verified</span>
+                        <span>[ЗНАЮ НАИЗУСТЬ]</span>
                     </button>
                 `;
             }
@@ -865,7 +869,9 @@ function renderIntroductionCard(card) {
                         </div>
                         ${mnemonicFormatted ? `
                             <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
-                                <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono">💡 АССОЦИАЦИЯ</span>
+                                <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
+                                </span>
                                 <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
                                     ${mnemonicFormatted}
                                 </div>
@@ -1390,7 +1396,7 @@ async function requestMoveCard(cardId) {
 }
 
 async function requestDeleteCard(cardId) {
-    if (!confirm("Выжечь эту матрицу знаний из базы данных навсегда?")) return;
+    if (!confirm("Удалить эту карточку навсегда?")) return;
     try {
         const response = await apiFetch(`/api/management/cards/${cardId}`, { method: 'DELETE' });
         if (response.ok) {
@@ -1401,34 +1407,46 @@ async function requestDeleteCard(cardId) {
     } catch (e) { console.error("Сбой удаления карточки:", e); }
 }
 
-function makeAsciiBar(progressValue) {
-    const totalBlocks = 10;
-    const filledBlocks = Math.round((progressValue / 100) * totalBlocks);
-    const emptyBlocks = totalBlocks - filledBlocks;
-    return '[' + '█'.repeat(filledBlocks) + '░'.repeat(emptyBlocks) + ']';
-}
-
 async function loadStatsTab() {
     try {
-        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
-        document.getElementById('stat-new').innerText = data.cards_new; document.getElementById('stat-learning').innerText = data.cards_learning;
-        document.getElementById('stat-review').innerText = data.cards_review; document.getElementById('stat-progress').innerText = data.progress_percent;
-        document.getElementById('stat-retention').innerText = data.retention_rate_30d; document.getElementById('stat-streak').innerText = `${data.streak_days} дней`;
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); 
+        const data = await res.json();
+        const elNew = document.getElementById('stat-new');
+        const elLrn = document.getElementById('stat-learning');
+        const elRev = document.getElementById('stat-review');
+        const elPrg = document.getElementById('stat-progress');
+        const elRet = document.getElementById('stat-retention');
+        const elStr = document.getElementById('stat-streak');
+
+        if (elNew) elNew.innerText = data.cards_new;
+        if (elLrn) elLrn.innerText = data.cards_learning;
+        if (elRev) elRev.innerText = data.cards_review;
+        if (elPrg) elPrg.innerText = `${data.progress_percent}%`;
+        if (elRet) elRet.innerText = `${data.retention_rate_30d}%`;
+        if (elStr) elStr.innerText = `${data.streak_days} дней`;
         
-        const titleContainer = document.getElementById('breakdown-title'); const listContainer = document.getElementById('breakdown-list');
-        if (titleContainer) titleContainer.innerText = currentSubject === 'all' ? "--- ОСВОЕНИЕ ПРЕДМЕТОВ ---" : "--- ТЕМАТИЧЕСКАЯ МАТРИЦА ---";
-        if (!data.breakdown || data.breakdown.length === 0) { if (listContainer) listContainer.innerHTML = '<div class="text-xs text-outline py-xs">Нет данных</div>'; return; }
+        const titleContainer = document.getElementById('breakdown-title'); 
+        const listContainer = document.getElementById('breakdown-list');
+        if (titleContainer) {
+            titleContainer.innerText = currentSubject === 'all' ? "--- ПРОГРЕСС ПО ПРЕДМЕТАМ ---" : "--- РАЗДЕЛЫ ПРЕДМЕТА ---";
+        }
+        if (!data.breakdown || data.breakdown.length === 0) { 
+            if (listContainer) listContainer.innerHTML = '<div class="text-xs text-outline py-2 text-center">Нет данных по разделам</div>'; 
+            return; 
+        }
         
         if (listContainer) {
             listContainer.innerHTML = data.breakdown.map(item => {
-                const barHtml = makeAsciiBar(item.progress);
+                const pct = Math.min(100, Math.max(0, item.progress || 0));
                 return `
-                    <div class="flex flex-col py-2 font-mono text-xs gap-xs border-b border-outline-variant/20">
+                    <div class="flex flex-col p-3 mb-2 font-mono text-xs gap-2 bg-neutral-50 dark:bg-neutral-900/40 rounded-xl border border-neutral-200/60 dark:border-neutral-800/60">
                         <div class="flex justify-between items-center w-full">
-                            <span class="text-on-surface-variant font-bold uppercase truncate max-w-[70%]">${escapeHTML(item.label)}</span>
-                            <span class="font-bold text-primary">[${item.progress}%]</span>
+                            <span class="text-on-surface font-bold uppercase truncate max-w-[75%]">${escapeHTML(item.label)}</span>
+                            <span class="font-bold text-primary font-mono text-[11px]">${pct}%</span>
                         </div>
-                        <div class="text-outline tracking-wider font-bold select-none">${barHtml}</div>
+                        <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                            <div class="bg-primary h-full rounded-full transition-all duration-300" style="width: ${pct}%"></div>
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -1812,10 +1830,12 @@ window.updateTariffBanner = function() {
 
     const isOffPeak = isOffPeakWindow();
     if (isOffPeak) {
-        if (bannerTitle) bannerTitle.innerHTML = `ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
         bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
-        if (btnDeferred) btnDeferred.textContent = "[🌙 СКИДКА -50% (СЕЙЧАС)]";
+        if (btnDeferred) {
+            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СКИДКА -50% (СЕЙЧАС)</span>`;
+        }
     } else {
         const now = new Date();
         const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -1824,10 +1844,12 @@ window.updateTariffBanner = function() {
         const h = Math.floor(diffMinutes / 60);
         const m = diffMinutes % 60;
 
-        if (bannerTitle) bannerTitle.innerHTML = `ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
         bannerBadge.className = "text-secondary font-bold font-mono";
         bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
-        if (btnDeferred) btnDeferred.textContent = "[🌙 НОЧЬЮ -50%]";
+        if (btnDeferred) {
+            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>НОЧЬЮ (-50%)</span>`;
+        }
     }
 };
 
@@ -1838,16 +1860,73 @@ window.checkNightQueueStatus = async function() {
         const data = await res.json();
         const indicator = document.getElementById('night-queue-indicator');
         const countSpan = document.getElementById('night-queue-count');
+        const listEl = document.getElementById('night-queue-list');
         if (!indicator || !countSpan) return;
 
-        const pending = (data.jobs || []).filter(j => j.status === 'pending' || j.status === 'processing');
+        const jobs = data.jobs || [];
+        const pending = jobs.filter(j => j.status === 'pending' || j.status === 'processing');
         if (pending.length > 0) {
             countSpan.textContent = pending.length;
             indicator.classList.remove('hidden');
+            if (listEl) {
+                listEl.innerHTML = pending.map(j => `
+                    <div class="flex items-center justify-between py-1 text-[10px] font-mono">
+                        <div class="truncate max-w-[65%]">
+                            <span class="font-bold text-on-surface">${escapeHTML(j.theme || 'Материал')}</span>
+                            <span class="text-[9px] text-secondary">(${j.status === 'processing' ? 'обрабатывается...' : 'в очереди'})</span>
+                        </div>
+                        <button onclick="cancelQueuedJob(${j.id})" class="px-2 py-0.5 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-md text-[9px] font-bold uppercase transition-all">
+                            [✕ Отменить]
+                        </button>
+                    </div>
+                `).join('');
+            }
         } else {
             indicator.classList.add('hidden');
+            if (listEl) listEl.innerHTML = '';
         }
     } catch (e) {}
+};
+
+window.cancelQueuedJob = async function(jobId) {
+    if (!confirm("Отменить эту задачу создания карточек?")) return;
+    try {
+        const res = await apiFetch(`/api/config/import/queue/${jobId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok) {
+            alert(data.message || "Задача успешно отменена.");
+            checkNightQueueStatus();
+        } else {
+            alert(data.detail || "Не удалось отменить задачу.");
+        }
+    } catch (e) {
+        console.error("Ошибка отмены задачи из очереди:", e);
+        alert("Сбой сети при отмене задачи.");
+    }
+};
+
+let activeImportAbortController = null;
+
+window.cancelActiveGeneration = function() {
+    if (activeImportAbortController) {
+        activeImportAbortController.abort();
+        activeImportAbortController = null;
+    }
+    const activeBar = document.getElementById('generation-active-bar');
+    if (activeBar) activeBar.classList.add('hidden');
+    const btnInstant = document.getElementById('btn-import-instant');
+    const btnDeferred = document.getElementById('btn-import-deferred');
+    if (btnInstant) {
+        btnInstant.disabled = false;
+        btnInstant.innerHTML = `<span class="material-symbols-outlined text-[15px]">bolt</span><span>СЕЙЧАС</span>`;
+    }
+    if (btnDeferred) {
+        btnDeferred.disabled = false;
+        btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>${isOffPeakWindow() ? 'СКИДКА -50% (СЕЙЧАС)' : 'НОЧЬЮ (-50%)'}</span>`;
+    }
+    const statusEl = document.getElementById('file-import-status');
+    if (statusEl) statusEl.classList.add('hidden');
+    console.log("[Data Grinder] Активная генерация отменена пользователем.");
 };
 
 async function importTextKnowledge(isDeferred = false) {
@@ -1855,11 +1934,11 @@ async function importTextKnowledge(isDeferred = false) {
     const btnInstant = document.getElementById('btn-import-instant'); 
     const btnDeferred = document.getElementById('btn-import-deferred'); 
     const text = textarea ? textarea.value.trim() : "";
-    if (!text) { alert("Входной буфер пуст. Вставь текст лекции или статьи кодекса!"); return; }
+    if (!text) { alert("Поле ввода пусто. Вставьте текст лекции или конспекта!"); return; }
     
     const targetSubject = getSelectedImportSubject();
     if (!targetSubject) {
-        alert("Выберите целевой предмет из списка или укажите новый перед запуском парсера!");
+        alert("Выберите предмет из списка или укажите новый перед созданием карточек!");
         return;
     }
 
@@ -1872,13 +1951,19 @@ async function importTextKnowledge(isDeferred = false) {
     if (isDeferred) {
         if (btnDeferred) btnDeferred.innerText = "[ОЧЕРЕДЬ...]";
     } else {
-        if (btnInstant) btnInstant.innerText = "[DEEPSEEK...]";
+        if (btnInstant) btnInstant.innerText = "[ДЕПСИК...]";
+        activeImportAbortController = new AbortController();
+        const activeBar = document.getElementById('generation-active-bar');
+        const activeStatus = document.getElementById('generation-active-status');
+        if (activeBar) activeBar.classList.remove('hidden');
+        if (activeStatus) activeStatus.textContent = "ИИ создает карточки...";
     }
 
     try {
         const response = await apiFetch('/api/config/import', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
+            signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
             body: JSON.stringify({ 
                 text: text, 
                 subject: targetSubject,
@@ -1888,29 +1973,44 @@ async function importTextKnowledge(isDeferred = false) {
                 assoc_preference: pref,
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
-                commit_now: false, // Направляем в Песочницу
+                commit_now: false, // Направляем на проверку
                 is_deferred: isDeferred
             })
         });
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
-            alert(`🌙 ${data.message}`);
+            alert(`[НОЧНАЯ ОЧЕРЕДЬ] ${data.message}`);
             if (textarea) textarea.value = "";
             checkNightQueueStatus();
         } else if (response.ok && data.status === 'staging') {
             startStagingSession(data);
         } else if (response.ok && data.status === 'success') {
-            alert(`Импортировано карт: ${data.cards_count}`);
-            if (textarea) textarea.value = ""; await loadDynamicSubjects(); updateGlobalBadges();
+            alert(`Создано карточек: ${data.cards_count}`);
+            if (textarea) textarea.value = ""; 
+            await loadDynamicSubjects(); 
+            updateGlobalBadges();
         } else { 
-            alert("Ошибка ИИ-конвейера: " + (data.message || data.detail || "Неизвестный сбой.")); 
+            alert("Ошибка создания карточек: " + (data.message || data.detail || "Неизвестный сбой.")); 
         }
     } catch (e) { 
-        console.error("Сбой сети при импорте знаний:", e); 
-        alert("Критический сбой сети."); 
+        if (e.name === 'AbortError' || e.message === 'The user aborted a request.') {
+            console.log("[Data Grinder] Запрос создания карточек отменен пользователем.");
+            return;
+        }
+        console.error("Сбой сети при создании карточек:", e); 
+        alert("Сбой сети при обращении к серверу."); 
     } finally { 
-        if (btnInstant) { btnInstant.disabled = false; btnInstant.innerText = "[⚡ СЕЙЧАС]"; }
-        if (btnDeferred) { btnDeferred.disabled = false; btnDeferred.innerText = isOffPeakWindow() ? "[🌙 СКИДКА -50% (СЕЙЧАС)]" : "[🌙 НОЧЬЮ -50%]"; }
+        activeImportAbortController = null;
+        const activeBar = document.getElementById('generation-active-bar');
+        if (activeBar) activeBar.classList.add('hidden');
+        if (btnInstant) { 
+            btnInstant.disabled = false; 
+            btnInstant.innerHTML = `<span class="material-symbols-outlined text-[15px]">bolt</span><span>СЕЙЧАС</span>`;
+        }
+        if (btnDeferred) { 
+            btnDeferred.disabled = false; 
+            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>${isOffPeakWindow() ? 'СКИДКА -50% (СЕЙЧАС)' : 'НОЧЬЮ (-50%)'}</span>`;
+        }
     }
 }
 
@@ -1990,15 +2090,24 @@ window.handleFileUpload = async function(event) {
     }
     formData.append('is_deferred', isDeferred ? 'true' : 'false');
 
+    if (!isDeferred) {
+        activeImportAbortController = new AbortController();
+        const activeBar = document.getElementById('generation-active-bar');
+        const activeStatus = document.getElementById('generation-active-status');
+        if (activeBar) activeBar.classList.remove('hidden');
+        if (activeStatus) activeStatus.textContent = "ИИ обрабатывает файлы...";
+    }
+
     try {
         const response = await apiFetch('/api/config/import/file', {
             method: 'POST',
+            signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
             body: formData
         });
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
             if (statusEl) statusEl.classList.add('hidden');
-            alert(`🌙 ${data.message}`);
+            alert(`[НОЧНАЯ ОЧЕРЕДЬ] ${data.message}`);
             checkNightQueueStatus();
         } else if (response.ok && data.status === 'staging') {
             if (statusEl) statusEl.classList.add('hidden');
@@ -2008,10 +2117,17 @@ window.handleFileUpload = async function(event) {
             if (statusEl) statusEl.classList.add('hidden');
         }
     } catch (err) {
+        if (err.name === 'AbortError' || err.message === 'The user aborted a request.') {
+            console.log("[Data Grinder] Загрузка и обработка файлов отменена пользователем.");
+            return;
+        }
         console.error("Сбой загрузки файла:", err);
         alert("Ошибка сети при отправке файла.");
         if (statusEl) statusEl.classList.add('hidden');
     } finally {
+        activeImportAbortController = null;
+        const activeBar = document.getElementById('generation-active-bar');
+        if (activeBar) activeBar.classList.add('hidden');
         event.target.value = '';
     }
 };
@@ -2184,7 +2300,7 @@ window.handleImageOcr = async function(event) {
 
         alert(
             `Успешно распознано: ${recognizedPages.length} из ${totalFiles} фото (${combinedText.length} символов).\n\n` +
-            `Текст помещен в поле ввода.\nПроверьте предмет и нажмите «[⚡ СЕЙЧАС]» или «[🌙 НОЧЬЮ -50%]» для нарезки карточек ИИ.`
+            `Текст помещен в поле ввода.\nПроверьте предмет и нажмите «[СЕЙЧАС]» или «[НОЧЬЮ (-50%)]» для создания карточек ИИ.`
         );
     } catch (ocrErr) {
         console.error("Ошибка пакетного OCR:", ocrErr);

@@ -196,6 +196,12 @@ async def night_grind_worker():
 
             created_count = 0
             async with AsyncSessionLocal() as db:
+                stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
+                j = (await db.execute(stmt)).scalar_one_or_none()
+                if not j or j.status == "cancelled":
+                    print(f"[Night Grind] Задача #{job_data['id']} была отменена пользователем. Карточки не сохраняются.")
+                    continue
+
                 created_count, _, _ = await save_cards_to_database(
                     cards_data=cards,
                     subject_slug=job_data["subject"],
@@ -203,13 +209,10 @@ async def night_grind_worker():
                     user_id=job_data["user_id"],
                     db=db
                 )
-                stmt = select(GenerationJob).filter(GenerationJob.id == job_data["id"])
-                j = (await db.execute(stmt)).scalar_one_or_none()
-                if j:
-                    j.status = "completed"
-                    j.cards_count = created_count
-                    j.processed_at = datetime.utcnow()
-                    await db.commit()
+                j.status = "completed"
+                j.cards_count = created_count
+                j.processed_at = datetime.utcnow()
+                await db.commit()
 
             print(f"[Night Grind] Задача #{job_data['id']} выполнена! Создано карточек: {created_count}.")
 

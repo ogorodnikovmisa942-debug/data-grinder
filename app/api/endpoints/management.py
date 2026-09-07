@@ -713,6 +713,27 @@ async def get_import_queue(
         ]
     }
 
+@router.delete("/config/import/queue/{job_id}")
+async def cancel_import_queue_job(
+    job_id: int,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Отменяет задачу пользователя в очереди ночной генерации."""
+    stmt = select(GenerationJob).filter(GenerationJob.id == job_id, GenerationJob.user_id == current_user)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена или нет прав доступа.")
+    
+    if job.status in ("completed", "failed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Нельзя отменить задачу в статусе {job.status}.")
+        
+    job.status = "cancelled"
+    job.error_message = "Отменено пользователем"
+    await db.commit()
+    return {"status": "success", "message": f"Задача #{job_id} успешно отменена."}
+
 # --- 4.3 ИМПОРТ ГОТОВОЙ БИБЛИОТЕКИ ---
 @router.post("/config/import/preset")
 async def import_preset_library(

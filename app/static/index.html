@@ -277,7 +277,7 @@
                         <div id="card-mnemonic-container" class="w-full shrink-0 bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left relative group hidden">
                             <div class="flex items-center justify-between text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
                                 <span class="flex items-center gap-1 font-mono">
-                                    <span>💡</span> АССОЦИАЦИЯ
+                                    <span class="material-symbols-outlined text-[14px] text-amber-500">psychology</span> АССОЦИАЦИЯ
                                 </span>
                                 <div class="flex gap-2">
                                     <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Скрыть</button>
@@ -358,36 +358,36 @@
 
         <!-- Экран STATS -->
         <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-hidden pt-md">
-            <div class="flex flex-col gap-sm font-mono border border-outline-variant p-sm bg-surface-container-lowest shrink-0 text-xs">
-                <div class="flex justify-between border-b border-dashed border-outline-variant pb-xs">
-                    <span class="text-on-surface-variant">Свежие карты:</span>
+            <div class="flex flex-col gap-sm font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
+                <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
+                    <span class="text-on-surface-variant">Новые карточки:</span>
                     <span id="stat-new" class="font-bold text-primary">0</span>
                 </div>
-                <div class="flex justify-between border-b border-dashed border-outline-variant pb-xs">
-                    <span class="text-on-surface-variant">На заучивании:</span>
+                <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
+                    <span class="text-on-surface-variant">Изучаются:</span>
                     <span id="stat-learning" class="font-bold text-primary">0</span>
                 </div>
-                <div class="flex justify-between border-b border-dashed border-outline-variant pb-xs">
-                    <span class="text-on-surface-variant">В памяти (Review):</span>
+                <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
+                    <span class="text-on-surface-variant">Повторение:</span>
                     <span id="stat-review" class="font-bold text-primary">0</span>
                 </div>
-                <div class="flex justify-between border-b border-dashed border-outline-variant pb-xs">
-                    <span class="text-on-surface-variant">Прогресс освоения:</span>
+                <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
+                    <span class="text-on-surface-variant">Общий прогресс:</span>
                     <span id="stat-progress" class="font-bold text-secondary">0%</span>
                 </div>
-                <div class="flex justify-between border-b border-dashed border-outline-variant pb-xs">
-                    <span class="text-on-surface-variant">Удержание (30д):</span>
+                <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
+                    <span class="text-on-surface-variant">Запоминание (30 дн.):</span>
                     <span id="stat-retention" class="font-bold text-primary">0%</span>
                 </div>
                 <div class="flex justify-between pt-xs">
-                    <span class="text-on-surface-variant">Ударный режим:</span>
+                    <span class="text-on-surface-variant">Серия дней:</span>
                     <span id="stat-streak" class="font-bold text-primary">0 дней</span>
                 </div>
             </div>
 
-            <div id="stats-breakdown-box" class="flex-1 flex flex-col gap-xs font-mono border border-outline-variant p-sm bg-surface-container-lowest overflow-hidden">
-                <div id="breakdown-title" class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-outline-variant pb-xs mb-xs">
-                    --- РАСКЛАДКА МАТРИЦЫ ---
+            <div id="stats-breakdown-box" class="flex-1 flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest overflow-hidden rounded-2xl shadow-xs">
+                <div id="breakdown-title" class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs">
+                    --- ПРОГРЕСС ПО РАЗДЕЛАМ ---
                 </div>
                 <div id="breakdown-list" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 pr-1 text-xs"></div>
             </div>
@@ -475,13 +475,13 @@
             <!-- СЕКЦИЯ 2: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (DEEPSEEK-V4 FLASH) -->
             <div class="flex flex-col gap-sm shrink-0 border border-neutral-200 dark:border-neutral-800 p-3.5 bg-surface-container-lowest font-mono mb-md rounded-2xl shadow-xs">
                 <div class="flex items-center justify-between border-b border-neutral-200/60 dark:border-neutral-800 pb-2">
-                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[ИМПОРТ ЗНАНИЙ: DEEPSEEK-V4 FLASH]</span>
+                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[СОЗДАНИЕ КАРТОЧЕК С ПОМОЩЬЮ ИИ]</span>
                     <span class="text-[9px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
                 </div>
                 
                 <!-- Ручной выбор целевого предмета -->
                 <div class="flex flex-col gap-xs mt-xs">
-                    <label class="text-[9px] text-outline uppercase font-bold">1. Целевой предмет (папка назначения):</label>
+                    <label class="text-[9px] text-outline uppercase font-bold">1. Предмет для карточек:</label>
                     <div class="grid grid-cols-2 gap-xs">
                         <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs">
                             <option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>
@@ -494,7 +494,7 @@
                 <!-- Основное поле ввода лекции / статьи / текста -->
                 <div class="flex flex-col gap-xs mt-xs">
                     <div class="flex justify-between items-center">
-                        <label for="import-text" class="text-[9px] text-outline uppercase font-bold">2. Исходный текст (конспект, статья кодекса, формулы):</label>
+                        <label for="import-text" class="text-[9px] text-outline uppercase font-bold">2. Текст материала (конспект, параграф, закон):</label>
                         <span class="text-[8px] text-outline opacity-70">РАСТЯГИВАЕТСЯ ВНИЗ ⇲</span>
                     </div>
                     <textarea id="import-text" placeholder="Вставьте сюда текст лекции, главу учебника, статьи закона, формулы или словарь..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-2xl p-3 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[140px] shadow-inner"></textarea>
@@ -510,22 +510,22 @@
                     <!-- 3 понятных режима нарезки -->
                     <div class="grid grid-cols-3 gap-1.5">
                         <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[ОБЫЧНЫЕ]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">по терминам</span>
+                            <span>[ПО ФАКТАМ]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">рекомендуется</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[1 БОЛЬШАЯ]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">вся тема сразу</span>
+                            <span>[ПОДРОБНАЯ]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">одна карточка</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[ШПОРЫ]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">по 1 фразе</span>
+                            <span>[ШПАРГАЛКА]</span>
+                            <span class="text-[7px] opacity-75 font-normal lowercase">сжатая суть</span>
                         </button>
                     </div>
 
                     <!-- Живая расшифровка настроек (Live Hint) -->
                     <div id="import-mode-explanation" class="text-[9px] text-secondary font-mono border border-neutral-200/60 dark:border-neutral-800 bg-surface p-2 leading-snug rounded-xl shadow-xs">
-                        > РЕЖИМ: Обычные карточки по ключевым терминам (до 15 шт, суть + пример).
+                        > РЕЖИМ: Карточки по ключевым терминам и фактам (суть + контекст).
                     </div>
 
                     <!-- Тонкая настройка (по умолчанию свернута, не загромождает экран) -->
@@ -577,30 +577,49 @@
                 <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
                 <div class="flex flex-col gap-xs mt-xs">
                     <div class="flex justify-between items-center">
-                        <label for="import-custom-instruction" class="text-[9px] text-outline uppercase font-bold">4. Пожелание к ИИ (высший приоритет):</label>
+                        <label for="import-custom-instruction" class="text-[9px] text-outline uppercase font-bold">4. Дополнительные пожелания к карточкам:</label>
                         <span class="text-[8px] text-outline opacity-70">ВИДНО ПОЛНОСТЬЮ ⇲</span>
                     </div>
-                    <textarea id="import-custom-instruction" rows="2" placeholder="Например: выдели только формулы / переведи термины / добавь практические примеры судебных решений..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[44px]"></textarea>
+                    <textarea id="import-custom-instruction" rows="2" placeholder="Например: выдели только формулы / переведи термины / добавь практические примеры..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[44px]"></textarea>
                 </div>
 
                 <!-- Индикатор тарифа DeepSeek и окно Ночного Грайндера -->
                 <div id="tariff-banner" class="flex justify-between items-center text-[9px] font-mono border border-neutral-200 dark:border-neutral-800 p-2 bg-surface mt-xs select-none rounded-xl shadow-xs">
-                    <span id="tariff-status-title" class="text-outline">ТАРИФ: <span class="text-primary font-bold">DEEPSEEK V3</span></span>
-                    <span id="tariff-status-badge" class="text-secondary font-bold font-mono">[НОЧНАЯ СКИДКА 50% В 19:30]</span>
+                    <span id="tariff-status-title" class="text-outline">МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span></span>
+                    <span id="tariff-status-badge" class="text-secondary font-bold font-mono">[НОЧНАЯ СКИДКА 50% С 19:30]</span>
                 </div>
 
                 <!-- Кнопки запуска: Мгновенно или Ночной Грайнд со скидкой 50% -->
                 <div class="flex flex-col gap-xs mt-xs">
                     <div class="grid grid-cols-2 gap-xs">
-                        <button id="btn-import-instant" onclick="importTextKnowledge(false)" class="border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs">
-                            [⚡ СЕЙЧАС]
+                        <button id="btn-import-instant" onclick="importTextKnowledge(false)" class="border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">bolt</span>
+                            <span>СЕЙЧАС</span>
                         </button>
-                        <button id="btn-import-deferred" onclick="importTextKnowledge(true)" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs">
-                            [🌙 НОЧЬЮ -50%]
+                        <button id="btn-import-deferred" onclick="importTextKnowledge(true)" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">dark_mode</span>
+                            <span>НОЧЬЮ (-50%)</span>
                         </button>
                     </div>
-                    <div id="night-queue-indicator" class="hidden text-[9px] font-mono text-center text-secondary border border-dashed border-secondary/40 p-1.5 bg-surface-container rounded-xl">
-                        ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА: <span id="night-queue-count" class="font-bold">0</span> ЗАДАЧ
+
+                    <!-- Панель активной генерации с кнопкой ОТМЕНЫ -->
+                    <div id="generation-active-bar" class="hidden flex items-center justify-between p-2.5 bg-primary/10 border border-primary/30 rounded-xl mt-xs text-xs font-mono animate-fade-in">
+                        <div class="flex items-center gap-2 text-primary">
+                            <span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                            <span id="generation-active-status" class="font-bold text-[11px]">ИИ создает карточки...</span>
+                        </div>
+                        <button type="button" onclick="cancelActiveGeneration()" class="px-2.5 py-1 bg-error-container/30 hover:bg-error-container text-secondary border border-secondary/50 rounded-lg text-[10px] font-bold uppercase transition-all active:scale-95">
+                            [✕ ОТМЕНИТЬ]
+                        </button>
+                    </div>
+
+                    <!-- Блок очереди ночной обработки с деталями и отменой -->
+                    <div id="night-queue-indicator" class="hidden flex flex-col gap-1 text-[10px] font-mono text-secondary border border-dashed border-secondary/40 p-2 bg-surface-container rounded-xl mt-xs">
+                        <div class="flex justify-between items-center">
+                            <span>ОЧЕРЕДЬ НОЧНОЙ ОБРАБОТКИ: <span id="night-queue-count" class="font-bold">0</span> ЗАДАЧ</span>
+                            <button onclick="checkNightQueueStatus()" class="hover:underline text-[9px] text-outline">ОБНОВИТЬ</button>
+                        </div>
+                        <div id="night-queue-list" class="flex flex-col gap-1 mt-1 divide-y divide-secondary/20"></div>
                     </div>
                     
                     <!-- Кодовый импорт пачки файлов и бесплатный мульти-OCR -->
@@ -665,7 +684,7 @@
             <!-- Верхняя панель песочницы -->
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
                 <div class="flex flex-col gap-1">
-                    <span class="text-[9px] text-outline uppercase tracking-wider font-bold">ПЕСОЧНИЦА ИМПОРТА</span>
+                    <span class="text-[9px] text-outline uppercase tracking-wider font-bold">ПРОВЕРКА КАРТОЧЕК</span>
                     <div class="flex items-center gap-xs">
                         <span class="text-[9px] text-outline uppercase font-bold">ПРЕДМЕТ:</span>
                         <select id="staging-subject-select" onchange="onStagingSubjectChange(event)" class="bg-surface-container-lowest border border-primary text-primary font-bold font-mono text-[10px] py-1 px-2 rounded-lg focus:ring-0 max-w-[150px] truncate">
@@ -866,6 +885,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=41"></script>
+    <script src="/js/app.js?v=42"></script>
 </body>
 </html>
