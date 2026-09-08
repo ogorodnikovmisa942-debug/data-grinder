@@ -193,9 +193,9 @@ async def night_grind_worker():
             if len(clean_text_no_headers) < 15:
                 raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-            # Умное разбиение на смысловые чанки (~15 страниц / до 30 000 знаков)
-            chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=30000)
-            print(f"[Night Grind] Задача #{job_data['id']}: материал разбит на {len(chunks)} частей по ~15 страниц для предотвращения переполнения токенов.", flush=True)
+            # Умное разбиение на крупные смысловые блоки (~45-50 страниц / до 80 000 знаков)
+            chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=80000)
+            print(f"[Night Grind] Задача #{job_data['id']}: материал разбит на {len(chunks)} частей по ~45-50 страниц для максимальной экономии и выделения сути.", flush=True)
 
             all_collected_cards = []
             seen_card_texts = set()

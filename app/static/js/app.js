@@ -788,18 +788,18 @@ function renderIntroductionCard(card) {
         // ШАГ 1: КОМПАКТНЫЙ ОБЗОР (Вопрос + Определение + Мнемоника на одном экране!)
         if (bodyEl) {
             bodyEl.innerHTML = `
-                <div class="w-full flex flex-col gap-2.5 my-auto animate-fade-in text-center">
+                <div class="w-full flex flex-col gap-2 animate-fade-in text-center">
                     <!-- Определение -->
-                    <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
+                    <div class="bg-neutral-50 dark:bg-neutral-900/40 p-2.5 sm:p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
                         <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
-                        <div class="text-base sm:text-lg text-neutral-900 dark:text-neutral-100 font-semibold leading-relaxed break-words">
+                        <div class="text-sm sm:text-base text-neutral-900 dark:text-neutral-100 font-medium leading-relaxed break-words">
                             ${escapeHTML(card.translation)}
                         </div>
                     </div>
                     
                     <!-- Мнемоника / Ассоциация (если есть) -->
                     ${mnemonicFormatted ? `
-                        <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
+                        <div class="bg-amber-500/5 dark:bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 text-left">
                             <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
                                 <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
                             </span>
@@ -840,7 +840,7 @@ function renderIntroductionCard(card) {
             if (bodyEl) {
                 bodyEl.innerHTML = `
                     <div onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                         class="w-full h-full my-auto flex flex-col items-center justify-center border-2 border-dashed border-primary/40 bg-primary/5 rounded-xl p-5 cursor-pointer hover:bg-primary/10 transition-all text-center animate-fade-in group">
+                         class="w-full h-full flex flex-col items-center justify-center border-2 border-dashed border-primary/40 bg-primary/5 rounded-xl p-5 cursor-pointer hover:bg-primary/10 transition-all text-center animate-fade-in group">
                         <span class="material-symbols-outlined text-primary text-3xl mb-2 group-hover:scale-110 transition-transform">visibility</span>
                         <div class="text-xs font-mono font-bold text-primary uppercase">[ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ]</div>
                         <div class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">Попробуйте воспроизвести значение по памяти</div>
@@ -864,15 +864,15 @@ function renderIntroductionCard(card) {
             // Ответ раскрыт после самопроверки
             if (bodyEl) {
                 bodyEl.innerHTML = `
-                    <div class="w-full flex flex-col gap-2.5 my-auto animate-fade-in text-center">
-                        <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
+                    <div class="w-full flex flex-col gap-2 animate-fade-in text-center">
+                        <div class="bg-neutral-50 dark:bg-neutral-900/40 p-2.5 sm:p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
                             <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
-                            <div class="text-base sm:text-lg text-neutral-900 dark:text-neutral-100 font-semibold leading-relaxed break-words">
+                            <div class="text-sm sm:text-base text-neutral-900 dark:text-neutral-100 font-medium leading-relaxed break-words">
                                 ${escapeHTML(card.translation)}
                             </div>
                         </div>
                         ${mnemonicFormatted ? `
-                            <div class="bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left">
+                            <div class="bg-amber-500/5 dark:bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 text-left">
                                 <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
                                     <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
                                 </span>

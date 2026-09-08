@@ -169,18 +169,18 @@
                         </div>
 
                         <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, Вопрос ВСЕГДА закреплен сверху) -->
-                        <div id="card-front-intro" class="hidden w-full h-full flex flex-col justify-between pt-6 pb-1 overflow-hidden">
+                        <div id="card-front-intro" class="hidden w-full h-full min-h-0 flex-1 flex flex-col justify-between pt-1 pb-1 overflow-hidden">
                             <!-- Закрепленный намертво заголовок термина/вопроса -->
-                            <div class="w-full shrink-0 flex flex-col items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3 mb-2">
+                            <div class="w-full shrink-0 flex flex-col items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2 mb-1.5">
                                 <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider mb-1.5">
                                     ● РЕЖИМ ЗНАКОМСТВА
                                 </div>
-                                <div id="card-intro-term" class="text-xl sm:text-2xl font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-tight">---</div>
+                                <div id="card-intro-term" class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-tight">---</div>
                                 <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
                             </div>
 
-                            <!-- Центральная область с содержимым (компактная, не уезжает) -->
-                            <div id="card-intro-body" class="w-full flex-1 flex flex-col justify-center items-center gap-2 overflow-y-auto px-1">
+                            <!-- Центральная область с содержимым (компактная, скроллируемая, не уезжает) -->
+                            <div id="card-intro-body" class="w-full flex-1 min-h-0 flex flex-col justify-start items-stretch gap-2 overflow-y-auto px-1 py-1 select-text overscroll-contain" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
                                 <!-- Динамическое наполнение шага 1 (Обзор) или шага 2 (Самопроверка) -->
                             </div>
 
@@ -235,7 +235,7 @@
                     </div>
 
                     <!-- Обратная сторона (Гармоничная 3-зонная структура) -->
-                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-5 sm:p-6 rounded-2xl flex flex-col justify-between items-center text-center overflow-y-auto select-none">
+                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center overflow-hidden select-none">
                         <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
                         <div class="w-full shrink-0 flex flex-col items-center gap-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
@@ -260,13 +260,13 @@
                             </div>
                         </div>
 
-                        <!-- Центральная зона: Определение (Крупный понятный шрифт, без пустот) -->
-                        <div class="w-full flex-1 flex flex-col items-center justify-center py-3 my-auto">
-                            <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1.5">ОПРЕДЕЛЕНИЕ</span>
-                            <h3 id="card-main-text" class="text-lg sm:text-xl md:text-2xl font-semibold text-neutral-900 dark:text-neutral-100 leading-relaxed px-2 break-words">---</h3>
+                        <!-- Центральная зона: Определение (Крупный понятный шрифт, без пустот, скроллируемый) -->
+                        <div class="w-full flex-1 min-h-0 flex flex-col items-center justify-start py-2 overflow-y-auto px-1 overscroll-contain" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
+                            <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
+                            <h3 id="card-main-text" class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-relaxed px-2 break-words text-left sm:text-center">---</h3>
                             
                             <!-- Пример (стилизован как элегантная цитата с акцентной чертой) -->
-                            <div id="card-example-container" class="hidden w-full mt-3 px-2">
+                            <div id="card-example-container" class="hidden w-full mt-2.5 px-2">
                                 <div class="border-l-2 border-primary/50 pl-3 py-0.5 text-left">
                                     <p id="card-example-text" class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 italic leading-relaxed break-words"></p>
                                 </div>
@@ -885,6 +885,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=47"></script>
+    <script src="/js/app.js?v=48"></script>
 </body>
 </html>

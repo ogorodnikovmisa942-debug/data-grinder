@@ -40,35 +40,35 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
 - Eliminate Redundancy: Strip introductory filler, narrative padding, rhetorical questions, and pleasantries.
 - Contrast & Non-Interference: Inverted pairs or easily confused terms must have clear distinct cues in the secondary text.
 - Cognitive Anchor: The front side must act as a precise retrieval prompt, not a vague topic header.
-- Definite Answer: The back side must provide a crisp, authoritative definition or explanation without unnecessary disclaimers.
+- Definite Answer & Flashcard Brevity: The back side ('d') must provide a crisp, punchy definition in 1-2 focused sentences (strictly under 180 characters). NEVER dump long textbook paragraphs, multi-sentence commentaries, or verbose prose into 'd'. Extract ONLY the core factual essence for rapid active recall.
 - Real-World Grounding: The example field must contain a concise, concrete case, minimal code snippet, sentence in context, or legal precedent.
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - language (Foreign languages & Linguistics):
   * t (Front): Foreign word, idiom, or grammatical construction in standard orthography.
   * s (Secondary): Phonetic transcription, IPA, or Chinese Pinyin with explicit tone diacritics.
-  * d (Back): Precise definition and translation in Russian. Nuance and register notes if critical.
+  * d (Back): Precise definition and translation in Russian (1-2 punchy sentences). Nuance notes if critical.
   * e (Example): Natural exemplar sentence illustrating idiomatic usage.
   * l (Difficulty): 'easy' for high-frequency cognates, 'medium' for regular lexis, 'hard' for false friends or irregulars.
 
 - law (Jurisprudence, Statutes & Doctrine):
   * t (Front): Legal term, Latin maxim, constitutional principle, or statutory doctrine.
   * s (Secondary): Exact article and code identifier with jurisdiction code (e.g., 'ст. 303 ГК РФ' or 'ст. 100 УК РБ').
-  * d (Back): Authoritative legal definition, disposition, qualifying signs, or legal consequences.
+  * d (Back): Authoritative legal definition, disposition, qualifying signs, or legal consequences in 1-2 punchy sentences (under 180 chars).
   * e (Example): Authentic judicial scenario, dispute resolution case, or qualifying factual circumstance.
   * l (Difficulty): 'easy' for standard terms, 'medium' for multi-element rules, 'hard' for competing doctrines/exceptions.
 
 - code (Software Engineering, CS & Algorithms):
   * t (Front): Algorithm, design pattern, function name, API concept, or data structure.
   * s (Secondary): Language name, standard library path, or signature (e.g., 'Python 3.12 / asyncio.gather(*coros)').
-  * d (Back): Rigorous technical breakdown, invariant, algorithmic time/space complexity O(N), or core mechanics.
+  * d (Back): Rigorous technical breakdown, invariant, time/space complexity O(N), or core mechanics in 1-2 punchy sentences (under 180 chars).
   * e (Example): Minimal valid code snippet (1-4 lines) demonstrating usage or idiomatic edge-case trap.
   * l (Difficulty): 'easy' for syntax, 'medium' for standard patterns, 'hard' for concurrency/memory traps.
 
 - generic (Science, Medicine, History, Engineering, General Knowledge):
   * t (Front): Core theorem, physiological mechanism, formula, diagnosis, or historical event.
   * s (Secondary): Sub-discipline, category, unit of measurement, or time period.
-  * d (Back): Exhaustive causal explanation, physical meaning, proof idea, or clinical presentation.
+  * d (Back): Precise causal explanation, physical meaning, proof idea, or clinical presentation in 1-2 punchy sentences (under 180 chars).
   * e (Example): Practical lab observation, clinical case, historical trigger, or industrial calculation.
   * l (Difficulty): Strictly select from: 'easy', 'medium', 'hard'.
 
@@ -532,15 +532,15 @@ async def parse_raw_text(
         f"EXPLANATION DENSITY: {density}"
     ]
     if volume in ("auto", "medium", "med_15"):
-        user_directives.append("CARD VOLUME: Extract the 15 to 25 highest-value atomic cards. Do not exceed 25 cards per batch to prevent output truncation.")
+        user_directives.append("CARD VOLUME: Extract strictly 12 to 18 high-yield core atomic cards covering key master concepts. Never generate excessive cards or copy textbook paragraphs. Keep definitions crisp (1-2 sentences).")
     elif volume in ("low", "low_5"):
-        user_directives.append("CARD VOLUME: Maximum 5 cards.")
+        user_directives.append("CARD VOLUME: Maximum 5 cards. Most critical core concepts only.")
     elif volume == "med_10":
-        user_directives.append("CARD VOLUME: Maximum 10 cards.")
+        user_directives.append("CARD VOLUME: Maximum 10 cards. High-yield core concepts only.")
     elif volume == "high_20":
         user_directives.append("CARD VOLUME: Maximum 20 cards.")
     elif volume in ("high", "max"):
-        user_directives.append("CARD VOLUME: Maximum 30 cards.")
+        user_directives.append("CARD VOLUME: Maximum 25 cards.")
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")
@@ -641,10 +641,10 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         return {"error": str(e)}
 
 # --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 30000) -> list[str]:
+def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]:
     """
-    Интеллектуальное разбиение длинного документа на смысловые чанки (~15 страниц / до 30 000 знаков).
-    Сохраняет границы страниц (--- Стр. X ---), документов (=== ДОКУМЕНТ: ...) и абзацев (\\n\\n).
+    Интеллектуальное разбиение длинного документа на смысловые чанки (~45-50 страниц / до 80 000 знаков).
+    Сохраняет границы страниц (--- Стр. X ---), документов (=== ДОКУМЕНТ: ...) и абзацев (\n\n).
     """
     text = text.strip()
     if not text:
