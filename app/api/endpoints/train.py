@@ -150,9 +150,11 @@ async def get_session_cards(
         new_cards = new_res.scalars().all()
 
     if mode == "new":
-        full_pool = intra_day_cards + new_cards
+        # Режим "Учить новое": СТРОГО только новые карточки (state == 0), ни одной старой
+        full_pool = new_cards
     elif mode == "review":
-        full_pool = due_reviews
+        # Режим "Повторение": долгосрочные повторения (state == 2) + краткосрочные внутри дня (state in [1, 3])
+        full_pool = due_reviews + intra_day_cards
     elif mode == "cram":
         cram_stmt = select(Card).filter(Card.user_id == current_user).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
         if subject != 'all':

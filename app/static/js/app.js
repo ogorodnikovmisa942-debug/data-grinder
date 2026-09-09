@@ -603,6 +603,7 @@ function updateAssocPreferenceUI(pref) {
 window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
 function showSurveyDirectly() {
+    resetCardDOM();
     if (window.surveyCompletedToday) {
         const surveyContainer = document.getElementById('survey-container');
         if (surveyContainer) surveyContainer.classList.add('hidden');
@@ -636,14 +637,35 @@ function showSurveyDirectly() {
     if (cardMainText) cardMainText.textContent = "Очередь пуста. Оцените параметры сессии:";
 }
 
+function resetCardDOM() {
+    const normalFront = document.getElementById('card-front-normal');
+    const introFront = document.getElementById('card-front-intro');
+    const front = document.getElementById('card-front');
+    const actionBtns = document.getElementById('action-buttons');
+    if (normalFront) normalFront.classList.remove('hidden');
+    if (introFront) {
+        introFront.classList.add('hidden');
+        introFront.classList.remove('flex');
+        const bodyEl = document.getElementById('card-intro-body');
+        if (bodyEl) bodyEl.innerHTML = '';
+        const footerEl = document.getElementById('card-intro-footer');
+        if (footerEl) footerEl.innerHTML = '';
+    }
+    if (front) front.classList.remove('introduction-mode');
+    if (actionBtns) {
+        actionBtns.classList.add('hidden');
+        actionBtns.classList.remove('flex');
+    }
+}
+
 function showSessionStarter() {
+    resetCardDOM();
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
     const progressBar = document.getElementById('progress-bar');
     if (starter) starter.classList.remove('hidden');
     if (flashcard) flashcard.classList.add('hidden');
     if (progressBar) progressBar.classList.add('hidden');
-    if (actionButtons) actionButtons.classList.add('hidden');
     updateGlobalBadges();
 }
 
@@ -661,6 +683,7 @@ window.exitToSessionMenu = function() {
 
 async function startSession(mode) {
     currentSessionMode = mode;
+    resetCardDOM();
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
     const progressBar = document.getElementById('progress-bar');
@@ -674,11 +697,13 @@ async function startSession(mode) {
 
 async function fetchActiveSession(mode = 'mixed') {
     try {
+        currentSessionMode = mode;
         const response = await apiFetch(`/api/session?subject=${currentSubject}&mode=${mode}`);
         cardsQueue = await response.json();
         shuffleArray(cardsQueue);
         const surveyContainer = document.getElementById('survey-container');
         if (cardsQueue.length === 0) {
+            resetCardDOM();
             if (surveyContainer && !window.surveyCompletedToday) {
                 surveyContainer.classList.remove('hidden');
                 if (cardText) cardText.classList.add('hidden');
@@ -687,12 +712,16 @@ async function fetchActiveSession(mode = 'mixed') {
                 if (surveyContainer) surveyContainer.classList.add('hidden');
                 if (cardText) {
                     cardText.classList.remove('hidden');
-                    cardText.textContent = "Очередь пуста";
+                    cardText.textContent = mode === 'review' ? "Все повторено ✓" : (mode === 'new' ? "Все новые изучены ✓" : "Очередь пуста");
                 }
             }
             if (cardSecondaryText) cardSecondaryText.textContent = "";
             if (cardMainText) {
-                cardMainText.textContent = window.surveyCompletedToday ? "Все задачи решены. Опрос завершен." : "Все задачи решены.";
+                cardMainText.textContent = mode === 'review' 
+                    ? "На данный момент нет карточек, требующих повторения." 
+                    : (mode === 'new' 
+                        ? "Вы изучили все новые карточки на сегодня или дневной лимит исчерпан." 
+                        : "Все задачи решены.");
             }
             if (cardCounter) cardCounter.textContent = "";
             if (progressFill) progressFill.style.width = "100%"; 
@@ -723,7 +752,8 @@ function renderCurrentCard() {
         if (cardsQueue.length > 0) {
             showSurveyDirectly();
         } else {
-            fetchActiveSession();
+            resetCardDOM();
+            showSessionStarter();
         }
         return;
     }
