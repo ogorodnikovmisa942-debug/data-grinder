@@ -105,14 +105,17 @@
                         <span class="material-symbols-outlined text-primary text-xl">school</span>
                         <h2 class="font-mono font-bold text-sm text-primary tracking-wider uppercase text-center">Выбор сессии</h2>
                     </div>
-                    <button onclick="startSession('new')" class="w-full border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                        [ УЧИТЬ НОВОЕ ]
+                    <button id="btn-session-new" onclick="startSession('new')" class="w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
+                        <span id="btn-session-new-text">[ УЧИТЬ НОВОЕ ]</span>
+                        <span id="btn-session-new-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">--</span>
                     </button>
-                    <button onclick="startSession('review')" class="w-full border border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-on-secondary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                        [ ПОВТОРЕНИЕ ]
+                    <button id="btn-session-review" onclick="startSession('review')" class="w-full flex items-center justify-between px-4 border border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-on-secondary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
+                        <span id="btn-session-review-text">[ ПОВТОРЕНИЕ ]</span>
+                        <span id="btn-session-review-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary/10 text-secondary border border-secondary/20">--</span>
                     </button>
-                    <button onclick="startSession('cram')" class="w-full border border-neutral-300 dark:border-neutral-700 text-neutral-500 hover:border-primary hover:text-primary py-2 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed">
-                        [ ШТУРМ (КРАМИНГ) ]
+                    <button id="btn-session-cram" onclick="startSession('cram')" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-500 hover:border-primary hover:text-primary py-2 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed">
+                        <span id="btn-session-cram-text">[ ШТУРМ ]</span>
+                        <span id="btn-session-cram-badge" class="px-2 py-0.5 rounded-md text-[10px] bg-neutral-100 dark:bg-neutral-800 text-neutral-400">--</span>
                     </button>
                 </div>
             </div>

@@ -6,9 +6,10 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase, UserSetting
+from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession
 from app.services.fsrs_core import calculate_intervals
 from app.core.auth import get_current_user_id
+from app.core.config import settings
 from datetime import datetime
 
 router = APIRouter()
@@ -77,14 +78,27 @@ async def get_session_cards(
 ):
     now = datetime.utcnow()
     
-    # Получаем персональные настройки пользователя из БД
-    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
-    user_setting = setting_res.scalar_one_or_none()
-    user_daily_limit = user_setting.daily_limit if user_setting else 10
-    
-    # Лимит для конкретного предмета
-    subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
-    limit = subject_limits.get(subject, user_daily_limit)
+    # Проверяем участие в научном эксперименте
+    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
+    session_res = await db.execute(session_stmt)
+    user_sess = session_res.scalars().first()
+    is_participant = bool(user_sess and user_sess.is_experiment_participant)
+    phase = user_sess.experiment_phase if user_sess else 1
+
+    if is_participant and phase == 1:
+        # Фаза 1: жесткий лок — только судоустройство, лимит 20 карт, target_retention = 0.9
+        subject = "sudoustroystvo"
+        limit = settings.EXPERIMENT_DAILY_LIMIT
+        target_retention = 0.9
+    else:
+        # Получаем персональные настройки пользователя из БД
+        setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+        user_setting = setting_res.scalar_one_or_none()
+        user_daily_limit = user_setting.daily_limit if user_setting else 10
+        
+        # Лимит для конкретного предмета
+        subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
+        limit = subject_limits.get(subject, user_daily_limit)
 
     # 1. Сбор просроченных повторений (REV) текущего пользователя
     review_stmt = select(Card).filter(
@@ -213,10 +227,32 @@ async def handle_answer(
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
 
-    # Получаем target_retention из настроек
-    setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
-    user_setting = setting_res.scalar_one_or_none()
-    target_retention = user_setting.target_retention if user_setting else 0.9
+    # Санитария таймингов (защита от мисскликов и когнитивных выбросов)
+    is_outlier = False
+    effective_rating = payload.rating
+    effective_response_time = payload.response_time
+
+    if payload.response_time < 600:
+        is_outlier = True
+        if effective_rating == 4:
+            effective_rating = 3  # запретить начисление Easy (<600 мс трактуется как миссклик)
+    elif payload.response_time > 30000:
+        is_outlier = True
+        effective_response_time = 15000  # безопасное значение для исключения искусственных штрафов FSRS
+
+    # Получаем target_retention с учетом научного эксперимента
+    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
+    session_res = await db.execute(session_stmt)
+    user_sess = session_res.scalars().first()
+    is_participant = bool(user_sess and user_sess.is_experiment_participant)
+    phase = user_sess.experiment_phase if user_sess else 1
+
+    if is_participant and phase == 1:
+        target_retention = 0.9
+    else:
+        setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+        user_setting = setting_res.scalar_one_or_none()
+        target_retention = user_setting.target_retention if user_setting else 0.9
 
     now = datetime.utcnow()
     old_state = card.state
@@ -226,19 +262,19 @@ async def handle_answer(
     if card.last_review and old_next_review:
         scheduled_days = (old_next_review - card.last_review).days
 
-    # Расчет интервалов через ядро FSRS с учетом response_time и target_retention
+    # Расчет интервалов через ядро FSRS с учетом санированного response_time и target_retention
     stability, difficulty, state, next_review, elapsed_days = calculate_intervals(
         card=card, 
-        rating=payload.rating, 
+        rating=effective_rating, 
         now=now,
-        response_time=payload.response_time,
+        response_time=effective_response_time,
         target_retention=target_retention
     )
 
-    if payload.rating == 1:
+    if effective_rating == 1:
         card.lapses += 1
 
-    # Валидация и обновление весов в БД, если не Штурм
+    # Валидация и обновление весов в БД, если не Штурм (cram)
     if not payload.is_cram:
         card.stability = stability
         card.difficulty = difficulty
@@ -253,19 +289,22 @@ async def handle_answer(
     if has_assoc is None:
         has_assoc = card.mnemonic is not None
 
+    # Гарантированное сохранение ReviewLog (включая режим is_cram = True)
     log = ReviewLog(
         card_id=card.id,
         user_id=current_user,
-        rating=payload.rating,
+        rating=effective_rating,
         review_time=now,
         state=old_state,
         elapsed_days=int(elapsed_days),
         scheduled_days=scheduled_days,
         has_association=has_assoc,
-        response_time=payload.response_time,
+        response_time=payload.response_time,  # фиксируем реальное время задержки
         stability=stability,
         difficulty=difficulty,
-        timestamp=now
+        timestamp=now,
+        is_outlier=is_outlier,
+        is_cram=payload.is_cram
     )
     db.add(log)
     await db.commit()

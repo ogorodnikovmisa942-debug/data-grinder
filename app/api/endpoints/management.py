@@ -43,12 +43,12 @@ class PresetImportIn(BaseModel):
 
 class CardStagingItem(BaseModel):
     text: str
-    secondary_text: str = ""
+    secondary_text: Optional[str] = ""
     translation: str
-    example: str = ""
-    initial_difficulty_tier: str = "medium"
+    example: Optional[str] = ""
+    initial_difficulty_tier: Optional[str] = "medium"
     mnemonic: dict | str | None = None
-    theme: str = ""
+    theme: Optional[str] = ""
 
 class StagingCommitIn(BaseModel):
     subject: str
@@ -98,6 +98,16 @@ class DailySessionIn(BaseModel):
     association_utility: int
     perceived_retention: int
     session_duration: int
+
+async def check_experiment_lock(current_user: str, db: AsyncSession):
+    """Проверяет блокировку модификации колоды и настроек для участников научного эксперимента (Фаза 1)."""
+    session_res = await db.execute(select(UserSession).filter(UserSession.user_id == current_user))
+    user_sess = session_res.scalars().first()
+    if user_sess and user_sess.is_experiment_participant and user_sess.experiment_phase == 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Действие заблокировано на период проведения научного эксперимента"
+        )
 
 # Вспомогательная функция для создания карточек в БД
 async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_title: str, user_id: str, db: AsyncSession):
@@ -322,10 +332,63 @@ async def get_analytics(
     evening_res = await db.execute(evening_stmt)
     due_evening = evening_res.scalar() or 0
 
+    # Проверяем карточки, требующие повторения прямо сейчас (REV просроченные + LRN краткосрочные)
+    now_utc = datetime.utcnow()
+    due_stmt = select(func.count(Card.id)).filter(
+        Card.user_id == current_user,
+        (
+            (Card.state == 2) & (Card.next_review <= now_utc)
+        ) | (
+            Card.state.in_([1, 3])
+        )
+    )
+    if subject != 'all':
+        due_stmt = due_stmt.filter(Card.subject == subject)
+    due_res = await db.execute(due_stmt)
+    due_reviews_now = due_res.scalar() or 0
+
+    # Проверяем участие в эксперименте и рассчитываем дневную квоту новых карт
+    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
+    sess_res = await db.execute(session_stmt)
+    user_sess = sess_res.scalars().first()
+    is_participant = bool(user_sess and user_sess.is_experiment_participant)
+    phase = user_sess.experiment_phase if user_sess else 1
+
+    if is_participant and phase == 1:
+        daily_new_limit = settings.EXPERIMENT_DAILY_LIMIT
+    else:
+        setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+        user_setting = setting_res.scalar_one_or_none()
+        user_daily_limit = user_setting.daily_limit if user_setting else 10
+        subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
+        daily_new_limit = subject_limits.get(subject, user_daily_limit)
+
+    # Сколько новых карточек изучено сегодня
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
+        ReviewLog.user_id == current_user,
+        ReviewLog.state == 0,
+        ReviewLog.review_time >= today_start
+    )
+    if subject != 'all':
+        new_today_stmt = new_today_stmt.filter(Card.subject == subject)
+    new_today_res = await db.execute(new_today_stmt)
+    already_learned_today = len(new_today_res.scalars().all())
+
+    unlearned_in_deck = states_dict[0]
+    allowed_new_count = max(0, daily_new_limit - already_learned_today)
+    new_remaining_today = min(allowed_new_count, unlearned_in_deck)
+
     return {
         "cards_new": states_dict[0], 
         "cards_learning": states_dict[1] + states_dict[3], 
         "cards_review": states_dict[2],
+        "total_cards": total_cards,
+        "due_reviews_now": due_reviews_now,
+        "new_remaining_today": new_remaining_today,
+        "daily_new_limit": daily_new_limit,
+        "already_learned_today": already_learned_today,
+        "unlearned_in_deck": unlearned_in_deck,
         "progress_percent": f"{progress_percent}%", 
         "retention_rate_30d": f"{retention_rate}%", 
         "streak_days": streak, 
@@ -370,6 +433,7 @@ async def update_config(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
     setting = setting_res.scalar_one_or_none()
     
@@ -401,6 +465,7 @@ async def import_raw_text(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     if not payload.text.strip(): 
         return {"status": "error", "message": "Входящий текст пуст."}
     
@@ -523,6 +588,7 @@ async def commit_staging_cards(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     if not payload.cards:
         raise HTTPException(status_code=400, detail="Список одобренных карточек пуст.")
 
@@ -561,6 +627,7 @@ async def import_file_at_code_level(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     form = await request.form()
     
     # Извлекаем все переданные файлы (поддерживаем ключи 'files' и 'file', единичные и множественные)
@@ -838,6 +905,7 @@ async def import_preset_library(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     import os
     import json
     
@@ -893,6 +961,7 @@ async def create_manual_card(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     if not payload.text.strip() or not payload.translation.strip():
         raise HTTPException(status_code=400, detail="Лицевая сторона и перевод обязательны.")
 
@@ -942,6 +1011,7 @@ async def update_single_card(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     card_res = await db.execute(select(Card).filter(Card.id == card_id, Card.user_id == current_user))
     card = card_res.scalar_one_or_none()
     if not card:
@@ -969,6 +1039,7 @@ async def move_card(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     card_res = await db.execute(select(Card).filter(Card.id == card_id, Card.user_id == current_user))
     card = card_res.scalar_one_or_none()
     if not card:
@@ -998,6 +1069,7 @@ async def delete_card(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     card_res = await db.execute(select(Card).filter(Card.id == card_id, Card.user_id == current_user))
     card = card_res.scalar_one_or_none()
     if not card: 
@@ -1040,6 +1112,7 @@ async def bulk_move_cards(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     if not payload.card_ids or not payload.target_subject.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1078,6 +1151,7 @@ async def bulk_delete_cards(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     if not payload.card_ids:
         raise HTTPException(status_code=400, detail="Список идентификаторов пуст")
     await db.execute(delete(Card).where(Card.id.in_(payload.card_ids), Card.user_id == current_user))
@@ -1119,6 +1193,7 @@ async def rename_subject(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     old_sub = payload.old_subject.strip().lower()
     new_sub = payload.new_subject.strip().lower()
     
@@ -1173,6 +1248,7 @@ async def delete_subject_all(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    await check_experiment_lock(current_user, db)
     sub = subject_slug.strip().lower()
     if sub == "all":
         raise HTTPException(status_code=400, detail="Нельзя удалить служебный фильтр 'all'.")

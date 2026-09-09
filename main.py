@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse  # Импортируем для прямой отдачи HTML
-from app.api.endpoints import train, management
+from app.api.endpoints import train, management, admin
 from app.database.session import engine
 from app.database.models import Base
 
@@ -48,6 +48,10 @@ async def lifespan(app: FastAPI):
                 await db.execute(text("ALTER TABLE review_logs ADD COLUMN difficulty FLOAT"))
             if "timestamp" not in columns:
                 await db.execute(text("ALTER TABLE review_logs ADD COLUMN timestamp DATETIME"))
+            if "is_outlier" not in columns:
+                await db.execute(text("ALTER TABLE review_logs ADD COLUMN is_outlier BOOLEAN DEFAULT 0"))
+            if "is_cram" not in columns:
+                await db.execute(text("ALTER TABLE review_logs ADD COLUMN is_cram BOOLEAN DEFAULT 0"))
             
             # Миграции для cards
             res_cards = await db.execute(text("PRAGMA table_info(cards)"))
@@ -61,7 +65,7 @@ async def lifespan(app: FastAPI):
             if "example" not in columns_cards:
                 await db.execute(text("ALTER TABLE cards ADD COLUMN example VARCHAR"))
 
-            # Миграции для user_sessions (отметки уведомлений)
+            # Миграции для user_sessions (отметки уведомлений и флаги эксперимента)
             res_users = await db.execute(text("PRAGMA table_info(user_sessions)"))
             columns_users = [row[1] for row in res_users.fetchall()]
             if "last_morning_sent" not in columns_users:
@@ -72,14 +76,40 @@ async def lifespan(app: FastAPI):
                 await db.execute(text("ALTER TABLE user_sessions ADD COLUMN last_due_notified_at DATETIME"))
             if "last_due_count" not in columns_users:
                 await db.execute(text("ALTER TABLE user_sessions ADD COLUMN last_due_count INTEGER DEFAULT 0"))
+            if "is_experiment_participant" not in columns_users:
+                await db.execute(text("ALTER TABLE user_sessions ADD COLUMN is_experiment_participant BOOLEAN DEFAULT 0"))
+            if "experiment_phase" not in columns_users:
+                await db.execute(text("ALTER TABLE user_sessions ADD COLUMN experiment_phase INTEGER DEFAULT 1"))
+            if "username" not in columns_users:
+                await db.execute(text("ALTER TABLE user_sessions ADD COLUMN username VARCHAR"))
+            if "full_name" not in columns_users:
+                await db.execute(text("ALTER TABLE user_sessions ADD COLUMN full_name VARCHAR"))
 
-            # Миграции для generation_jobs (хранение карточек для модерации в Песочнице и флаг ночной очереди)
+            # Миграции для user_settings (флаги эксперимента)
+            res_settings = await db.execute(text("PRAGMA table_info(user_settings)"))
+            columns_settings = [row[1] for row in res_settings.fetchall()]
+            if "is_experiment_participant" not in columns_settings:
+                await db.execute(text("ALTER TABLE user_settings ADD COLUMN is_experiment_participant BOOLEAN DEFAULT 0"))
+            if "experiment_phase" not in columns_settings:
+                await db.execute(text("ALTER TABLE user_settings ADD COLUMN experiment_phase INTEGER DEFAULT 1"))
+
+            # Миграции для generation_jobs (хранение карточек для модерации в Песочнице и телеметрия)
             res_jobs = await db.execute(text("PRAGMA table_info(generation_jobs)"))
             columns_jobs = [row[1] for row in res_jobs.fetchall()]
             if "result_cards_json" not in columns_jobs:
                 await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN result_cards_json TEXT"))
             if "is_deferred" not in columns_jobs:
                 await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN is_deferred BOOLEAN DEFAULT 0"))
+            if "char_count" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN char_count INTEGER"))
+            if "fallback_used" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN fallback_used BOOLEAN DEFAULT 0"))
+            if "json_repair_applied" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN json_repair_applied BOOLEAN DEFAULT 0"))
+            if "execution_time_ms" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN execution_time_ms INTEGER"))
+            if "error_trace" not in columns_jobs:
+                await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN error_trace TEXT"))
 
             await db.commit()
             
@@ -96,6 +126,7 @@ app = FastAPI(title="Data Grinder Движок", lifespan=lifespan)
 # 3. Подключаем роутеры API (префикс /api)
 app.include_router(train.router, prefix="/api", tags=["Training"])
 app.include_router(management.router, prefix="/api", tags=["Management"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 # 4. Отдаем главный файл index.html прямо на корневом URL (http://твой_ip:порт/)
 @app.get("/")

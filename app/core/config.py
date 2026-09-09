@@ -18,5 +18,8 @@ class Settings:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site")
+    ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "secret-admin-token")
+    ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")
+    EXPERIMENT_DAILY_LIMIT: int = int(os.getenv("EXPERIMENT_DAILY_LIMIT", "20"))
 
 settings = Settings()

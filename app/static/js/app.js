@@ -644,6 +644,7 @@ function showSessionStarter() {
     if (flashcard) flashcard.classList.add('hidden');
     if (progressBar) progressBar.classList.add('hidden');
     if (actionButtons) actionButtons.classList.add('hidden');
+    updateGlobalBadges();
 }
 
 window.exitToSessionMenu = function() {
@@ -1214,6 +1215,7 @@ async function updateGlobalBadges() {
         }
         
         renderTopCounters();
+        renderSessionStarterButtons(data);
         
         const dataTab = document.getElementById('tab-text-data');
         const learnTab = document.getElementById('tab-text-train');
@@ -1228,6 +1230,60 @@ async function updateGlobalBadges() {
             }
         }
     } catch (e) { console.error("Ошибка расчета бэйджей:", e); }
+}
+
+function renderSessionStarterButtons(data) {
+    if (!data) return;
+    const btnNewText = document.getElementById('btn-session-new-text');
+    const btnNewBadge = document.getElementById('btn-session-new-badge');
+    const btnNew = document.getElementById('btn-session-new');
+    
+    const btnReviewText = document.getElementById('btn-session-review-text');
+    const btnReviewBadge = document.getElementById('btn-session-review-badge');
+    const btnReview = document.getElementById('btn-session-review');
+    
+    const btnCramText = document.getElementById('btn-session-cram-text');
+    const btnCramBadge = document.getElementById('btn-session-cram-badge');
+
+    // 1. Повторение (due_reviews_now: REV просроченные + LRN)
+    const dueCount = data.due_reviews_now !== undefined ? data.due_reviews_now : (data.cards_learning + data.cards_review);
+    if (btnReview && btnReviewBadge && btnReviewText) {
+        if (dueCount > 0) {
+            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
+            btnReviewBadge.textContent = `${dueCount} КАРТ`;
+            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary text-white shadow-xs animate-pulse";
+            btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md";
+        } else {
+            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
+            btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО ✓)";
+            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
+            btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
+        }
+    }
+
+    // 2. Учить новое (new_remaining_today с учетом дневного лимита)
+    const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : data.cards_new;
+    const dailyLimit = data.daily_new_limit || 20;
+    if (btnNew && btnNewBadge && btnNewText) {
+        if (newRemaining > 0) {
+            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
+            btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
+            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20";
+            btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs";
+        } else {
+            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
+            btnNewBadge.textContent = "ЛИМИТ ИСЧЕРПАН ✓";
+            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
+            btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
+        }
+    }
+
+    // 3. Штурм
+    const totalDeck = data.total_cards !== undefined ? data.total_cards : (data.cards_new + data.cards_learning + data.cards_review);
+    if (btnCramText && btnCramBadge) {
+        btnCramText.textContent = "[ ШТУРМ ]";
+        btnCramBadge.textContent = `${totalDeck} КАРТ`;
+    }
 }
 
 function initNavigation() {
@@ -2633,7 +2689,15 @@ window.commitApprovedStagingCards = async function() {
             if (typeof checkNightQueueStatus === 'function') checkNightQueueStatus();
             if (currentTab === 'data') loadDataTab();
         } else {
-            alert("Ошибка сохранения: " + (data.detail || data.message || "Неизвестная ошибка"));
+            let errMsg = data.detail || data.message || "Неизвестная ошибка";
+            if (typeof errMsg === 'object') {
+                try {
+                    errMsg = Array.isArray(errMsg) 
+                        ? errMsg.map(e => `${e.loc ? e.loc.join('.') : ''}: ${e.msg}`).join('\n')
+                        : JSON.stringify(errMsg);
+                } catch (_) {}
+            }
+            alert("Ошибка сохранения: " + errMsg);
         }
     } catch (e) {
         console.error("Сбой фиксации песочницы:", e);

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database.session import Base
@@ -92,6 +92,8 @@ class ReviewLog(Base):
     stability = Column(Float, nullable=True)          # стабильность FSRS после повторения
     difficulty = Column(Float, nullable=True)         # сложность FSRS после повторения
     timestamp = Column(DateTime, default=datetime.utcnow) # точное время повторения
+    is_outlier = Column(Boolean, default=False, nullable=False) # фильтрация невалидных задержек / мисскликов
+    is_cram = Column(Boolean, default=False, nullable=False) # флаг сессии режима штурма
 
     # Обратная связь
     card = relationship("Card", back_populates="logs")
@@ -112,6 +114,12 @@ class UserSession(Base):
     last_evening_sent = Column(String, nullable=True)
     last_due_notified_at = Column(DateTime, nullable=True)
     last_due_count = Column(Integer, default=0)
+
+    # Участие в научном эксперименте (Фаза 1: изоляция, Фаза 2: свободный режим)
+    is_experiment_participant = Column(Boolean, default=False, nullable=False)
+    experiment_phase = Column(Integer, default=1, nullable=False)
+    username = Column(String, nullable=True)
+    full_name = Column(String, nullable=True)
 
 
 class DailySession(Base):
@@ -142,6 +150,8 @@ class UserSetting(Base):
     target_retention = Column(Float, default=0.9)
     assoc_preference = Column(String, default="acoustic")
     subject_limits = Column(JSON, nullable=True) # например {"law_civil_rb": 15, "all": 10}
+    is_experiment_participant = Column(Boolean, default=False, nullable=False)
+    experiment_phase = Column(Integer, default=1, nullable=False)
 
 
 class GenerationJob(Base):
@@ -163,8 +173,53 @@ class GenerationJob(Base):
     cards_count = Column(Integer, default=0)
     result_cards_json = Column(String, nullable=True)  # JSON массив готовых карточек для модерации в Песочнице
     is_deferred = Column(Boolean, default=False)  # True = ждать ночного окна скидок, False = обработка сейчас в фоне
+    
+    # Инженерная телеметрия конвейера декомпозиции
+    char_count = Column(Integer, nullable=True)
+    fallback_used = Column(Boolean, default=False, nullable=False)
+    json_repair_applied = Column(Boolean, default=False, nullable=False)
+    execution_time_ms = Column(Integer, nullable=True)
+    error_trace = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
+
+
+class AiTelemetryLog(Base):
+    """Детальный аудит каждого обращения к LLM-шлюзу платформы."""
+    __tablename__ = "ai_telemetry_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    job_id = Column(String(64), nullable=True, index=True)
+    user_id = Column(String(64), nullable=False, default="default_user", index=True)
+    model_requested = Column(String(64), nullable=False)  # deepseek-chat, gemini-2.5-flash-lite, etc.
+    model_resolved = Column(String(64), nullable=False)   # модель, вернувшая финальный ответ
+    input_chars = Column(Integer, default=0, nullable=False)
+    prompt_tokens = Column(Integer, default=0, nullable=False)
+    completion_tokens = Column(Integer, default=0, nullable=False)
+    cache_hit = Column(Boolean, default=False, nullable=False)  # попадание в Context Cache
+    is_truncated = Column(Boolean, default=False, nullable=False)
+    repair_successful = Column(Boolean, default=False, nullable=False)
+    cards_generated = Column(Integer, default=0, nullable=False)
+    duration_ms = Column(Integer, default=0, nullable=False)
+    status = Column(String(32), default="success", nullable=False)  # success, json_parse_error, rate_limit, fallback_cascade, failed
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class InviteCode(Base):
+    """Инвайт-коды для контролируемого допуска участников к эксперименту."""
+    __tablename__ = "invite_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    code = Column(String(32), unique=True, index=True, nullable=False)
+    created_by = Column(String(64), nullable=True)       # telegram_id / admin
+    used_by_user_id = Column(String(64), nullable=True)  # telegram_id участника
+    used_by_username = Column(String(64), nullable=True) # @username участника
+    is_used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
 
 
 

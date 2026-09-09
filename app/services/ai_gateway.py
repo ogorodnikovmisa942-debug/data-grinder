@@ -1,6 +1,7 @@
 import json
 import asyncio
 import re
+import time
 from typing import Optional
 import httpx
 from google import genai
@@ -35,13 +36,13 @@ DEEPSEEK_CACHED_SYSTEM_PROMPT = """ROLE: Expert cognitive psychologist, neuro-ed
 MISSION: Analyze raw unstructured source material and synthesize an optimized JSON package containing atomic flashcards for the Free Spaced Repetition Scheduler (FSRS).
 CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interfering conceptual atoms. Every card must minimize cognitive load while maximizing retrieval strength.
 
-1. ATOMICITY & COGNITIVE DESIGN RULES:
-- Minimum Information Principle: One card = One atomic fact, rule, pattern, or distinction. Never bundle multiple concepts into one card.
-- Eliminate Redundancy: Strip introductory filler, narrative padding, rhetorical questions, and pleasantries.
+1. COGNITIVE DESIGN & MASTERY RULES:
+- Active Recall Question Prompts: The front side ('t') must act as an active, examination-grade test question or retrieval prompt (e.g., 'Каковы 4 обязательных признака состава правонарушения?' or 'В каких случаях дело подсудно Верховному Суду по 1-й инстанции?'), compelling the learner to actively retrieve the knowledge rather than passively recognize a topic header.
+- Monolithic Structural Integrity (Anti-Fragmentation): When a legal or scientific concept consists of a cohesive multi-part structure, qualification prerequisites, or elements (e.g., 4 elements of corpus delicti, components of judicial authority, grounds for disqualification): DO NOT fragment the structure across disjointed micro-cards. Synthesize the complete monolithic structure into ONE unified flashcard. Format 'd' with crisp, compact numbered points (1... 2... 3... 4...) so the learner masters the complete mental schema needed for tests and exams.
+- Aggressive Textbook De-noising: Strip all academic filler, narrative padding, historiography, literature reviews, professor names, and rhetorical essays. Extract ONLY the authoritative legal norm, statutory rule, judicial competence, or objective factual invariant.
 - Contrast & Non-Interference: Inverted pairs or easily confused terms must have clear distinct cues in the secondary text.
-- Cognitive Anchor: The front side must act as a precise retrieval prompt, not a vague topic header.
-- Definite Answer & Flashcard Brevity: The back side ('d') must provide a crisp, punchy definition in 1-2 focused sentences (strictly under 180 characters). NEVER dump long textbook paragraphs, multi-sentence commentaries, or verbose prose into 'd'. Extract ONLY the core factual essence for rapid active recall.
-- Real-World Grounding: The example field must contain a concise, concrete case, minimal code snippet, sentence in context, or legal precedent.
+- Definite Answer & Flashcard Brevity: The back side ('d') must provide a crisp, authoritative definition or structured breakdown (under 200 characters). NEVER dump raw textbook paragraphs or verbose prose into 'd'.
+- Real-World Grounding: The example field ('e') must contain an authentic judicial scenario, dispute resolution case, qualifying factual circumstance, or minimal code snippet.
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - language (Foreign languages & Linguistics):
@@ -51,11 +52,11 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * e (Example): Natural exemplar sentence illustrating idiomatic usage.
   * l (Difficulty): 'easy' for high-frequency cognates, 'medium' for regular lexis, 'hard' for false friends or irregulars.
 
-- law (Jurisprudence, Statutes & Doctrine):
-  * t (Front): Legal term, Latin maxim, constitutional principle, or statutory doctrine.
-  * s (Secondary): Exact article and code identifier with jurisdiction code (e.g., 'ст. 303 ГК РФ' or 'ст. 100 УК РБ').
-  * d (Back): Authoritative legal definition, disposition, qualifying signs, or legal consequences in 1-2 punchy sentences (under 180 chars).
-  * e (Example): Authentic judicial scenario, dispute resolution case, or qualifying factual circumstance.
+- law (Jurisprudence, Statutes, Court Organization & Doctrine):
+  * t (Front): Focused examination question or qualifying statutory prompt (e.g. 'Какова компетенция кассационного суда общей юрисдикции?' or '4 признака состава правонарушения').
+  * s (Secondary): Exact article and code identifier with jurisdiction code (e.g., 'ст. 118 Конституции РФ' or 'ст. 14 УПК РФ / ст. 15 ГК').
+  * d (Back): Authoritative monolithic definition or compact numbered breakdown of all required elements/signs in 1-2 structured sentences (under 200 chars).
+  * e (Example): Authentic judicial scenario, dispute resolution precedent, or qualifying factual circumstance.
   * l (Difficulty): 'easy' for standard terms, 'medium' for multi-element rules, 'hard' for competing doctrines/exceptions.
 
 - code (Software Engineering, CS & Algorithms):
@@ -335,8 +336,11 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
 
 import re
 
-def extract_json_payload(content: str) -> dict:
-    """Безопасно извлекает и парсит JSON из ответа LLM (убирая markdown-блоки, переносы, висячие запятые и обрывы токенов)."""
+def extract_json_payload_with_telemetry(content: str) -> tuple[dict, bool, bool]:
+    """
+    Безопасно извлекает и парсит JSON из ответа LLM (убирая markdown-блоки, переносы, висячие запятые и обрывы токенов).
+    Возвращает кортеж: (parsed_dict, is_truncated, repair_successful).
+    """
     if not content or not content.strip():
         raise ValueError("Получен пустой ответ от ИИ.")
     
@@ -349,7 +353,8 @@ def extract_json_payload(content: str) -> dict:
     
     # 1. Прямой парсинг
     try:
-        return json.loads(clean)
+        data = json.loads(clean)
+        return data, False, False
     except json.JSONDecodeError:
         pass
 
@@ -361,12 +366,14 @@ def extract_json_payload(content: str) -> dict:
         if last_brace != -1:
             slice_candidate = candidate[:last_brace + 1]
             try:
-                return json.loads(slice_candidate)
+                data = json.loads(slice_candidate)
+                return data, False, False
             except json.JSONDecodeError:
                 # Попытка исправить trailing commas
                 fixed = re.sub(r",\s*([\]}])", r"\1", slice_candidate)
                 try:
-                    return json.loads(fixed)
+                    data = json.loads(fixed)
+                    return data, True, True
                 except json.JSONDecodeError:
                     pass
 
@@ -388,7 +395,7 @@ def extract_json_payload(content: str) -> dict:
                     res = json.loads(repaired)
                     saved_count = len(res.get('c') or res.get('cards') or [])
                     print(f"[AI Gateway] Успешно восстановлен обрезанный JSON ответ от ИИ! Сохранено карточек: {saved_count}")
-                    return res
+                    return res, True, True
                 except json.JSONDecodeError:
                     search_from = candidate.rfind('}', 0, search_from)
         
@@ -397,14 +404,66 @@ def extract_json_payload(content: str) -> dict:
         for closer in ['"]}', '"}', '"]', '}', ']}']:
             try:
                 fixed = re.sub(r",\s*([\]}])", r"\1", trimmed + closer)
-                return json.loads(fixed)
+                data = json.loads(fixed)
+                return data, True, True
             except json.JSONDecodeError:
                 pass
 
     raise ValueError(f"Не удалось обнаружить валидный JSON в ответе ИИ: {clean[:200]}...")
 
+def extract_json_payload(content: str) -> dict:
+    """Безопасно извлекает и парсит JSON из ответа LLM (обратная совместимость)."""
+    data, _, _ = extract_json_payload_with_telemetry(content)
+    return data
+
+async def record_ai_telemetry(
+    job_id: str | None,
+    user_id: str,
+    model_requested: str,
+    model_resolved: str,
+    input_chars: int,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cache_hit: bool = False,
+    is_truncated: bool = False,
+    repair_successful: bool = False,
+    cards_generated: int = 0,
+    duration_ms: int = 0,
+    status: str = "success",
+    error_message: str | None = None
+):
+    """Асинхронная безопасная запись в таблицу ai_telemetry_logs."""
+    try:
+        from app.database.session import AsyncSessionLocal
+        from app.database.models import AiTelemetryLog
+        async with AsyncSessionLocal() as db:
+            log = AiTelemetryLog(
+                job_id=str(job_id) if job_id is not None else None,
+                user_id=user_id or "default_user",
+                model_requested=model_requested,
+                model_resolved=model_resolved,
+                input_chars=input_chars,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_hit=cache_hit,
+                is_truncated=is_truncated,
+                repair_successful=repair_successful,
+                cards_generated=cards_generated,
+                duration_ms=duration_ms,
+                status=status,
+                error_message=error_message
+            )
+            db.add(log)
+            await db.commit()
+    except Exception as log_err:
+        print(f"[AI Gateway WARN] Сбой сохранения телеметрии в БД: {log_err}")
+
 # --- DEEPSEEK ВЫЗОВ (ЧЕРЕЗ HTTPX И OPENAI-СОВМЕСТИМЫЙ REST API) ---
-async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject: str = "generic") -> dict:
+async def call_deepseek(
+    user_prompt: str, 
+    system_instruction: str = DEEPSEEK_CACHED_SYSTEM_PROMPT, 
+    fallback_subject: str = "generic"
+) -> tuple[dict, dict]:
     """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
     api_key = settings.DEEPSEEK_API_KEY
     if not api_key:
@@ -432,6 +491,7 @@ async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CAC
     }
 
     print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
+    resolved_model = target_model
     async with httpx.AsyncClient(timeout=90.0) as client:
         response = await client.post(url, headers=headers, json=payload)
         
@@ -439,6 +499,7 @@ async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CAC
         if response.status_code in (400, 404) and target_model != "deepseek-chat":
             print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем стандартную 'deepseek-chat'...")
             payload["model"] = "deepseek-chat"
+            resolved_model = "deepseek-chat"
             response = await client.post(url, headers=headers, json=payload)
 
         if response.status_code == 200:
@@ -446,20 +507,32 @@ async def call_deepseek(user_prompt: str, system_instruction: str = DEEPSEEK_CAC
             
             # Логируем метрики эффективности кэширования DeepSeek
             usage = data.get("usage", {})
-            cache_hit = usage.get("prompt_cache_hit_tokens", 0)
-            cache_miss = usage.get("prompt_cache_miss_tokens", 0)
+            cache_hit_tokens = usage.get("prompt_cache_hit_tokens", 0)
+            cache_miss_tokens = usage.get("prompt_cache_miss_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", cache_hit_tokens + cache_miss_tokens)
             output_tokens = usage.get("completion_tokens", 0)
-            print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit} токенов (-90% цена) | Мисс: {cache_miss} токенов | Вывод: {output_tokens} токенов")
+            cache_hit = cache_hit_tokens > 0
+            print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit_tokens} токенов (-90% цена) | Мисс: {cache_miss_tokens} токенов | Вывод: {output_tokens} токенов")
 
             content = data["choices"][0]["message"]["content"]
-            raw_payload = extract_json_payload(content)
-            return unpack_minified_cards(raw_payload, fallback_subject=fallback_subject)
+            raw_payload, is_truncated, repair_successful = extract_json_payload_with_telemetry(content)
+            unpacked = unpack_minified_cards(raw_payload, fallback_subject=fallback_subject)
+            meta = {
+                "model_requested": target_model,
+                "model_resolved": resolved_model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": output_tokens,
+                "cache_hit": cache_hit,
+                "is_truncated": is_truncated,
+                "repair_successful": repair_successful
+            }
+            return unpacked, meta
         else:
             print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
 # --- GEMINI ВЫЗОВ (РЕЗЕРВНЫЙ / КАДРИРОВАННЫЙ КАСКАД) ---
-async def call_gemini(prompt: str, system_instruction: str) -> dict:
+async def call_gemini(prompt: str, system_instruction: str) -> tuple[dict, str]:
     """Вызывает Google Gemini с каскадным переключением при перегрузке."""
     if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "placeholder_gemini_key":
         raise ValueError("GEMINI_API_KEY не установлен или является заглушкой")
@@ -492,7 +565,8 @@ async def call_gemini(prompt: str, system_instruction: str) -> dict:
                 contents=prompt,
                 config=config
             )
-            return json.loads(response.text)
+            data = json.loads(response.text)
+            return data, model_name
         except Exception as e:
             last_err = e
             err_str = str(e)
@@ -514,7 +588,9 @@ async def parse_raw_text(
     priority: str = "balanced",
     preference: str = "acoustic",
     granularity_mode: str = "atomic",
-    custom_instruction: str = ""
+    custom_instruction: str = "",
+    user_id: str = "default_user",
+    job_id: str | None = None
 ) -> dict:
     import re
     text = re.sub(r'[ \t]+', ' ', text)
@@ -570,21 +646,118 @@ async def parse_raw_text(
     )
 
     provider = settings.AI_PROVIDER.lower()
+    start_ts = time.time()
+    model_requested = settings.DEEPSEEK_MODEL or "deepseek-chat" if provider == "deepseek" else (settings.GEMINI_MODEL or "gemini-2.5-flash-lite")
+    fallback_used = False
+    json_repair_applied = False
+    res = None
     
     # 1. Если выбран DeepSeek (основной экономичный провайдер с Prompt Caching)
     if provider == "deepseek":
-        print(f"[AI Gateway] Вызов DeepSeek ({settings.DEEPSEEK_MODEL}) в режиме '{granularity_mode}' с Prompt Caching...")
-        res = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
+        print(f"[AI Gateway] Вызов DeepSeek ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
+        try:
+            res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
+            json_repair_applied = meta.get("repair_successful", False)
+            duration_ms = int((time.time() - start_ts) * 1000)
+            await record_ai_telemetry(
+                job_id=job_id,
+                user_id=user_id,
+                model_requested=model_requested,
+                model_resolved=meta.get("model_resolved", model_requested),
+                input_chars=len(user_prompt),
+                prompt_tokens=meta.get("prompt_tokens", 0),
+                completion_tokens=meta.get("completion_tokens", 0),
+                cache_hit=meta.get("cache_hit", False),
+                is_truncated=meta.get("is_truncated", False),
+                repair_successful=json_repair_applied,
+                cards_generated=len(res.get("cards", [])),
+                duration_ms=duration_ms,
+                status="success"
+            )
+        except Exception as ds_err:
+            err_str = str(ds_err)
+            print(f"[AI Gateway WARNING] Сбой DeepSeek: {err_str[:150]}. Инициируем каскадный fallback на Gemini...")
+            fallback_used = True
+            try:
+                raw_gemini, resolved_gemini_model = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
+                if isinstance(raw_gemini, dict) and ("c" in raw_gemini or "domain" in raw_gemini):
+                    res = unpack_minified_cards(raw_gemini, fallback_subject=clean_sub)
+                else:
+                    res = raw_gemini
+                duration_ms = int((time.time() - start_ts) * 1000)
+                await record_ai_telemetry(
+                    job_id=job_id,
+                    user_id=user_id,
+                    model_requested=model_requested,
+                    model_resolved=resolved_gemini_model,
+                    input_chars=len(user_prompt),
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    cache_hit=False,
+                    is_truncated=False,
+                    repair_successful=False,
+                    cards_generated=len(res.get("cards", [])) if isinstance(res, dict) else 0,
+                    duration_ms=duration_ms,
+                    status="fallback_cascade",
+                    error_message=f"DeepSeek failure: {err_str[:300]}"
+                )
+            except Exception as fb_err:
+                duration_ms = int((time.time() - start_ts) * 1000)
+                status_label = "rate_limit" if "429" in err_str else ("json_parse_error" if "JSON" in err_str else "failed")
+                await record_ai_telemetry(
+                    job_id=job_id,
+                    user_id=user_id,
+                    model_requested=model_requested,
+                    model_resolved="none",
+                    input_chars=len(user_prompt),
+                    duration_ms=duration_ms,
+                    status=status_label,
+                    error_message=f"DeepSeek: {err_str[:200]} | Gemini fallback: {str(fb_err)[:200]}"
+                )
+                raise fb_err
 
-    # 2. Если выбран Gemini (резервный)
+    # 2. Если изначально выбран Gemini (резервный провайдер)
     else:
-        print(f"[AI Gateway] Вызов Gemini ({settings.GEMINI_MODEL}) в режиме '{granularity_mode}'...")
-        res = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        if isinstance(res, dict) and ("c" in res or "domain" in res):
-            res = unpack_minified_cards(res, fallback_subject=clean_sub)
+        print(f"[AI Gateway] Вызов Gemini ({model_requested}) в режиме '{granularity_mode}'...")
+        try:
+            raw_gemini, resolved_gemini_model = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
+            if isinstance(raw_gemini, dict) and ("c" in raw_gemini or "domain" in raw_gemini):
+                res = unpack_minified_cards(raw_gemini, fallback_subject=clean_sub)
+            else:
+                res = raw_gemini
+            duration_ms = int((time.time() - start_ts) * 1000)
+            await record_ai_telemetry(
+                job_id=job_id,
+                user_id=user_id,
+                model_requested=model_requested,
+                model_resolved=resolved_gemini_model,
+                input_chars=len(user_prompt),
+                cards_generated=len(res.get("cards", [])) if isinstance(res, dict) else 0,
+                duration_ms=duration_ms,
+                status="success"
+            )
+        except Exception as gemini_err:
+            duration_ms = int((time.time() - start_ts) * 1000)
+            await record_ai_telemetry(
+                job_id=job_id,
+                user_id=user_id,
+                model_requested=model_requested,
+                model_resolved="none",
+                input_chars=len(user_prompt),
+                duration_ms=duration_ms,
+                status="failed",
+                error_message=str(gemini_err)[:400]
+            )
+            raise gemini_err
 
     if clean_sub and isinstance(res, dict):
         res["subject_slug"] = clean_sub
+    
+    if isinstance(res, dict):
+        res["fallback_used"] = fallback_used
+        res["json_repair_applied"] = json_repair_applied
+        res["execution_time_ms"] = int((time.time() - start_ts) * 1000)
+
     return res
 
 # --- РЕГЕНЕРАЦИЯ ОДИНОЧНОЙ МНЕМОНИКИ ---
