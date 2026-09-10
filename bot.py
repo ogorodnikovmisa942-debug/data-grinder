@@ -214,6 +214,9 @@ def build_admin_keyboard(phase: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎟 Инвайты", callback_data="admin_invites")
         ],
         [
+            InlineKeyboardButton(text="📤 Экспорт моих карточек (JSON)", callback_data="admin_export_my_deck")
+        ],
+        [
             InlineKeyboardButton(text="📦 Раздача колоды (дозагрузка / сброс)", callback_data="admin_distribute_deck")
         ],
         [
@@ -261,6 +264,81 @@ async def cmd_admin(message: types.Message):
     data = await get_admin_dashboard_data()
     text_content = render_admin_dashboard_text(data)
     await message.answer(text_content, reply_markup=build_admin_keyboard(data["phase"]), parse_mode="HTML")
+
+@dp.message(Command("export"))
+async def cmd_export(message: types.Message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        await message.answer("🔒 Доступ разрешен только администраторам.")
+        return
+
+    user_id_str = str(user_id)
+    async with AsyncSessionLocal() as db:
+        stmt = select(Card).filter(Card.user_id == user_id_str).order_by(Card.id.asc())
+        cards = (await db.execute(stmt)).scalars().all()
+        if not cards:
+            stmt_def = select(Card).filter(Card.user_id == "default_user").order_by(Card.id.asc())
+            cards = (await db.execute(stmt_def)).scalars().all()
+
+        if not cards:
+            await message.answer(
+                "ℹ️ В вашей базе пока нет карточек для экспорта.\n\n"
+                "Создайте или импортируйте карточки в веб-приложении и отправьте команду /export повторно.",
+                parse_mode="HTML"
+            )
+            return
+
+        phrase_title = "Судоустройство: Основной курс"
+        subject_slug = cards[0].subject if cards else "sudoustroystvo"
+
+        p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
+        found_title = (await db.execute(p_stmt)).scalar()
+        if found_title:
+            phrase_title = found_title
+
+        payload = {
+            "phrase_title": phrase_title,
+            "subject_slug": subject_slug,
+            "exported_at": datetime.utcnow().isoformat(),
+            "total_cards": len(cards),
+            "cards": [
+                {
+                    "text": c.text,
+                    "secondary_text": c.secondary_text or "",
+                    "translation": c.translation,
+                    "example": c.example or "",
+                    "mnemonic": c.mnemonic
+                }
+                for c in cards
+            ]
+        }
+
+        save_preset_path = Path("app/static/presets/sudoustroystvo.json")
+        save_preset_path.parent.mkdir(parents=True, exist_ok=True)
+        save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+    file_obj = BufferedInputFile(json_bytes, filename=f"deck_{subject_slug}_{len(cards)}_cards_{now_tag}.json")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"➕ Дозагрузить всем ({len(cards)} карт, без сброса)", callback_data="admin_distribute_append")],
+        [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать всем", callback_data="admin_distribute_overwrite_confirm")],
+        [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+    ])
+
+    await message.answer_document(
+        document=file_obj,
+        caption=(
+            f"📤 <b>Ваша колода карточек ({len(cards)} шт.) успешно выгружена!</b>\n\n"
+            f"• <b>Предмет:</b> <code>{subject_slug}</code>\n"
+            f"• <b>Тема:</b> «{phrase_title}»\n"
+            f"• <b>Файл сохранен на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
+            f"Вы можете сохранить этот JSON-файл к себе или сразу раздать его всем участникам кнопками ниже:"
+        ),
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
 
 @dp.callback_query(F.data.startswith("admin_"))
 async def handle_admin_callbacks(callback: CallbackQuery):
@@ -464,6 +542,81 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         await callback.message.answer_document(
             document=file_obj,
             caption=f"🤖 <b>Инженерная телеметрия ИИ-шлюза</b>\nВызовов в базе: {len(logs)}\nФормат: CSV",
+            parse_mode="HTML"
+        )
+
+    elif action == "admin_export_my_deck":
+        await callback.answer("Выгружаю вашу колоду...")
+        user_id_str = str(callback.from_user.id)
+        async with AsyncSessionLocal() as db:
+            # Ищем карточки текущего администратора
+            stmt = select(Card).filter(Card.user_id == user_id_str).order_by(Card.id.asc())
+            res = await db.execute(stmt)
+            cards = res.scalars().all()
+
+            # Фолбэк на default_user, если админ нарезал карточки в браузере вне Telegram
+            if not cards:
+                stmt_def = select(Card).filter(Card.user_id == "default_user").order_by(Card.id.asc())
+                cards = (await db.execute(stmt_def)).scalars().all()
+
+            if not cards:
+                await callback.message.answer(
+                    "ℹ️ В вашей личной базе пока нет карточек.\n\n"
+                    "Создайте или импортируйте карточки в веб-приложении, после чего нажмите эту кнопку повторно.",
+                    parse_mode="HTML"
+                )
+                return
+
+            phrase_title = "Судоустройство: Основной курс"
+            subject_slug = cards[0].subject if cards else "sudoustroystvo"
+
+            p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
+            found_title = (await db.execute(p_stmt)).scalar()
+            if found_title:
+                phrase_title = found_title
+
+            payload = {
+                "phrase_title": phrase_title,
+                "subject_slug": subject_slug,
+                "exported_at": datetime.utcnow().isoformat(),
+                "total_cards": len(cards),
+                "cards": [
+                    {
+                        "text": c.text,
+                        "secondary_text": c.secondary_text or "",
+                        "translation": c.translation,
+                        "example": c.example or "",
+                        "mnemonic": c.mnemonic
+                    }
+                    for c in cards
+                ]
+            }
+
+            # Автоматически сохраняем на сервере как актуальный пресет
+            save_preset_path = Path("app/static/presets/sudoustroystvo.json")
+            save_preset_path.parent.mkdir(parents=True, exist_ok=True)
+            save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+        file_obj = BufferedInputFile(json_bytes, filename=f"deck_{subject_slug}_{len(cards)}_cards_{now_tag}.json")
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"➕ Дозагрузить всем ({len(cards)} карт, без сброса)", callback_data="admin_distribute_append")],
+            [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать всем", callback_data="admin_distribute_overwrite_confirm")],
+            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+        ])
+
+        await callback.message.answer_document(
+            document=file_obj,
+            caption=(
+                f"📤 <b>Ваша колода карточек ({len(cards)} шт.) успешно выгружена!</b>\n\n"
+                f"• <b>Предмет:</b> <code>{subject_slug}</code>\n"
+                f"• <b>Тема:</b> «{phrase_title}»\n"
+                f"• <b>Файл сохранен на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
+                f"Вы можете сохранить этот JSON-файл к себе или сразу раздать его всем участникам кнопками ниже:"
+            ),
+            reply_markup=kb,
             parse_mode="HTML"
         )
 

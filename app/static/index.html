@@ -335,6 +335,10 @@
                 <div class="flex items-center gap-sm">
                     <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono">АРХИВ КАРТОЧЕК <span id="archive-count" class="text-secondary ml-1 font-bold"></span></div>
                     <button id="bulk-select-toggle" class="text-[10px] font-mono font-bold px-2 py-0.5 border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary hover:border-primary rounded-lg transition-colors uppercase">Выбрать</button>
+                    <button id="export-cards-btn" onclick="exportCardsJSON()" class="text-[10px] font-mono font-bold px-2 py-0.5 border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary hover:border-primary rounded-lg transition-colors uppercase flex items-center gap-1" title="Скачать карточки в JSON">
+                        <span class="material-symbols-outlined text-[13px]">download</span>
+                        <span>JSON</span>
+                    </button>
                 </div>
                 <div class="flex gap-1.5 text-[11px] font-mono font-bold" id="archive-filter-bar">
                     <button data-filter="all" class="px-2.5 py-1 bg-primary text-on-primary border border-primary rounded-xl transition-all">[ВСЕ]</button>
@@ -892,6 +896,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=54"></script>
+    <script src="/js/app.js?v=55"></script>
 </body>
 </html>

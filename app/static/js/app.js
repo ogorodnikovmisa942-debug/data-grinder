@@ -3561,3 +3561,26 @@ window.submitDailySessionSurvey = async function() {
         }
     }
 };
+
+window.exportCardsJSON = async function() {
+    try {
+        const sub = (typeof currentSubject !== 'undefined' && currentSubject) ? currentSubject : 'all';
+        const res = await apiFetch(`/api/data/cards/export?subject=${sub}`);
+        if (!res.ok) {
+            alert("Ошибка выгрузки карточек с сервера");
+            return;
+        }
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `grinder_deck_${sub}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+    } catch (err) {
+        console.error("Ошибка экспорта карточек:", err);
+        alert("Не удалось скачать карточки: " + err.message);
+    }
+};

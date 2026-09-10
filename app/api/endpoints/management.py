@@ -5,7 +5,7 @@ import csv
 import re
 import json
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
@@ -319,6 +319,71 @@ async def get_all_cards(
             for c in cards
         ]
     }
+
+@router.get("/data/cards/export")
+async def export_cards_json(
+    subject: str = Query("all"),
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Экспорт карточек текущего пользователя в эталонном формате пресета .json.
+    Идеально подходит для скачивания колоды и последующей раздачи всем участникам.
+    """
+    stmt = select(Card).filter(Card.user_id == current_user)
+    if subject != "all":
+        stmt = stmt.filter(Card.subject == subject)
+    stmt = stmt.order_by(Card.id.asc())
+
+    res = await db.execute(stmt)
+    cards = res.scalars().all()
+
+    # Если у пользователя нет карт, но он админ/dev в браузере — проверяем default_user
+    if not cards and current_user != "default_user":
+        stmt_def = select(Card).filter(Card.user_id == "default_user")
+        if subject != "all":
+            stmt_def = stmt_def.filter(Card.subject == subject)
+        stmt_def = stmt_def.order_by(Card.id.asc())
+        res_def = await db.execute(stmt_def)
+        cards = res_def.scalars().all()
+
+    phrase_title = "Судоустройство: Основной курс" if subject == "sudoustroystvo" else f"Курс: {subject}"
+    if cards:
+        p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
+        if subject != "all":
+            p_stmt = p_stmt.filter(Phrase.subject == subject)
+        found_title = (await db.execute(p_stmt)).scalar()
+        if found_title:
+            phrase_title = found_title
+
+    payload = {
+        "phrase_title": phrase_title,
+        "subject_slug": subject if subject != "all" else (cards[0].subject if cards else "sudoustroystvo"),
+        "total_cards": len(cards),
+        "cards": [
+            {
+                "text": c.text,
+                "secondary_text": c.secondary_text or "",
+                "translation": c.translation,
+                "example": c.example or "",
+                "mnemonic": c.mnemonic
+            }
+            for c in cards
+        ]
+    }
+
+    json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    sub_tag = subject if subject != "all" else "all_subjects"
+    filename = f"grinder_deck_{sub_tag}.json"
+
+    return Response(
+        content=json_bytes,
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache"
+        }
+    )
 
 # --- 2. АНАЛИТИКА И ДАШБОРД ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/stats/dashboard")

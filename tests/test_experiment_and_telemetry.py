@@ -656,5 +656,47 @@ class TestExperimentAndTelemetry(unittest.TestCase):
 
         self.run_async(_verify_overwrite())
 
+    def test_12_export_cards_json(self):
+        """Проверка эндпоинта экспорта колоды пользователя в формате JSON пресета (/api/data/cards/export)."""
+        user_id = "test_export_cards_user"
+        headers_user = {"X-User-Id": user_id}
+
+        async def _prepare():
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Card).filter(Card.user_id == user_id))
+                await db.execute(delete(Phrase).filter(Phrase.user_id == user_id))
+                await db.commit()
+
+                p = Phrase(text="Судебная система", subject="sudoustroystvo", user_id=user_id)
+                db.add(p)
+                await db.flush()
+
+                c = Card(
+                    phrase_id=p.id,
+                    user_id=user_id,
+                    subject="sudoustroystvo",
+                    text="Конституционный Суд",
+                    secondary_text="ст. 125 КРФ",
+                    translation="Орган конституционного контроля",
+                    example="КС РФ разрешает дела о соответствии Конституции",
+                    state=2,
+                    next_review=datetime.utcnow()
+                )
+                db.add(c)
+                await db.commit()
+
+        self.run_async(_prepare())
+
+        r = self.client.get("/api/data/cards/export?subject=sudoustroystvo", headers=headers_user)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("application/json", r.headers.get("content-type", ""))
+        payload = r.json()
+        self.assertEqual(payload["subject_slug"], "sudoustroystvo")
+        self.assertEqual(payload["total_cards"], 1)
+        self.assertEqual(len(payload["cards"]), 1)
+        self.assertEqual(payload["cards"][0]["text"], "Конституционный Суд")
+        self.assertEqual(payload["cards"][0]["secondary_text"], "ст. 125 КРФ")
+        self.assertEqual(payload["cards"][0]["translation"], "Орган конституционного контроля")
+
 if __name__ == "__main__":
     unittest.main()
