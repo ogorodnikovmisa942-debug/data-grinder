@@ -14,7 +14,7 @@ from typing import Optional
 from app.core.config import settings
 from app.database.session import get_db
 from app.database.models import UserSession, UserSetting, AiTelemetryLog, InviteCode, Card, ReviewLog, Phrase
-from app.api.endpoints.management import save_cards_to_database
+from app.api.endpoints.management import save_cards_to_database, append_or_sync_cards_to_database
 
 router = APIRouter()
 
@@ -386,7 +386,8 @@ class DistributeDeckIn(BaseModel):
     phrase_title: str = "Судоустройство: Основной курс"
     cards: Optional[list] = None
     target_user_id: Optional[str] = None
-    overwrite_existing: bool = True
+    mode: str = "append"  # "append" (дозагрузить/обновить) или "overwrite" (полный сброс)
+    overwrite_existing: Optional[bool] = None  # для обратной совместимости
 
 @router.post("/experiment/distribute-deck")
 async def distribute_deck(
@@ -397,10 +398,20 @@ async def distribute_deck(
     """
     Массовая раздача эталонного пакета карточек участникам научного эксперимента.
     Загружает карточки из app/static/presets/{preset_name}.json (или переданного списка cards)
-    и клонирует их участникам эксперимента.
+    и синхронизирует/дозагружает их участникам эксперимента.
+    Режимы:
+    - mode="append" (по умолчанию): сохраняет FSRS-прогресс студентов, обновляет формулировки и добавляет новые карточки.
+    - mode="overwrite": полностью удаляет карточки по предмету и создает колоду с нуля.
     """
     if payload is None:
         payload = DistributeDeckIn()
+
+    # Определение режима с поддержкой обратной совместимости
+    effective_mode = payload.mode.lower() if payload.mode else "append"
+    if payload.overwrite_existing is True and (not hasattr(payload, "model_fields_set") or "mode" not in payload.model_fields_set):
+        effective_mode = "overwrite"
+    elif payload.overwrite_existing is False and (not hasattr(payload, "model_fields_set") or "mode" not in payload.model_fields_set):
+        effective_mode = "append"
 
     cards_to_distribute = payload.cards
     if not cards_to_distribute:
@@ -438,36 +449,57 @@ async def distribute_deck(
             "status": "warning",
             "message": "Нет зарегистрированных участников для раздачи.",
             "cards_count": len(cards_to_distribute),
-            "users_affected": 0
+            "users_affected": 0,
+            "mode": effective_mode
         }
 
     users_affected = 0
     total_cards_created = 0
+    total_cards_updated = 0
 
     for u in users:
-        if payload.overwrite_existing:
+        if effective_mode == "overwrite":
             await db.execute(delete(Card).filter(Card.user_id == u.user_id, Card.subject == payload.subject_slug))
             await db.execute(delete(Phrase).filter(Phrase.user_id == u.user_id, Phrase.subject == payload.subject_slug))
             await db.commit()
 
-        created, _, _ = await save_cards_to_database(
-            cards_data=cards_to_distribute,
-            subject_slug=payload.subject_slug,
-            phrase_title=payload.phrase_title,
-            user_id=u.user_id,
-            db=db
-        )
-        total_cards_created += created
+            created, _, _ = await save_cards_to_database(
+                cards_data=cards_to_distribute,
+                subject_slug=payload.subject_slug,
+                phrase_title=payload.phrase_title,
+                user_id=u.user_id,
+                db=db
+            )
+            total_cards_created += created
+        else:
+            created, updated, _, _ = await append_or_sync_cards_to_database(
+                cards_data=cards_to_distribute,
+                subject_slug=payload.subject_slug,
+                phrase_title=payload.phrase_title,
+                user_id=u.user_id,
+                db=db
+            )
+            total_cards_created += created
+            total_cards_updated += updated
         users_affected += 1
 
     await db.commit()
+
+    msg = (
+        f"Колода «{payload.phrase_title}» успешно дозагружена для {users_affected} участников (новых: {total_cards_created}, обновлено: {total_cards_updated})."
+        if effective_mode == "append"
+        else f"Колода «{payload.phrase_title}» полностью перезаписана для {users_affected} участников ({total_cards_created} карт создано с нуля)."
+    )
+
     return {
         "status": "success",
-        "message": f"Колода «{payload.phrase_title}» успешно раздана {users_affected} участникам.",
+        "mode": effective_mode,
+        "message": msg,
         "subject": payload.subject_slug,
         "cards_in_deck": len(cards_to_distribute),
         "users_affected": users_affected,
-        "total_cards_created": total_cards_created
+        "total_cards_created": total_cards_created,
+        "total_cards_updated": total_cards_updated
     }
 
 

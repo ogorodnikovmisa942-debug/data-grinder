@@ -177,6 +177,108 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
 
     return cards_created, clean_sub, clean_title
 
+async def append_or_sync_cards_to_database(
+    cards_data: list,
+    subject_slug: str,
+    phrase_title: str,
+    user_id: str,
+    db: AsyncSession
+) -> tuple[int, int, str, str]:
+    """
+    Дозагружает и синхронизирует карточки для конкретного пользователя:
+    - Существующие карточки определяются по совпадению нормализованного текста вопроса (text.strip().lower()).
+      Для них обновляются формулировки (translation, secondary_text, example, mnemonic),
+      но полностью сохраняется когнитивный прогресс FSRS v4 (state, stability, difficulty, next_review, last_review, lapses, reps, has_seen_intro).
+    - Новые карточки добавляются в базу со state=0 и next_review=now.
+    Возвращает (cards_created, cards_updated, clean_sub, clean_title).
+    """
+    clean_sub = subject_slug.strip().lower() or "generic"
+    clean_title = phrase_title.strip() or "Новый блок знаний"
+
+    # Загружаем существующие карточки пользователя по данному предмету
+    stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject == clean_sub)
+    res_existing = await db.execute(stmt_existing)
+    existing_cards = res_existing.scalars().all()
+    existing_map = {c.text.strip().lower(): c for c in existing_cards if c.text}
+
+    # Кэш тем (Phrases)
+    stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject == clean_sub)
+    res_phrases = await db.execute(stmt_phrases)
+    phrase_cache = {p.text.strip(): p for p in res_phrases.scalars().all() if p.text}
+
+    cards_created = 0
+    cards_updated = 0
+    now = datetime.utcnow()
+
+    for c in cards_data:
+        c_text = (c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")) or ""
+        c_trans = (c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")) or ""
+        if not c_text.strip() or not c_trans.strip():
+            continue
+
+        c_text_clean = c_text.strip()
+        c_key = c_text_clean.lower()
+        c_sec = (c.get("secondary_text", "") if isinstance(c, dict) else getattr(c, "secondary_text", "")) or ""
+        c_ex = (c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")) or ""
+        c_tier = (c.get("initial_difficulty_tier", "medium") if isinstance(c, dict) else getattr(c, "initial_difficulty_tier", "medium"))
+        c_mnem = c.get("mnemonic", None) if isinstance(c, dict) else getattr(c, "mnemonic", None)
+
+        if c_key in existing_map:
+            # Существующая карточка: обновляем только текстовые поля, сохраняя весь прогресс FSRS
+            card = existing_map[c_key]
+            card.translation = c_trans
+            if c_sec:
+                card.secondary_text = c_sec
+            if c_ex:
+                card.example = c_ex
+            if c_mnem is not None:
+                card.mnemonic = c_mnem
+            cards_updated += 1
+        else:
+            # Новая карточка: привязываем к Phrase и добавляем в очередь
+            c_theme = ((c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "")) or "").strip() or clean_title
+
+            if c_theme not in phrase_cache:
+                phrase = Phrase(text=c_theme, subject=clean_sub, user_id=user_id)
+                db.add(phrase)
+                await db.flush()
+                phrase_cache[c_theme] = phrase
+
+            target_phrase = phrase_cache[c_theme]
+
+            difficulty = 5.5
+            if c_tier == "easy":
+                difficulty = 3.5
+            elif c_tier == "hard":
+                difficulty = 7.5
+
+            stability = 1.0
+            if c_mnem:
+                if isinstance(c_mnem, dict) and c_mnem.get("keyword"):
+                    stability = 1.5
+                elif isinstance(c_mnem, str) and c_mnem.strip():
+                    stability = 1.5
+
+            new_card = Card(
+                phrase_id=target_phrase.id,
+                user_id=user_id,
+                subject=clean_sub,
+                text=c_text_clean,
+                secondary_text=c_sec,
+                translation=c_trans,
+                example=c_ex,
+                difficulty=difficulty,
+                stability=stability,
+                state=0,
+                mnemonic=c_mnem,
+                next_review=now
+            )
+            db.add(new_card)
+            existing_map[c_key] = new_card  # предотвращаем дубли внутри пачки
+            cards_created += 1
+
+    return cards_created, cards_updated, clean_sub, clean_title
+
 # --- 1. ВЫДАЧА АРХИВА КАРТОЧЕК ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/data/cards")
 async def get_all_cards(

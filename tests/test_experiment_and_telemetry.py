@@ -522,5 +522,139 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertEqual(p_match["full_name"], "Иван Юрист")
         self.assertEqual(p_match["experiment_phase"], 1)
 
+    def test_11_distribute_deck_append_preserves_fsrs_state(self):
+        """Проверка безопасной дозагрузки карточек (Append): сохранение state, stability и прогресса FSRS."""
+        headers_admin = {"X-Admin-Token": settings.ADMIN_TOKEN}
+        user_id = "test_append_student"
+
+        async def _prepare():
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Card).filter(Card.user_id == user_id))
+                await db.execute(delete(Phrase).filter(Phrase.user_id == user_id))
+                await db.execute(delete(UserSession).filter(UserSession.user_id == user_id))
+                await db.commit()
+
+                sess = UserSession(
+                    telegram_id=user_id,
+                    user_id=user_id,
+                    is_experiment_participant=True,
+                    experiment_phase=1
+                )
+                db.add(sess)
+
+                p = Phrase(text="Основы судебной власти", subject="sudoustroystvo", user_id=user_id)
+                db.add(p)
+                await db.flush()
+
+                # Существующая изученная карточка: FSRS state=2, stability=9.5, difficulty=3.8, lapses=1
+                card_old = Card(
+                    phrase_id=p.id,
+                    user_id=user_id,
+                    subject="sudoustroystvo",
+                    text="Правосудие",
+                    secondary_text="ст. 118 КРФ",
+                    translation="Старое определение",
+                    state=2,
+                    stability=9.5,
+                    difficulty=3.8,
+                    lapses=1,
+                    has_seen_intro=True,
+                    next_review=datetime.utcnow()
+                )
+                db.add(card_old)
+                await db.commit()
+
+        self.run_async(_prepare())
+
+        # 1. Запускаем раздачу в режиме append: обновляем формулировку "Правосудие" и добавляем "Судья"
+        payload_append = {
+            "subject_slug": "sudoustroystvo",
+            "phrase_title": "Судоустройство: Основной курс",
+            "target_user_id": user_id,
+            "mode": "append",
+            "cards": [
+                {
+                    "text": "Правосудие",
+                    "secondary_text": "ст. 118 Конституции РФ",
+                    "translation": "Новое уточненное определение правосудия",
+                    "example": "Пример осуществления правосудия"
+                },
+                {
+                    "text": "Судья",
+                    "secondary_text": "ст. 119 Конституции РФ",
+                    "translation": "Носитель судебной власти",
+                    "example": "Судьей может быть гражданин РФ..."
+                }
+            ]
+        }
+
+        r_append = self.client.post(
+            "/api/admin/experiment/distribute-deck",
+            headers=headers_admin,
+            json=payload_append
+        )
+        self.assertEqual(r_append.status_code, 200)
+        data_append = r_append.json()
+        self.assertEqual(data_append["status"], "success")
+        self.assertEqual(data_append["mode"], "append")
+        self.assertEqual(data_append["total_cards_created"], 1) # Добавлена 1 новая
+        self.assertEqual(data_append["total_cards_updated"], 1) # Обновлена 1 старая
+
+        # Проверяем в БД: существующая карточка сохранила прогресс FSRS, но обновила текст!
+        async def _verify_append():
+            async with AsyncSessionLocal() as db:
+                stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
+                res = await db.execute(stmt)
+                cards = res.scalars().all()
+                self.assertEqual(len(cards), 2)
+
+                cards_by_text = {c.text: c for c in cards}
+                old_c = cards_by_text["Правосудие"]
+                self.assertEqual(old_c.translation, "Новое уточненное определение правосудия")
+                self.assertEqual(old_c.secondary_text, "ст. 118 Конституции РФ")
+                # FSRS параметры полностью сохранены!
+                self.assertEqual(old_c.state, 2)
+                self.assertAlmostEqual(old_c.stability, 9.5)
+                self.assertAlmostEqual(old_c.difficulty, 3.8)
+                self.assertEqual(old_c.lapses, 1)
+                self.assertTrue(old_c.has_seen_intro)
+
+                new_c = cards_by_text["Судья"]
+                self.assertEqual(new_c.state, 0)
+                self.assertFalse(new_c.has_seen_intro)
+                self.assertEqual(new_c.translation, "Носитель судебной власти")
+
+        self.run_async(_verify_append())
+
+        # 2. Проверяем режим overwrite: полный сброс
+        payload_overwrite = {
+            "subject_slug": "sudoustroystvo",
+            "phrase_title": "Судоустройство: Сброс",
+            "target_user_id": user_id,
+            "mode": "overwrite",
+            "cards": [
+                {"text": "Новая единственная карта", "translation": "Определение"}
+            ]
+        }
+        r_over = self.client.post(
+            "/api/admin/experiment/distribute-deck",
+            headers=headers_admin,
+            json=payload_overwrite
+        )
+        self.assertEqual(r_over.status_code, 200)
+        data_over = r_over.json()
+        self.assertEqual(data_over["mode"], "overwrite")
+        self.assertEqual(data_over["total_cards_created"], 1)
+
+        async def _verify_overwrite():
+            async with AsyncSessionLocal() as db:
+                stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
+                cards = (await db.execute(stmt)).scalars().all()
+                self.assertEqual(len(cards), 1)
+                self.assertEqual(cards[0].text, "Новая единственная карта")
+                self.assertEqual(cards[0].state, 0)
+
+        self.run_async(_verify_overwrite())
+
 if __name__ == "__main__":
     unittest.main()

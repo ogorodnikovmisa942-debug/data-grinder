@@ -19,7 +19,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.client.session.aiohttp import AiohttpSession  
 from app.database.session import AsyncSessionLocal
 from app.database.models import UserSession, GenerationJob, UserSetting, InviteCode, Card, ReviewLog, AiTelemetryLog, Phrase
-from app.api.endpoints.management import save_cards_to_database
+from app.api.endpoints.management import save_cards_to_database, append_or_sync_cards_to_database
 from app.services.ai_gateway import parse_raw_text, split_text_into_chunks
 from app.core.config import settings
 from sqlalchemy import select, update, func, text, delete
@@ -214,7 +214,7 @@ def build_admin_keyboard(phase: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎟 Инвайты", callback_data="admin_invites")
         ],
         [
-            InlineKeyboardButton(text="📦 Раздать карточки всем", callback_data="admin_distribute_deck")
+            InlineKeyboardButton(text="📦 Раздача колоды (дозагрузка / сброс)", callback_data="admin_distribute_deck")
         ],
         [
             InlineKeyboardButton(text="📥 Датасет (CSV)", callback_data="admin_export_dataset"),
@@ -489,7 +489,23 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         )
 
     elif action == "admin_distribute_deck":
-        await callback.answer("Раздаю карточки всем участникам...")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Дозагрузить новые (сохранить прогресс)", callback_data="admin_distribute_append")],
+            [InlineKeyboardButton(text="⚠️ Полный сброс и перезапись", callback_data="admin_distribute_overwrite_confirm")],
+            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+        ])
+        await callback.message.edit_text(
+            "📦 <b>РАЗДАЧА КАРТОЧЕК УЧАСТНИКАМ ЭКСПЕРИМЕНТА</b>\n\n"
+            "Выберите способ применения эталонного пакета судоустройства:\n\n"
+            "1. <b>Дозагрузить (Append)</b> — <i>РЕКОМЕНДУЕТСЯ</i>. Добавляет только новые карточки и обновляет формулировки существующих. Весь прогресс студентов (FSRS интервалы, стабильность, статистика повторений) полностью сохраняется.\n\n"
+            "2. <b>Полный сброс (Overwrite)</b> — полностью удаляет текущие карточки и заново загружает колоду со сбросом прогресса.",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+
+    elif action == "admin_distribute_append":
+        await callback.answer("Синхронизирую и дозагружаю карточки...")
         preset_path = Path("app/static/presets/sudoustroystvo.json")
         if not preset_path.exists():
             await callback.message.answer("❌ Файл <code>app/static/presets/sudoustroystvo.json</code> не найден на сервере!", parse_mode="HTML")
@@ -512,27 +528,102 @@ async def handle_admin_callbacks(callback: CallbackQuery):
                 return
 
             affected = 0
+            total_created = 0
+            total_updated = 0
             for u in users:
-                await db.execute(delete(Card).filter(Card.user_id == u.user_id, Card.subject == subject_slug))
-                await db.execute(delete(Phrase).filter(Phrase.user_id == u.user_id, Phrase.subject == subject_slug))
-                await db.commit()
-
-                await save_cards_to_database(
+                created, updated, _, _ = await append_or_sync_cards_to_database(
                     cards_data=cards_to_distribute,
                     subject_slug=subject_slug,
                     phrase_title=phrase_title,
                     user_id=u.user_id,
                     db=db
                 )
+                total_created += created
+                total_updated += updated
                 affected += 1
             await db.commit()
 
-        await callback.message.answer(
-            f"✅ <b>Колода успешно раздана!</b>\n\n"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+        ])
+        await callback.message.edit_text(
+            f"✅ <b>Колода успешно синхронизирована (Append)!</b>\n\n"
+            f"• <b>Предмет:</b> {phrase_title}\n"
+            f"• <b>Всего в эталонном пакете:</b> {len(cards_to_distribute)} шт.\n"
+            f"• <b>Добавлено новых карточек:</b> {total_created} шт.\n"
+            f"• <b>Обновлено формулировок:</b> {total_updated} шт.\n"
+            f"• <b>Участников затронуто:</b> {affected} чел.\n\n"
+            f"<i>💡 FSRS-метрики (интервалы, стабильность, история повторений) участников сохранены без изменений.</i>",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+
+    elif action == "admin_distribute_overwrite_confirm":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="‼️ ДА, СБРОСИТЬ ПРОГРЕСС И ПЕРЕЗАПИСАТЬ", callback_data="admin_distribute_overwrite")],
+            [InlineKeyboardButton(text="🔙 Отмена (Главное меню)", callback_data="admin_menu")]
+        ])
+        await callback.message.edit_text(
+            "⚠️ <b>ВНИМАНИЕ: ОПАСНОЕ ДЕЙСТВИЕ</b>\n\n"
+            "Вы собираетесь удалить все текущие карточки по судоустройству у всех участников исследования и создать их заново.\n\n"
+            "Все интервалы повторений и история будут <b>безвозвратно удалены</b> для данного предмета.\n\n"
+            "Вы уверены?",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+
+    elif action == "admin_distribute_overwrite":
+        await callback.answer("Сбрасываю и перезаписываю колоду...")
+        preset_path = Path("app/static/presets/sudoustroystvo.json")
+        if not preset_path.exists():
+            await callback.message.answer("❌ Файл <code>app/static/presets/sudoustroystvo.json</code> не найден на сервере!", parse_mode="HTML")
+            return
+
+        try:
+            content = json.loads(preset_path.read_text(encoding="utf-8"))
+            cards_to_distribute = content.get("cards", [])
+            phrase_title = content.get("phrase_title", "Судоустройство: Основной курс")
+            subject_slug = content.get("subject_slug", "sudoustroystvo")
+        except Exception as e:
+            await callback.message.answer(f"❌ Ошибка чтения файла карточек: {e}")
+            return
+
+        async with AsyncSessionLocal() as db:
+            stmt = select(UserSession).filter(UserSession.is_experiment_participant == True)
+            users = (await db.execute(stmt)).scalars().all()
+            if not users:
+                await callback.message.answer("⚠️ В базе пока нет зарегистрированных участников исследования!")
+                return
+
+            affected = 0
+            total_created = 0
+            for u in users:
+                await db.execute(delete(Card).filter(Card.user_id == u.user_id, Card.subject == subject_slug))
+                await db.execute(delete(Phrase).filter(Phrase.user_id == u.user_id, Phrase.subject == subject_slug))
+                await db.commit()
+
+                created, _, _ = await save_cards_to_database(
+                    cards_data=cards_to_distribute,
+                    subject_slug=subject_slug,
+                    phrase_title=phrase_title,
+                    user_id=u.user_id,
+                    db=db
+                )
+                total_created += created
+                affected += 1
+            await db.commit()
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+        ])
+        await callback.message.edit_text(
+            f"✅ <b>Колода полностью перезаписана (Overwrite)!</b>\n\n"
             f"• <b>Тема:</b> {phrase_title}\n"
-            f"• <b>Карточек в пакете:</b> {len(cards_to_distribute)}\n"
-            f"• <b>Участников получило:</b> {affected} чел.\n\n"
-            f"<i>Каждый участник начинает тренировки со свежей очередью FSRS (20 новых карточек в день).</i>",
+            f"• <b>Создано карточек:</b> {total_created} шт.\n"
+            f"• <b>Участников:</b> {affected} чел.\n\n"
+            f"<i>Все студенты начинают с нулевой очереди FSRS.</i>",
+            reply_markup=kb,
             parse_mode="HTML"
         )
 
@@ -586,7 +677,8 @@ async def handle_admin_document_upload(message: types.Message):
 
         phrase_title = parsed_json.get("phrase_title", "Судоустройство: Основной курс")
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"📦 Раздать всем участникам ({len(cards)} карт)", callback_data="admin_distribute_deck")],
+            [InlineKeyboardButton(text=f"➕ Дозагрузить ({len(cards)} карт, без сброса)", callback_data="admin_distribute_append")],
+            [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать всем", callback_data="admin_distribute_overwrite_confirm")],
             [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
         ])
 
@@ -595,8 +687,8 @@ async def handle_admin_document_upload(message: types.Message):
             f"• <b>Тема:</b> «{phrase_title}»\n"
             f"• <b>Количество карточек:</b> {len(cards)}\n"
             f"• <b>Файл на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
-            f"Все новые студенты будут автоматически получать этот набор при переходе по инвайту. "
-            f"Чтобы загрузить его уже зарегистрированным участникам, нажмите кнопку ниже:",
+            f"Все новые студенты будут автоматически получать этот набор при переходе по инвайту.\n"
+            f"Чтобы загрузить его уже зарегистрированным участникам, выберите действие:",
             reply_markup=kb,
             parse_mode="HTML"
         )

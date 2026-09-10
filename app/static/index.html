@@ -154,18 +154,21 @@
                         </button>
                         <div id="card-counter" class="absolute top-3 right-3 text-xs text-neutral-400 dark:text-neutral-500 font-mono font-medium">0 / 0</div>
                         
-                        <!-- Обычный режим (Лицевая сторона повторения) -->
-                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-center items-center py-4 text-center">
-                            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 mb-4">
-                                <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-                                <span class="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 font-mono">ВОПРОС</span>
+                        <!-- Обычный режим (Лицевая сторона повторения и штурма) -->
+                        <div id="card-front-normal" class="w-full flex-1 flex flex-col justify-between items-center py-2 text-center">
+                            <div class="w-full flex justify-center pt-2">
+                                <div id="card-front-mode-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                                    <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 font-mono">ПОВТОРЕНИЕ FSRS</span>
+                                </div>
                             </div>
                             
-                            <h2 id="card-text" class="font-bold text-2xl sm:text-3xl text-neutral-900 dark:text-neutral-100 leading-snug px-3 break-words">Загрузка...</h2>
+                            <div class="w-full flex-1 flex flex-col justify-center items-center px-3 py-4">
+                                <h2 id="card-text" class="font-bold text-lg sm:text-xl text-neutral-900 dark:text-neutral-100 leading-snug break-words">Загрузка...</h2>
+                                <div id="card-front-hint" class="text-xs font-semibold font-mono text-primary bg-primary/10 mt-3 px-3 py-1 rounded-full border border-primary/20 hidden"></div>
+                            </div>
                             
-                            <div id="card-front-hint" class="text-xs font-medium text-amber-600 dark:text-amber-400 mt-2.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 hidden"></div>
-                            
-                            <div class="mt-8 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
+                            <div class="pb-2 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
                                 <span class="material-symbols-outlined text-[14px]">touch_app</span>
                                 <span>Нажмите или свайпните для ответа</span>
                             </div>
@@ -237,10 +240,10 @@
                         </div>
                     </div>
 
-                    <!-- Обратная сторона (Гармоничная 3-зонная структура) -->
+                    <!-- Обратная сторона (Гармоничная структурированная архитектура) -->
                     <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center overflow-hidden select-none">
                         <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
-                        <div class="w-full shrink-0 flex flex-col items-center gap-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
+                        <div class="w-full shrink-0 flex flex-col items-center gap-1 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
                             <div id="card-leech-badge" class="hidden w-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 p-1.5 rounded-lg text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0 mb-1">
                                 <span id="card-leech-text">[!] СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
@@ -251,44 +254,45 @@
                                 <span class="material-symbols-outlined text-[18px]">volume_up</span>
                             </button>
 
-                            <!-- Четкий заголовок вопроса/термина -->
-                            <div class="flex items-center gap-1.5 max-w-[85%]">
-                                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 shrink-0">ВОПРОС:</span>
-                                <span id="card-back-term-text" class="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 truncate">---</span>
-                            </div>
-                            
-                            <!-- Контекстный бейдж (Pinyin, подтема и т.д.) -->
-                            <div id="card-secondary-container" class="hidden">
-                                <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">---</span>
+                            <!-- Четкий заголовок вопроса/термина (без обрезки, аккуратный и читаемый) -->
+                            <div class="w-full flex flex-col items-center px-1">
+                                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-0.5">ВОПРОС</span>
+                                <div id="card-back-term-text" class="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 text-center break-words leading-tight">---</div>
+                                <div id="card-secondary-container" class="hidden mt-1">
+                                    <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">---</span>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Центральная зона: Определение (Крупный понятный шрифт, без пустот, скроллируемый) -->
-                        <div class="w-full flex-1 min-h-0 flex flex-col items-center justify-start py-2 overflow-y-auto px-1 overscroll-contain" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
-                            <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
-                            <h3 id="card-main-text" class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-relaxed px-2 break-words text-left sm:text-center">---</h3>
+                        <!-- Центральная зона: Скроллируемое содержимое (Определение в боксе + Пример + Мнемоника) -->
+                        <div class="w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 overflow-y-auto px-1 overscroll-contain gap-2" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
+                            <!-- Определение (структурированный блок, идентичный режиму знакомства) -->
+                            <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 sm:p-3.5 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
+                                <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
+                                <div id="card-main-text" class="text-sm sm:text-base font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words whitespace-pre-line">---</div>
+                            </div>
                             
                             <!-- Пример (стилизован как элегантная цитата с акцентной чертой) -->
-                            <div id="card-example-container" class="hidden w-full mt-2.5 px-2">
-                                <div class="border-l-2 border-primary/50 pl-3 py-0.5 text-left">
+                            <div id="card-example-container" class="hidden w-full px-1">
+                                <div class="border-l-2 border-primary/50 pl-3 py-1 text-left">
                                     <p id="card-example-text" class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 italic leading-relaxed break-words"></p>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
-                        <div id="card-mnemonic-container" class="w-full shrink-0 bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left relative group hidden">
-                            <div class="flex items-center justify-between text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
-                                <span class="flex items-center gap-1 font-mono">
-                                    <span class="material-symbols-outlined text-[14px] text-amber-500">psychology</span> АССОЦИАЦИЯ
-                                </span>
-                                <div class="flex gap-2">
-                                    <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Скрыть</button>
-                                    <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[10px] text-amber-600 dark:text-amber-400 font-mono">Обновить</button>
+                            <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
+                            <div id="card-mnemonic-container" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left relative group hidden">
+                                <div class="flex items-center justify-between text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1 font-mono">
+                                    <span class="flex items-center gap-1 font-bold">
+                                        <span class="material-symbols-outlined text-[13px] text-amber-500">psychology</span> АССОЦИАЦИЯ
+                                    </span>
+                                    <div class="flex gap-2">
+                                        <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Скрыть</button>
+                                        <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[10px] text-amber-600 dark:text-amber-400 font-mono">Обновить</button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div id="mnemonic-content" class="transition-opacity duration-300">
-                                <p id="card-mnemonic" class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words"></p>
+                                <div id="mnemonic-content" class="transition-opacity duration-300">
+                                    <p id="card-mnemonic" class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words"></p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -888,6 +892,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=53"></script>
+    <script src="/js/app.js?v=54"></script>
 </body>
 </html>

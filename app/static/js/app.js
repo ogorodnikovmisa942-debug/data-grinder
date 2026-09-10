@@ -1027,12 +1027,34 @@ function renderReviewCard(card) {
     }
     if (front) front.classList.remove('introduction-mode');
     
+    // Динамический бейдж режима на лицевой стороне
+    const modeBadge = document.getElementById('card-front-mode-badge');
+    const modeText = document.getElementById('card-front-mode-text');
+    if (modeText) {
+        if (currentSessionMode === 'cram') {
+            modeText.textContent = 'РЕЖИМ ШТУРМА';
+            if (modeBadge) {
+                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+            }
+        } else if (currentSessionMode === 'new') {
+            modeText.textContent = 'ИЗУЧЕНИЕ НОВОГО';
+            if (modeBadge) {
+                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary';
+            }
+        } else {
+            modeText.textContent = 'ПОВТОРЕНИЕ FSRS';
+            if (modeBadge) {
+                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+            }
+        }
+    }
+    
     if (cardText) cardText.textContent = card.text;
     
     const hintEl = document.getElementById('card-front-hint');
     if (hintEl) {
         if (card.secondary_text && card.secondary_text !== '---') {
-            hintEl.textContent = `[${card.secondary_text}]`;
+            hintEl.textContent = card.secondary_text;
             hintEl.classList.remove('hidden');
         } else {
             hintEl.classList.add('hidden');
