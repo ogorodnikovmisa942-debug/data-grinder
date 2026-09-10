@@ -35,7 +35,10 @@ Analyze the user's raw input text and completely break it down into a structured
    CRITICAL JURISDICTION RULE: Be extremely consistent with jurisdictions. If the text context belongs to the Republic of Belarus, strictly use the '_rb' suffix (e.g., 'law_civil_rb', 'law_rb'). If it belongs to the Russian Federation, use '_rf'. 
    DEFAULT ACTION: If the text contains post-Soviet legal terminology, articles, or codes without explicit mention of the country, STRICTLY DEFAULT to the Republic of Belarus context and use the '_rb' suffix. Never mix or invent arbitrary naming styles across uploads.
 3. Extract or generate a contextual parent topic name ('phrase_title') that groups these cards.
-4. Deconstruct the text into atomic, high-impact flashcards according to the domain rule:
+4. Deconstruct the text into ultra-atomic, high-impact flashcards for FSRS (Piotr Wozniak Minimum Information Principle):
+   - ATOMICITY & TARGET LATENCY: Every card must test exactly ONE indivisible fact. Target retrieval latency is 1.5–3.5 seconds.
+   - STRICT ANTI-LIST DIRECTIVE: NEVER bundle enumerations, requirements, or powers (>2-3 items) into a single card with numbered points (1... 2... 3... 4...). Deconstruct lists into individual cards targeting single attributes (e.g., minimum age, required experience, citizenship constraint, procedural deadline).
+   - DIRECT SEMANTIC CORE: The back side ('translation') must be a single, grammatically complete, definitive sentence or term. STRIP ALL BUREAUCRATIC FILLER ('это совокупность норм...', 'представляет собой деятельность...'). Start immediately with the core answer. Never truncate thoughts or leave sentences unfinished.
 
    * DOMAIN "language":
      - text: Word/phrase in foreign language (e.g., "中国").
@@ -46,21 +49,21 @@ Analyze the user's raw input text and completely break it down into a structured
      - example: Example sentence using the word in context (translated to Russian).
 
    * DOMAIN "law":
-     - text: Legal term, doctrine, or core principle (e.g., "Форс-мажор" or definition name).
-     - secondary_text: Reference to article, code, or clause (e.g., "ГК РБ Статья 401").
-     - translation: Deep, complete, definitive legal definition in Russian.
-     - example: Real-world legal case, situation, or article reference where the term applies.
+     - text: Active examination question or cloze prompt on an indivisible legal attribute (e.g., "Каков минимальный возраст для кандидата в судьи районного суда?", "На ком лежит бремя доказывания виновности?").
+     - secondary_text: Reference to article, code, or clause with jurisdiction (e.g., "ст. 4 Закона РФ 'О статусе судей'" or "ст. 14 УПК РФ").
+     - translation: Direct, authoritative, grammatically complete answer (3-12 words, strictly without introductory filler).
+     - example: Authentic judicial scenario, dispute resolution case, or qualifying factual circumstance.
 
    * DOMAIN "code":
-     - text: Function name, method, design pattern, or algorithm (e.g., "asyncio.gather()").
-     - secondary_text: Function signature, arguments, or execution context (e.g., "asyncio.gather(*aws)").
-     - translation: Clear technical breakdown of its logic or code snippet implementation.
-     - example: Minimal working code snippet demonstrating the concept.
+     - text: Function name, method, design pattern, or algorithm (e.g., "asyncio.shield()").
+     - secondary_text: Function signature, arguments, or execution context (e.g., "asyncio.shield(aw)").
+     - translation: Clear technical invariant, complexity, or behavior in 1 punchy sentence.
+     - example: Minimal working code snippet (1-4 lines) demonstrating the concept.
 
    * DOMAIN "generic" (geometry, history, medicine):
-     - text: Formula name, question, or key concept (e.g., "Площадь круга").
+     - text: Specific formula, theorem, anatomical mechanism, or historical event (e.g., "Площадь круга").
      - secondary_text: Scientific context, section, or core parameters (e.g., "Геометрия, S = ...").
-     - translation: Core rule breakdown, proof, or complete answer.
+     - translation: Core rule breakdown, proof, or complete answer in 1 crisp sentence.
      - example: Practical application or real-world scenario.
 
 5. For EACH card, generate an unforgettable, high-impact mnemonic in Russian (keyword and verbal cue) using acoustic or visual associations.
@@ -139,9 +142,9 @@ async def parse_raw_text(
         return {"subject_domain": "generic", "subject_slug": "generic", "phrase_title": "", "cards": []}
 
     density_guidelines = {
-        "low": "DENSITY REQUIREMENT: Simplify card contents. Keep 'translation' or explanation brief, under 2 sentences, avoiding nested details.",
-        "medium": "DENSITY REQUIREMENT: Provide standard depth for explanations. Balanced and complete.",
-        "high": "DENSITY REQUIREMENT: Provide deep, highly detailed explanations. Include granular details, corner cases, and thorough explanations in the 'translation'."
+        "low": "DENSITY REQUIREMENT: Simplify card contents. Keep 'translation' ultra-brief (1 direct sentence or term), avoiding secondary nuances.",
+        "medium": "DENSITY REQUIREMENT: Balanced atomic depth. 1 punchy, complete, definitive sentence.",
+        "high": "DENSITY REQUIREMENT: Highly granular decomposition. Decompose complex doctrines, corner cases, and exceptions into multiple atomic cards rather than bloated paragraphs."
     }
     volume_guidelines = {
         "low": "VOLUME REQUIREMENT: Limit the output to a maximum of 5 cards.",

@@ -698,5 +698,67 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertEqual(payload["cards"][0]["secondary_text"], "ст. 125 КРФ")
         self.assertEqual(payload["cards"][0]["translation"], "Орган конституционного контроля")
 
+    def test_13_deepseek_prompt_caching_and_atomic_rules(self):
+        """Phase 2: Проверка соответствия системного промпта DeepSeek порогу кэширования (>1024 токенов) и правилам атомарности."""
+        from app.services.ai_gateway import DEEPSEEK_CACHED_SYSTEM_PROMPT, unpack_minified_cards
+        from app.services.gemini_parser import UNIVERSAL_GRINDER_PROMPT
+
+        # 1. Проверка длины системного промпта для DeepSeek Context Caching (порог > 1024 токенов)
+        # В русско-английском тексте 1 слово = 1.3-2.0 токена. При >1400 словах токенов гарантированно >1800.
+        word_count = len(DEEPSEEK_CACHED_SYSTEM_PROMPT.split())
+        char_count = len(DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertGreaterEqual(word_count, 1200, f"Промпт содержит {word_count} слов, что может быть недостаточно для порога 1024 токенов.")
+        self.assertGreaterEqual(char_count, 9000, f"Длина промпта в символах ({char_count}) должна быть >= 9000.")
+
+        # 2. Проверка наличия ключевых когнитивных законов и анти-списочных директив
+        self.assertIn("Minimum Information Principle", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Absolute Prohibition of Lists & Enumerations", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Direct Core & Semantic Completeness", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("1.5–3.5 seconds", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("CONTRAST CASE 1", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+
+        # 3. Проверка Gemini UNIVERSAL_GRINDER_PROMPT
+        self.assertIn("Minimum Information Principle", UNIVERSAL_GRINDER_PROMPT)
+        self.assertIn("STRICT ANTI-LIST DIRECTIVE", UNIVERSAL_GRINDER_PROMPT)
+
+        # 4. Проверка распаковки атомарных юридических карточек функцией unpack_minified_cards
+        mock_deepseek_output = {
+            "domain": "law",
+            "slug": "sudoustroystvo",
+            "title": "Судоустройство РФ",
+            "c": [
+                {
+                    "t": "Каков минимальный возраст для кандидата в судьи районного суда?",
+                    "s": "ст. 4 Закона о статусе судей",
+                    "d": "25 лет.",
+                    "e": "24-летний кандидат получит отказ квалифколлегии.",
+                    "l": "easy",
+                    "h": "Требования к судьям"
+                },
+                {
+                    "t": "Срок подачи кассационной жалобы составляет [...] со дня вступления приговора в силу.",
+                    "s": "ст. 401.3 УПК РФ",
+                    "d": "[6 месяцев].",
+                    "e": "Пропуск срока влечет возврат жалобы без рассмотрения.",
+                    "l": "medium",
+                    "h": "Кассационное производство"
+                }
+            ]
+        }
+        unpacked = unpack_minified_cards(mock_deepseek_output)
+        self.assertEqual(unpacked["subject_domain"], "law")
+        self.assertEqual(unpacked["subject_slug"], "sudoustroystvo")
+        self.assertEqual(len(unpacked["cards"]), 2)
+        
+        card1 = unpacked["cards"][0]
+        self.assertEqual(card1["text"], "Каков минимальный возраст для кандидата в судьи районного суда?")
+        self.assertEqual(card1["translation"], "25 лет.")
+        self.assertEqual(card1["theme"], "Требования к судьям")
+
+        card2 = unpacked["cards"][1]
+        self.assertEqual(card2["translation"], "[6 месяцев].")
+        self.assertEqual(card2["theme"], "Кассационное производство")
+
 if __name__ == "__main__":
     unittest.main()
+
