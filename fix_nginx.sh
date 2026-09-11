@@ -22,14 +22,11 @@ BACKUP_FILE="${NGINX_CONF}.bak_$(date +%Y%m%d_%H%M%S)"
 cp "$NGINX_CONF" "$BACKUP_FILE"
 echo "[OK] Резервная копия конфига Nginx сохранена в $BACKUP_FILE"
 
-# 2. Обновляем или добавляем директиву client_max_body_size в nginx.conf
-if grep -q "client_max_body_size" "$NGINX_CONF"; then
-    sed -i -E 's/client_max_body_size\s+[0-9]+[kKmMgG]?;/client_max_body_size 100M;/g' "$NGINX_CONF"
-    echo "[OK] Обновлен параметр client_max_body_size на 100M в $NGINX_CONF"
-else
-    sed -i '/http {/a \    client_max_body_size 100M;\n    proxy_connect_timeout 300s;\n    proxy_send_timeout 300s;\n    proxy_read_timeout 300s;' "$NGINX_CONF"
-    echo "[OK] Добавлен client_max_body_size 100M и таймауты 300s в секцию http {} файла $NGINX_CONF"
-fi
+# 2. Удаляем старые дубликаты и прописываем чистый лимит 100M в nginx.conf
+sed -i '/client_max_body_size/d' "$NGINX_CONF"
+sed -i '/proxy_read_timeout/d' "$NGINX_CONF"
+sed -i '/http {/a \    client_max_body_size 100M;\n    proxy_connect_timeout 300s;\n    proxy_send_timeout 300s;\n    proxy_read_timeout 300s;' "$NGINX_CONF"
+echo "[OK] Установлен client_max_body_size 100M и таймауты в секцию http {} файла $NGINX_CONF"
 
 # 3. Проверяем также сайты в sites-enabled и conf.d
 for conf in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do
