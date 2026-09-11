@@ -15,6 +15,7 @@ from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob
 from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic, split_text_into_chunks
+from app.services.generation_worker import is_deepseek_offpeak
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from datetime import datetime, timedelta
@@ -748,12 +749,31 @@ async def import_raw_text(
     if not target_sub:
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
-    # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости в 19:30-03:30 МСК)
-    # ИЛИ объем текста превышает 35 000 знаков (автоматический перевод на скидочное время)
+    # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости)
+    # ИЛИ объем текста превышает 35 000 знаков (автоматический фоновый режим во избежание таймаута)
     is_too_large = len(payload.text.strip()) > 35000
     if payload.is_deferred or is_too_large:
-        # Крупные материалы ВСЕГДА отправляются на скидочное время (is_deferred = True)
-        effective_deferred = True if is_too_large else payload.is_deferred
+        is_offpeak = is_deepseek_offpeak()
+        if is_offpeak:
+            # Скидка 50% УЖЕ действует прямо сейчас (19:30-03:30 МСК)!
+            # Нарезка начинается немедленно, задача не задерживается
+            effective_deferred = False
+            is_immediate = True
+            if is_too_large:
+                msg = f"🔥 Скидка 50% активна прямо сейчас! Объемный текст ({len(payload.text.strip())} знаков) взят в фоновую нарезку со скидкой 50%."
+            else:
+                msg = f"🔥 Скидка 50% активна прямо сейчас! Материал передан в немедленную фоновую обработку."
+        else:
+            if payload.is_deferred:
+                # В дневное время пользователь явно выбрал скидку 50% в 19:30 МСК
+                effective_deferred = True
+                is_immediate = False
+                msg = "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
+            else:
+                # Дневное время, но пользователь выбрал генерацию сейчас: фоновый запуск без откладывания
+                effective_deferred = False
+                is_immediate = True
+                msg = f"Объемный материал ({len(payload.text.strip())} знаков) взят в немедленную фоновую обработку по дневному тарифу."
 
         # Извлекаем осмысленное имя темы (пропуская служебные технические разделители OCR)
         meaningful_lines = [
@@ -783,16 +803,13 @@ async def import_raw_text(
         await db.commit()
         await db.refresh(job)
 
-        if is_too_large:
-            msg = f"Материал объемный ({len(payload.text.strip())} знаков) и автоматически направлен в очередь «Ночной Грайнд» (-50% стоимости, 19:30-03:30 МСК). Можете закрыть приложение — бот пришлет кнопку разбора!"
-        else:
-            msg = "Материал принят в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%). Мы уведомим вас о готовности!"
-
         return {
             "status": "queued",
             "job_id": job.id,
             "subject": target_sub,
             "theme": job.theme,
+            "is_immediate": is_immediate,
+            "is_offpeak": is_offpeak,
             "message": msg
         }
 
@@ -1034,8 +1051,30 @@ async def import_file_at_code_level(
         is_large = len(combined_text) > 30000 or len(upload_list) > 1
 
         if is_deferred or is_large:
-            # Крупные файлы и книги ВСЕГДА отправляются на скидочное время (-50%)
-            effective_deferred = True if is_large else is_deferred
+            is_offpeak = is_deepseek_offpeak()
+            if is_offpeak:
+                # В часы скидок (19:30-03:30 МСК) скидка 50% УЖЕ действует прямо сейчас!
+                # Задачи НЕ откладываются на потом, а запускаются фоновым воркером немедленно со скидкой 50%
+                effective_deferred = False
+                is_immediate = True
+                if is_large:
+                    msg = f"🔥 Скидка 50% активна прямо сейчас! Крупный документ ({len(combined_text)} знаков) взят в фоновую нарезку со скидкой 50%."
+                else:
+                    msg = f"🔥 Скидка 50% активна! Файлы ({len(upload_list)} шт.) переданы в немедленную фоновую обработку."
+            else:
+                # В дневное время:
+                if is_deferred:
+                    # Пользователь явно выбрал отложить до 19:30 для скидки 50%
+                    effective_deferred = True
+                    is_immediate = False
+                    msg = f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
+                else:
+                    # Пользователь нажал "Создать сейчас" (дневной тариф):
+                    # Крупные материалы отправляются в фоновый воркер во избежание HTTP таймаута, но запускаются НЕМЕДЛЕННО
+                    effective_deferred = False
+                    is_immediate = True
+                    msg = f"Крупный документ ({len(combined_text)} знаков) взят в немедленную фоновую нарезку по дневному тарифу."
+
             theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
             if len(file_titles) > 2:
                 theme_name += f" и ещё {len(file_titles) - 2}"
@@ -1057,16 +1096,13 @@ async def import_file_at_code_level(
             await db.commit()
             await db.refresh(job)
 
-            if is_large:
-                msg = f"Большой документ ({len(combined_text)} знаков) автоматически направлен в очередь скидок (-50% стоимости, 19:30-03:30 МСК). Можете закрыть приложение — бот уведомит о готовности!"
-            else:
-                msg = f"Файлы ({len(upload_list)} шт.) поставлены в очередь «Ночной Грайнд». Обработка начнется в 19:30 по МСК (со скидкой 50%)."
-
             return {
                 "status": "queued",
                 "job_id": job.id,
                 "subject": target_sub,
                 "theme": theme_name,
+                "is_immediate": is_immediate,
+                "is_offpeak": is_offpeak,
                 "message": msg
             }
 

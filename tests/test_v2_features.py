@@ -267,3 +267,71 @@ class TestV2Features(unittest.TestCase):
         card_ids = [c["id"] for c in session_cards]
         # c_sib2 должен быть изолирован (захоронен / buried), так как c_sib1 повторялся сегодня
         self.assertNotIn(sib2_id, card_ids)
+
+    def test_09_offpeak_queue_handling(self):
+        """Проверка логики немедленного фонового запуска при активной скидке и дневного выбора."""
+        from unittest.mock import patch
+        from app.services.generation_worker import is_deepseek_offpeak
+
+        large_text = "Конституционное право Республики Беларусь. " * 1000  # >35000 знаков
+
+        # 1. Симулируем off-peak (скидка 50% активна)
+        with patch("app.api.endpoints.management.is_deepseek_offpeak", return_value=True):
+            res = self.client.post(
+                "/api/config/import",
+                headers={"X-User-Id": self.user_id},
+                json={
+                    "text": large_text,
+                    "subject": "law",
+                    "density": "medium",
+                    "volume": "auto",
+                    "is_deferred": False
+                }
+            )
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["status"], "queued")
+            self.assertTrue(data.get("is_immediate"))
+            self.assertTrue(data.get("is_offpeak"))
+            self.assertIn("Скидка 50% активна прямо сейчас", data["message"])
+
+        # 2. Симулируем дневное время с явным выбором отложить со скидкой (is_deferred = True)
+        with patch("app.api.endpoints.management.is_deepseek_offpeak", return_value=False):
+            res = self.client.post(
+                "/api/config/import",
+                headers={"X-User-Id": self.user_id},
+                json={
+                    "text": large_text,
+                    "subject": "law",
+                    "density": "medium",
+                    "volume": "auto",
+                    "is_deferred": True
+                }
+            )
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["status"], "queued")
+            self.assertFalse(data.get("is_immediate"))
+            self.assertFalse(data.get("is_offpeak"))
+            self.assertIn("19:30 по МСК", data["message"])
+
+    def test_10_is_deepseek_offpeak_calculation(self):
+        """Проверка границ окна скидок DeepSeek (16:30 - 00:30 UTC / 19:30 - 03:30 MSK)."""
+        from unittest.mock import patch
+        from app.services.generation_worker import is_deepseek_offpeak
+
+        # 17:00 UTC (20:00 MSK) -> скидка активна
+        with patch("app.services.generation_worker.datetime") as mock_dt:
+            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 17, 0, 0)
+            self.assertTrue(is_deepseek_offpeak())
+
+        # 00:15 UTC (03:15 MSK) -> скидка активна
+        with patch("app.services.generation_worker.datetime") as mock_dt:
+            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 0, 15, 0)
+            self.assertTrue(is_deepseek_offpeak())
+
+        # 12:00 UTC (15:00 MSK) -> стандартный дневной тариф
+        with patch("app.services.generation_worker.datetime") as mock_dt:
+            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 12, 0, 0)
+            self.assertFalse(is_deepseek_offpeak())
+

@@ -113,10 +113,12 @@ async def lifespan(app: FastAPI):
 
             await db.commit()
             
-    # Запускаем фоновый планировщик уведомлений Telegram
+    # Запускаем фоновый планировщик уведомлений Telegram и воркер нарезки карточек
     import asyncio
     from app.services.notifications import notification_scheduler_loop
+    from app.services.generation_worker import generation_worker_loop
     asyncio.create_task(notification_scheduler_loop())
+    asyncio.create_task(generation_worker_loop())
     
     yield
 

@@ -2317,11 +2317,11 @@ async function importTextKnowledge(isDeferred = false) {
                 is_deferred: isDeferred
             })
         });
+        let keepActiveBar = false;
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
-            alert(`[НОЧНАЯ ОЧЕРЕДЬ] ${data.message}`);
             if (textarea) textarea.value = "";
-            checkNightQueueStatus();
+            keepActiveBar = window.handleQueuedJob ? window.handleQueuedJob(data, null) : false;
         } else if (response.ok && data.status === 'staging') {
             startStagingSession(data);
         } else if (response.ok && data.status === 'success') {
@@ -2341,8 +2341,10 @@ async function importTextKnowledge(isDeferred = false) {
         alert("Сбой сети при обращении к серверу."); 
     } finally { 
         activeImportAbortController = null;
-        const activeBar = document.getElementById('generation-active-bar');
-        if (activeBar) activeBar.classList.add('hidden');
+        if (!keepActiveBar) {
+            const activeBar = document.getElementById('generation-active-bar');
+            if (activeBar) activeBar.classList.add('hidden');
+        }
         if (btnInstant) { 
             btnInstant.disabled = false; 
             btnInstant.innerHTML = `<span class="material-symbols-outlined text-[15px]">bolt</span><span>СЕЙЧАС</span>`;
@@ -2379,6 +2381,84 @@ window.importPreset = async function(presetName) {
     } finally { 
         if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } 
     }
+};
+
+window.handleQueuedJob = function(data, statusEl) {
+    if (statusEl) statusEl.classList.add('hidden');
+    checkNightQueueStatus();
+
+    const activeBar = document.getElementById('generation-active-bar');
+    const activeStatus = document.getElementById('generation-active-status');
+
+    if (!data.is_immediate) {
+        // Задача отложена на скидочное время (19:30 МСК)
+        alert(`[ОЧЕРЕДЬ СКИДОК 50%]\n\n${data.message}`);
+        if (activeBar) activeBar.classList.add('hidden');
+        return false;
+    }
+
+    // Немедленная фоновая обработка (скидка 50% активна прямо сейчас или дневной экспресс)
+    if (activeBar) activeBar.classList.remove('hidden');
+    if (activeStatus) {
+        activeStatus.textContent = data.is_offpeak 
+            ? `ИИ нарезает карточки со скидкой 50%...` 
+            : `ИИ нарезает карточки в фоновом режиме...`;
+    }
+
+    const jobId = data.job_id;
+    if (!jobId) return true;
+
+    let pollAttempts = 0;
+    const maxPollAttempts = 300; // до 15 минут для объемных книг
+    const pollInterval = setInterval(async () => {
+        pollAttempts++;
+        if (pollAttempts > maxPollAttempts) {
+            clearInterval(pollInterval);
+            if (activeBar) activeBar.classList.add('hidden');
+            return;
+        }
+
+        try {
+            const res = await apiFetch('/api/config/import/queue');
+            if (!res.ok) return;
+            const qData = await res.json();
+            const jobs = qData.jobs || [];
+            const thisJob = jobs.find(j => j.id === jobId);
+
+            if (!thisJob) {
+                clearInterval(pollInterval);
+                if (activeBar) activeBar.classList.add('hidden');
+                return;
+            }
+
+            if (thisJob.status === 'processing') {
+                if (activeStatus) {
+                    activeStatus.textContent = data.is_offpeak 
+                        ? `ИИ нарезает карточки (-50%): обработка блоков...`
+                        : `ИИ нарезает карточки: обработка блоков...`;
+                }
+            } else if (thisJob.status === 'ready_for_review') {
+                clearInterval(pollInterval);
+                if (activeBar) activeBar.classList.add('hidden');
+                checkNightQueueStatus();
+                // Автоматически открываем Песочницу с готовыми карточками!
+                await window.openStagingJob(jobId);
+            } else if (thisJob.status === 'failed') {
+                clearInterval(pollInterval);
+                if (activeBar) activeBar.classList.add('hidden');
+                checkNightQueueStatus();
+                alert(`Ошибка при нарезке материала: ${thisJob.error_message || 'Неизвестная ошибка'}`);
+            } else if (thisJob.status === 'cancelled') {
+                clearInterval(pollInterval);
+                if (activeBar) activeBar.classList.add('hidden');
+                checkNightQueueStatus();
+            }
+        } catch (e) {
+            console.warn("[Job Polling Error]", e);
+        }
+    }, 3000);
+
+    return true;
 };
 
 window.handleFileUpload = async function(event) {
@@ -2441,6 +2521,7 @@ window.handleFileUpload = async function(event) {
         if (activeStatus) activeStatus.textContent = "ИИ обрабатывает файлы...";
     }
 
+    let keepActiveBar = false;
     try {
         const response = await apiFetch('/api/config/import/file', {
             method: 'POST',
@@ -2456,9 +2537,7 @@ window.handleFileUpload = async function(event) {
 
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
-            if (statusEl) statusEl.classList.add('hidden');
-            alert(`[НОЧНАЯ ОЧЕРЕДЬ] ${data.message}`);
-            checkNightQueueStatus();
+            keepActiveBar = window.handleQueuedJob ? window.handleQueuedJob(data, statusEl) : false;
         } else if (response.ok && data.status === 'staging') {
             if (statusEl) statusEl.classList.add('hidden');
             startStagingSession(data);
@@ -2484,8 +2563,10 @@ window.handleFileUpload = async function(event) {
         if (statusEl) statusEl.classList.add('hidden');
     } finally {
         activeImportAbortController = null;
-        const activeBar = document.getElementById('generation-active-bar');
-        if (activeBar) activeBar.classList.add('hidden');
+        if (!keepActiveBar) {
+            const activeBar = document.getElementById('generation-active-bar');
+            if (activeBar) activeBar.classList.add('hidden');
+        }
         event.target.value = '';
     }
 };
