@@ -38,7 +38,15 @@ else
     echo "[!] Файл .env не найден! Создайте его из .env.example"
 fi
 
-# 5. Перезапуск сервисов
+# 5. Автоматическая проверка лимитов Nginx (снятие ограничения 1 МБ)
+if command -v nginx >/dev/null 2>&1 && [ -f "/etc/nginx/nginx.conf" ]; then
+    if ! grep -rq "client_max_body_size" /etc/nginx/ 2>/dev/null; then
+        echo "[...] Автоматическая настройка Nginx (увеличение лимита загрузки до 100 МБ)..."
+        bash fix_nginx.sh 2>/dev/null || true
+    fi
+fi
+
+# 6. Перезапуск сервисов
 echo "[...] Перезапуск сервисов..."
 systemctl restart grinder-web
 systemctl restart grinder-bot 2>/dev/null || true
