@@ -4,6 +4,8 @@ import io
 import csv
 import re
 import json
+import secrets
+from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request, Response
 from pydantic import BaseModel
@@ -18,6 +20,9 @@ from app.core.config import settings
 from datetime import datetime, timedelta
 
 router = APIRouter()
+
+class ShareDeckIn(BaseModel):
+    subject: str
 
 class ConfigUpdate(BaseModel):
     daily_limit: int
@@ -158,6 +163,8 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
             elif isinstance(c_mnem, str) and c_mnem.strip():
                 stability = 1.5
 
+        c_type = (c.get("content_type") if isinstance(c, dict) else getattr(c, "content_type", None)) or ("cloze" if "{{c" in c_text else "text")
+
         card = Card(
             phrase_id=target_phrase.id,
             user_id=user_id,
@@ -170,6 +177,7 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
             stability=stability,
             state=0,
             mnemonic=c_mnem,
+            content_type=c_type,
             next_review=now
         )
         db.add(card)
@@ -259,6 +267,7 @@ async def append_or_sync_cards_to_database(
                 elif isinstance(c_mnem, str) and c_mnem.strip():
                     stability = 1.5
 
+            c_type = (c.get("content_type") if isinstance(c, dict) else getattr(c, "content_type", None)) or ("cloze" if "{{c" in c_text_clean else "text")
             new_card = Card(
                 phrase_id=target_phrase.id,
                 user_id=user_id,
@@ -271,6 +280,7 @@ async def append_or_sync_cards_to_database(
                 stability=stability,
                 state=0,
                 mnemonic=c_mnem,
+                content_type=c_type,
                 next_review=now
             )
             db.add(new_card)
@@ -384,6 +394,72 @@ async def export_cards_json(
             "Cache-Control": "no-cache"
         }
     )
+
+@router.post("/data/cards/share")
+async def share_cards_deck(
+    payload: ShareDeckIn,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Генерирует уникальный ключ/диплинк для вирусного шеринга колоды карточек с друзьями в Telegram.
+    """
+    sub = payload.subject.strip().lower()
+    if not sub or sub == "all":
+        raise HTTPException(status_code=400, detail="Укажите конкретный предмет для шеринга.")
+
+    stmt = select(Card).filter(Card.user_id == current_user, Card.subject == sub).order_by(Card.id.asc())
+    cards = (await db.execute(stmt)).scalars().all()
+    if not cards and current_user != "default_user":
+        stmt_def = select(Card).filter(Card.user_id == "default_user", Card.subject == sub).order_by(Card.id.asc())
+        cards = (await db.execute(stmt_def)).scalars().all()
+
+    if not cards:
+        raise HTTPException(status_code=404, detail="В этой колоде пока нет карточек для шеринга.")
+
+    p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id, Phrase.subject == sub)
+    found_title = (await db.execute(p_stmt)).scalar() or f"Колода: {sub}"
+
+    share_key = secrets.token_hex(4)
+    deck_data = {
+        "phrase_title": found_title,
+        "subject_slug": sub,
+        "created_by": current_user,
+        "created_at": datetime.utcnow().isoformat(),
+        "total_cards": len(cards),
+        "cards": [
+            {
+                "text": c.text,
+                "secondary_text": c.secondary_text or "",
+                "translation": c.translation,
+                "example": c.example or "",
+                "mnemonic": c.mnemonic,
+                "content_type": getattr(c, "content_type", "text")
+            }
+            for c in cards
+        ]
+    }
+
+    shares_dir = Path("app/static/presets/shares")
+    shares_dir.mkdir(parents=True, exist_ok=True)
+    share_file = shares_dir / f"{share_key}.json"
+    share_file.write_text(json.dumps(deck_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "DataGrinderBot"
+    bot_clean = str(bot_username).lstrip("@")
+    tg_link = f"https://t.me/{bot_clean}?start=deck_{share_key}"
+
+    return {
+        "status": "success",
+        "share_key": share_key,
+        "subject": sub,
+        "theme": found_title,
+        "title": found_title,
+        "cards_count": len(cards),
+        "total_cards": len(cards),
+        "tg_link": tg_link,
+        "share_url": tg_link
+    }
 
 # --- 2. АНАЛИТИКА И ДАШБОРД ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/stats/dashboard")
@@ -546,6 +622,36 @@ async def get_analytics(
     allowed_new_count = max(0, daily_new_limit - already_learned_today)
     new_remaining_today = min(allowed_new_count, unlearned_in_deck)
 
+    # 1. Распределение зрелости колоды по FSRS стабильности:
+    # Хрупкие (S < 7), Развивающиеся (7 <= S < 30), Зрелые (30 <= S < 180), Долговременные (S >= 180)
+    maturity = {
+        "new": states_dict[0],
+        "fragile": 0,
+        "developing": 0,
+        "mature": 0,
+        "mastered": 0
+    }
+    for c in cards:
+        if c.state != 0:
+            s_val = c.stability or 0.0
+            if s_val < 7.0:
+                maturity["fragile"] += 1
+            elif s_val < 30.0:
+                maturity["developing"] += 1
+            elif s_val < 180.0:
+                maturity["mature"] += 1
+            else:
+                maturity["mastered"] += 1
+
+    # 2. Тепловая карта активности (Heatmap) за последние 60 дней
+    sixty_days_ago = datetime.utcnow() - timedelta(days=60)
+    heatmap_stmt = select(func.date(ReviewLog.review_time), func.count(ReviewLog.id)).filter(
+        ReviewLog.user_id == current_user,
+        ReviewLog.review_time >= sixty_days_ago
+    ).group_by(func.date(ReviewLog.review_time))
+    heatmap_res = await db.execute(heatmap_stmt)
+    heatmap_data = {str(row[0]): row[1] for row in heatmap_res.all() if row[0]}
+
     return {
         "cards_new": states_dict[0], 
         "cards_learning": states_dict[1] + states_dict[3], 
@@ -561,7 +667,9 @@ async def get_analytics(
         "streak_days": streak, 
         "breakdown": breakdown,
         "survey_completed": survey_completed,
-        "due_evening": due_evening
+        "due_evening": due_evening,
+        "maturity": maturity,
+        "heatmap": heatmap_data
     }
 
 # --- 3. НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ ИЗ ТАБЛИЦЫ БД ---
@@ -877,6 +985,44 @@ async def import_file_at_code_level(
                 extracted_text = contents.decode("utf-8-sig", errors="ignore")
             except Exception as e:
                 print(f"[WARN] Ошибка чтения TXT {up_file.filename}: {e}")
+
+        # 4. Формат DOCX (Microsoft Word / Google Docs)
+        elif filename.endswith(".docx"):
+            try:
+                import docx
+                doc = docx.Document(io.BytesIO(contents))
+                doc_paragraphs = []
+                for p in doc.paragraphs:
+                    p_text = p.text.strip()
+                    if p_text:
+                        doc_paragraphs.append(p_text)
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                        if row_cells:
+                            doc_paragraphs.append(" | ".join(row_cells))
+                extracted_text = "\n\n".join(doc_paragraphs)
+                print(f"[DOCX Import] {up_file.filename}: извлечено {len(doc_paragraphs)} параграфов ({len(extracted_text)} знаков).")
+            except Exception as e:
+                print(f"[WARN] Ошибка чтения DOCX {up_file.filename}: {e}")
+
+        # 5. Формат PPTX (Microsoft PowerPoint / Слайды лекций)
+        elif filename.endswith(".pptx"):
+            try:
+                from pptx import Presentation
+                prs = Presentation(io.BytesIO(contents))
+                slides_text = []
+                for s_idx, slide in enumerate(prs.slides, 1):
+                    slide_lines = []
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text.strip():
+                            slide_lines.append(shape.text.strip())
+                    if slide_lines:
+                        slides_text.append(f"--- {up_file.filename}: Слайд {s_idx} ---\n" + "\n".join(slide_lines))
+                extracted_text = "\n\n".join(slides_text)
+                print(f"[PPTX Import] {up_file.filename}: извлечено {len(slides_text)} слайдов ({len(extracted_text)} знаков).")
+            except Exception as e:
+                print(f"[WARN] Ошибка чтения PPTX {up_file.filename}: {e}")
 
         if extracted_text.strip():
             all_extracted_texts.append(f"=== ДОКУМЕНТ: {up_file.filename} ===\n" + extracted_text.strip())

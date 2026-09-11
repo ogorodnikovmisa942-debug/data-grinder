@@ -12,6 +12,7 @@ load_dotenv(dotenv_path=env_path)
 import json
 import csv
 import io
+import html
 import secrets
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -130,8 +131,38 @@ async def cmd_start(message: types.Message):
                                         db=db
                                     )
                                     print(f"[Bot] Автоматически залито {len(p_cards)} карточек для нового участника {user_id_str}")
-                        except Exception as seed_err:
-                            print(f"[Bot WARN] Ошибка авто-загрузки карточек для {user_id_str}: {seed_err}")
+            # Проверка и подключение колоды по шеринг-ссылке (?start=deck_...)
+            shared_deck_info = None
+            if payload.startswith("deck_"):
+                deck_token = payload.replace("deck_", "").strip()
+                share_file = Path("app/static/presets/shares") / f"{deck_token}.json"
+                preset_file = Path("app/static/presets") / f"{deck_token}.json"
+
+                target_file = share_file if share_file.exists() else (preset_file if preset_file.exists() else None)
+                if target_file and target_file.exists():
+                    try:
+                        deck_json = json.loads(target_file.read_text(encoding="utf-8"))
+                        d_cards = deck_json.get("cards", [])
+                        d_sub = deck_json.get("subject_slug", "shared_deck")
+                        d_title = deck_json.get("phrase_title", "Общая колода")
+                        if d_cards:
+                            created_c, updated_c, _, _ = await append_or_sync_cards_to_database(
+                                cards_data=d_cards,
+                                subject_slug=d_sub,
+                                phrase_title=d_title,
+                                user_id=user_id_str,
+                                db=db
+                            )
+                            shared_deck_info = {
+                                "title": d_title,
+                                "subject": d_sub,
+                                "created": created_c,
+                                "updated": updated_c,
+                                "total": len(d_cards)
+                            }
+                            print(f"[Bot] Колода {deck_token} успешно синхронизирована для {user_id_str} (+{created_c} новых, {updated_c} обновлено)")
+                    except Exception as d_err:
+                        print(f"[Bot WARN] Ошибка загрузки общей колоды {deck_token}: {d_err}")
 
             await db.commit()
     except Exception as db_err:
@@ -141,7 +172,16 @@ async def cmd_start(message: types.Message):
         [InlineKeyboardButton(text="[ЗАПУСТИТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     
-    if invite_enrolled:
+    if shared_deck_info:
+        welcome_text = (
+            f"🎉 <b>Колода «{html.escape(shared_deck_info['title'])}» успешно подключена!</b>\n\n"
+            f"• <b>Предмет:</b> <code>{shared_deck_info['subject']}</code>\n"
+            f"• <b>Добавлено новых карточек:</b> <b>{shared_deck_info['created']} шт.</b>\n"
+            f"• <b>Всего в колоде:</b> {shared_deck_info['total']} шт.\n\n"
+            "Все карточки бережно добавлены в вашу очередь FSRS без сброса накопленного прогресса.\n\n"
+            "Нажмите кнопку ниже для старта:"
+        )
+    elif invite_enrolled:
         welcome_text = (
             "🎉 <b>Добро пожаловать в научный эксперимент Data Grinder!</b>\n\n"
             f"Инвайт-код <code>{invite_code_clean}</code> успешно подтвержден.\n"
@@ -976,13 +1016,18 @@ async def night_grind_worker():
             if len(clean_text_no_headers) < 15:
                 raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-            # Умное разбиение на крупные смысловые блоки (~45-50 страниц / до 80 000 знаков)
-            chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=80000)
-            print(f"[Night Grind] Задача #{job_data['id']}: материал разбит на {len(chunks)} частей по ~45-50 страниц для максимальной экономии и выделения сути.", flush=True)
+            # Умное разбиение на сбалансированные смысловые блоки (~6-8 страниц / 10 000 - 14 000 знаков)
+            chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=14000, overlap_chars=1000)
+            print(f"[Night Grind] Задача #{job_data['id']}: материал разбит на {len(chunks)} частей по ~6-8 страниц для 100% охвата без пропусков.", flush=True)
 
             all_collected_cards = []
             seen_card_texts = set()
             extracted_theme = job_data["theme"]
+
+            def normalize_front(txt: str) -> str:
+                # убираем cloze-разметку и знаки препинания для умной дедупликации
+                t = re.sub(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', r'\1', txt)
+                return re.sub(r'[^a-zA-Zа-яА-Я0-9]', '', t.lower())
 
             for chunk_idx, chunk_text in enumerate(chunks, 1):
                 print(f"[Night Grind] Задача #{job_data['id']}: нарезка части {chunk_idx}/{len(chunks)} ({len(chunk_text)} знаков)...", flush=True)
@@ -1007,9 +1052,10 @@ async def night_grind_worker():
                         chunk_cards = parsed.get("cards", [])
                         if isinstance(chunk_cards, list):
                             for c in chunk_cards:
-                                c_text = (c.get("text") or "").strip().lower()
-                                if c_text and c_text not in seen_card_texts:
-                                    seen_card_texts.add(c_text)
+                                raw_c_text = (c.get("text") or "").strip()
+                                norm_key = normalize_front(raw_c_text)
+                                if norm_key and norm_key not in seen_card_texts:
+                                    seen_card_texts.add(norm_key)
                                     all_collected_cards.append(c)
                 except Exception as chunk_err:
                     print(f"[Night Grind WARN] Ошибка в части {chunk_idx}/{len(chunks)}: {chunk_err}", flush=True)

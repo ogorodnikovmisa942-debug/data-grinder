@@ -60,6 +60,16 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
     - Law: 'Является ли осуществление правосудия исключительно судом конституционным принципом?' -> 'Да.'
     - Medicine: 'Является ли симптом Кернига признаком менингеального синдрома?' -> 'Да.'
     - CS: 'Отвечает ли транспортный уровень модели OSI за маршрутизацию пакетов?' -> 'Нет (за маршрутизацию отвечает сетевой уровень).'
+- Cloze Deletion Strategy (Context-Anchored Learning for Laws, Codes, Dates & Formulas):
+  * For statutory provisions, institutional rules, core definitions, and specific thresholds, you are strongly encouraged to formulate cards using Cloze Deletion in 't':
+    Syntax: 'Sentence with {{c1::hidden answer::optional hint}} embedded in natural context.'
+    Examples:
+    - Law: 'Судебная власть в Республике Беларусь принадлежит исключительно {{c1::судам::орган}}.'
+    - Law: 'Срок подачи апелляционной жалобы по ГПК составляет {{c1::15 дней::срок}} со дня вынесения решения.'
+    - Medicine: 'Препаратом первого выбора при анафилактическом шоке является {{c1::эпинефрин (адреналин)::препарат}}.'
+    - History: 'Крепостное право в Российской империи было отменено в {{c1::1861::год}} году.'
+  * In cloze cards, 'd' (Back) must state the hidden answer cleanly with a period (e.g. 'Судам.' or '15 дней.').
+  * Minimum Information Principle in Cloze: Never mask multiple unrelated clauses in one cloze. Hide strictly the target term, threshold, or concept.
 - Zero-Duplication & Deck Cannibalization Guard:
   * Before generating each card, verify that this exact numerical threshold, age limit, quota, formula, date, or definition has not already been tested in another card of this deck. Every card in the batch must test a unique, non-overlapping proposition.
 - Universal Cognitive Anchors & Mnemonic Hints in 's' (Secondary Text):
@@ -353,11 +363,12 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         )
         ex = item.get("e") or item.get("example") or item.get("sample") or item.get("case") or item.get("code") or ""
         diff = item.get("l") or item.get("initial_difficulty_tier") or item.get("difficulty") or item.get("tier") or "medium"
+        theme = item.get("h") or item.get("theme") or item.get("topic") or ""
 
         if not str(front).strip() and not str(back).strip():
             continue
 
-        theme = item.get("h") or item.get("theme") or item.get("topic") or item.get("cluster") or title
+        is_cloze = "{{c" in str(front)
         cards.append({
             "text": str(front).strip(),
             "secondary_text": str(sec).strip(),
@@ -365,7 +376,8 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
             "example": str(ex).strip(),
             "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
             "mnemonic": None,  # Ленивая генерация мнемоник
-            "theme": str(theme).strip() or title
+            "theme": str(theme).strip() or title,
+            "content_type": "cloze" if is_cloze else "text"
         })
 
     return {
@@ -909,11 +921,12 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
     except Exception as e:
         return {"error": str(e)}
 
-# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]:
+# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (ЗОЛОТОЙ СТАНДАРТ 14K ЗНАКОВ С OVERLAP) ---
+def split_text_into_chunks(text: str, max_chunk_chars: int = 14000, overlap_chars: int = 1000) -> list[str]:
     """
-    Интеллектуальное разбиение длинного документа на смысловые чанки (~45-50 страниц / до 80 000 знаков).
-    Сохраняет границы страниц (--- Стр. X ---), документов (=== ДОКУМЕНТ: ...) и абзацев (\n\n).
+    Интеллектуальное разбиение длинного документа на сбалансированные смысловые чанки (~6-8 страниц / 10 000 - 14 000 знаков).
+    Исключает эффект 'Lost in the middle', гарантирует 100% покрытие фактов и предотвращает обрезку лимита токенов LLM.
+    Сохраняет границы страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).
     """
     text = text.strip()
     if not text:
@@ -921,12 +934,16 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]
     if len(text) <= max_chunk_chars:
         return [text]
 
-    # Паттерн ищет границы страниц или документов
-    split_pattern = r'(?=(?:\n--- [^\n]+: Стр\. \d+ ---|\n=== [^\n]+ ===))'
+    # Паттерн ищет границы страниц, слайдов или документов
+    split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===))'
     sections = re.split(split_pattern, text)
     sections = [s.strip() for s in sections if s.strip()]
 
-    # Если маркеров страниц/документов не было или всего одна секция, делим по параграфам
+    # Если маркеров страниц/документов не было или всего одна секция, делим по параграфам (\n\n) или заголовкам Markdown
+    if len(sections) <= 1:
+        sections = re.split(r'(?=(?:\n\n(?=[#A-ZА-Я0-9])|\n#{1,4} ))', text)
+        sections = [s.strip() for s in sections if s.strip()]
+
     if len(sections) <= 1:
         sections = text.split("\n\n")
         sections = [s.strip() for s in sections if s.strip()]
@@ -936,19 +953,13 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]
         sections = text.split("\n")
         sections = [s.strip() for s in sections if s.strip()]
 
-    chunks = []
-    current_chunk = []
-    current_len = 0
-
+    # Нормализуем секции: если отдельная секция превышает max_chunk_chars, режем её по предложениям
+    normalized_sections = []
     for sec in sections:
         sec_len = len(sec)
-        # Если отдельная секция сама по себе превышает max_chunk_chars, режем её принудительно
-        if sec_len > max_chunk_chars:
-            if current_chunk:
-                chunks.append("\n\n".join(current_chunk))
-                current_chunk = []
-                current_len = 0
-            
+        if sec_len <= max_chunk_chars:
+            normalized_sections.append(sec)
+        else:
             start = 0
             while start < sec_len:
                 end = min(start + max_chunk_chars, sec_len)
@@ -956,14 +967,24 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]
                     last_period = sec.rfind(". ", start, end)
                     if last_period != -1 and last_period > start + (max_chunk_chars // 2):
                         end = last_period + 1
+                    else:
+                        last_newline = sec.rfind("\n", start, end)
+                        if last_newline != -1 and last_newline > start + (max_chunk_chars // 2):
+                            end = last_newline
                 piece = sec[start:end].strip()
                 if piece:
-                    chunks.append(piece)
+                    normalized_sections.append(piece)
                 start = end
-            continue
 
+    # Собираем блоки до max_chunk_chars
+    raw_chunks = []
+    current_chunk = []
+    current_len = 0
+
+    for sec in normalized_sections:
+        sec_len = len(sec)
         if current_len + sec_len + 2 > max_chunk_chars and current_chunk:
-            chunks.append("\n\n".join(current_chunk))
+            raw_chunks.append("\n\n".join(current_chunk))
             current_chunk = [sec]
             current_len = sec_len
         else:
@@ -971,7 +992,29 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 80000) -> list[str]
             current_len += sec_len + 2
 
     if current_chunk:
-        chunks.append("\n\n".join(current_chunk))
+        raw_chunks.append("\n\n".join(current_chunk))
 
-    return chunks
+    if len(raw_chunks) <= 1:
+        return raw_chunks
+
+    # Добавляем скользящий overlap к последующим чанкам для неразрывности контекста
+    final_chunks = []
+    for idx, ch in enumerate(raw_chunks):
+        if idx == 0:
+            final_chunks.append(ch)
+        else:
+            prev_chunk = raw_chunks[idx - 1]
+            overlap_tail = prev_chunk[-overlap_chars:].strip() if len(prev_chunk) > overlap_chars else prev_chunk.strip()
+            first_period = overlap_tail.find(". ")
+            if first_period != -1 and first_period < len(overlap_tail) // 2:
+                overlap_tail = overlap_tail[first_period + 2:].strip()
+            
+            if overlap_tail:
+                stitched = f"[ПРЕДЫДУЩИЙ КОНТЕКСТ ДЛЯ НЕРАЗРЫВНОСТИ]:\n...{overlap_tail}\n\n[ОСНОВНОЙ ТЕКСТ РАЗДЕЛА]:\n{ch}"
+                final_chunks.append(stitched)
+            else:
+                final_chunks.append(ch)
+
+    return final_chunks
+
 

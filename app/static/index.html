@@ -368,7 +368,8 @@
         </div>
 
         <!-- Экран STATS -->
-        <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-hidden pt-md">
+        <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-y-auto pt-md pb-6">
+            <!-- 1. Сводные метрики -->
             <div class="flex flex-col gap-sm font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
                     <span class="text-on-surface-variant">Новые карточки:</span>
@@ -396,11 +397,71 @@
                 </div>
             </div>
 
-            <div id="stats-breakdown-box" class="flex-1 flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest overflow-hidden rounded-2xl shadow-xs">
+            <!-- 2. Зрелость памяти (FSRS Stability Distribution) -->
+            <div id="stats-maturity-box" class="flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
+                <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs flex items-center justify-between">
+                    <span>ЗРЕЛОСТЬ ПАМЯТИ (FSRS)</span>
+                    <span class="text-[9px] text-neutral-400 font-normal">СТАБИЛЬНОСТЬ S</span>
+                </div>
+                <!-- Многосегментный прогресс-бар -->
+                <div class="w-full h-3 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden flex my-1.5" id="maturity-bar">
+                    <div id="mat-seg-fragile" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%" title="Хрупкие (S < 7д)"></div>
+                    <div id="mat-seg-dev" class="h-full bg-amber-500 transition-all duration-300" style="width: 0%" title="Развивающиеся (7-30д)"></div>
+                    <div id="mat-seg-mature" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%" title="Зрелые (30-180д)"></div>
+                    <div id="mat-seg-mastered" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%" title="Долговременные (>180д)"></div>
+                </div>
+                <!-- Легенда -->
+                <div class="grid grid-cols-2 gap-1.5 pt-1 text-[10px]">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
+                        <span class="text-neutral-500 dark:text-neutral-400">Хрупкие (&lt;7д):</span>
+                        <strong id="mat-cnt-fragile" class="text-neutral-800 dark:text-neutral-200 ml-auto">0</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                        <span class="text-neutral-500 dark:text-neutral-400">В развитии (7-30д):</span>
+                        <strong id="mat-cnt-dev" class="text-neutral-800 dark:text-neutral-200 ml-auto">0</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                        <span class="text-neutral-500 dark:text-neutral-400">Зрелые (30-180д):</span>
+                        <strong id="mat-cnt-mature" class="text-neutral-800 dark:text-neutral-200 ml-auto">0</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                        <span class="text-neutral-500 dark:text-neutral-400">Долговременные (&gt;180д):</span>
+                        <strong id="mat-cnt-mastered" class="text-neutral-800 dark:text-neutral-200 ml-auto">0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Тепловая карта активности (GitHub Style 60-day Heatmap) -->
+            <div id="stats-heatmap-box" class="flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
+                <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs flex items-center justify-between">
+                    <span>АКТИВНОСТЬ ПОВТОРЕНИЙ (60 ДНЕЙ)</span>
+                    <span id="heatmap-total-label" class="text-[9px] text-primary font-bold">0 повторений</span>
+                </div>
+                <!-- Сетка тепловой карты -->
+                <div id="heatmap-grid" class="flex flex-wrap gap-1 items-center justify-start py-1.5"></div>
+                <!-- Легенда шкалы -->
+                <div class="flex items-center justify-between text-[9px] text-neutral-400 pt-1 border-t border-neutral-100 dark:border-neutral-800/60">
+                    <span>Меньше</span>
+                    <div class="flex items-center gap-1">
+                        <span class="w-2.5 h-2.5 rounded-xs bg-neutral-200 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700"></span>
+                        <span class="w-2.5 h-2.5 rounded-xs bg-emerald-300 dark:bg-emerald-900/80"></span>
+                        <span class="w-2.5 h-2.5 rounded-xs bg-emerald-500 dark:bg-emerald-600"></span>
+                        <span class="w-2.5 h-2.5 rounded-xs bg-emerald-700 dark:bg-emerald-400"></span>
+                    </div>
+                    <span>Больше</span>
+                </div>
+            </div>
+
+            <!-- 4. Прогресс по разделам -->
+            <div id="stats-breakdown-box" class="flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div id="breakdown-title" class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs">
                     --- ПРОГРЕСС ПО РАЗДЕЛАМ ---
                 </div>
-                <div id="breakdown-list" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 pr-1 text-xs"></div>
+                <div id="breakdown-list" class="divide-y divide-outline-variant/30 pr-1 text-xs max-h-60 overflow-y-auto"></div>
             </div>
         </div>
 
@@ -412,6 +473,10 @@
                 <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></div>
                     <div class="flex items-center gap-1">
+                        <button id="btn-share-subject" onclick="shareCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all flex items-center gap-1" title="Поделиться колодой в Telegram">
+                            <span class="material-symbols-outlined text-[11px]">share</span>
+                            <span>[ПОДЕЛИТЬСЯ]</span>
+                        </button>
                         <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all">
                             [ПЕРЕИМЕНОВАТЬ]
                         </button>
@@ -515,10 +580,10 @@
                     
                     <!-- Быстрый импорт файлов прямо под полем ввода -->
                     <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
                             <span class="material-symbols-outlined text-[14px]">attach_file</span>
-                            <span>Документ (PDF/TXT)</span>
+                            <span>Документ (PDF/Word/PPTX)</span>
                         </button>
 
                         <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">

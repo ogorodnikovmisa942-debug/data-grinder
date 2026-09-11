@@ -71,6 +71,58 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
+// Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK
+function triggerHaptic(type = 'light') {
+    try {
+        const haptic = window.Telegram?.WebApp?.HapticFeedback;
+        if (!haptic) return;
+        if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(type)) {
+            haptic.impactOccurred(type);
+        } else if (['error', 'success', 'warning'].includes(type)) {
+            haptic.notificationOccurred(type);
+        }
+    } catch (e) {
+        // Игнорируем вне среды Telegram
+    }
+}
+
+// Форматирование карточки с пропусками (Cloze Deletion)
+// Синтаксис: {{c1::ответ::подсказка}} или {{c1::ответ}}
+function formatClozeHTML(rawText, isRevealed = false) {
+    if (!rawText) return '';
+    const regex = /\{\{c\d+::(.*?)(?:::([^}]*))?\}\}/g;
+    if (!regex.test(rawText)) {
+        return escapeHTML(rawText);
+    }
+    let result = '';
+    let lastIndex = 0;
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(rawText)) !== null) {
+        result += escapeHTML(rawText.slice(lastIndex, match.index));
+        const answer = match[1] || '';
+        const hint = match[2];
+        if (isRevealed) {
+            result += `<span class="cloze-revealed font-bold">${escapeHTML(answer)}</span>`;
+        } else {
+            const label = hint ? `[${hint.trim()}]` : '[...]';
+            result += `<span class="cloze-blank">${escapeHTML(label)}</span>`;
+        }
+        lastIndex = regex.lastIndex;
+    }
+    result += escapeHTML(rawText.slice(lastIndex));
+    return result;
+}
+
+// Плоский текст без тегов для превью в списках/таблицах
+function formatClozePlain(rawText, showAnswer = false) {
+    if (!rawText) return '';
+    return rawText.replace(/\{\{c\d+::(.*?)(?:::([^}]*))?\}\}/g, (match, answer, hint) => {
+        if (showAnswer) return answer;
+        return hint ? `[${hint.trim()}]` : '[...]';
+    });
+}
+
 // ============================================================================
 // НАСТРОЙКА АДАПТИВНЫХ ПОДСКАЗОК FSRS
 // ============================================================================
@@ -350,6 +402,7 @@ function bindDOMPointers() {
             
             if (cardsQueue.length === 0 || isFlipped) return;
             isFlipped = true; 
+            triggerHaptic('light');
             if (flashcard) flashcard.classList.add('rotate-y-180');
             if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
             executeVoiceSynthesis(cardsQueue[currentIndex].text);
@@ -363,6 +416,7 @@ function bindDOMPointers() {
             if (trainDrag && trainDrag.hasMoved) return;
             if (cardsQueue.length === 0 || !isFlipped) return;
             isFlipped = false; 
+            triggerHaptic('light');
             if (flashcard) flashcard.classList.remove('rotate-y-180');
             if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
         };
@@ -423,6 +477,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (e.code === 'Space') {
             e.preventDefault();
+            triggerHaptic('light');
             if (!isFlipped) {
                 isFlipped = true;
                 if (flashcard) flashcard.classList.add('rotate-y-180');
@@ -795,9 +850,16 @@ function renderIntroductionCard(card) {
     if (front) front.classList.add('introduction-mode');
     
     // 1. Заполняем намертво закрепленный заголовок термина (НИКОГДА НЕ СКРОЛЛИТСЯ)
+    const isIntroCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
     const termEl = document.getElementById('card-intro-term');
     const secEl = document.getElementById('card-intro-secondary');
-    if (termEl) termEl.textContent = card.text;
+    if (termEl) {
+        if (isIntroCloze) {
+            termEl.innerHTML = formatClozeHTML(card.text, (card.intro_phase || 0) === 1 ? false : true);
+        } else {
+            termEl.textContent = card.text;
+        }
+    }
     if (secEl) {
         if (card.secondary_text && card.secondary_text !== '---') {
             secEl.textContent = card.secondary_text;
@@ -960,6 +1022,7 @@ window.toggleIntroRecall = function() {
 function advanceIntroduction() {
     const card = cardsQueue[currentIndex];
     if (card) {
+        triggerHaptic('light');
         card.intro_phase = 1;
         card._recall_checked = false;
         renderIntroductionCard(card);
@@ -968,6 +1031,7 @@ function advanceIntroduction() {
 
 function completeIntroduction() {
     const card = cardsQueue[currentIndex];
+    triggerHaptic('success');
     card.has_seen_intro = true;
     card.state = 1; // Learning
     
@@ -1031,11 +1095,18 @@ function renderReviewCard(card) {
     }
     if (front) front.classList.remove('introduction-mode');
     
+    const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
+
     // Динамический бейдж режима на лицевой стороне
     const modeBadge = document.getElementById('card-front-mode-badge');
     const modeText = document.getElementById('card-front-mode-text');
     if (modeText) {
-        if (currentSessionMode === 'cram') {
+        if (isCloze) {
+            modeText.textContent = 'ПРОПУСК (CLOZE)';
+            if (modeBadge) {
+                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400';
+            }
+        } else if (currentSessionMode === 'cram') {
             modeText.textContent = 'РЕЖИМ ШТУРМА';
             if (modeBadge) {
                 modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
@@ -1053,7 +1124,16 @@ function renderReviewCard(card) {
         }
     }
     
-    if (cardText) cardText.textContent = card.text;
+    if (cardText) {
+        if (isCloze) {
+            cardText.innerHTML = formatClozeHTML(card.text, false);
+            cardText.classList.remove('text-2xl', 'text-3xl');
+            cardText.classList.add('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
+        } else {
+            cardText.textContent = card.text;
+            cardText.classList.remove('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
+        }
+    }
     
     const hintEl = document.getElementById('card-front-hint');
     if (hintEl) {
@@ -1084,7 +1164,16 @@ function renderReviewCard(card) {
     setTimeout(() => {
         // Заполняем оборотную сторону
         const backTerm = document.getElementById('card-back-term-text');
-        if (backTerm) backTerm.textContent = card.text;
+        if (backTerm) {
+            if (isCloze) {
+                backTerm.innerHTML = formatClozeHTML(card.text, true);
+                backTerm.classList.remove('text-2xl', 'text-3xl');
+                backTerm.classList.add('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
+            } else {
+                backTerm.textContent = card.text;
+                backTerm.classList.remove('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
+            }
+        }
 
         const secContainer = document.getElementById('card-secondary-container');
         if (secContainer && cardSecondaryText) {
@@ -1187,6 +1276,16 @@ window.submitCardRating = function(rating) {
     if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
     const currentCard = cardsQueue[currentIndex];
     if (!currentCard) return;
+
+    if (rating === 1) {
+        triggerHaptic('warning');
+    } else if (rating === 2) {
+        triggerHaptic('medium');
+    } else if (rating === 3) {
+        triggerHaptic('light');
+    } else if (rating === 4) {
+        triggerHaptic('success');
+    }
 
     const payloadCardId = currentCard.id;
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
@@ -1446,7 +1545,7 @@ function renderFilteredArchiveDOM() {
                 <div class="flex items-center gap-xs w-full min-w-0">
                     <input type="checkbox" class="card-checkbox hidden rounded-md border-neutral-300 dark:border-neutral-700 text-primary focus:ring-0 mr-xs" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
                     <div class="flex justify-between items-center w-full min-w-0">
-                        <span class="font-bold text-base text-primary w-1/5 truncate select-none">${escapeHTML(c.text)}</span>
+                        <span class="font-bold text-base text-primary w-1/5 truncate select-none" title="${escapeHTML(formatClozePlain(c.text))}">${escapeHTML(formatClozePlain(c.text))}</span>
                         <span class="text-outline w-1/4 truncate text-xs select-none">${escapeHTML(c.secondary_text) || '---'}</span>
                         <span class="text-on-surface-variant w-1/3 truncate text-xs select-none">${escapeHTML(c.translation)}</span>
                         <span class="text-[10px] text-outline opacity-60 w-12 text-right font-bold select-none">${labels[c.state] || 'NEW'}</span>
@@ -1523,6 +1622,83 @@ async function requestDeleteCard(cardId) {
     } catch (e) { console.error("Сбой удаления карточки:", e); }
 }
 
+function renderMaturity(matData) {
+    if (!matData) return;
+    const f = matData.fragile || 0;
+    const d = matData.developing || 0;
+    const m = matData.mature || 0;
+    const mast = matData.mastered || 0;
+    const total = f + d + m + mast;
+    
+    const setSeg = (id, count) => {
+        const el = document.getElementById(id);
+        if (el) {
+            const pct = total > 0 ? (count / total) * 100 : 0;
+            el.style.width = `${pct}%`;
+        }
+    };
+    setSeg('mat-seg-fragile', f);
+    setSeg('mat-seg-dev', d);
+    setSeg('mat-seg-mature', m);
+    setSeg('mat-seg-mastered', mast);
+    
+    const setCnt = (id, count) => {
+        const el = document.getElementById(id);
+        if (el) {
+            const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+            el.textContent = `${count} (${pct}%)`;
+        }
+    };
+    setCnt('mat-cnt-fragile', f);
+    setCnt('mat-cnt-dev', d);
+    setCnt('mat-cnt-mature', m);
+    setCnt('mat-cnt-mastered', mast);
+}
+
+function renderHeatmap(heatmapData) {
+    const grid = document.getElementById('heatmap-grid');
+    const totalLabel = document.getElementById('heatmap-total-label');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    const hData = heatmapData || {};
+    const now = new Date();
+    let totalReviews60d = 0;
+    
+    // Генерируем даты за последние 60 дней в хронологическом порядке
+    const days = [];
+    for (let i = 59; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const dateKey = `${yyyy}-${mm}-${dd}`;
+        const count = hData[dateKey] || 0;
+        totalReviews60d += count;
+        days.push({ dateKey, count });
+    }
+    
+    if (totalLabel) {
+        totalLabel.textContent = `${totalReviews60d} повторений`;
+    }
+    
+    days.forEach(day => {
+        const cell = document.createElement('div');
+        let bgClass = 'bg-neutral-200 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700';
+        if (day.count > 0 && day.count <= 4) {
+            bgClass = 'bg-emerald-300 dark:bg-emerald-900/80';
+        } else if (day.count > 4 && day.count <= 14) {
+            bgClass = 'bg-emerald-500 dark:bg-emerald-600';
+        } else if (day.count > 14) {
+            bgClass = 'bg-emerald-700 dark:bg-emerald-400';
+        }
+        cell.className = `w-3 h-3 rounded-xs transition-transform hover:scale-125 cursor-pointer ${bgClass}`;
+        cell.title = `${day.dateKey}: ${day.count} повторений`;
+        grid.appendChild(cell);
+    });
+}
+
 async function loadStatsTab() {
     try {
         const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); 
@@ -1541,6 +1717,9 @@ async function loadStatsTab() {
         if (elRet) elRet.innerText = `${data.retention_rate_30d}%`;
         if (elStr) elStr.innerText = `${data.streak_days} дней`;
         
+        if (data.maturity) renderMaturity(data.maturity);
+        if (data.heatmap) renderHeatmap(data.heatmap);
+
         const titleContainer = document.getElementById('breakdown-title'); 
         const listContainer = document.getElementById('breakdown-list');
         if (titleContainer) {
@@ -1574,6 +1753,11 @@ async function loadConfigTab() {
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
+        const shareSubBtn = document.getElementById('btn-share-subject');
+        if (shareSubBtn) {
+            if (currentSubject === 'all') shareSubBtn.classList.add('hidden');
+            else shareSubBtn.classList.remove('hidden');
+        }
         const deleteSubBtn = document.getElementById('btn-delete-subject');
         if (deleteSubBtn) {
             if (currentSubject === 'all') deleteSubBtn.classList.add('hidden');
@@ -2600,7 +2784,13 @@ function renderCurrentStagingCard() {
         }
     }
     if (tierEl) tierEl.textContent = card.initial_difficulty_tier || 'medium';
-    if (textEl) textEl.textContent = card.text || '---';
+    if (textEl) {
+        if (card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text)) {
+            textEl.innerHTML = formatClozeHTML(card.text, false);
+        } else {
+            textEl.textContent = card.text || '---';
+        }
+    }
     if (secEl) secEl.textContent = card.secondary_text || '';
     if (transEl) transEl.textContent = card.translation || '---';
     if (exEl) {
@@ -3318,6 +3508,10 @@ window.loadSubjectsManagerList = async function() {
                     </div>
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0">
+                    <button onclick="shareSubjectDeck('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-primary text-primary hover:bg-primary hover:text-on-primary rounded-lg transition-all flex items-center gap-1" title="Поделиться колодой в Telegram">
+                        <span class="material-symbols-outlined text-[12px]">share</span>
+                        <span>Поделиться</span>
+                    </button>
                     <button onclick="openSubjectRenameModal('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-all" title="Переименовать предмет">
                         Имя
                     </button>
@@ -3332,6 +3526,58 @@ window.loadSubjectsManagerList = async function() {
         console.error("Сбой загрузки списка предметов:", e);
         container.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Ошибка загрузки списка предметов</div>';
     }
+};
+
+window.shareSubjectDeck = async function(subjectSlug) {
+    if (!subjectSlug || subjectSlug === 'all') {
+        alert("Выберите конкретный предмет для шеринга.");
+        return;
+    }
+    const btn = event?.target?.closest('button');
+    const oldHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[12px] animate-spin">sync</span> Ждем...';
+    }
+    try {
+        const res = await apiFetch('/api/data/cards/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject: subjectSlug })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert("Ошибка создания ссылки для шеринга: " + (err.detail || "Неизвестная ошибка"));
+            return;
+        }
+        const data = await res.json();
+        const shareUrl = data.share_url;
+        const deckTitle = data.title || subjectSlug.toUpperCase();
+        const totalCards = data.total_cards || 0;
+        const shareMsg = `📚 Готовая колода для Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота!`;
+        const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
+        
+        if (window.Telegram?.WebApp?.openTelegramLink) {
+            window.Telegram.WebApp.openTelegramLink(tgShareUrl);
+        } else if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+            alert(`Ссылка на колоду скопирована в буфер обмена!\n\n${shareUrl}`);
+        } else {
+            prompt("Скопируйте ссылку на колоду:", shareUrl);
+        }
+    } catch (e) {
+        console.error("Сбой шеринга колоды:", e);
+        alert("Ошибка сети при подготовке ссылки для шеринга.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = oldHtml;
+        }
+    }
+};
+
+window.shareCurrentSubject = function() {
+    shareSubjectDeck(currentSubject);
 };
 
 window.openSubjectRenameModal = function(subjectSlug) {

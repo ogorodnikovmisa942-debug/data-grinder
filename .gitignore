@@ -16,6 +16,7 @@ __pycache__/
 *.sqlite
 *.sqlite3
 backups/
+app/static/presets/shares/*.json
 
 # Secrets & Environment
 .env

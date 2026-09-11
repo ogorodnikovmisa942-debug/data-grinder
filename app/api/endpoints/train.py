@@ -163,6 +163,27 @@ async def get_session_cards(
         full_pool = cram_res.scalars().all()
     else: # mixed
         full_pool = due_reviews + intra_day_cards + new_cards
+
+    # 4. Sibling Burying для Cloze (защита от немедленного прайминга)
+    # Не показываем сиблингов (пропуски из одной фразы) в одну сессию и откладываем, если один уже изучен сегодня
+    reviewed_today_phrase_stmt = select(Card.phrase_id).join(ReviewLog, ReviewLog.card_id == Card.id).filter(
+        ReviewLog.user_id == current_user,
+        ReviewLog.review_time >= today_start,
+        Card.content_type == "cloze"
+    ).distinct()
+    reviewed_today_phrases = set((await db.execute(reviewed_today_phrase_stmt)).scalars().all())
+
+    filtered_pool = []
+    seen_cloze_phrase_ids = set(reviewed_today_phrases)
+
+    for c in full_pool:
+        if getattr(c, "content_type", "text") == "cloze" and c.phrase_id:
+            if c.phrase_id in seen_cloze_phrase_ids:
+                continue  # Откладываем сиблинга до следующего дня
+            seen_cloze_phrase_ids.add(c.phrase_id)
+        filtered_pool.append(c)
+
+    full_pool = filtered_pool
     
     # Запускаем интерливинг в отдельном потоке, только если режим "ALL", чтобы размыть контекст
     if subject == 'all':
