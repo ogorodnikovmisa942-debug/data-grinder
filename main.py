@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse  # Импортируем для прямой отдачи HTML
-from app.api.endpoints import train, management, admin
+from app.api.endpoints import train, management, admin, graph
 from app.database.session import engine
 from app.database.models import Base
 
@@ -111,6 +111,12 @@ async def lifespan(app: FastAPI):
             if "error_trace" not in columns_jobs:
                 await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN error_trace TEXT"))
 
+            # Миграция для topic_knowledge_graphs
+            res_tkg = await db.execute(text("PRAGMA table_info(topic_knowledge_graphs)"))
+            columns_tkg = [row[1] for row in res_tkg.fetchall()]
+            if columns_tkg and "tree_data" not in columns_tkg:
+                await db.execute(text("ALTER TABLE topic_knowledge_graphs ADD COLUMN tree_data JSON"))
+
             await db.commit()
             
     # Запускаем фоновый планировщик уведомлений Telegram и воркер нарезки карточек
@@ -129,6 +135,7 @@ app = FastAPI(title="Data Grinder Движок", lifespan=lifespan)
 app.include_router(train.router, prefix="/api", tags=["Training"])
 app.include_router(management.router, prefix="/api", tags=["Management"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(graph.router, prefix="/api", tags=["Knowledge Graph"])
 
 # 4. Отдаем главный файл index.html прямо на корневом URL (http://твой_ip:порт/)
 @app.get("/")

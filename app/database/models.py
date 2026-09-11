@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database.session import Base
@@ -221,5 +221,33 @@ class InviteCode(Base):
     used_at = Column(DateTime, nullable=True)
 
 
+class TopicKnowledgeGraph(Base):
+    """
+    Семантический граф знаний и иерархическое дерево ментального каркаса предмета (R1, R2).
+    Обеспечивает мгновенную O(1) загрузку структуры книги/темы без повторного обращения к LLM.
+    """
+    __tablename__ = "topic_knowledge_graphs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "subject", name="uq_topic_knowledge_graphs_user_subject"),
+        Index("ix_topic_knowledge_graphs_user_subject", "user_id", "subject"),
+    )
 
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True, default="default_user")
+    subject = Column(String, nullable=False, index=True)
+    graph_data = Column(JSON, nullable=False)
+    tree_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    updated_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "subject": self.subject,
+            "graph_data": self.graph_data,
+            "tree_data": self.tree_data,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
