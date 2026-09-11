@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse  # Импортируем для прямой отдачи HTML
-from app.api.endpoints import train, management, admin, graph
+from app.api.endpoints import train, management, admin, graph, practice
 from app.database.session import engine
 from app.database.models import Base
 
@@ -136,6 +136,7 @@ app.include_router(train.router, prefix="/api", tags=["Training"])
 app.include_router(management.router, prefix="/api", tags=["Management"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(graph.router, prefix="/api", tags=["Knowledge Graph"])
+app.include_router(practice.router, prefix="/api", tags=["Practice"])
 
 # 4. Отдаем главный файл index.html прямо на корневом URL (http://твой_ip:порт/)
 @app.get("/")

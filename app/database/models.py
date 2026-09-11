@@ -250,4 +250,42 @@ class TopicKnowledgeGraph(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class PracticeItem(Base):
+    """
+    Интерактивные практические задания (ситуационные кейсы, разграничение контрастных пар, заполнение пропусков) (R5).
+    Функционирует автономно без жесткой блокировки графом знаний.
+    """
+    __tablename__ = "practice_items"
+    __table_args__ = (
+        Index("ix_practice_items_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(String, nullable=False, index=True, default="default_user")
+    subject = Column(String, nullable=False, index=True)
+    item_type = Column(String, nullable=False, default="situational")  # situational | contrast_pair | slot_filling
+    prompt = Column(Text, nullable=False)
+    options = Column(JSON, nullable=False)  # list of strings
+    correct_answer = Column(Text, nullable=False)
+    explanation = Column(Text, nullable=True)
+    gold_standard = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    def to_dict(self, include_answer: bool = False) -> dict:
+        data = {
+            "id": self.item_id,
+            "type": self.item_type,
+            "prompt": self.prompt,
+            "options": self.options,
+            "subject": self.subject,
+        }
+        if include_answer:
+            data["correct_answer"] = self.correct_answer
+            data["explanation"] = self.explanation
+            data["gold_standard"] = self.gold_standard
+        return data
+
 
