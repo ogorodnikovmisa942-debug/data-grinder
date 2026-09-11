@@ -37,34 +37,38 @@ Analyze the user's raw input text and completely break it down into a structured
 3. Extract or generate a contextual parent topic name ('phrase_title') that groups these cards.
 4. Deconstruct the text into ultra-atomic, high-impact flashcards for FSRS (Piotr Wozniak Minimum Information Principle):
    - ATOMICITY & TARGET LATENCY: Every card must test exactly ONE indivisible fact. Target retrieval latency is 1.5–3.5 seconds.
-   - STRICT ANTI-LIST DIRECTIVE: NEVER bundle enumerations, requirements, or powers (>2-3 items) into a single card with numbered points (1... 2... 3... 4...). Deconstruct lists into individual cards targeting single attributes (e.g., minimum age, required experience, citizenship constraint, procedural deadline).
-   - DIRECT SEMANTIC CORE: The back side ('translation') must be a single, grammatically complete, definitive sentence or term. STRIP ALL BUREAUCRATIC FILLER ('это совокупность норм...', 'представляет собой деятельность...'). Start immediately with the core answer. Never truncate thoughts or leave sentences unfinished.
+   - NARROW THE PROMPT, NEVER MUTILATE THE ANSWER: Scope the front question ('text') with pinpoint precision so that the full, authoritative answer naturally consists of ONE self-contained grammatical unit (3-7 words or a term).
+   - SYNTACTIC COMPLETENESS GUARANTEE: Every answer ('translation') must be 100% grammatically complete and end with terminal punctuation (period). Never stop mid-thought, produce sentence fragments, or drop essential conditions. If a rule has multiple exceptions or conditions, split into separate standalone cards.
+   - STRICT ANTI-LIST & BINARY QUALIFICATION: NEVER bundle enumerations, requirements, or powers (>2-3 items) into a single card with numbered points (1... 2... 3... 4...). When encountering broad theoretical sets (methods, principles, symptoms, layers), convert into Binary Verification ('Да/Нет') or single-element triggers.
+   - ZERO-DUPLICATION GUARD: Never test the same numeric threshold, age limit, quota, date, or concept twice under different wordings in the same batch. Every card must test a unique fact.
+   - MNEMONIC ANCHORS IN SECONDARY_TEXT: Format 'secondary_text' as: '[Reference / Standard / Context] | [Mnemonic Anchor / Acronym / Equation]' (e.g. 'ст. 109 Конституции | Монополия судейской мантии' or 'Теория права | Триада В-Н-П (Восстанови — Накажи — Предупреди)').
+   - DIRECT SEMANTIC CORE: Strip all bureaucratic filler ('это деятельность государства по...', 'представляет собой совокупность норм...'). Start immediately with the core answer.
 
    * DOMAIN "language":
      - text: Word/phrase in foreign language (e.g., "中国").
-     - secondary_text: Pinyin or pronunciation guide (e.g., "Zhōngguó").
+     - secondary_text: Pinyin/IPA | Character radical or phonetic clue.
        PINYIN RULE: Keep as Latin characters with diacritic tone marks (e.g., "nǐ hǎo"). If the source specifies tones as numbers (e.g., "ni3 hao3"), strictly convert them into proper diacritic marks (e.g., "nǐ hǎo").
      - translation: Precise Russian definition.
        TRANSLATION RULE: Translate to precise, natural Russian. Avoid literal translation from English; adapt to real-world word usage. Translate any Chinese example sentences present in the input to Russian and append them to the translation.
      - example: Example sentence using the word in context (translated to Russian).
 
    * DOMAIN "law":
-     - text: Active examination question or cloze prompt on an indivisible legal attribute (e.g., "Каков минимальный возраст для кандидата в судьи районного суда?", "На ком лежит бремя доказывания виновности?").
-     - secondary_text: Reference to article, code, or clause with jurisdiction (e.g., "ст. 4 Закона РФ 'О статусе судей'" or "ст. 14 УПК РФ").
-     - translation: Direct, authoritative, grammatically complete answer (3-12 words, strictly without introductory filler).
+     - text: Active examination question, cloze trigger, or binary test on an indivisible legal attribute (e.g., "Какова главная целевая задача правоохранительной функции государства?", "Относится ли сравнительно-правовой метод к теоретическим методам?").
+     - secondary_text: Reference and anchor (e.g., "ст. 109 Конституции | Монополия мантии" or "Теория права | Охрана = порядок + щит прав").
+     - translation: Direct, authoritative, grammatically complete answer (strictly 1 punchy sentence or term, without introductory filler).
      - example: Authentic judicial scenario, dispute resolution case, or qualifying factual circumstance.
 
    * DOMAIN "code":
-     - text: Function name, method, design pattern, or algorithm (e.g., "asyncio.shield()").
-     - secondary_text: Function signature, arguments, or execution context (e.g., "asyncio.shield(aw)").
+     - text: Function name, method, design pattern, complexity, or algorithm (e.g., "asyncio.shield()").
+     - secondary_text: Language / Signature | Architectural anchor (e.g., "Python 3.12 | asyncio.tasks.shield").
      - translation: Clear technical invariant, complexity, or behavior in 1 punchy sentence.
      - example: Minimal working code snippet (1-4 lines) demonstrating the concept.
 
-   * DOMAIN "generic" (geometry, history, medicine):
-     - text: Specific formula, theorem, anatomical mechanism, or historical event (e.g., "Площадь круга").
-     - secondary_text: Scientific context, section, or core parameters (e.g., "Геометрия, S = ...").
+   * DOMAIN "generic" (geometry, history, medicine, physics):
+     - text: Specific formula, theorem, anatomical mechanism, symptom trigger, or historical milestone.
+     - secondary_text: Scientific context / unit | Conceptual equation (e.g., "Неврология | Менингеальная триада" or "Термодинамика | E_внутр = const").
      - translation: Core rule breakdown, proof, or complete answer in 1 crisp sentence.
-     - example: Practical application or real-world scenario.
+     - example: Practical application, clinical case, or real-world scenario.
 
 5. For EACH card, generate an unforgettable, high-impact mnemonic in Russian (keyword and verbal cue) using acoustic or visual associations.
    MNEMONIC RULE: 

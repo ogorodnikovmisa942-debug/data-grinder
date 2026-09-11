@@ -713,13 +713,18 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         # 2. Проверка наличия ключевых когнитивных законов и анти-списочных директив
         self.assertIn("Minimum Information Principle", DEEPSEEK_CACHED_SYSTEM_PROMPT)
         self.assertIn("Absolute Prohibition of Lists & Enumerations", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Direct Core & Semantic Completeness", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Narrow the Question, Never Mutilate the Answer", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Syntactic Completeness Guarantee", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Binary Qualification for High-Dimension Categorical Sets", DEEPSEEK_CACHED_SYSTEM_PROMPT)
+        self.assertIn("Zero-Duplication & Deck Cannibalization Guard", DEEPSEEK_CACHED_SYSTEM_PROMPT)
         self.assertIn("1.5–3.5 seconds", DEEPSEEK_CACHED_SYSTEM_PROMPT)
         self.assertIn("CONTRAST CASE 1", DEEPSEEK_CACHED_SYSTEM_PROMPT)
 
         # 3. Проверка Gemini UNIVERSAL_GRINDER_PROMPT
         self.assertIn("Minimum Information Principle", UNIVERSAL_GRINDER_PROMPT)
-        self.assertIn("STRICT ANTI-LIST DIRECTIVE", UNIVERSAL_GRINDER_PROMPT)
+        self.assertIn("STRICT ANTI-LIST", UNIVERSAL_GRINDER_PROMPT)
+        self.assertIn("NEVER MUTILATE THE ANSWER", UNIVERSAL_GRINDER_PROMPT)
+        self.assertIn("SYNTACTIC COMPLETENESS GUARANTEE", UNIVERSAL_GRINDER_PROMPT)
 
         # 4. Проверка распаковки атомарных юридических карточек функцией unpack_minified_cards
         mock_deepseek_output = {
