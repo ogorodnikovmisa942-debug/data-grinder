@@ -791,10 +791,14 @@
 
             <!-- Нижняя панель действий свайпа / кнопок -->
             <div class="flex flex-col gap-xs shrink-0 pt-xs">
-                <div class="grid grid-cols-2 gap-xs h-[52px]">
+                <div class="grid grid-cols-3 gap-xs h-[52px]">
                     <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
                         <span>[✕] ОТКЛОНИТЬ</span>
                         <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
+                    </button>
+                    <button id="staging-undo-btn" onclick="stagingUndo()" class="flex flex-col items-center justify-center border border-outline-variant hover:border-primary text-outline hover:text-primary active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs opacity-40 cursor-not-allowed" title="Отменить последнее действие (Ctrl+Z / Backspace)">
+                        <span class="material-symbols-outlined text-[20px]">undo</span>
+                        <span class="text-[8px] font-mono opacity-70">ОТМЕНА</span>
                     </button>
                     <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
                         <span>[✓] ПРИНЯТЬ</span>
@@ -803,16 +807,40 @@
                 </div>
 
                 <div class="flex justify-between items-center gap-xs mt-xs text-[10px]">
+                    <button onclick="stagingResetSession()" class="border border-outline-variant hover:border-secondary text-outline hover:text-secondary py-2 px-2 uppercase font-bold rounded-xl transition-colors" title="Сбросить прогресс и начать разбор сначала">
+                        [СБРОС]
+                    </button>
+                    <button onclick="openRejectedDrawer()" id="staging-rejected-drawer-btn" class="border border-outline-variant hover:border-outline text-outline hover:text-primary py-2 px-2 uppercase font-bold rounded-xl transition-colors" title="Посмотреть список отклоненных карточек">
+                        [ОТКЛОНЕННЫЕ (<span id="staging-rejected-sub-cnt">0</span>)]
+                    </button>
                     <button onclick="stagingAcceptAll()" class="border border-outline-variant hover:border-outline text-outline hover:text-primary py-2 px-2 uppercase font-bold rounded-xl flex-1 transition-colors">
-                        [ОДОБРИТЬ ВСЕ]
+                        [ВСЕ]
                     </button>
                     <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-2 px-3 uppercase font-bold rounded-xl flex-1 text-center hover:bg-transparent hover:text-primary transition-all shadow-xs">
                         СОХРАНИТЬ (0)
                     </button>
                     <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors">
-                        ОТМЕНА
+                        ✕
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно просмотра отклоненных карточек песочницы -->
+    <div id="staging-rejected-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[115] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-4 flex flex-col gap-sm shadow-2xl max-h-[85vh] font-sans">
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
+                <span class="text-xs font-bold text-secondary uppercase font-mono tracking-wider">ОТКЛОНЕННЫЕ КАРТОЧКИ</span>
+                <button onclick="closeRejectedDrawer()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg">✕</button>
+            </div>
+            <div id="staging-rejected-list" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 text-xs font-mono max-h-[60vh] pr-1">
+                <!-- Заполняется динамически -->
+            </div>
+            <div class="flex justify-end pt-xs border-t border-outline-variant/30">
+                <button onclick="closeRejectedDrawer()" class="border border-outline-variant text-outline hover:text-primary py-1.5 px-4 rounded-xl text-xs font-mono font-bold uppercase">
+                    ЗАКРЫТЬ
+                </button>
             </div>
         </div>
     </div>

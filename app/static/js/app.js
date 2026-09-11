@@ -2014,11 +2014,11 @@ let currentVolumeLimit = 'auto';
 let currentDetailDensity = 'medium';
 
 const VOLUME_SLIDER_STEPS = [
-    { value: 'auto', label: '[АВТО] Баланс ИИ', desc: 'оптимальный баланс ИИ' },
-    { value: 'low_5', label: '5 карт (минимум)', desc: 'до 5 карт' },
-    { value: 'med_10', label: '10 карт (сжато)', desc: 'до 10 карт' },
-    { value: 'med_15', label: '15 карт (стандарт)', desc: 'до 15 карт' },
-    { value: 'high_20', label: '20 карт (подробно)', desc: 'до 20 карт' },
+    { value: 'auto', label: '[АВТО] High-Yield (Парето)', desc: '1–2 золотые карты / стр (защита от перегрузки)' },
+    { value: 'low_5', label: '5 карт / блок (минимум)', desc: 'до 5 карт на блок' },
+    { value: 'med_10', label: '10 карт / блок (сжато)', desc: 'до 10 карт на блок' },
+    { value: 'med_15', label: '15 карт / блок (стандарт)', desc: 'до 15 карт на блок' },
+    { value: 'high_20', label: '20 карт / блок (подробно)', desc: 'до 20 карт на блок' },
     { value: 'max', label: 'МАКСИМУМ (все данные)', desc: 'все ключевые термины' }
 ];
 
@@ -2098,7 +2098,7 @@ function updateImportExplanation() {
     } else if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') {
         explEl.textContent = 'Экспресс-блиц: 5–10 самых фундаментальных основ в предельно сжатых карточках.';
     } else {
-        explEl.textContent = 'Стандартный баланс FSRS: 1 карточка = 1 ключевой факт (время отклика 1.5–3.5 сек).';
+        explEl.textContent = 'Баланс High-Yield FSRS: ~1–2 золотые карточки на страницу, защита от перегрузки колоды (отклик 1.5–3.5 сек).';
     }
 }
 
@@ -2748,14 +2748,52 @@ let stagingCards = [];
 let currentStagingIndex = 0;
 let approvedStagingCards = [];
 let rejectedStagingCards = [];
+let stagingHistory = []; // Стек действий для бесконечного Undo
 let stagingSubject = 'generic';
 let stagingTheme = 'Новый блок знаний';
+
+const STAGING_CARD_TEMPLATE = `
+    <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase tracking-widest rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-primary/10">
+        [✓ ОДОБРЕНО]
+    </div>
+    <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-widest -rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-secondary/10">
+        [✕ ОТКЛОНЕНО]
+    </div>
+
+    <div class="w-full flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-xs">
+        <span id="staging-card-number">Карточка 1 из 1</span>
+        <span id="staging-card-tier" class="uppercase font-bold text-primary">medium</span>
+    </div>
+
+    <div class="flex-1 flex flex-col justify-center items-center text-center gap-sm overflow-y-auto my-auto py-sm">
+        <div id="staging-card-text" class="text-2xl sm:text-3xl font-bold text-primary break-words">...</div>
+        <div id="staging-card-secondary" class="text-xs text-outline font-mono">...</div>
+        <div class="w-16 h-px bg-outline-variant/40 my-xs"></div>
+        <div id="staging-card-translation" class="text-sm sm:text-base text-on-surface leading-relaxed break-words">...</div>
+        <div id="staging-card-example" class="text-[11px] text-outline italic mt-xs max-h-16 overflow-hidden">...</div>
+        
+        <div id="staging-card-mnemonic-box" class="w-full mt-xs bg-surface p-2.5 border border-outline-variant/30 rounded-xl text-[10px] text-left hidden shadow-xs">
+            <span class="text-primary font-bold uppercase block mb-0.5">Ассоциация:</span>
+            <span id="staging-card-mnemonic" class="text-on-surface-variant"></span>
+        </div>
+    </div>
+
+    <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
+        <button onclick="openStagingEditor()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-1.5 uppercase font-bold rounded-xl hover:bg-surface-container transition-all">
+            [ПРАВИТЬ]
+        </button>
+        <button onclick="regenerateStagingMnemonic()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-1.5 uppercase font-bold rounded-xl hover:bg-surface-container transition-all">
+            [МНЕМОНИКА]
+        </button>
+    </div>
+`;
 
 function startStagingSession(data) {
     stagingCards = (data.cards || []).map((c, idx) => ({ ...c, _orig_idx: idx }));
     currentStagingIndex = 0;
     approvedStagingCards = [];
     rejectedStagingCards = [];
+    stagingHistory = [];
     stagingSubject = (data.subject || 'generic').toLowerCase();
     stagingTheme = data.theme || 'Новый блок знаний';
 
@@ -2803,15 +2841,30 @@ function renderCurrentStagingCard() {
     const commitBtn = document.getElementById('staging-commit-btn');
     const approvedCnt = document.getElementById('staging-approved-count');
     const rejectedCnt = document.getElementById('staging-rejected-count');
+    const rejectedSubCnt = document.getElementById('staging-rejected-sub-cnt');
     const remainingCnt = document.getElementById('staging-remaining-count');
+    const undoBtn = document.getElementById('staging-undo-btn');
 
     const total = stagingCards.length;
     const remaining = Math.max(0, total - currentStagingIndex);
 
     if (approvedCnt) approvedCnt.textContent = approvedStagingCards.length;
     if (rejectedCnt) rejectedCnt.textContent = rejectedStagingCards.length;
+    if (rejectedSubCnt) rejectedSubCnt.textContent = rejectedStagingCards.length;
     if (remainingCnt) remainingCnt.textContent = remaining;
     if (commitBtn) commitBtn.textContent = `СОХРАНИТЬ (${approvedStagingCards.length})`;
+
+    if (undoBtn) {
+        if (stagingHistory.length > 0 && currentStagingIndex > 0) {
+            undoBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+            undoBtn.classList.add('opacity-100', 'cursor-pointer');
+            undoBtn.title = `Отменить последнее действие (${stagingHistory.length}) [Ctrl+Z / Backspace]`;
+        } else {
+            undoBtn.classList.add('opacity-40', 'cursor-not-allowed');
+            undoBtn.classList.remove('opacity-100', 'cursor-pointer');
+            undoBtn.title = "Нет действий для отмены";
+        }
+    }
 
     if (currentStagingIndex >= total) {
         if (cardEl) {
@@ -2823,13 +2876,29 @@ function renderCurrentStagingCard() {
                         Одобрено карточек: <strong class="text-primary">${approvedStagingCards.length}</strong><br>
                         Отклонено: <strong class="text-secondary">${rejectedStagingCards.length}</strong>
                     </p>
-                    <button onclick="commitApprovedStagingCards()" class="w-full border border-primary bg-primary text-on-primary py-sm font-bold uppercase text-xs hover:bg-transparent hover:text-primary transition-all mt-sm">
-                        [СОХРАНИТЬ В БАЗУ ДАННЫХ]
+                    <button onclick="commitApprovedStagingCards()" class="w-full border border-primary bg-primary text-on-primary py-sm font-bold uppercase text-xs hover:bg-transparent hover:text-primary transition-all mt-sm rounded-xl shadow-xs">
+                        [СОХРАНИТЬ В БАЗУ ДАННЫХ (${approvedStagingCards.length})]
                     </button>
+                    <div class="flex gap-2 w-full mt-2">
+                        <button onclick="stagingUndo()" class="flex-1 border border-outline-variant text-outline hover:text-primary py-2 font-bold uppercase text-[10px] rounded-xl transition-all">
+                            [↩ ВЕРНУТЬ КАРТУ]
+                        </button>
+                        <button onclick="stagingResetSession()" class="flex-1 border border-outline-variant text-outline hover:text-secondary py-2 font-bold uppercase text-[10px] rounded-xl transition-all">
+                            [СБРОСИТЬ]
+                        </button>
+                    </div>
                 </div>
             `;
         }
         return;
+    }
+
+    if (!document.getElementById('staging-card-text')) {
+        if (cardEl) {
+            cardEl.innerHTML = STAGING_CARD_TEMPLATE;
+            cardEl._gestures_bound = false;
+            initStagingGestures();
+        }
     }
 
     const card = stagingCards[currentStagingIndex];
@@ -2903,6 +2972,7 @@ function renderCurrentStagingCard() {
 
 window.stagingSwipeRight = function() {
     if (currentStagingIndex >= stagingCards.length) return;
+    const currentCard = stagingCards[currentStagingIndex];
     const cardEl = document.getElementById('staging-card');
     const badgeAccept = document.getElementById('staging-badge-accept');
     if (badgeAccept) badgeAccept.style.opacity = '1';
@@ -2913,7 +2983,8 @@ window.stagingSwipeRight = function() {
         cardEl.style.opacity = '0';
     }
 
-    approvedStagingCards.push(stagingCards[currentStagingIndex]);
+    approvedStagingCards.push(currentCard);
+    stagingHistory.push({ action: 'approve', card: currentCard, index: currentStagingIndex });
     setTimeout(() => {
         currentStagingIndex++;
         if (cardEl) cardEl.style.transition = 'none';
@@ -2923,6 +2994,7 @@ window.stagingSwipeRight = function() {
 
 window.stagingSwipeLeft = function() {
     if (currentStagingIndex >= stagingCards.length) return;
+    const currentCard = stagingCards[currentStagingIndex];
     const cardEl = document.getElementById('staging-card');
     const badgeReject = document.getElementById('staging-badge-reject');
     if (badgeReject) badgeReject.style.opacity = '1';
@@ -2933,7 +3005,8 @@ window.stagingSwipeLeft = function() {
         cardEl.style.opacity = '0';
     }
 
-    rejectedStagingCards.push(stagingCards[currentStagingIndex]);
+    rejectedStagingCards.push(currentCard);
+    stagingHistory.push({ action: 'reject', card: currentCard, index: currentStagingIndex });
     setTimeout(() => {
         currentStagingIndex++;
         if (cardEl) cardEl.style.transition = 'none';
@@ -2941,9 +3014,118 @@ window.stagingSwipeLeft = function() {
     }, 250);
 };
 
+window.stagingUndo = function() {
+    if (stagingHistory.length === 0 || currentStagingIndex <= 0) return;
+    const lastAction = stagingHistory.pop();
+    if (!lastAction) return;
+
+    if (lastAction.action === 'approve') {
+        const idx = approvedStagingCards.lastIndexOf(lastAction.card);
+        if (idx !== -1) approvedStagingCards.splice(idx, 1);
+    } else if (lastAction.action === 'reject') {
+        const idx = rejectedStagingCards.lastIndexOf(lastAction.card);
+        if (idx !== -1) rejectedStagingCards.splice(idx, 1);
+    }
+
+    currentStagingIndex = Math.max(0, currentStagingIndex - 1);
+    const cardEl = document.getElementById('staging-card');
+    if (cardEl) {
+        const startTranslate = lastAction.action === 'approve' ? '120%' : '-120%';
+        const startRotate = lastAction.action === 'approve' ? '20deg' : '-20deg';
+        cardEl.style.transition = 'none';
+        cardEl.style.transform = `translate(${startTranslate}, 20px) rotate(${startRotate})`;
+        cardEl.style.opacity = '0';
+        
+        renderCurrentStagingCard();
+        
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                cardEl.style.transition = 'transform 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease';
+                cardEl.style.transform = 'translate(0px, 0px) rotate(0deg)';
+                cardEl.style.opacity = '1';
+            });
+        });
+    } else {
+        renderCurrentStagingCard();
+    }
+};
+
+window.stagingResetSession = function() {
+    if (currentStagingIndex === 0 && approvedStagingCards.length === 0 && rejectedStagingCards.length === 0) {
+        alert("Разбор еще не начат.");
+        return;
+    }
+    if (!confirm("Сбросить текущий разбор и начать сначала? Все решения (одобренные и отклоненные) будут сброшены.")) {
+        return;
+    }
+    currentStagingIndex = 0;
+    approvedStagingCards = [];
+    rejectedStagingCards = [];
+    stagingHistory = [];
+    renderCurrentStagingCard();
+};
+
+window.openRejectedDrawer = function() {
+    const modal = document.getElementById('staging-rejected-modal');
+    const listEl = document.getElementById('staging-rejected-list');
+    if (!modal || !listEl) return;
+
+    if (rejectedStagingCards.length === 0) {
+        listEl.innerHTML = `
+            <div class="py-8 text-center text-outline flex flex-col items-center gap-2">
+                <span class="material-symbols-outlined text-2xl opacity-40">delete_sweep</span>
+                <span>Список отклоненных карточек пуст</span>
+            </div>
+        `;
+    } else {
+        listEl.innerHTML = rejectedStagingCards.map((card, i) => {
+            const rawTitle = card.text || '---';
+            const displayTitle = rawTitle.length > 80 ? rawTitle.substring(0, 80) + '...' : rawTitle;
+            const rawSub = card.translation || card.secondary_text || '';
+            const displaySub = rawSub.length > 60 ? rawSub.substring(0, 60) + '...' : rawSub;
+            const safeTitle = displayTitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const safeSub = displaySub.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return `
+                <div class="py-2.5 px-1 flex items-center justify-between gap-2 hover:bg-surface-container-low transition-colors rounded-lg">
+                    <div class="flex-1 min-w-0 pr-2">
+                        <div class="text-[11px] font-bold text-on-surface truncate">${safeTitle}</div>
+                        <div class="text-[10px] text-outline truncate">${safeSub}</div>
+                    </div>
+                    <button onclick="restoreRejectedCard(${i})" class="shrink-0 border border-primary text-primary hover:bg-primary hover:text-on-primary py-1 px-2.5 rounded-lg text-[10px] font-bold uppercase transition-all shadow-xs" title="Восстановить и одобрить эту карточку">
+                        + ВЕРНУТЬ
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+};
+
+window.closeRejectedDrawer = function() {
+    const modal = document.getElementById('staging-rejected-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+window.restoreRejectedCard = function(rejectedIdx) {
+    if (rejectedIdx < 0 || rejectedIdx >= rejectedStagingCards.length) return;
+    const [restored] = rejectedStagingCards.splice(rejectedIdx, 1);
+    if (restored) {
+        approvedStagingCards.push(restored);
+        openRejectedDrawer();
+        renderCurrentStagingCard();
+    }
+};
+
 window.stagingAcceptAll = function() {
     while (currentStagingIndex < stagingCards.length) {
-        approvedStagingCards.push(stagingCards[currentStagingIndex]);
+        const card = stagingCards[currentStagingIndex];
+        approvedStagingCards.push(card);
+        stagingHistory.push({ action: 'approve', card: card, index: currentStagingIndex });
         currentStagingIndex++;
     }
     renderCurrentStagingCard();
@@ -3110,6 +3292,52 @@ function initStagingGestures() {
         if (stagingDrag.isDragging) onEnd();
     });
 }
+
+// Горячие клавиши для Песочницы (Tinder-like Sandbox)
+window.addEventListener('keydown', (e) => {
+    const overlay = document.getElementById('staging-overlay');
+    if (!overlay || overlay.classList.contains('hidden')) return;
+
+    // Не перехватываем, если пользователь вводит текст в input/textarea
+    const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+    if (activeTag === 'input' || activeTag === 'textarea' || document.activeElement.isContentEditable) return;
+
+    // Закрытие модального окна отклоненных по Escape
+    if (e.key === 'Escape') {
+        const rejectedModal = document.getElementById('staging-rejected-modal');
+        if (rejectedModal && !rejectedModal.classList.contains('hidden')) {
+            closeRejectedDrawer();
+            e.preventDefault();
+            return;
+        }
+    }
+
+    // Ctrl+Z или Cmd+Z или Backspace -> Отмена (Undo)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
+        e.preventDefault();
+        stagingUndo();
+        return;
+    }
+    if (e.key === 'Backspace') {
+        e.preventDefault();
+        stagingUndo();
+        return;
+    }
+
+    // Стрелка вправо -> Принять карточку
+    if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        stagingSwipeRight();
+        return;
+    }
+
+    // Стрелка влево -> Отклонить карточку
+    if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stagingSwipeLeft();
+        return;
+    }
+});
 
 // ============================================================================
 // МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ И РУЧНОГО СОЗДАНИЯ КАРТОЧЕК

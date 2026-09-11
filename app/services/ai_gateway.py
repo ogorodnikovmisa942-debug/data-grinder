@@ -82,6 +82,16 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * Strip all academic filler and textbook padding from 'd'. Forbid bureaucratic boilerplate like:
     'это деятельность государства по...', 'представляет собой совокупность норм...', 'следует понимать...', 'в соответствии с законодательством...'.
     Start immediately with the semantic core.
+- The High-Yield Pareto Filter & Anti-Overload Directive (80/20 Rule against Deck Bankruptcy):
+  * "Deck Bankruptcy Protection": Generating hundreds of cards for every trivial detail creates cognitive paralysis and causes learners to abandon the deck. High volume is a failure mode, not a feature.
+  * Prioritize strictly the vital 20% of concepts that govern 80% of practical mastery: foundational definitions, hard numerical thresholds/deadlines, operational mechanisms, formulas, and non-obvious distinctions.
+  * Negative Constraints (STRICTLY FORBIDDEN as card targets):
+    1. Narrative anecdotes, parables, case histories, and metaphors (use them only as practical examples in 'e', NEVER as the core question in 't').
+    2. Meta-textual questions about book organization ('Что автор рассматривает в главе 2?', 'О чем говорится во введении?').
+    3. Trivial common sense and colloquial definitions of everyday words ('Что такое диалог?', 'Зачем юристу логика?').
+    4. Rhetorical questions, transitional throat-clearing, and introductory summaries.
+    5. Subordinate minor bullet points that have zero functional, diagnostic, or examinable value.
+  * Quality over Quantity: Aim for 4 to 8 high-yield master cards per chunk (~1 to 1.5 cards per textbook page) rather than exhaustive triviality.
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - law (Jurisprudence, Statutes, Court Organization, Procedure, Doctrine):
@@ -710,16 +720,23 @@ async def parse_raw_text(
         f"GRANULARITY DIRECTIVE: {granularity_mode}",
         f"EXPLANATION DENSITY: {density}"
     ]
-    if volume in ("auto", "medium", "med_15"):
-        user_directives.append("CARD VOLUME: Extract strictly 12 to 18 high-yield core atomic cards covering key master concepts. Never generate excessive cards or copy textbook paragraphs. Keep definitions crisp (1-2 sentences).")
+    if volume in ("auto", "balanced"):
+        user_directives.append(
+            "CARD VOLUME: HIGH-YIELD PARETO CALIBRATION (Anti-Overload Directive). "
+            "Extract strictly 4 to 8 indispensable, high-yield atomic flashcards from this text chunk (~1 to 1.5 cards per page). "
+            "Focus exclusively on foundational principles, statutory rules, critical formulas, and non-obvious distinctions. "
+            "Strictly ignore introductory fluff, narrative anecdotes, and trivial common sense definitions."
+        )
     elif volume in ("low", "low_5"):
-        user_directives.append("CARD VOLUME: Maximum 5 cards. Most critical core concepts only.")
+        user_directives.append("CARD VOLUME: Strictly 3 to 5 core cards. Absolute highest-yield master concepts only.")
     elif volume == "med_10":
-        user_directives.append("CARD VOLUME: Maximum 10 cards. High-yield core concepts only.")
-    elif volume == "high_20":
-        user_directives.append("CARD VOLUME: Maximum 20 cards.")
-    elif volume in ("high", "max"):
-        user_directives.append("CARD VOLUME: Maximum 25 cards.")
+        user_directives.append("CARD VOLUME: Strictly 6 to 10 core cards.")
+    elif volume in ("medium", "med_15"):
+        user_directives.append("CARD VOLUME: Strictly 10 to 14 cards.")
+    elif volume in ("high", "high_20"):
+        user_directives.append("CARD VOLUME: Maximum 16 to 20 cards.")
+    elif volume == "max":
+        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 25 cards). Every verifiable fact and distinction.")
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")
