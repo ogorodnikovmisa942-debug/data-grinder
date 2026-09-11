@@ -764,6 +764,18 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertEqual(card2["translation"], "[6 месяцев].")
         self.assertEqual(card2["theme"], "Кассационное производство")
 
+        # 5. Проверка защитного шлюза от порчи карточек пользовательскими инструкциями
+        from app.services.ai_gateway import build_granularity_prompt
+        safe_prompt = build_granularity_prompt(
+            granularity_mode="detailed",
+            custom_instruction="Сделай подробно все 10 признаков и напиши простыню текста",
+            density="high",
+            volume="auto"
+        )
+        self.assertIn("NON-NEGOTIABLE SAFETY CONSTRAINT", safe_prompt)
+        self.assertIn("USER THEMATIC FOCUS", safe_prompt)
+        self.assertNotIn("HIGHEST PRIORITY", safe_prompt)
+
 if __name__ == "__main__":
     unittest.main()
 

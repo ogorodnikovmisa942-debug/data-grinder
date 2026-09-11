@@ -663,9 +663,11 @@ function showSessionStarter() {
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
     const progressBar = document.getElementById('progress-bar');
+    const sessionCounters = document.getElementById('train-session-counters');
     if (starter) starter.classList.remove('hidden');
     if (flashcard) flashcard.classList.add('hidden');
     if (progressBar) progressBar.classList.add('hidden');
+    if (sessionCounters) sessionCounters.classList.add('hidden');
     updateGlobalBadges();
 }
 
@@ -687,10 +689,12 @@ async function startSession(mode) {
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
     const progressBar = document.getElementById('progress-bar');
+    const sessionCounters = document.getElementById('train-session-counters');
     
     if (starter) starter.classList.add('hidden');
     if (flashcard) flashcard.classList.remove('hidden');
     if (progressBar) progressBar.classList.remove('hidden');
+    if (sessionCounters) sessionCounters.classList.remove('hidden');
     
     await fetchActiveSession(mode);
 }
@@ -1836,77 +1840,68 @@ const VOLUME_SLIDER_STEPS = [
 
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
-    ['atomic', 'single_deep', 'cheatsheet'].forEach(m => {
+    ['atomic', 'detailed', 'blitz'].forEach(m => {
         const el = document.getElementById(`gran-${m}`);
         if (el) {
             if (m === mode) {
-                el.className = 'border border-primary bg-primary text-on-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center';
+                el.className = 'border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs';
             } else {
-                el.className = 'border border-outline-variant text-outline hover:text-primary py-1.5 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center';
+                el.className = 'border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs';
             }
         }
     });
 
-    const volSliderContainer = document.getElementById('import-volume-slider-container');
-    const volLocked = document.getElementById('import-volume-locked');
-    const volLabel = document.getElementById('import-volume-label');
-
-    if (mode === 'single_deep') {
-        if (volSliderContainer) volSliderContainer.classList.add('hidden');
-        if (volLocked) volLocked.classList.remove('hidden');
-        if (volLabel) volLabel.textContent = '1 карта';
+    if (mode === 'detailed') {
+        currentDetailDensity = 'high';
+        currentVolumeLimit = 'auto';
+    } else if (mode === 'blitz' || mode === 'cheatsheet') {
+        currentDetailDensity = 'low';
+        currentVolumeLimit = 'med_10';
     } else {
-        if (volSliderContainer) volSliderContainer.classList.remove('hidden');
-        if (volLocked) volLocked.classList.add('hidden');
-        updateVolumeLabel();
+        currentDetailDensity = 'medium';
+        currentVolumeLimit = 'auto';
     }
+
     updateImportExplanation();
+};
+
+window.toggleFocusChip = function(btn, chipText) {
+    const input = document.getElementById('import-custom-instruction');
+    if (!input) return;
+    
+    const isActive = btn.classList.contains('active-chip');
+    if (isActive) {
+        btn.classList.remove('active-chip', 'bg-primary/15', 'border-primary', 'text-primary', 'font-bold');
+        btn.classList.add('border-neutral-200', 'dark:border-neutral-700', 'text-neutral-600', 'dark:text-neutral-300');
+        let current = input.value;
+        current = current.replace(chipText, '').replace(/;\s*;/g, ';').replace(/^;\s*|;\s*$/g, '').trim();
+        input.value = current;
+    } else {
+        btn.classList.add('active-chip', 'bg-primary/15', 'border-primary', 'text-primary', 'font-bold');
+        btn.classList.remove('border-neutral-200', 'dark:border-neutral-700', 'text-neutral-600', 'dark:text-neutral-300');
+        let current = input.value.trim();
+        if (current) {
+            input.value = current + '; ' + chipText;
+        } else {
+            input.value = chipText;
+        }
+    }
 };
 
 window.onVolumeSliderChange = function(sliderVal) {
     const idx = parseInt(sliderVal, 10);
     const step = VOLUME_SLIDER_STEPS[idx] || VOLUME_SLIDER_STEPS[0];
     currentVolumeLimit = step.value;
-    const volLabel = document.getElementById('import-volume-label');
-    if (volLabel) volLabel.textContent = step.label;
     updateImportExplanation();
 };
 
 window.setVolumeLimit = function(vol) {
     currentVolumeLimit = vol;
-    const slider = document.getElementById('import-volume-slider');
-    const idx = VOLUME_SLIDER_STEPS.findIndex(s => s.value === vol || s.value.startsWith(vol));
-    if (slider && idx !== -1) {
-        slider.value = idx;
-    }
-    updateVolumeLabel();
     updateImportExplanation();
 };
 
-function updateVolumeLabel() {
-    const volLabel = document.getElementById('import-volume-label');
-    if (!volLabel) return;
-    const step = VOLUME_SLIDER_STEPS.find(s => s.value === currentVolumeLimit || (currentVolumeLimit === 'medium' && s.value === 'med_15') || (currentVolumeLimit === 'low' && s.value === 'low_5') || (currentVolumeLimit === 'high' && s.value === 'high_20'));
-    volLabel.textContent = step ? step.label : currentVolumeLimit;
-}
-
 window.setDetailDensity = function(density) {
     currentDetailDensity = density;
-    ['low', 'medium', 'high'].forEach(d => {
-        const el = document.getElementById(`dense-${d}`);
-        if (el) {
-            if (d === density) {
-                el.className = 'border border-primary bg-primary text-on-primary py-0.5 text-[9px] font-bold';
-            } else {
-                el.className = 'border border-outline-variant text-outline hover:text-primary py-0.5 text-[9px] font-bold';
-            }
-        }
-    });
-    const densityLabel = document.getElementById('import-density-label');
-    if (densityLabel) {
-        const map = { 'low': 'Кратко', 'medium': 'Баланс', 'high': 'Подробно' };
-        densityLabel.textContent = map[currentDetailDensity] || currentDetailDensity;
-    }
     updateImportExplanation();
 };
 
@@ -1914,17 +1909,12 @@ function updateImportExplanation() {
     const explEl = document.getElementById('import-mode-explanation');
     if (!explEl) return;
 
-    const currentStep = VOLUME_SLIDER_STEPS.find(s => s.value === currentVolumeLimit || (currentVolumeLimit === 'medium' && s.value === 'med_15') || (currentVolumeLimit === 'low' && s.value === 'low_5') || (currentVolumeLimit === 'high' && s.value === 'high_20'));
-    const vText = currentStep ? currentStep.desc : (currentVolumeLimit === 'auto' ? 'оптимальный баланс ИИ' : currentVolumeLimit);
-
-    if (currentGranularityMode === 'single_deep') {
-        const dText = currentDetailDensity === 'low' ? 'краткое резюме' : currentDetailDensity === 'high' ? 'исчерпывающий разбор со всеми подпунктами' : 'определение и контекст';
-        explEl.textContent = `> РЕЖИМ: 1 Большая карта | Объем: строго 1 карта | Глубина: ${dText} всей темы.`;
-    } else if (currentGranularityMode === 'cheatsheet') {
-        explEl.textContent = `> РЕЖИМ: Шпоры / Блиц | Объем: ${vText} | Глубина: выжимки по 1–2 предложения.`;
-    } else { // atomic
-        const dText = currentDetailDensity === 'low' ? 'кратко (1–2 фразы)' : currentDetailDensity === 'high' ? 'подробно со всеми деталями' : 'суть + пример';
-        explEl.textContent = `> РЕЖИМ: Обычные карточки по ключевым терминам | Объем: ${vText} | Глубина: ${dText}.`;
+    if (currentGranularityMode === 'detailed') {
+        explEl.textContent = 'Глубокий разбор: больше точечных микро-карточек по всем нюансам и исключениям (каждое условие — в отдельную карточку).';
+    } else if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') {
+        explEl.textContent = 'Экспресс-блиц: 5–10 самых фундаментальных основ в предельно сжатых карточках.';
+    } else {
+        explEl.textContent = 'Стандартный баланс FSRS: 1 карточка = 1 ключевой факт (время отклика 1.5–3.5 сек).';
     }
 }
 

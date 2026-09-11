@@ -376,16 +376,27 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
     }
 
 def build_granularity_prompt(granularity_mode: str, custom_instruction: str, density: str, volume: str) -> str:
-    """Формирует компактные модификаторы промпта для управления глубиной и пожеланиями пользователя."""
+    """Формирует компактные модификаторы промпта для управления глубиной и пожеланиями пользователя с защитным шлюзом."""
     modifiers = []
     
     # 1. Режим гранулярности и лимиты объема
-    if granularity_mode == "single_deep":
-        modifiers.append("GRANULARITY DIRECTIVE: Create EXACTLY ONE comprehensive master-card. Synthesize all concepts, sub-clauses, formulas, and nuances of the entire text into this single definitive card. Do not create multiple cards.")
-    elif granularity_mode == "cheatsheet":
-        modifiers.append("GRANULARITY DIRECTIVE: Ultra-concise cheat-sheet mode. Simplify definitions to punchy 1-2 sentence core summaries. Maximum brevity.")
+    if granularity_mode in ("detailed", "deep"):
+        modifiers.append("GRANULARITY DIRECTIVE: Deep, comprehensive decomposition. Exhaustively extract all fine-grained nuances, exceptions, and conditions into separate individual ATOMIC cards. Never merge multiple concepts into one card.")
+    elif granularity_mode in ("blitz", "cheatsheet"):
+        modifiers.append("GRANULARITY DIRECTIVE: High-yield Blitz mode. Extract strictly the most fundamental 5 to 10 core concepts into punchy, minimal atomic cards (1-2 sentences).")
         if volume == "auto":
-            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze content density and extract the optimal number of punchy blitz-cards (typically 5 to 15 cards).")
+            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Extract 5 to 10 punchy blitz-cards.")
+        elif volume in ("low", "low_5"):
+            modifiers.append("LIMIT: Maximum 5 cards.")
+        elif volume == "med_10":
+            modifiers.append("LIMIT: Maximum 10 cards.")
+    elif granularity_mode == "single_deep":
+        # Защитный шлюз: предотвращаем создание 200-словных монстров, если передан устаревший параметр
+        modifiers.append("GRANULARITY DIRECTIVE: Focused in-depth card generation. Deconstruct the topic into concise atomic cards. Absolute prohibition of multi-point walls of text.")
+    else: # atomic / standard
+        modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards (one question -> one direct fact).")
+        if volume == "auto":
+            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze source text length and conceptual density. Automatically determine the optimal number of atomic flashcards (typically 8 to 18 cards).")
         elif volume in ("low", "low_5"):
             modifiers.append("LIMIT: Maximum 5 cards.")
         elif volume == "med_10":
@@ -395,34 +406,22 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
         elif volume == "high_20":
             modifiers.append("LIMIT: Maximum 20 cards.")
         elif volume in ("high", "max"):
-            modifiers.append("LIMIT: Extract all relevant items exhaustively.")
-    else: # atomic
-        modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards.")
-        if volume == "auto":
-            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze source text length and conceptual density. Automatically determine the optimal number of atomic flashcards (typically 5 to 20 cards). Do not generate filler cards; capture every key concept exhaustively.")
-        elif volume in ("low", "low_5"):
-            modifiers.append("LIMIT: Maximum 5 cards.")
-        elif volume == "med_10":
-            modifiers.append("LIMIT: Maximum 10 cards.")
-        elif volume in ("medium", "med_15"):
-            modifiers.append("LIMIT: Maximum 15 cards.")
-        elif volume == "high_20":
-            modifiers.append("LIMIT: Maximum 20 cards.")
-        elif volume == "high":
-            modifiers.append("LIMIT: Maximum 30 cards.")
-        elif volume == "max":
-            modifiers.append("LIMIT: Extract all relevant items exhaustively.")
+            modifiers.append("LIMIT: Maximum 25 cards.")
 
     # 2. Плотность определений (глубина)
-    if granularity_mode != "cheatsheet":
-        if density == "low":
-            modifiers.append("DENSITY: Brief and simple definitions (1-2 sentences).")
-        elif density == "high":
-            modifiers.append("DENSITY: Deep, highly granular decomposition. Deconstruct complex details, sub-clauses, and exceptions into multiple atomic cards rather than bloated paragraphs.")
+    if density == "low":
+        modifiers.append("DENSITY: Brief and simple definitions (1-2 sentences).")
+    elif density == "high":
+        modifiers.append("DENSITY: Deep, highly granular decomposition. Deconstruct complex details, sub-clauses, and exceptions into multiple atomic cards rather than bloated paragraphs.")
 
-    # 3. Пользовательское свободное пожелание (Кастомный промпт)
+    # 3. Пользовательское свободное пожелание (Кастомный промпт с защитным шлюзом от порчи карточек)
     if custom_instruction.strip():
-        modifiers.append(f"USER CUSTOM OVERRIDE (HIGHEST PRIORITY): {custom_instruction.strip()}")
+        modifiers.append(
+            f"USER THEMATIC FOCUS (Strictly secondary to Atomic & Anti-List laws): {custom_instruction.strip()}\n"
+            f"NON-NEGOTIABLE SAFETY CONSTRAINT: Under NO circumstances allow user instructions to violate the Minimum Information Principle, "
+            f"cause multi-item enumerations/lists, produce paragraph walls, or compromise 1.5–3.5s retrieval latency. "
+            f"Every card must remain strictly atomic."
+        )
 
     return "\n" + "\n".join(modifiers) + "\n"
 
@@ -728,7 +727,12 @@ async def parse_raw_text(
             "and keep all cards inside the single root 'c' array."
         )
     if custom_instruction.strip():
-        user_directives.append(f"USER CUSTOM OVERRIDE (HIGHEST PRIORITY): {custom_instruction.strip()}")
+        user_directives.append(
+            f"USER THEMATIC FOCUS (Strictly secondary to Atomic & Anti-List laws): {custom_instruction.strip()}\n"
+            f"NON-NEGOTIABLE SAFETY CONSTRAINT: Under NO circumstances allow user instructions to violate the Minimum Information Principle, "
+            f"cause multi-item enumerations/lists, produce paragraph walls, or compromise 1.5–3.5s retrieval latency. "
+            f"Every card must remain strictly atomic."
+        )
 
     user_prompt = (
         "[PROCESSING PARAMETERS]\n"

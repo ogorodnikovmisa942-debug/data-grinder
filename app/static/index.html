@@ -98,8 +98,8 @@
         <!-- Экран тренировки карточек -->
         <div id="screen-train" class="app-screen active-screen flex-1 flex flex-col w-full min-h-0 justify-between pt-md relative">
             
-            <!-- Стартовый оверлей сессии -->
-            <div id="session-starter" class="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/95 backdrop-blur-xs p-md gap-md">
+            <!-- Стартовый оверлей сессии (100% непрозрачный, без артефактов и просвечивания) -->
+            <div id="session-starter" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#fbfbfb] dark:bg-[#0e0e0e] p-md gap-md select-none" style="isolation: isolate;">
                 <div class="w-full max-w-[340px] bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-2xl animate-fade-in font-sans">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="material-symbols-outlined text-primary text-xl">school</span>
@@ -120,12 +120,12 @@
                 </div>
             </div>
 
-            <div class="w-full h-1 bg-surface-container-highest rounded-full mb-md shrink-0 overflow-hidden" id="progress-bar">
+            <div class="w-full h-1 bg-surface-container-highest rounded-full mb-md shrink-0 overflow-hidden hidden" id="progress-bar">
                 <div id="progress-fill" class="h-full bg-primary transition-all duration-300 rounded-full" style="width: 0%;"></div>
             </div>
 
-            <!-- Очередь сессии -->
-            <div id="train-session-counters" class="w-full flex justify-between items-center font-mono text-[10px] border border-neutral-200/90 dark:border-neutral-800 p-2 bg-surface-container-lowest mb-md select-none shrink-0 rounded-xl shadow-xs">
+            <!-- Очередь сессии (скрыта до старта активной сессии) -->
+            <div id="train-session-counters" class="hidden w-full flex justify-between items-center font-mono text-[10px] border border-neutral-200/90 dark:border-neutral-800 p-2 bg-surface-container-lowest mb-md select-none shrink-0 rounded-xl shadow-xs">
                 <button onclick="exitToSessionMenu()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:border-primary px-2.5 py-1 font-bold uppercase transition-all rounded-lg">
                     [← РЕЖИМ СЕССИИ]
                 </button>
@@ -483,173 +483,143 @@
 
             <div class="w-full h-px bg-outline-variant my-xs opacity-40 shrink-0"></div>
 
-            <!-- СЕКЦИЯ 2: ИМПОРТ И СТРУКТУРИРОВАНИЕ ЗНАНИЙ (DEEPSEEK-V4 FLASH) -->
-            <div class="flex flex-col gap-sm shrink-0 border border-neutral-200 dark:border-neutral-800 p-3.5 bg-surface-container-lowest font-mono mb-md rounded-2xl shadow-xs">
-                <div class="flex items-center justify-between border-b border-neutral-200/60 dark:border-neutral-800 pb-2">
-                    <span class="text-xs font-bold tracking-wider uppercase text-primary font-mono">[СОЗДАНИЕ КАРТОЧЕК С ПОМОЩЬЮ ИИ]</span>
-                    <span class="text-[9px] text-secondary font-bold" id="subject-status-tip">[ВЫБЕРИТЕ ПРЕДМЕТ]</span>
+            <!-- СЕКЦИЯ 2: СОЗДАНИЕ КАРТОЧЕК С ПОМОЩЬЮ ИИ (DEEPSEEK V3) -->
+            <div class="flex flex-col gap-sm shrink-0 border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest mb-md rounded-2xl shadow-xs">
+                <div class="flex items-center justify-between border-b border-neutral-200/60 dark:border-neutral-800 pb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary text-base">auto_awesome</span>
+                        <span class="text-xs font-bold tracking-wide uppercase text-neutral-900 dark:text-neutral-100 font-sans">Создание карточек</span>
+                    </div>
+                    <span class="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20" id="subject-status-tip">ИИ-генератор</span>
                 </div>
                 
-                <!-- Ручной выбор целевого предмета -->
-                <div class="flex flex-col gap-xs mt-xs">
-                    <label class="text-[9px] text-outline uppercase font-bold">1. Предмет для карточек:</label>
-                    <div class="grid grid-cols-2 gap-xs">
-                        <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs">
-                            <option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>
-                            <option value="__new__">[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]</option>
+                <!-- Выбор целевого предмета -->
+                <div class="flex flex-col gap-1 mt-1">
+                    <div class="flex justify-between items-center text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+                        <span>Предмет</span>
+                        <span id="subject-selected-hint" class="text-primary text-[9px] font-mono"></span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs">
+                            <option value="" disabled selected>-- Выберите предмет --</option>
+                            <option value="__new__">+ Новый предмет...</option>
                         </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код предмета (напр. civil_law)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs" />
+                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. civil_law)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
                     </div>
                 </div>
 
                 <!-- Основное поле ввода лекции / статьи / текста -->
-                <div class="flex flex-col gap-xs mt-xs">
-                    <div class="flex justify-between items-center">
-                        <label for="import-text" class="text-[9px] text-outline uppercase font-bold">2. Текст материала (конспект, параграф, закон):</label>
-                        <span class="text-[8px] text-outline opacity-70">РАСТЯГИВАЕТСЯ ВНИЗ ⇲</span>
+                <div class="flex flex-col gap-1 mt-1">
+                    <label for="import-text" class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">Текст материала</label>
+                    <textarea id="import-text" placeholder="Вставьте сюда текст лекции, главу учебника, статьи закона, формулы или конспект..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-2xl p-3 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-sans text-xs leading-relaxed resize-y min-h-[120px] shadow-inner placeholder:text-neutral-400"></textarea>
+                    
+                    <!-- Быстрый импорт файлов прямо под полем ввода -->
+                    <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
+                            <span class="material-symbols-outlined text-[14px]">attach_file</span>
+                            <span>Документ (PDF/TXT)</span>
+                        </button>
+
+                        <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">
+                        <button type="button" onclick="document.getElementById('import-image').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
+                            <span class="material-symbols-outlined text-[14px]">photo_camera</span>
+                            <span>Фото / Скан (OCR)</span>
+                        </button>
                     </div>
-                    <textarea id="import-text" placeholder="Вставьте сюда текст лекции, главу учебника, статьи закона, формулы или словарь..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-2xl p-3 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[140px] shadow-inner"></textarea>
+                    <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
                 </div>
 
-                <!-- Панель понятной нарезки (3 интуитивных режима) -->
-                <div class="flex flex-col gap-xs border-t border-dashed border-outline-variant/60 pt-xs mt-xs">
-                    <div class="flex justify-between items-center">
-                        <span class="text-[9px] text-outline uppercase font-bold">3. Формат карточек:</span>
-                        <span class="text-[8px] text-secondary font-bold font-mono">[ВЫБЕРИТЕ ТИП]</span>
-                    </div>
+                <!-- 3 безопасных пресета генерации (в 1 клик, без микро-ползунков) -->
+                <div class="flex flex-col gap-1.5 border-t border-neutral-200/60 dark:border-neutral-800 pt-3 mt-2">
+                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Фокус генерации</span>
                     
-                    <!-- 3 понятных режима нарезки -->
                     <div class="grid grid-cols-3 gap-1.5">
-                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[ПО ФАКТАМ]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">рекомендуется</span>
+                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
+                            <span class="tracking-wide font-sans">Базовый</span>
+                            <span class="text-[8px] opacity-80 font-normal">ключевые факты</span>
                         </button>
-                        <button type="button" onclick="setGranularityMode('single_deep')" id="gran-single_deep" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[ПОДРОБНАЯ]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">одна карточка</span>
+                        <button type="button" onclick="setGranularityMode('detailed')" id="gran-detailed" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
+                            <span class="tracking-wide font-sans">Детальный</span>
+                            <span class="text-[8px] opacity-80 font-normal">все тонкости</span>
                         </button>
-                        <button type="button" onclick="setGranularityMode('cheatsheet')" id="gran-cheatsheet" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-2 px-1 text-[9px] font-bold uppercase transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span>[ШПАРГАЛКА]</span>
-                            <span class="text-[7px] opacity-75 font-normal lowercase">сжатая суть</span>
+                        <button type="button" onclick="setGranularityMode('blitz')" id="gran-blitz" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
+                            <span class="tracking-wide font-sans">Блиц</span>
+                            <span class="text-[8px] opacity-80 font-normal">основы (5–10)</span>
                         </button>
                     </div>
 
-                    <!-- Живая расшифровка настроек (Live Hint) -->
-                    <div id="import-mode-explanation" class="text-[9px] text-secondary font-mono border border-neutral-200/60 dark:border-neutral-800 bg-surface p-2 leading-snug rounded-xl shadow-xs">
-                        > РЕЖИМ: Карточки по ключевым терминам и фактам (суть + контекст).
+                    <!-- Пояснение текущего пресета -->
+                    <div id="import-mode-explanation" class="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans px-2.5 py-1.5 bg-surface-container rounded-xl">
+                        Стандартный баланс FSRS: 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).
                     </div>
 
-                    <!-- Тонкая настройка (по умолчанию свернута, не загромождает экран) -->
-                    <details class="text-[9px] font-mono border border-neutral-200 dark:border-neutral-800 p-2 bg-surface-container-lowest rounded-xl shadow-xs">
-                        <summary class="cursor-pointer text-outline hover:text-primary font-bold uppercase select-none">
-                            [+] ТОЧНЫЕ НАСТРОЙКИ: ОБЪЕМ И ГЛУБИНА
+                    <!-- Быстрые чипы фокусировки -->
+                    <div class="flex flex-col gap-1 mt-1">
+                        <span class="text-[9px] text-neutral-400 uppercase font-mono">Быстрый акцент:</span>
+                        <div class="flex flex-wrap gap-1" id="focus-chips-container">
+                            <button type="button" onclick="toggleFocusChip(this, 'Только ключевые термины и определения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">🏷️ Термины</button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Правовые нормы, статьи и условия их применения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">⚖️ Статьи и нормы</button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Формулы, теоремы и расчетные правила')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">📐 Формулы</button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Добавь конкретные практические примеры в пример применения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">💡 Практика</button>
+                        </div>
+                    </div>
+
+                    <!-- Компактное опциональное уточнение темы/главы -->
+                    <details class="text-[10px] mt-1 border border-neutral-200 dark:border-neutral-800 rounded-xl p-2 bg-surface-container/50">
+                        <summary class="cursor-pointer text-neutral-500 dark:text-neutral-400 hover:text-primary font-mono select-none">
+                            + Уточнить тему или главу (опционально)
                         </summary>
-                        <div class="grid grid-cols-2 gap-xs mt-1.5 pt-1.5 border-t border-dashed border-outline-variant/30">
-                            <!-- Объем карточек -->
-                            <div class="flex flex-col gap-0.5">
-                                <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
-                                    <span>Объем:</span>
-                                    <span id="import-volume-label" class="text-primary font-mono">[АВТО] Баланс ИИ</span>
-                                </div>
-                                <div id="import-volume-slider-container" class="flex flex-col gap-1 mt-1">
-                                    <input type="range" id="import-volume-slider" min="0" max="5" step="1" value="0"
-                                           oninput="onVolumeSliderChange(this.value)"
-                                           class="w-full accent-primary cursor-pointer h-1.5 bg-surface-container border border-outline-variant/60 appearance-none rounded-lg">
-                                    <div class="flex justify-between text-[7px] font-mono text-outline uppercase select-none px-0.5">
-                                        <span class="text-primary font-bold">[АВТО]</span>
-                                        <span>5</span>
-                                        <span>10</span>
-                                        <span>15</span>
-                                        <span>20</span>
-                                        <span>MAX</span>
-                                    </div>
-                                </div>
-                                <div id="import-volume-locked" class="hidden border border-dashed border-outline-variant py-1 text-center text-[9px] text-secondary font-bold rounded-lg">
-                                    [ФИКСИРОВАНО: 1 КАРТА]
-                                </div>
-                            </div>
-
-                            <!-- Детализация (Глубина определений) -->
-                            <div class="flex flex-col gap-0.5">
-                                <div class="flex justify-between items-center text-[9px] text-outline uppercase font-bold">
-                                    <span>Глубина:</span>
-                                    <span id="import-density-label" class="text-primary font-mono">Баланс</span>
-                                </div>
-                                <div class="grid grid-cols-3 gap-0.5">
-                                    <button type="button" onclick="setDetailDensity('low')" id="dense-low" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-1 text-[9px] font-bold rounded-lg">КРАТКО</button>
-                                    <button type="button" onclick="setDetailDensity('medium')" id="dense-medium" class="border border-primary bg-primary text-on-primary py-1 text-[9px] font-bold rounded-lg">БАЛАНС</button>
-                                    <button type="button" onclick="setDetailDensity('high')" id="dense-high" class="border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary py-1 text-[9px] font-bold rounded-lg">ДЕТАЛИ</button>
-                                </div>
-                            </div>
+                        <div class="mt-1.5 pt-1.5 border-t border-neutral-200/50 dark:border-neutral-700/50">
+                            <input type="text" id="import-custom-instruction" placeholder="Например: сосредоточься на главе 2 или нормах об апелляции..." class="w-full bg-surface-container-lowest border border-neutral-300 dark:border-neutral-700 rounded-lg p-2 text-xs text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-sans" />
+                            <span class="text-[8px] text-neutral-400 mt-1 block">ИИ автоматически сохранит карточки атомарными и краткими для FSRS.</span>
                         </div>
                     </details>
                 </div>
 
-                <!-- Свободное пожелание к ИИ (Многострочное поле!) -->
-                <div class="flex flex-col gap-xs mt-xs">
-                    <div class="flex justify-between items-center">
-                        <label for="import-custom-instruction" class="text-[9px] text-outline uppercase font-bold">4. Дополнительные пожелания к карточкам:</label>
-                        <span class="text-[8px] text-outline opacity-70">ВИДНО ПОЛНОСТЬЮ ⇲</span>
-                    </div>
-                    <textarea id="import-custom-instruction" rows="2" placeholder="Например: выдели только формулы / переведи термины / добавь практические примеры..." class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-primary focus:border-primary focus:ring-0 font-mono text-xs leading-relaxed resize-y min-h-[44px]"></textarea>
-                </div>
-
                 <!-- Индикатор тарифа DeepSeek и окно Ночного Грайндера -->
-                <div id="tariff-banner" class="flex justify-between items-center text-[9px] font-mono border border-neutral-200 dark:border-neutral-800 p-2 bg-surface mt-xs select-none rounded-xl shadow-xs">
-                    <span id="tariff-status-title" class="text-outline">МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span></span>
-                    <span id="tariff-status-badge" class="text-secondary font-bold font-mono">[НОЧНАЯ СКИДКА 50% С 19:30]</span>
+                <div id="tariff-banner" class="flex justify-between items-center text-[10px] font-mono border border-neutral-200 dark:border-neutral-800 p-2.5 bg-surface-container rounded-xl mt-2 select-none">
+                    <span id="tariff-status-title" class="text-neutral-600 dark:text-neutral-300 font-sans">Модель: <span class="text-primary font-bold font-mono">DeepSeek V3</span></span>
+                    <span id="tariff-status-badge" class="text-secondary font-bold font-mono text-[9px]">[Скидка 50% ночью]</span>
                 </div>
 
                 <!-- Кнопки запуска: Мгновенно или Ночной Грайнд со скидкой 50% -->
-                <div class="flex flex-col gap-xs mt-xs">
-                    <div class="grid grid-cols-2 gap-xs">
-                        <button id="btn-import-instant" onclick="importTextKnowledge(false)" class="border border-primary bg-primary text-on-primary hover:bg-transparent hover:text-primary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs flex items-center justify-center gap-1">
-                            <span class="material-symbols-outlined text-[15px]">bolt</span>
-                            <span>СЕЙЧАС</span>
+                <div class="flex flex-col gap-2 mt-2">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-import-instant" onclick="importTextKnowledge(false)" class="border border-primary bg-primary text-on-primary hover:opacity-90 py-2.5 font-bold tracking-wide transition-all text-xs font-mono rounded-xl shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">bolt</span>
+                            <span>Создать сейчас</span>
                         </button>
-                        <button id="btn-import-deferred" onclick="importTextKnowledge(true)" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary py-2.5 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs flex items-center justify-center gap-1">
-                            <span class="material-symbols-outlined text-[15px]">dark_mode</span>
-                            <span>НОЧЬЮ (-50%)</span>
+                        <button id="btn-import-deferred" onclick="importTextKnowledge(true)" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary py-2.5 font-bold tracking-wide transition-all text-xs font-mono rounded-xl shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">dark_mode</span>
+                            <span>Ночью (-50%)</span>
                         </button>
                     </div>
 
                     <!-- Панель активной генерации с кнопкой ОТМЕНЫ -->
-                    <div id="generation-active-bar" class="hidden flex items-center justify-between p-2.5 bg-primary/10 border border-primary/30 rounded-xl mt-xs text-xs font-mono animate-fade-in">
+                    <div id="generation-active-bar" class="hidden flex items-center justify-between p-2.5 bg-primary/10 border border-primary/30 rounded-xl text-xs font-mono animate-fade-in">
                         <div class="flex items-center gap-2 text-primary">
                             <span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
                             <span id="generation-active-status" class="font-bold text-[11px]">ИИ создает карточки...</span>
                         </div>
                         <button type="button" onclick="cancelActiveGeneration()" class="px-2.5 py-1 bg-error-container/30 hover:bg-error-container text-secondary border border-secondary/50 rounded-lg text-[10px] font-bold uppercase transition-all active:scale-95">
-                            [✕ ОТМЕНИТЬ]
+                            Отменить
                         </button>
                     </div>
 
                     <!-- Блок очереди ночной обработки с деталями и отменой -->
-                    <div id="night-queue-indicator" class="hidden flex flex-col gap-1 text-[10px] font-mono text-secondary border border-dashed border-secondary/40 p-2 bg-surface-container rounded-xl mt-xs">
+                    <div id="night-queue-indicator" class="hidden flex flex-col gap-1 text-[10px] font-mono text-secondary border border-dashed border-secondary/40 p-2 bg-surface-container rounded-xl">
                         <div class="flex justify-between items-center">
-                            <span>ОЧЕРЕДЬ НОЧНОЙ ОБРАБОТКИ: <span id="night-queue-count" class="font-bold">0</span> ЗАДАЧ</span>
-                            <button onclick="checkNightQueueStatus()" class="hover:underline text-[9px] text-outline">ОБНОВИТЬ</button>
+                            <span>Очередь ночной обработки: <span id="night-queue-count" class="font-bold">0</span></span>
+                            <button onclick="checkNightQueueStatus()" class="hover:underline text-[9px] text-outline">Обновить</button>
                         </div>
                         <div id="night-queue-list" class="flex flex-col gap-1 mt-1 divide-y divide-secondary/20"></div>
                     </div>
-                    
-                    <!-- Кодовый импорт пачки файлов и бесплатный мульти-OCR -->
-                    <div class="grid grid-cols-2 gap-xs font-mono text-[9px] mt-xs">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv" multiple class="hidden" onchange="handleFileUpload(event)">
-                        <button onclick="document.getElementById('import-file').click()" class="border border-neutral-300 dark:border-neutral-700 text-primary hover:border-primary p-2.5 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest rounded-xl shadow-xs">
-                            [ДОКУМЕНТЫ: PDF/TXT/CSV]
-                        </button>
 
-                        <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">
-                        <button onclick="document.getElementById('import-image').click()" class="border border-neutral-300 dark:border-neutral-700 text-primary hover:border-primary p-2.5 text-center uppercase font-bold active:scale-95 bg-surface-container-lowest rounded-xl shadow-xs">
-                            [ФОТО / СКАНЫ (МУЛЬТИ-OCR)]
-                        </button>
-                    </div>
-
-                    <button onclick="openManualCardModal()" class="w-full border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary hover:border-primary py-2 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 mt-xs rounded-xl shadow-xs">
-                        [+ СОЗДАТЬ КАРТОЧКУ ВРУЧНУЮ]
+                    <button onclick="openManualCardModal()" class="w-full border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:border-primary py-2 font-bold tracking-wide transition-colors text-xs font-mono shrink-0 rounded-xl shadow-xs flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">edit_note</span>
+                        <span>Создать карточку вручную</span>
                     </button>
-                    <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
                 </div>
             </div>
         </div>
@@ -896,6 +866,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=55"></script>
+    <script src="/js/app.js?v=56"></script>
 </body>
 </html>
