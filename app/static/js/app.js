@@ -4129,3 +4129,666 @@ window.exportCardsJSON = async function() {
         alert("Не удалось скачать карточки: " + err.message);
     }
 };
+
+/* ==========================================================================
+   MILESTONE 4: KNOWLEDGE GRAPH & TREE MINDMAP CONTROLLER
+   ========================================================================== */
+
+let currentKgSubject = 'sudoustroystvo';
+let currentKgGraphData = null;
+let currentKgTreeData = null;
+let currentKgView = 'tree'; // 'tree' | 'graph'
+let currentForceGraphInstance = null;
+
+// Цвета категорий узлов (Neon Dark Cyber theme)
+const KG_CATEGORY_COLORS = {
+    'authority': '#f59e0b',     // Amber / Gold
+    'instance': '#06b6d4',      // Cyan
+    'condition': '#10b981',     // Emerald
+    'exception': '#f43f5e',     // Rose
+    'legal_status': '#a855f7',  // Violet / Purple
+    'default': '#3b82f6'        // Blue
+};
+
+const KG_CATEGORY_NAMES = {
+    'authority': 'Орган / Компетенция',
+    'instance': 'Инстанция / Звено',
+    'condition': 'Условие / Основание',
+    'exception': 'Исключение / Изъятие',
+    'legal_status': 'Правовой статус'
+};
+
+function getKgNodeColor(category) {
+    return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
+}
+
+window.openKnowledgeGraphModal = function(targetSubject) {
+    const sub = targetSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    currentKgSubject = sub;
+
+    const modal = document.getElementById('knowledge-graph-modal');
+    if (!modal) return;
+    
+    modal.classList.remove('hidden');
+
+    const badge = document.getElementById('kg-subject-badge');
+    if (badge) badge.textContent = sub.toUpperCase();
+
+    // Default to tree view initially
+    switchKgView('tree');
+    loadKnowledgeGraph(sub);
+};
+
+window.closeKnowledgeGraphModal = function() {
+    const modal = document.getElementById('knowledge-graph-modal');
+    if (modal) modal.classList.add('hidden');
+    closeKgNodeDrawer();
+};
+
+window.switchKgView = function(viewType) {
+    currentKgView = viewType;
+    const treeView = document.getElementById('kg-tree-view');
+    const graphView = document.getElementById('kg-graph-view');
+    const tabTree = document.getElementById('kg-tab-tree');
+    const tabGraph = document.getElementById('kg-tab-graph');
+
+    if (viewType === 'tree') {
+        if (treeView) treeView.classList.remove('hidden');
+        if (graphView) graphView.classList.add('hidden');
+        if (tabTree) {
+            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
+        }
+        if (tabGraph) {
+            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-400 hover:text-neutral-200 flex items-center gap-1";
+        }
+    } else {
+        if (treeView) treeView.classList.add('hidden');
+        if (graphView) graphView.classList.remove('hidden');
+        if (tabTree) {
+            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-400 hover:text-neutral-200 flex items-center gap-1";
+        }
+        if (tabGraph) {
+            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
+        }
+
+        // Initialize or resize 2D Canvas Force Graph
+        if (currentKgGraphData) {
+            setTimeout(() => {
+                initForceGraph(currentKgGraphData);
+            }, 50);
+        }
+    }
+};
+
+window.loadKnowledgeGraph = async function(subject) {
+    const loading = document.getElementById('kg-loading');
+    const emptyState = document.getElementById('kg-empty-state');
+    const treeView = document.getElementById('kg-tree-view');
+    const countBadge = document.getElementById('kg-node-count-badge');
+
+    if (loading) loading.classList.remove('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
+    closeKgNodeDrawer();
+
+    try {
+        const res = await apiFetch(`/api/knowledge-graph?subject=${encodeURIComponent(subject)}`);
+        if (!res.ok) {
+            // Check if 404
+            if (emptyState) emptyState.classList.remove('hidden');
+            if (treeView) treeView.innerHTML = '';
+            if (countBadge) countBadge.textContent = '0 узлов';
+            currentKgGraphData = null;
+            currentKgTreeData = null;
+            return;
+        }
+
+        const data = await res.json();
+        currentKgGraphData = data.graph_data;
+        currentKgTreeData = data.tree_data;
+
+        const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
+        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
+
+        if (nodesCount === 0) {
+            if (emptyState) emptyState.classList.remove('hidden');
+            if (treeView) treeView.innerHTML = '';
+            return;
+        }
+
+        // Render DOM Mindmap Tree
+        if (treeView) {
+            treeView.innerHTML = '';
+            if (currentKgTreeData) {
+                renderKnowledgeTreeNode(currentKgTreeData, treeView, 0);
+            } else if (currentKgGraphData.nodes.length > 0) {
+                // Fallback: render flat cards if tree_data wasn't generated
+                currentKgGraphData.nodes.forEach(node => {
+                    renderKnowledgeTreeNode(node, treeView, 0);
+                });
+            }
+        }
+
+        // If currently in graph view, render canvas
+        if (currentKgView === 'graph') {
+            setTimeout(() => {
+                initForceGraph(currentKgGraphData);
+            }, 50);
+        }
+
+    } catch (e) {
+        console.error("Сбой загрузки каркаса знаний:", e);
+        if (emptyState) emptyState.classList.remove('hidden');
+    } finally {
+        if (loading) loading.classList.add('hidden');
+    }
+};
+
+window.loadSeedOrDemoGraph = async function() {
+    currentKgSubject = 'sudoustroystvo';
+    const badge = document.getElementById('kg-subject-badge');
+    if (badge) badge.textContent = 'SUDOUSTROYSTVO';
+    await loadKnowledgeGraph('sudoustroystvo');
+};
+
+function renderKnowledgeTreeNode(node, container, depth) {
+    if (!node) return;
+
+    const nodeWrapper = document.createElement('div');
+    nodeWrapper.className = depth === 0 ? "mb-3" : "tree-branch-container my-1.5";
+
+    const hasChildren = node.children && node.children.length > 0;
+    const cat = node.category || 'authority';
+    const badgeClass = `badge-${cat}`;
+    const catLabel = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
+
+    const card = document.createElement('div');
+    card.className = "tree-node-card p-3 rounded-xl bg-surface-container-lowest border border-neutral-800 hover:border-neutral-600 transition-all flex items-start justify-between gap-2.5 cursor-pointer shadow-sm select-none";
+    
+    card.innerHTML = `
+        <div class="flex items-start gap-2.5 min-w-0">
+            ${hasChildren ? `
+                <button class="tree-toggle-btn text-neutral-400 hover:text-white p-0.5 mt-0.5 rounded transition-transform duration-200" title="Свернуть/Развернуть">
+                    <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
+                </button>
+            ` : `
+                <span class="w-1.5 h-1.5 rounded-full bg-neutral-600 mt-2 ml-1 shrink-0"></span>
+            `}
+            <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-xs sm:text-sm text-neutral-100 font-mono">${escapeHTML(node.name || node.id)}</span>
+                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${badgeClass}">${escapeHTML(catLabel)}</span>
+                </div>
+                ${node.summary ? `
+                    <p class="text-[11px] text-neutral-400 leading-snug mt-1 font-sans line-clamp-2">${escapeHTML(node.summary)}</p>
+                ` : ''}
+            </div>
+        </div>
+        <button class="text-neutral-500 hover:text-cyan-400 p-1 shrink-0 rounded transition-colors" title="Подробнее">
+            <span class="material-symbols-outlined text-[16px]">info</span>
+        </button>
+    `;
+
+    // Click on node card opens drawer
+    card.onclick = (e) => {
+        // If clicked on toggle button, handle collapse/expand
+        if (e.target.closest('.tree-toggle-btn')) {
+            e.stopPropagation();
+            const btn = e.target.closest('.tree-toggle-btn');
+            const childrenWrapper = nodeWrapper.querySelector('.tree-children-container');
+            if (childrenWrapper) {
+                const isHidden = childrenWrapper.classList.toggle('hidden');
+                btn.style.transform = isHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
+            }
+            return;
+        }
+        showKgNodeDrawer(node);
+    };
+
+    nodeWrapper.appendChild(card);
+
+    // Recursively render children
+    if (hasChildren) {
+        const childrenContainer = document.createElement('div');
+        childrenContainer.className = "tree-children-container";
+        node.children.forEach(child => {
+            renderKnowledgeTreeNode(child, childrenContainer, depth + 1);
+        });
+        nodeWrapper.appendChild(childrenContainer);
+    }
+
+    container.appendChild(nodeWrapper);
+}
+
+window.initForceGraph = function(graphData) {
+    const wrapper = document.getElementById('kg-graph-canvas-wrapper');
+    if (!wrapper || !window.ForceGraph) return;
+
+    // Check width/height
+    const width = wrapper.clientWidth || window.innerWidth;
+    const height = wrapper.clientHeight || (window.innerHeight - 120);
+
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return;
+
+    // Prepare clean data
+    const nodes = graphData.nodes.map(n => ({
+        id: n.id,
+        name: n.name || n.id,
+        category: n.category || 'authority',
+        summary: n.summary || '',
+        val: n.level === 0 ? 12 : (n.level === 1 ? 8 : 5)
+    }));
+
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const links = (graphData.edges || [])
+        .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+        .map(e => ({
+            source: e.source,
+            target: e.target,
+            relation: e.relation || '',
+            label: e.label || ''
+        }));
+
+    // If graph already initialized, reuse and update data
+    if (currentForceGraphInstance) {
+        currentForceGraphInstance.width(width).height(height);
+        currentForceGraphInstance.graphData({ nodes, links });
+        currentForceGraphInstance.zoomToFit(400, 40);
+        return;
+    }
+
+    wrapper.innerHTML = '';
+
+    currentForceGraphInstance = ForceGraph()(wrapper)
+        .width(width)
+        .height(height)
+        .backgroundColor('#0c0d12')
+        .graphData({ nodes, links })
+        .nodeId('id')
+        .nodeVal('val')
+        .nodeLabel(node => `${node.name} (${node.category})`)
+        .linkColor(() => 'rgba(100, 116, 139, 0.4)')
+        .linkWidth(1.5)
+        .linkDirectionalParticles(2)
+        .linkDirectionalParticleSpeed(0.006)
+        .linkDirectionalParticleWidth(2)
+        .linkDirectionalParticleColor(() => '#38bdf8')
+        .cooldownTicks(90)
+        .nodeCanvasObject((node, ctx, globalScale) => {
+            const label = node.name || node.id;
+            const fontSize = Math.max(3.5, 12 / globalScale);
+            const radius = Math.max(3, (node.val || 5));
+
+            const color = getKgNodeColor(node.category);
+
+            // Node body
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // Glow border
+            ctx.lineWidth = 2 / globalScale;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            // Text label
+            if (globalScale >= 0.6) {
+                ctx.font = `${fontSize}px Inter, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = '#f1f5f9';
+                ctx.fillText(label, node.x, node.y + radius + 3);
+            }
+        })
+        .nodePointerAreaPaint((node, color, ctx) => {
+            const radius = Math.max(4, (node.val || 5)) + 4;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+            ctx.fill();
+        })
+        .onNodeClick(node => {
+            showKgNodeDrawer(node);
+        });
+
+    // Resize on window resize
+    window.addEventListener('resize', () => {
+        if (currentForceGraphInstance && currentKgView === 'graph') {
+            const w = wrapper.clientWidth || window.innerWidth;
+            const h = wrapper.clientHeight || (window.innerHeight - 120);
+            currentForceGraphInstance.width(w).height(h);
+        }
+    });
+
+    setTimeout(() => {
+        if (currentForceGraphInstance) {
+            currentForceGraphInstance.zoomToFit(400, 40);
+        }
+    }, 400);
+};
+
+window.zoomGraph = function(factor) {
+    if (!currentForceGraphInstance) return;
+    const currentZoom = currentForceGraphInstance.zoom();
+    currentForceGraphInstance.zoom(currentZoom * factor, 300);
+};
+
+window.resetGraphZoom = function() {
+    if (!currentForceGraphInstance) return;
+    currentForceGraphInstance.zoomToFit(400, 30);
+};
+
+window.showKgNodeDrawer = function(node) {
+    const drawer = document.getElementById('kg-node-drawer');
+    const badge = document.getElementById('kg-drawer-badge');
+    const title = document.getElementById('kg-drawer-title');
+    const summary = document.getElementById('kg-drawer-summary');
+    const linksContainer = document.getElementById('kg-drawer-links');
+    const linksSection = document.getElementById('kg-drawer-links-section');
+
+    if (!drawer) return;
+
+    const cat = node.category || 'authority';
+    if (badge) {
+        badge.className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 badge-${cat}`;
+        badge.textContent = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
+    }
+    if (title) title.textContent = node.name || node.id;
+    if (summary) summary.textContent = node.summary || 'Детальное описание и законодательное основание отсутствуют.';
+
+    // Populate links if graph data available
+    if (linksContainer && currentKgGraphData && currentKgGraphData.edges) {
+        linksContainer.innerHTML = '';
+        const connectedEdges = currentKgGraphData.edges.filter(e => e.source === node.id || e.target === node.id);
+        
+        if (connectedEdges.length > 0) {
+            if (linksSection) linksSection.classList.remove('hidden');
+            connectedEdges.forEach(e => {
+                const isOut = e.source === node.id;
+                const otherId = isOut ? e.target : e.source;
+                const otherNode = currentKgGraphData.nodes.find(n => n.id === otherId);
+                const otherName = otherNode ? otherNode.name : otherId;
+                const arrow = isOut ? '→' : '←';
+                const relationLabel = e.label || e.relation || 'связь';
+
+                const chip = document.createElement('div');
+                chip.className = "px-2 py-1 bg-neutral-900 border border-neutral-700 rounded-lg text-[11px] font-mono text-neutral-300 flex items-center gap-1 hover:border-cyan-400 cursor-pointer transition-colors";
+                chip.innerHTML = `<span class="text-cyan-400 font-bold">${arrow} ${escapeHTML(relationLabel)}:</span> <span>${escapeHTML(otherName)}</span>`;
+                chip.onclick = () => {
+                    if (otherNode) showKgNodeDrawer(otherNode);
+                };
+                linksContainer.appendChild(chip);
+            });
+        } else {
+            if (linksSection) linksSection.classList.add('hidden');
+        }
+    }
+
+    drawer.classList.remove('hidden');
+};
+
+window.closeKgNodeDrawer = function() {
+    const drawer = document.getElementById('kg-node-drawer');
+    if (drawer) drawer.classList.add('hidden');
+};
+
+
+/* ==========================================================================
+   MILESTONE 4: INTERACTIVE PRACTICE MODULE CONTROLLER (R5)
+   ========================================================================== */
+
+let practiceItems = [];
+let practiceCurrentIndex = 0;
+let practiceScore = 0;
+let practiceAnswerSubmitted = false;
+
+window.openPracticeModal = function(targetSubject) {
+    const modal = document.getElementById('practice-modal');
+    if (!modal) return;
+
+    const sub = targetSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const badge = document.getElementById('practice-subject-badge');
+    if (badge) badge.textContent = sub.toUpperCase();
+
+    modal.classList.remove('hidden');
+    startPracticeSession(sub);
+};
+
+window.closePracticeModal = function() {
+    const modal = document.getElementById('practice-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.startPracticeSession = async function(customSub) {
+    const sub = customSub || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    
+    const loading = document.getElementById('practice-loading');
+    const cardContainer = document.getElementById('practice-card-container');
+    const finishScreen = document.getElementById('practice-finish-screen');
+
+    if (loading) loading.classList.remove('hidden');
+    if (cardContainer) cardContainer.classList.remove('hidden');
+    if (finishScreen) finishScreen.classList.add('hidden');
+
+    practiceItems = [];
+    practiceCurrentIndex = 0;
+    practiceScore = 0;
+    practiceAnswerSubmitted = false;
+
+    try {
+        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=10`);
+        if (res.ok) {
+            practiceItems = await res.json();
+        }
+
+        // Fallback to sudoustroystvo if empty
+        if (!practiceItems || practiceItems.length === 0) {
+            const fallbackRes = await apiFetch(`/api/practice/session?subject=sudoustroystvo&count=10`);
+            if (fallbackRes.ok) {
+                practiceItems = await fallbackRes.json();
+            }
+        }
+
+        if (!practiceItems || practiceItems.length === 0) {
+            alert("Не удалось загрузить задания практики для этого предмета.");
+            closePracticeModal();
+            return;
+        }
+
+        renderPracticeQuestion();
+
+    } catch (e) {
+        console.error("Сбой запуска практики:", e);
+        alert("Ошибка сети при подготовке практических заданий.");
+        closePracticeModal();
+    } finally {
+        if (loading) loading.classList.add('hidden');
+    }
+};
+
+function renderPracticeQuestion() {
+    if (practiceCurrentIndex >= practiceItems.length) {
+        showPracticeFinish();
+        return;
+    }
+
+    const item = practiceItems[practiceCurrentIndex];
+    practiceAnswerSubmitted = false;
+
+    // Counters
+    const curStep = document.getElementById('practice-current-step');
+    const totStep = document.getElementById('practice-total-step');
+    if (curStep) curStep.textContent = practiceCurrentIndex + 1;
+    if (totStep) totStep.textContent = practiceItems.length;
+
+    // Type badge
+    const typeBadge = document.getElementById('practice-item-type-badge');
+    if (typeBadge) {
+        const typeLabels = {
+            'situational': '⚖️ СИТУАЦИОННЫЙ КЕЙС',
+            'contrast_pair': '⚖️ КОНТРАСТНАЯ ПАРА',
+            'slot_filling': '📝 ЗАПОЛНЕНИЕ ПРОПУСКА'
+        };
+        typeBadge.textContent = typeLabels[item.type] || 'ПРАКТИЧЕСКИЙ КЕЙС';
+    }
+
+    // Prompt
+    const promptEl = document.getElementById('practice-prompt');
+    if (promptEl) promptEl.textContent = item.prompt;
+
+    // Hide feedback container
+    const feedbackBox = document.getElementById('practice-feedback-container');
+    if (feedbackBox) feedbackBox.classList.add('hidden');
+
+    // Render options
+    const optionsContainer = document.getElementById('practice-options-list');
+    if (!optionsContainer) return;
+    optionsContainer.innerHTML = '';
+
+    const letters = ['A', 'B', 'C', 'D', 'E'];
+    item.options.forEach((optText, idx) => {
+        const btn = document.createElement('button');
+        btn.className = "practice-option-btn w-full p-3.5 rounded-xl bg-surface-container-lowest border border-neutral-800 hover:border-neutral-600 transition-all text-left flex items-start gap-3 cursor-pointer select-none text-xs sm:text-sm text-neutral-200";
+        btn.innerHTML = `
+            <span class="w-6 h-6 rounded-lg bg-neutral-800/80 border border-neutral-700/80 text-neutral-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                ${letters[idx] || (idx + 1)}
+            </span>
+            <span class="leading-snug pt-0.5">${escapeHTML(optText)}</span>
+        `;
+
+        btn.onclick = () => {
+            selectPracticeOption(item.id, optText, btn);
+        };
+
+        optionsContainer.appendChild(btn);
+    });
+}
+
+async function selectPracticeOption(itemId, selectedText, clickedBtn) {
+    if (practiceAnswerSubmitted) return;
+    practiceAnswerSubmitted = true;
+
+    // Disable all option buttons
+    const allButtons = document.querySelectorAll('#practice-options-list button');
+    allButtons.forEach(b => {
+        b.disabled = true;
+        b.classList.remove('hover:border-neutral-600', 'cursor-pointer');
+    });
+
+    clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
+
+    try {
+        const res = await apiFetch('/api/practice/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                item_id: itemId,
+                selected_answer: selectedText
+            })
+        });
+
+        if (!res.ok) {
+            alert("Ошибка верификации ответа.");
+            return;
+        }
+
+        const data = await res.json();
+        
+        // Remove spinner
+        const spinner = clickedBtn.querySelector('.animate-spin');
+        if (spinner) spinner.remove();
+
+        const isCorrect = data.correct;
+        if (isCorrect) {
+            practiceScore++;
+            clickedBtn.classList.add('practice-option-correct');
+            if (window.Telegram?.WebApp?.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            }
+        } else {
+            clickedBtn.classList.add('practice-option-wrong');
+            if (window.Telegram?.WebApp?.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+            }
+
+            // Highlight authoritative correct answer button
+            allButtons.forEach(b => {
+                const textSpan = b.querySelectorAll('span')[1];
+                if (textSpan && textSpan.textContent.trim() === data.correct_answer.trim()) {
+                    b.classList.add('practice-option-correct');
+                }
+            });
+        }
+
+        // Show feedback container
+        const feedbackContainer = document.getElementById('practice-feedback-container');
+        const statusEl = document.getElementById('practice-feedback-status');
+        const goldBox = document.getElementById('practice-gold-standard-box');
+        const goldText = document.getElementById('practice-gold-standard-text');
+        const explText = document.getElementById('practice-explanation-text');
+
+        if (statusEl) {
+            if (isCorrect) {
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-400";
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
+            } else {
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-400";
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
+            }
+        }
+
+        if (goldBox && goldText) {
+            if (data.gold_standard) {
+                goldBox.classList.remove('hidden');
+                goldText.textContent = data.gold_standard;
+            } else {
+                goldBox.classList.add('hidden');
+            }
+        }
+
+        if (explText) {
+            explText.textContent = data.explanation || 'Обоснование отсутствует.';
+        }
+
+        if (feedbackContainer) {
+            feedbackContainer.classList.remove('hidden');
+            feedbackContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+    } catch (e) {
+        console.error("Сбой проверки ответа:", e);
+        alert("Ошибка сети при проверке ответа.");
+    }
+}
+
+window.nextPracticeQuestion = function() {
+    practiceCurrentIndex++;
+    renderPracticeQuestion();
+};
+
+function showPracticeFinish() {
+    const cardContainer = document.getElementById('practice-card-container');
+    const finishScreen = document.getElementById('practice-finish-screen');
+    const scoreEl = document.getElementById('practice-finish-score');
+    const msgEl = document.getElementById('practice-finish-message');
+
+    if (cardContainer) cardContainer.classList.add('hidden');
+    if (finishScreen) finishScreen.classList.remove('hidden');
+
+    const total = practiceItems.length;
+    const percent = total > 0 ? Math.round((practiceScore / total) * 100) : 0;
+
+    if (scoreEl) {
+        scoreEl.textContent = `${practiceScore} / ${total} (${percent}%)`;
+    }
+
+    if (msgEl) {
+        if (percent >= 80) {
+            msgEl.textContent = "Превосходно! Вы безошибочно различаете правовые режимы, звенья инстанций и водоразделы.";
+        } else if (percent >= 50) {
+            msgEl.textContent = "Хороший результат. Рекомендуем повторить спорные узлы через Каркас знаний или колоду FSRS.";
+        } else {
+            msgEl.textContent = "Материал требует закрепления. Изучите структуру понятий в Каркасе знаний перед следующей практикой.";
+        }
+    }
+}

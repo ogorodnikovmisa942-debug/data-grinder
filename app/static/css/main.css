@@ -145,3 +145,61 @@ html, body {
 .dark .cloze-revealed {
     color: #34d399;
 }
+
+/* ==========================================================================
+   HYBRID CONCEPT VISUALIZER & OBSIDIAN GRAPH (M4)
+   ========================================================================== */
+#kg-graph-canvas-wrapper {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    touch-action: none;
+    overscroll-behavior: none;
+    background: #0a0b10;
+}
+
+.badge-authority { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+.badge-instance { background: rgba(6, 182, 212, 0.15); color: #38bdf8; border: 1px solid rgba(6, 182, 212, 0.4); }
+.badge-condition { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+.badge-exception { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.4); }
+.badge-legal_status { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+
+.tree-node-card {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.tree-node-card:active {
+    transform: scale(0.985);
+}
+
+.tree-branch-container {
+    position: relative;
+    padding-left: 1.25rem;
+    border-left: 2px solid rgba(150, 150, 150, 0.2);
+    margin-left: 0.75rem;
+}
+
+/* ==========================================================================
+   INTERACTIVE PRACTICE MODULE (M3 & R5)
+   ========================================================================== */
+.practice-option-btn {
+    transition: all 0.15s ease-out;
+}
+.practice-option-btn:active {
+    transform: scale(0.98);
+}
+.practice-option-correct {
+    background-color: rgba(16, 185, 129, 0.18) !important;
+    border-color: #10b981 !important;
+    color: #059669 !important;
+}
+.dark .practice-option-correct {
+    color: #34d399 !important;
+}
+.practice-option-wrong {
+    background-color: rgba(244, 63, 94, 0.18) !important;
+    border-color: #f43f5e !important;
+    color: #e11d48 !important;
+}
+.dark .practice-option-wrong {
+    color: #fb7185 !important;
+}
