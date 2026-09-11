@@ -223,9 +223,11 @@ def clean_graph_data(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], 
         except (ValueError, TypeError):
             level = 0
 
+        name_val = str(n.get("name") or n.get("label") or node_id).strip()
         clean_nodes.append({
             "id": node_id,
-            "name": str(n.get("name", node_id)).strip(),
+            "name": name_val,
+            "label": name_val,
             "category": cat,
             "summary": str(n.get("summary", "")).strip(),
             "parent_id": parent_id,
@@ -317,7 +319,7 @@ def consolidate_knowledge_graphs(
         if not isinstance(item, dict):
             continue
 
-        raw_name = (item.get("name") or item.get("n") or "").strip()
+        raw_name = (item.get("name") or item.get("label") or item.get("n") or item.get("title") or "").strip()
         raw_id = (item.get("id") or "").strip()
         raw_cat = (item.get("category") or item.get("c") or "authority").strip().lower()
         raw_summary = (item.get("summary") or item.get("s") or item.get("desc") or "").strip()
@@ -392,6 +394,7 @@ def consolidate_knowledge_graphs(
             node_record = {
                 "id": assigned_id,
                 "name": raw_name,
+                "label": raw_name,
                 "category": clean_category,
                 "summary": raw_summary or f"{raw_name}.",
                 "parent_id": str(raw_parent).strip() if raw_parent else None,

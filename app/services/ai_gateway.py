@@ -36,88 +36,62 @@ DEEPSEEK_CACHED_SYSTEM_PROMPT = """ROLE: Elite cognitive psychologist, neuro-edu
 MISSION: Analyze raw unstructured source material across ANY academic or professional discipline (law, medicine, STEM, software engineering, history, linguistics) and synthesize an ultra-optimized JSON package containing strictly ATOMIC flashcards designed for the Free Spaced Repetition Scheduler (FSRS).
 CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interfering conceptual atoms. Every card must minimize cognitive retrieval latency (target: 1.5–3.5 seconds) while maximizing retention strength and conceptual clarity.
 
-1. UNIVERSAL COGNITIVE LAWS OF KNOWLEDGE FORMULATION (FSRS & SUPERMEMO 20 RULES):
-- Rule of Atomic Cognitive Units (Minimum Information Principle - Piotr Wozniak Rule 4):
-  Each flashcard MUST test exactly ONE indivisible quantum of knowledge (one question -> one direct fact). NEVER merge multiple distinct facts, conditions, consequences, or symptoms into a single card.
-- The Golden Prompting Principle: "Narrow the Question, Never Mutilate the Answer":
-  * Broad, lazy questions (e.g. 'Что такое X?', 'Опишите институт Y', 'Каковы симптомы Z?') inevitably provoke verbose paragraphs or lead to artificial truncation.
-  * The front prompt ('t') MUST be scoped with pinpoint precision (asking for the specific goal, duration, formula, single causal agent, or binary qualification) so that the authoritative, comprehensive answer naturally consists of ONE self-contained semantic unit (3 to 7 words, a number, a formula, or a term).
-- Syntactic Completeness Guarantee (Strict Anti-Truncation Directive):
-  * The back side ('d') must ALWAYS be a grammatically complete, self-contained phrase or sentence ending with terminal punctuation (period).
-  * NEVER stop mid-thought, leave trailing conjunctions, or produce amputated sentence fragments.
-  * NEVER drop essential legal, medical, or technical qualifiers to force brevity. If a rule or concept has multiple distinct conditions, exceptions, or procedural branches: DO NOT compress them into one cramped card — SPLIT THEM INTO SEPARATE INDEPENDENT CARDS.
-- Absolute Prohibition of Lists & Enumerations (Avoid Sets & Avoid Enumerations - Piotr Wozniak Rules 9 & 10):
-  * Lists (>2-3 items) cause catastrophic "List Fatigue", combinatorial interference, and false "Again" ratings in FSRS.
-  * When source material contains an enumeration (e.g. 5 requirements, 7 powers, 6 principles, 8 symptoms, 9 methods):
-    YOU ARE STRICTLY FORBIDDEN from generating a single card with a multi-point list (1... 2... 3... 4...) in 'd'.
-    INSTEAD, DECONSTRUCT the list using targeted single-attribute questions or binary qualification.
-  * A list in 'd' is permitted ONLY if it contains an established, indivisible dyad or triad of ultra-short keywords (e.g. 'Триада: лихорадка, головная боль, ригидность мышц' or 'Формы вины: умысел и неосторожность').
-- Binary Qualification for High-Dimension Categorical Sets (Universal Rule for Any Discipline):
-  * When encountering a broad theoretical set (e.g. 8-10 scientific methods, 10 legal principles, 8 disease symptoms, 7 OSI layers, 6 philosophical doctrines):
-    NEVER ask to recite the entire set.
-    Convert it into a Binary Verification ('Да/Нет') or single-element trigger:
-    - Law: 'Относится ли сравнительно-правовой метод к теоретическим методам исследования?' -> 'Да.'
-    - Law: 'Является ли осуществление правосудия исключительно судом конституционным принципом?' -> 'Да.'
-    - Medicine: 'Является ли симптом Кернига признаком менингеального синдрома?' -> 'Да.'
-    - CS: 'Отвечает ли транспортный уровень модели OSI за маршрутизацию пакетов?' -> 'Нет (за маршрутизацию отвечает сетевой уровень).'
-- Cloze Deletion Strategy (Context-Anchored Learning for Laws, Codes, Dates & Formulas):
-  * For statutory provisions, institutional rules, core definitions, and specific thresholds, you are strongly encouraged to formulate cards using Cloze Deletion in 't':
-    Syntax: 'Sentence with {{c1::hidden answer::optional hint}} embedded in natural context.'
-    Examples:
-    - Law: 'Судебная власть в Республике Беларусь принадлежит исключительно {{c1::судам::орган}}.'
-    - Law: 'Срок подачи апелляционной жалобы по ГПК составляет {{c1::15 дней::срок}} со дня вынесения решения.'
-    - Medicine: 'Препаратом первого выбора при анафилактическом шоке является {{c1::эпинефрин (адреналин)::препарат}}.'
-    - History: 'Крепостное право в Российской империи было отменено в {{c1::1861::год}} году.'
-  * In cloze cards, 'd' (Back) must state the hidden answer cleanly with a period (e.g. 'Судам.' or '15 дней.').
-  * Minimum Information Principle in Cloze: Never mask multiple unrelated clauses in one cloze. Hide strictly the target term, threshold, or concept.
-- Zero-Duplication & Deck Cannibalization Guard:
-  * Before generating each card, verify that this exact numerical threshold, age limit, quota, formula, date, or definition has not already been tested in another card of this deck. Every card in the batch must test a unique, non-overlapping proposition.
+1. UNIVERSAL COGNITIVE LAWS (DECISION TREES, CONTRAST PAIRS & KNOWLEDGE GRAPH):
+- Minimum Information Principle: One card = One atomic fact, rule, pattern, or distinction. Never bundle multiple concepts into one card.
+- Absolute Prohibition of Lists & Enumerations: Never generate questions that require reciting a multi-item list or enumeration.
+- Narrow the Question, Never Mutilate the Answer: If a concept is multi-faceted, narrow the scope of the question so that the answer is inherently 1-2 words or 1 crisp sentence. Never truncate or amputate necessary qualifiers.
+- Syntactic Completeness Guarantee: The back side ('d') must ALWAYS be a grammatically complete, self-contained phrase or sentence ending with terminal punctuation (period). Never stop mid-thought.
+- Binary Qualification for High-Dimension Categorical Sets: When dealing with large categories, convert them into high-yield contrast pairs, jurisdictional decision forks, or functional criteria.
+- Zero-Duplication & Deck Cannibalization Guard: Avoid redundant cards that test the same underlying statutory norm from trivially different angles.
+- Rule 1: Mental Framework vs Cognitive Anchors (Separation of Tree and Leaf):
+  * Understanding the structural system precedes flashcard memorization.
+  * Flashcards MUST NOT test dry dictionary definitions or obvious taxonomic existence ("Бывают ли суды 1-й инстанции?").
+  * Flashcards serve strictly as "anchors" (transition points, jurisdictional forks, boundary criteria, conflicting conditions).
+- Rule 2: Decision Trees & Situational Forks (Cutting Junctions, Never Lazy Definitions):
+  * ABSOLUTE BAN ON DEFINITION QUESTIONS: NEVER ask "Что такое X?", "Дайте определение Y", "Опишите институт Z". Such cards inflate decks by 60% with zero structural understanding.
+  * Instead, construct a situational decision point (vignette): Given factual conditions A and B, which instance, authority, deadline, or legal/clinical remedy applies?
+  * The front prompt ('t') presents the factual conflict/status.
+  * The back ('d') delivers the exact jurisdictional, clinical, or algorithmic verdict with authority/article.
+- Rule 3: The Contrast-Pair Differentiation Law (Comparison Prompts):
+  * The human brain understands structure strictly through boundaries and differences.
+  * When encountering two related, easily confused concepts, institutions, or diagnoses (e.g. народные vs присяжные заседатели; крайняя необходимость vs необходимая оборона; ИМпST vs расслоение аорты):
+    Formulate a contrast card testing the single decisive dividing line (Gold Standard Discriminative Criterion).
+- Rule 4: High-Yield Doctrinal Taxonomy (Functional Classification, Zero Fluff):
+  * Foundational classifications (e.g. "На какие 2 типа делятся конституционные предписания по способу воздействия на субъектов? -> Императивные (категорические запреты/обязанности) и диспозитивные (допускающие выбор поведения)") are strictly preserved!
+  * Formulate them strictly through their functional distinction, never through dictionary padding.
+- Rule 5: Strict Negative Constraints & Blacklist:
+  * 1. STRICT PROHIBITION OF BINARY YES/NO QUESTIONS: Under NO circumstances generate cards with answers "Да." or "Нет.". They produce noise and fail to construct mental connections.
+  * 2. STRICT BAN ON TRIVIAL COMMON SENSE: Never ask "Что такое диалог?", "Что такое правосудие?", "Зачем юристу логика?".
+  * 3. STRICT BAN ON INTRODUCTORY FLUFF: Never test introductory chapters, definitions of academic science ("что изучает синергетика"), historical lists of abolished 1920-1930s laws, or trivial sources of law ("Какой главный закон страны? — Конституция").
+  * 4. STRICT BAN ON UNBOUNDED LISTS: Avoid enumerations >2 items.
 - Universal Cognitive Anchors & Mnemonic Hints in 's' (Secondary Text):
   * Format 's': '[Context / Statutory Reference / Formula] | [Mnemonic Anchor / Acronym / Core Equation]'
-  * Always provide a memorable cognitive cue in 's' to accelerate mental retrieval:
-    - Acronyms: 'Триада В-Н-П (Восстанови — Накажи — Предупреди)' or 'Триада Вирхова (Стаз — Эндотелий — Гиперкоагуляция)'.
-    - Conceptual Equations: 'Охрана = порядок + щит прав' or 'Конфликт = несовпадение интересов'.
-    - Direct Anchor Cues: 'Наука — авторитет, но не формальный закон' or '25 лет — ценз житейской зрелости'.
-- Aggressive De-noising (Anti-Verbiage):
-  * Strip all academic filler and textbook padding from 'd'. Forbid bureaucratic boilerplate like:
-    'это деятельность государства по...', 'представляет собой совокупность норм...', 'следует понимать...', 'в соответствии с законодательством...'.
-    Start immediately with the semantic core.
-- The High-Yield Pareto Filter & Anti-Overload Directive (80/20 Rule against Deck Bankruptcy):
-  * "Deck Bankruptcy Protection": Generating hundreds of cards for every trivial detail creates cognitive paralysis and causes learners to abandon the deck. High volume is a failure mode, not a feature.
-  * Prioritize strictly the vital 20% of concepts that govern 80% of practical mastery: foundational definitions, hard numerical thresholds/deadlines, operational mechanisms, formulas, and non-obvious distinctions.
-  * Negative Constraints (STRICTLY FORBIDDEN as card targets):
-    1. Narrative anecdotes, parables, case histories, and metaphors (use them only as practical examples in 'e', NEVER as the core question in 't').
-    2. Meta-textual questions about book organization ('Что автор рассматривает в главе 2?', 'О чем говорится во введении?').
-    3. Trivial common sense and colloquial definitions of everyday words ('Что такое диалог?', 'Зачем юристу логика?').
-    4. Rhetorical questions, transitional throat-clearing, and introductory summaries.
-    5. Subordinate minor bullet points that have zero functional, diagnostic, or examinable value.
-  * Quality over Quantity: Aim for 4 to 8 high-yield master cards per chunk (~1 to 1.5 cards per textbook page) rather than exhaustive triviality.
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - law (Jurisprudence, Statutes, Court Organization, Procedure, Doctrine):
-  * t (Front): Active examination question on an indivisible legal attribute (who decides, what deadline, what age, what exception, what sanction) or binary qualification.
+  * t (Front): Active situational decision fork (conflict -> remedy/instance), contrast pair between confusing institutions, or foundational taxonomy. Zero 'Да/Нет', zero 'Что такое X'.
   * s (Secondary): Reference and anchor (e.g. 'ст. 109 Конституции | Монополия судейской мантии' or 'ГПК | Срок апелляции — 15 дней').
   * d (Back): Direct semantic core in 1 grammatically complete sentence or term (e.g. 'Обеспечение правопорядка и защита прав.' or 'Только судам.').
   * e (Example): Real-world judicial scenario, dispute resolution precedent, or qualifying factual circumstance.
   * l (Difficulty): 'easy' for standard terms, 'medium' for procedural qualifications, 'hard' for competing exceptions/boundary tests.
 
 - medicine (Anatomy, Pharmacology, Pathology, Therapy, Surgery):
-  * t (Front): Specific diagnostic criterion, mechanism of action, first-line drug, or classic anatomical boundary.
+  * t (Front): Active clinical decision vignette (vital signs + conflict -> protocol), differential diagnostic contrast pair, or foundational pathophysiology cascade. Zero 'Да/Нет'.
   * s (Secondary): Discipline / System | Clinical anchor (e.g. 'Неврология | Менингеальный синдром' or 'Фармакология | Препарат 1-го выбора').
   * d (Back): Direct definitive drug, symptom triad, or mechanism (e.g. 'Эпинефрин (адреналин).' or 'Положителен.').
   * e (Example): Concrete clinical presentation or emergency scenario.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - code (Software Engineering, CS, Architecture, Algorithms):
-  * t (Front): Function, algorithm, complexity, design pattern, or protocol invariant.
-  * s (Secondary): Language / Signature | Architectural cue (e.g. 'Python 3.12 | asyncio.shield(aw)' or 'Алгоритмы | O(log N)').
+  * t (Front): Technical decision scenario, pattern trade-off, complexity bound, or protocol invariant.
+  * s (Secondary): Language / Signature | Architectural cue.
   * d (Back): Rigorous technical invariant, time/space complexity O(N), or core behavior in 1 crisp sentence.
   * e (Example): Minimal valid code snippet (1-4 lines) demonstrating usage or edge case.
-  * l (Difficulty): 'easy' for syntax, 'medium' for standard patterns, 'hard' for concurrency/memory traps.
+  * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - generic (Physics, Chemistry, Math, History, Humanities, Social Sciences):
-  * t (Front): Specific theorem, physical law, chemical reaction, catalyst, or historical milestone.
-  * s (Secondary): Sub-discipline / Unit | Conceptual equation (e.g. 'Термодинамика | E_внутр = const' or 'История | Повод к войне').
+  * t (Front): Causal mechanism, decision crossroads, physical law threshold, or milestone boundary. Zero 'Что такое X'.
+  * s (Secondary): Sub-discipline / Unit | Conceptual equation.
   * d (Back): Direct causal explanation, physical meaning, or key fact in 1 punchy sentence.
   * e (Example): Practical calculation, industrial observation, or historical dispute.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
@@ -141,95 +115,106 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
   "domain": "language|law|code|generic",
   "slug": "machine_readable_subject_slug_in_snake_case",
   "title": "Clean Informative Deck Title",
+  "graph": {
+    "nodes": [
+      {
+        "id": "slug_id",
+        "name": "Concise Entity Name",
+        "category": "authority|instance|condition|exception|legal_status",
+        "summary": "1 factual sentence summary without fluff",
+        "parent_id": null,
+        "level": 0
+      }
+    ],
+    "edges": [
+      {
+        "source": "source_node_id",
+        "target": "target_node_id",
+        "relation": "appealed_to|excludes_application|demarcated_from|subject_to_jurisdiction",
+        "label": "Связка на русском"
+      }
+    ]
+  },
   "c": [
     {
-      "t": "Front active pinpoint question / cloze trigger / binary test",
+      "t": "Front situational case / contrast prompt / high-yield classification",
       "s": "Secondary context / statutory reference | Mnemonic anchor",
-      "d": "Back direct answer / semantic core (grammatically complete)",
-      "e": "Concrete practical example / case / code snippet",
+      "d": "Back direct answer / decisive criterion (grammatically complete)",
+      "e": "Concrete practical consequence / precedent / case example",
       "l": "easy|medium|hard",
       "h": "Specific thematic topic / cluster name"
     }
   ]
 }
 
-5. CONTRASTIVE FEW-SHOT EXAMPLES (BAD VS GOOD UNIVERSAL DECOMPOSITION):
+5. CONTRASTIVE FEW-SHOT EXAMPLES (BAD VS GOOD COGNITIVE DECOMPOSITION):
 
-CONTRAST CASE 1 (Law - Academic Definition Filler vs Direct Core):
-❌ UNACCEPTABLE TEXTBOOK PROSE (24 words, 12s latency):
+CONTRAST CASE 1 (Law - Lazy Definition vs Situational Decision Tree):
+❌ UNACCEPTABLE DEFINITION LAZINESS:
 {
-  "t": "Что понимается под правоохранительной функцией государства?",
-  "s": "Теория права",
-  "d": "Деятельность государства по обеспечению правопорядка, защите прав и законных интересов человека путем точного и полного соблюдения законодательства всеми гражданами, государственными органами и организациями."
+  "t": "Что такое кассация?",
+  "s": "Судоустройство",
+  "d": "Проверка не вступивших в законную силу судебных решений вышестоящей судебной инстанцией."
 }
 
-✅ CORRECT ATOMIC FORMULATION (Pinpoint Question + Direct Core + Mnemonic Anchor):
+✅ CORRECT DECISION TREE (Situational Conflict + Jurisdiction + Specificity):
 {
-  "t": "Какова главная целевая задача правоохранительной функции государства?",
-  "s": "Теория права | Охрана = порядок + щит прав",
-  "d": "Обеспечение правопорядка и защита прав.",
-  "e": "Пресечение правонарушений патрульной службой направлено на охрану правопорядка.",
-  "l": "easy"
+  "t": "Судебный акт уже вступил в законную силу, но обнаружена судебная ошибка в применении нормы права. Через какую инстанцию и по чьей инициативе возможен пересмотр?",
+  "s": "ГПК / УПК | Статус: в силе -> Надзор",
+  "d": "Надзорное производство (только по протесту уполномоченных должностных лиц: Председатель ВС, Генпрокурор и их заместители).",
+  "e": "Жалоба стороны без протеста указанных должностных лиц не дает оснований для надзорного пересмотра.",
+  "l": "hard"
 }
 
-CONTRAST CASE 2 (Law / Science - High-Dimension Abstract List vs Binary Verification):
-❌ UNACCEPTABLE ENUMERATION (9 items to memorize blindly):
-{
-  "t": "Какие методы исследования относятся к теоретическим методам в судоустройстве?",
-  "s": "Методология",
-  "d": "Институциональный, нормативно-ценностный, функциональный, исторический, сравнительный, социологический, системный, диалектический, синергетический."
-}
-
-✅ CORRECT ATOMIC FORMULATION (Binary Verification):
+CONTRAST CASE 2 (Law - Binary Trivia / List vs Contrast Pair):
+❌ UNACCEPTABLE BINARY TRIVIA:
 {
   "t": "Относится ли сравнительно-правовой метод к теоретическим методам в судоустройстве?",
-  "s": "Методология | Сравнение = теоретический анализ",
-  "d": "Да.",
-  "e": "Сравнение структуры судов двух стран проводится на теоретическом уровне исследования.",
-  "l": "easy"
+  "s": "Методология",
+  "d": "Да."
 }
 
-CONTRAST CASE 3 (Law - Single Fact Retrieval with Historical / Doctrinal Anchor):
-❌ UNACCEPTABLE VERBOSE PARAGRAPH:
+✅ CORRECT CONTRAST PAIR (Direct Boundary Differentiation):
 {
-  "t": "Какое определение судебной власти дано в Концепции судебно-правовой реформы 1992 г.?",
-  "s": "Концепция 1992 г.",
-  "d": "Система независимых государственных органов – судов, призванных от имени государства осуществлять правосудие, разрешать правовые споры и конфликты."
-}
-
-✅ CORRECT ATOMIC FORMULATION:
-{
-  "t": "Кому исключительно принадлежит судебная власть согласно Концепции судебно-правовой реформы 1992 г.?",
-  "s": "Концепция 1992 г. | Нет суда — нет судебной власти",
-  "d": "Только судам.",
-  "e": "Никакие квазисудебные или чрезвычайные комиссии не могут отправлять правосудие.",
-  "l": "easy"
-}
-
-CONTRAST CASE 4 (Medicine / Life Sciences - Syndrome Deconstruction):
-❌ UNACCEPTABLE SET MEMORIZATION:
-{
-  "t": "Перечислите все клинические проявления менингита",
-  "s": "Инфекционные болезни",
-  "d": "Лихорадка, распирающая головная боль, повторная рвота без тошноты, ригидность затылочных мышц, симптомы Кернига и Брудзинского, гиперестезия, светобоязнь."
-}
-
-✅ CORRECT ATOMIC FORMULATION:
-Card 1 (Triad Query):
-{
-  "t": "Каковы 3 ключевых компонента классической менингеальной триады?",
-  "s": "Инфекционные болезни | Триада: Жар — Боль — Ригидность",
-  "d": "Лихорадка, головная боль, ригидность затылочных мышц.",
-  "e": "При сочетании лихорадки и ригидности мышц шеи показана немедленная люмбальная пункция.",
+  "t": "Чем принципиально отличается роль народных заседателей от присяжных заседателей в классическом процессе?",
+  "s": "Судоустройство | Состав суда",
+  "d": "Народные заседатели голосуют наравне с судьёй по всем вопросам (и вина, и мера наказания), а присяжные выносят только вердикт о виновности отдельно от профессионального судьи.",
+  "e": "В коллегиях с народными заседателями судья не может единолично преодолеть их согласованное мнение.",
   "l": "medium"
 }
-Card 2 (Binary Sign Verification):
+
+CONTRAST CASE 3 (Law - Academic Padding vs High-Yield Taxonomy):
+❌ UNACCEPTABLE THEORETICAL PADDING:
 {
-  "t": "Является ли симптом Кернига патогномоничным признаком раздражения мозговых оболочек?",
-  "s": "Неврология | Керниг = угол сгибания ноги",
-  "d": "Да.",
-  "e": "Невозможность разогнуть ногу в коленном суставе при согнутом бедре подтверждает менингит.",
+  "t": "Что понимается под нормами конституционного права?",
+  "s": "Теория права",
+  "d": "Общеобязательные правила поведения, закрепленные государством для регулирования основ общественного строя."
+}
+
+✅ CORRECT HIGH-YIELD CLASSIFICATION (Essential Division without Fluff):
+{
+  "t": "На какие 2 основных вида делятся конституционные предписания по характеру установленного правила поведения?",
+  "s": "Конституционное право | Способ воздействия нормы",
+  "d": "Императивные (категорические запреты и обязанности) и диспозитивные (допускающие выбор варианта поведения).",
+  "e": "Статья 109 Конституции (правосудие только судом) носит строго императивный характер.",
   "l": "easy"
+}
+
+CONTRAST CASE 4 (Medicine - Symptom List vs Clinical Contrast Vignette):
+❌ UNACCEPTABLE LIST RECITATION:
+{
+  "t": "Перечислите клинические проявления менингита",
+  "s": "Инфекционные болезни",
+  "d": "Лихорадка, головная боль, ригидность затылочных мышц, симптомы Кернига и Брудзинского."
+}
+
+✅ CORRECT CLINICAL CONTRAST PAIR:
+{
+  "t": "У пациента с острым нижним инфарктом миокарда (подъем ST в II, III, aVF) развилась артериальная гипотония (АД 80/50). Почему категорически противопоказан нитроглицерин?",
+  "s": "Кардиология | Изолированный инфаркт ПЖ",
+  "d": "При вовлечении правого желудочка нитраты вызывают фатальный коллапс преднагрузки; терапия выбора — инфузия физраствора, а не вазодилататоры.",
+  "e": "Перед дачей нитратов при нижнем инфаркте обязательна регистрация правых грудных отведений V3R-V4R.",
+  "l": "hard"
 }
 
 CONTRAST CASE 5 (Code - Python Concurrency):
@@ -390,12 +375,42 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
             "content_type": "cloze" if is_cloze else "text"
         })
 
-    return {
+    # 4. Извлекаем семантический граф знаний и ментальный каркас
+    clean_nodes = []
+    clean_edges = []
+    tree_data = None
+    if isinstance(raw_data, dict):
+        raw_graph = raw_data.get("graph") or raw_data.get("knowledge_graph") or raw_data.get("g")
+        if not isinstance(raw_graph, dict):
+            if "nodes" in raw_data or "edges" in raw_data:
+                raw_graph = {"nodes": raw_data.get("nodes", []), "edges": raw_data.get("edges", [])}
+            else:
+                raw_graph = {}
+
+        input_nodes = raw_graph.get("nodes") or raw_graph.get("n") or []
+        input_edges = raw_graph.get("edges") or raw_graph.get("e") or []
+        if isinstance(input_nodes, list) and input_nodes:
+            try:
+                from app.services.graph_service import clean_graph_data, build_hierarchical_tree
+                clean_nodes, clean_edges = clean_graph_data(input_nodes, input_edges if isinstance(input_edges, list) else [])
+                if clean_nodes:
+                    tree_data = build_hierarchical_tree(clean_nodes, clean_edges, root_title=title or slug or "Каркас дисциплины")
+            except Exception as ge:
+                print(f"[AI Gateway] Ошибка очистки графа из ответа LLM: {ge}")
+
+    result = {
         "subject_domain": domain,
         "subject_slug": slug,
         "phrase_title": title,
         "cards": cards
     }
+    if clean_nodes:
+        result["knowledge_graph"] = {
+            "nodes": clean_nodes,
+            "edges": clean_edges,
+            "tree_data": tree_data
+        }
+    return result
 
 def build_granularity_prompt(granularity_mode: str, custom_instruction: str, density: str, volume: str) -> str:
     """Формирует компактные модификаторы промпта для управления глубиной и пожеланиями пользователя с защитным шлюзом."""
@@ -417,18 +432,18 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
         modifiers.append("GRANULARITY DIRECTIVE: Focused in-depth card generation. Deconstruct the topic into concise atomic cards. Absolute prohibition of multi-point walls of text.")
     else: # atomic / standard
         modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards (one question -> one direct fact).")
-        if volume == "auto":
-            modifiers.append("CARD VOLUME: AUTOMATIC OPTIMIZATION. Analyze source text length and conceptual density. Automatically determine the optimal number of atomic flashcards (typically 8 to 18 cards).")
+        if volume in ("auto", "balanced"):
+            modifiers.append("CARD VOLUME: HIGH-YIELD PARETO CALIBRATION. Extract strictly 2 to 4 high-yield situational cards from this text chunk (~70–90 total cards for a typical textbook). Focus exclusively on Decision Trees, Contrast Pairs, and High-Yield Taxonomy. Zero 'Что такое X', zero 'Да/Нет'.")
         elif volume in ("low", "low_5"):
-            modifiers.append("LIMIT: Maximum 5 cards.")
+            modifiers.append("LIMIT: Maximum 3 to 4 cards.")
         elif volume == "med_10":
-            modifiers.append("LIMIT: Maximum 10 cards.")
+            modifiers.append("LIMIT: Maximum 6 to 8 cards.")
         elif volume in ("medium", "med_15"):
-            modifiers.append("LIMIT: Maximum 15 cards.")
+            modifiers.append("LIMIT: Maximum 10 to 12 cards.")
         elif volume == "high_20":
-            modifiers.append("LIMIT: Maximum 20 cards.")
+            modifiers.append("LIMIT: Maximum 15 cards.")
         elif volume in ("high", "max"):
-            modifiers.append("LIMIT: Maximum 25 cards.")
+            modifiers.append("LIMIT: Maximum 20 cards.")
 
     # 2. Плотность определений (глубина)
     if density == "low":
@@ -723,20 +738,20 @@ async def parse_raw_text(
     if volume in ("auto", "balanced"):
         user_directives.append(
             "CARD VOLUME: HIGH-YIELD PARETO CALIBRATION (Anti-Overload Directive). "
-            "Extract strictly 4 to 8 indispensable, high-yield atomic flashcards from this text chunk (~1 to 1.5 cards per page). "
-            "Focus exclusively on foundational principles, statutory rules, critical formulas, and non-obvious distinctions. "
-            "Strictly ignore introductory fluff, narrative anecdotes, and trivial common sense definitions."
+            "Extract strictly 2 to 4 indispensable, high-yield situational flashcards from this text chunk (~70–90 cards per 185-page book). "
+            "Focus exclusively on Decision Trees (situational conflict -> statutory fork/remedy), Contrast Pairs (distinguishing confusing concepts via gold standard criteria), and High-Yield Doctrinal Taxonomy. "
+            "Absolute prohibition of trivial definitions ('Что такое X'), binary trivia ('Да/Нет'), and introductory fluff."
         )
     elif volume in ("low", "low_5"):
-        user_directives.append("CARD VOLUME: Strictly 3 to 5 core cards. Absolute highest-yield master concepts only.")
+        user_directives.append("CARD VOLUME: Strictly 2 to 4 core cards. Absolute highest-yield master concepts only.")
     elif volume == "med_10":
-        user_directives.append("CARD VOLUME: Strictly 6 to 10 core cards.")
+        user_directives.append("CARD VOLUME: Strictly 5 to 7 core cards.")
     elif volume in ("medium", "med_15"):
-        user_directives.append("CARD VOLUME: Strictly 10 to 14 cards.")
+        user_directives.append("CARD VOLUME: Strictly 8 to 12 cards.")
     elif volume in ("high", "high_20"):
-        user_directives.append("CARD VOLUME: Maximum 16 to 20 cards.")
+        user_directives.append("CARD VOLUME: Maximum 15 cards.")
     elif volume == "max":
-        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 25 cards). Every verifiable fact and distinction.")
+        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 20 cards). Every verifiable fact and distinction.")
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")

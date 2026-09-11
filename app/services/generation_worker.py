@@ -8,8 +8,9 @@ import asyncio
 from datetime import datetime
 from sqlalchemy import select, update, text
 from app.database.session import AsyncSessionLocal
-from app.database.models import GenerationJob
+from app.database.models import GenerationJob, TopicKnowledgeGraph
 from app.services.ai_gateway import parse_raw_text, split_text_into_chunks
+from app.services.graph_service import consolidate_knowledge_graphs
 from app.core.config import settings
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -105,6 +106,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 print(f"[Generation Worker] Ошибка отправки стартового push: {start_push_err}")
 
         all_collected_cards = []
+        all_chunk_graphs = []
         seen_card_texts = set()
         extracted_theme = job_data["theme"]
         any_fallback_used = False
@@ -156,6 +158,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                         seen_card_texts.add(norm_key)
                         all_collected_cards.append(c)
 
+            chunk_graph = parsed.get("knowledge_graph")
+            if chunk_graph and isinstance(chunk_graph, dict):
+                all_chunk_graphs.append(chunk_graph)
+
         if not all_collected_cards:
             raise ValueError("ИИ не смог выделить карточки из переданного материала.")
 
@@ -183,6 +189,75 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
         print(f"[Generation Worker] Задача #{job_data['id']} успешно выполнена за {execution_time_ms / 1000:.1f} сек! Сформировано {len(all_collected_cards)} карточек ({decomp_rate:.2f} карт/1000 зн.).", flush=True)
 
+        # Консолидация и сохранение семантического графа знаний (Milestone 2)
+        total_graph_nodes = 0
+        if all_chunk_graphs:
+            try:
+                consolidated = consolidate_knowledge_graphs(
+                    chunk_graphs=all_chunk_graphs,
+                    fallback_title=extracted_theme or job_data["subject"] or "Каркас знаний"
+                )
+                graph_nodes = consolidated.get("nodes", [])
+                graph_edges = consolidated.get("edges", [])
+                tree_data = consolidated.get("tree_data")
+
+                if graph_nodes:
+                    async with AsyncSessionLocal() as db:
+                        subj = job_data["subject"]
+                        u_id = job_data.get("user_id", "default_user")
+                        stmt = select(TopicKnowledgeGraph).where(
+                            TopicKnowledgeGraph.user_id == u_id,
+                            TopicKnowledgeGraph.subject == subj
+                        )
+                        res = await db.execute(stmt)
+                        rec = res.scalars().first()
+                        final_graph_data = {"nodes": graph_nodes, "edges": graph_edges}
+                        if rec and rec.graph_data:
+                            existing_chunk = {
+                                "nodes": rec.graph_data.get("nodes", []),
+                                "edges": rec.graph_data.get("edges", [])
+                            }
+                            if existing_chunk.get("nodes"):
+                                merged = consolidate_knowledge_graphs(
+                                    chunk_graphs=[existing_chunk, final_graph_data],
+                                    fallback_title=extracted_theme or subj or "Каркас знаний"
+                                )
+                                final_graph_data = {"nodes": merged.get("nodes", []), "edges": merged.get("edges", [])}
+                                tree_data = merged.get("tree_data")
+                            rec.graph_data = final_graph_data
+                            rec.tree_data = tree_data
+                            rec.updated_at = datetime.utcnow()
+                        elif rec:
+                            rec.graph_data = final_graph_data
+                            rec.tree_data = tree_data
+                            rec.updated_at = datetime.utcnow()
+                        else:
+                            rec = TopicKnowledgeGraph(
+                                user_id=u_id,
+                                subject=subj,
+                                graph_data=final_graph_data,
+                                tree_data=tree_data,
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow()
+                            )
+                            db.add(rec)
+                        try:
+                            await db.commit()
+                            total_graph_nodes = len(final_graph_data["nodes"])
+                            print(f"[Generation Worker] Граф знаний для '{subj}' сохранен: {total_graph_nodes} узлов, {len(final_graph_data['edges'])} связей.", flush=True)
+                        except Exception as ce:
+                            await db.rollback()
+                            res = await db.execute(stmt)
+                            rec = res.scalars().first()
+                            if rec:
+                                rec.graph_data = final_graph_data
+                                rec.tree_data = tree_data
+                                rec.updated_at = datetime.utcnow()
+                                await db.commit()
+                                total_graph_nodes = len(final_graph_data["nodes"])
+            except Exception as graph_err:
+                print(f"[Generation Worker WARN] Сбой консолидации графа знаний: {graph_err}", flush=True)
+
         # Отправка Telegram Push пользователю с кнопкой перехода в Песочницу
         if job_data.get("telegram_id"):
             try:
@@ -192,11 +267,13 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 total_cards = len(all_collected_cards)
                 webapp_url = getattr(settings, "WEBAPP_URL", "https://datagrinder.site")
 
+                graph_line = f"Каркас знаний: <b>{total_graph_nodes} концептов</b> (инстанции, условия, исключения).\n" if total_graph_nodes > 0 else ""
                 msg_text = (
                     "<b>[DATA GRINDER: МАТЕРИАЛ ОБРАБОТАН]</b>\n\n"
                     f"Тема: «<b>{escaped_theme}</b>»\n"
                     f"Предмет: <code>{escaped_sub}</code>\n"
-                    f"ИИ сформировал: <b>{total_cards} карточек</b>.\n"
+                    f"ИИ сформировал: <b>{total_cards} ситуационных карточек</b>.\n"
+                    f"{graph_line}"
                     f"Время обработки: <b>{execution_time_ms / 1000:.1f} сек</b>.\n\n"
                     "Нажмите кнопку ниже, чтобы открыть Песочницу и разобрать карточки (свайпы влево/вправо)."
                 )
