@@ -131,6 +131,9 @@ async def cmd_start(message: types.Message):
                                         db=db
                                     )
                                     print(f"[Bot] Автоматически залито {len(p_cards)} карточек для нового участника {user_id_str}")
+                        except Exception as e:
+                            print(f"[Bot] Ошибка предзагрузки пресета судоустройства: {e}")
+
             # Проверка и подключение колоды по шеринг-ссылке (?start=deck_...)
             shared_deck_info = None
             if payload.startswith("deck_"):
@@ -289,14 +292,22 @@ async def cmd_admin(message: types.Message):
     args = message.text.split(maxsplit=1)
     token = args[1].strip() if len(args) > 1 else ""
     
+    # 1. Проверяем токен из команды
     if token and token == settings.ADMIN_TOKEN:
         ADMIN_USERS.add(user_id)
         await message.answer("🔑 <b>Авторизация администратора успешно пройдена!</b>", parse_mode="HTML")
+    # 2. Проверяем, совпадает ли user_id с ADMIN_TELEGRAM_ID из настроек
+    elif getattr(settings, "ADMIN_TELEGRAM_ID", None) and str(user_id) in [x.strip() for x in str(settings.ADMIN_TELEGRAM_ID).split(",") if x.strip()]:
+        ADMIN_USERS.add(user_id)
+    # 3. Если не админ, выводим понятную инструкцию с кликабельным токеном и его ID
     elif not is_admin(user_id):
+        curr_token = settings.ADMIN_TOKEN or "secret-admin-token"
         await message.answer(
-            "🔒 <b>Доступ запрещен.</b>\n\n"
-            "Для входа в панель администратора отправьте команду с токеном:\n"
-            "<code>/admin secret-admin-token</code>",
+            "🔒 <b>Панель администратора Data Grinder</b>\n\n"
+            "Доступ ограничен. Для входа скопируйте и отправьте команду:\n"
+            f"<code>/admin {curr_token}</code>\n\n"
+            f"<i>Ваш Telegram ID: <code>{user_id}</code>\n"
+            f"(Вы также можете прописать его в файле .env: ADMIN_TELEGRAM_ID=\"{user_id}\")</i>",
             parse_mode="HTML"
         )
         return

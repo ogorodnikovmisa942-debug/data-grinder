@@ -373,6 +373,7 @@ function bindDOMPointers() {
             currentSubject = e.target.value; localStorage.setItem('selected_subject', currentSubject);
             cardsQueue = []; currentIndex = 0; fetchActiveSession(); updateGlobalBadges();
             renderFSRSButtons(currentSubject);
+            if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(currentSubject);
             if (currentTab === 'data') loadDataTab();
             if (currentTab === 'stats') loadStatsTab();
             if (currentTab === 'config') loadConfigTab(); 
@@ -724,6 +725,7 @@ function showSessionStarter() {
     if (progressBar) progressBar.classList.add('hidden');
     if (sessionCounters) sessionCounters.classList.add('hidden');
     updateGlobalBadges();
+    if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(currentSubject);
 }
 
 window.exitToSessionMenu = function() {
@@ -4361,6 +4363,26 @@ function renderKnowledgeTreeNode(node, container, depth) {
     container.appendChild(nodeWrapper);
 }
 
+function wrapNodeText(text, maxChars = 16) {
+    if (!text || text.length <= maxChars) return [text || ''];
+    const words = text.split(' ');
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+        if ((cur ? (cur + ' ' + w) : w).length <= maxChars) {
+            cur = cur ? (cur + ' ' + w) : w;
+        } else {
+            if (cur) lines.push(cur);
+            cur = w;
+        }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length > 2) {
+        return [lines[0], lines.slice(1).join(' ').substring(0, maxChars - 2) + '..'];
+    }
+    return lines;
+}
+
 window.initForceGraph = function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
     if (!wrapper || !window.ForceGraph) return;
@@ -4398,6 +4420,12 @@ window.initForceGraph = function(graphData) {
         currentForceGraphInstance.width(width).height(height);
         currentForceGraphInstance.backgroundColor(bgColor);
         currentForceGraphInstance.graphData({ nodes, links });
+        if (currentForceGraphInstance.d3Force('charge')) {
+            currentForceGraphInstance.d3Force('charge').strength(-380);
+        }
+        if (currentForceGraphInstance.d3Force('link')) {
+            currentForceGraphInstance.d3Force('link').distance(95);
+        }
         currentForceGraphInstance.zoomToFit(400, 40);
         return;
     }
@@ -4419,11 +4447,13 @@ window.initForceGraph = function(graphData) {
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
         .cooldownTicks(90)
+        .d3VelocityDecay(0.3)
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
-            const fontSize = Math.max(3.5, 12 / globalScale);
-            const radius = Math.max(3, (node.val || 5));
+            const radius = Math.max(3.5, (node.val || 5));
             const currentDark = document.documentElement.classList.contains('dark');
+            const bgStrokeColor = currentDark ? '#0e0e0e' : '#fbfbfb';
+            const textFillColor = currentDark ? '#f1f5f9' : '#111827';
 
             // Node body: Black in light mode, crisp light-gray in dark mode
             ctx.beginPath();
@@ -4432,17 +4462,32 @@ window.initForceGraph = function(graphData) {
             ctx.fill();
 
             // Border
-            ctx.lineWidth = 1.5 / globalScale;
+            ctx.lineWidth = 1.5 / Math.max(0.5, globalScale);
             ctx.strokeStyle = currentDark ? '#ffffff' : '#404040';
             ctx.stroke();
 
-            // Text label
-            if (globalScale >= 0.5) {
-                ctx.font = `${fontSize}px Inter, sans-serif`;
+            // Text label with line wrapping and contrast halo
+            if (globalScale >= 0.35) {
+                const fontSize = Math.min(10.5, Math.max(6.5, 9 / Math.pow(globalScale, 0.4)));
+                ctx.font = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'top';
-                ctx.fillStyle = currentDark ? '#f1f5f9' : '#1a1a1a';
-                ctx.fillText(label, node.x, node.y + radius + 3);
+
+                const lines = wrapNodeText(label, 15);
+                const lineHeight = fontSize + 2.5;
+
+                lines.forEach((line, i) => {
+                    const lineY = node.y + radius + 4 + (i * lineHeight);
+
+                    // Contrast halo (stroke) behind text to prevent link lines from crossing letters
+                    ctx.lineWidth = 3.5;
+                    ctx.strokeStyle = bgStrokeColor;
+                    ctx.strokeText(line, node.x, lineY);
+
+                    // Crisp foreground text
+                    ctx.fillStyle = textFillColor;
+                    ctx.fillText(line, node.x, lineY);
+                });
             }
         })
         .nodePointerAreaPaint((node, color, ctx) => {
@@ -4455,6 +4500,13 @@ window.initForceGraph = function(graphData) {
         .onNodeClick(node => {
             showKgNodeDrawer(node);
         });
+
+    if (currentForceGraphInstance.d3Force('charge')) {
+        currentForceGraphInstance.d3Force('charge').strength(-380);
+    }
+    if (currentForceGraphInstance.d3Force('link')) {
+        currentForceGraphInstance.d3Force('link').distance(95);
+    }
 
     // Resize on window resize
     window.addEventListener('resize', () => {
@@ -4543,6 +4595,7 @@ window.closeKgNodeDrawer = function() {
    ========================================================================== */
 
 let practiceItems = [];
+let practiceFailedItems = [];
 let practiceCurrentIndex = 0;
 let practiceScore = 0;
 let practiceAnswerSubmitted = false;
@@ -4576,6 +4629,7 @@ window.startPracticeSession = async function(customSub) {
     if (finishScreen) finishScreen.classList.add('hidden');
 
     practiceItems = [];
+    practiceFailedItems = [];
     practiceCurrentIndex = 0;
     practiceScore = 0;
     practiceAnswerSubmitted = false;
@@ -4673,6 +4727,7 @@ function renderPracticeQuestion() {
 async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     if (practiceAnswerSubmitted) return;
     practiceAnswerSubmitted = true;
+    const currentItem = practiceItems[practiceCurrentIndex];
 
     // Disable all option buttons
     const allButtons = document.querySelectorAll('#practice-options-list button');
@@ -4712,6 +4767,9 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
                 window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
             }
         } else {
+            if (currentItem) {
+                practiceFailedItems.push(currentItem);
+            }
             clickedBtn.classList.add('practice-option-wrong');
             if (window.Telegram?.WebApp?.HapticFeedback) {
                 window.Telegram.WebApp.HapticFeedback.notificationOccurred('error');
@@ -4797,4 +4855,71 @@ function showPracticeFinish() {
             msgEl.textContent = "Материал требует закрепления. Изучите структуру понятий в Каркасе знаний перед следующей практикой.";
         }
     }
+
+    // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране
+    const curSub = (currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo';
+    apiFetch('/api/practice/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            subject: curSub,
+            score: practiceScore,
+            total: total
+        })
+    }).then(() => {
+        if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
+    }).catch(err => {
+        console.warn("Сбой фиксации результатов практики:", err);
+    });
+
+    // Настройка кнопки повторения ошибок
+    const retryBtn = document.getElementById('practice-retry-errors-btn');
+    const errorsCountEl = document.getElementById('practice-errors-count');
+    if (retryBtn && errorsCountEl) {
+        if (practiceFailedItems.length > 0) {
+            errorsCountEl.textContent = practiceFailedItems.length;
+            retryBtn.classList.remove('hidden');
+        } else {
+            retryBtn.classList.add('hidden');
+        }
+    }
 }
+
+window.retryPracticeErrors = function() {
+    if (!practiceFailedItems || practiceFailedItems.length === 0) return;
+
+    const cardContainer = document.getElementById('practice-card-container');
+    const finishScreen = document.getElementById('practice-finish-screen');
+    if (cardContainer) cardContainer.classList.remove('hidden');
+    if (finishScreen) finishScreen.classList.add('hidden');
+
+    practiceItems = [...practiceFailedItems];
+    practiceFailedItems = [];
+    practiceCurrentIndex = 0;
+    practiceScore = 0;
+    practiceAnswerSubmitted = false;
+
+    renderPracticeQuestion();
+};
+
+window.checkTodayPracticeStats = async function(sub) {
+    const targetSub = sub || ((currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo');
+    const badge = document.getElementById('starter-practice-badge');
+    if (!badge) return;
+
+    try {
+        const res = await apiFetch(`/api/practice/stats?subject=${encodeURIComponent(targetSub)}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.today_completed) {
+                badge.className = "px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1";
+                badge.innerHTML = `<span class="material-symbols-outlined text-[12px]">check_circle</span><span>СЕГОДНЯ ${data.last_score}/${data.last_total}</span>`;
+                return;
+            }
+        }
+        badge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200 dark:border-neutral-700";
+        badge.textContent = "ТРЕНАЖЕР";
+    } catch (e) {
+        console.warn("Сбой проверки статистики практики:", e);
+    }
+};

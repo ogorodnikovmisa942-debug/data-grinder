@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse  # Импортируем для прямой отдачи HTML
+from fastapi.responses import FileResponse, HTMLResponse  # Импортируем для прямой отдачи HTML
 from app.api.endpoints import train, management, admin, graph, practice
 from app.database.session import engine
 from app.database.models import Base
@@ -148,6 +148,49 @@ async def read_index():
             "Pragma": "no-cache",
             "Expires": "0"
         }
+    )
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_web_page():
+    return HTMLResponse(
+        """<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Grinder | Панель управления</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        body { margin: 0; padding: 24px; font-family: 'Inter', sans-serif; background: #0e0e0e; color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .card { max-width: 520px; width: 100%; background: #161616; border: 1px solid #262626; border-radius: 20px; padding: 28px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        h1 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
+        p { font-size: 13px; color: #94a3b8; line-height: 1.6; margin: 0 0 20px; }
+        .code-box { background: #0a0a0a; border: 1px solid #262626; padding: 12px 16px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #38bdf8; margin-bottom: 20px; word-break: break-all; }
+        .btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; background: #f8fafc; color: #0f172a; font-weight: 700; font-size: 13px; text-decoration: none; border-radius: 12px; transition: all 0.15s; }
+        .btn:hover { background: #e2e8f0; }
+        .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #1e293b; border-radius: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <span class="badge"><span class="material-symbols-outlined" style="font-size:14px;">terminal</span> DATA GRINDER ADMIN</span>
+            <span class="badge" style="color:#4ade80;">ONLINE</span>
+        </div>
+        <h1><span class="material-symbols-outlined" style="color:#38bdf8;">admin_panel_settings</span> Панель администратора</h1>
+        <p>Основное управление экспериментом, участниками, фазами и выгрузкой датасетов осуществляется через защищенного Telegram-бота.</p>
+        <div class="code-box">
+            /admin secret-admin-token
+        </div>
+        <p style="font-size:11px; color:#64748b;">Отправьте эту команду вашему боту в Telegram для открытия интерактивного пульта с кнопками переключения фаз и выгрузки CSV.</p>
+        <div style="display:flex; gap:10px; margin-top:24px;">
+            <a href="/" class="btn" style="flex:1; background:#262626; color:#f1f5f9;"><span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> В консоль</a>
+            <a href="/api/admin/export/experiment-dataset" class="btn" style="flex:1;"><span class="material-symbols-outlined" style="font-size:16px;">download</span> Датасет CSV</a>
+        </div>
+    </div>
+</body>
+</html>"""
     )
 
 # 5. Монтируем папку статики на корневой префикс /

@@ -288,4 +288,35 @@ class PracticeItem(Base):
             data["gold_standard"] = self.gold_standard
         return data
 
+
+class PracticeSessionLog(Base):
+    """
+    Журнал прохождения интерактивных практических сессий.
+    Фиксирует дату, предмет, количество решенных заданий, процент успеха и освоение материала.
+    """
+    __tablename__ = "practice_session_logs"
+    __table_args__ = (
+        Index("ix_practice_logs_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True, default="default_user")
+    subject = Column(String, nullable=False, index=True)
+    score = Column(Integer, nullable=False, default=0)
+    total = Column(Integer, nullable=False, default=10)
+    percentage = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "subject": self.subject,
+            "score": self.score,
+            "total": self.total,
+            "percentage": self.percentage,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 

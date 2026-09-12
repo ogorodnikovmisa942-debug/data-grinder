@@ -130,8 +130,11 @@
                             <span class="material-symbols-outlined text-[16px]">account_tree</span>
                         </button>
                         <button onclick="openPracticeModal()" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary hover:bg-neutral-50 dark:hover:bg-neutral-800/60 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                            <span>[ ПРАКТИКА И КЕЙСЫ ]</span>
-                            <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
+                            <span class="flex items-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
+                                <span>[ ПРАКТИКА И КЕЙСЫ ]</span>
+                            </span>
+                            <span id="starter-practice-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200 dark:border-neutral-700">ТРЕНАЖЕР</span>
                         </button>
                     </div>
                 </div>
@@ -1192,9 +1195,19 @@
                     <p id="practice-finish-message" class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed font-sans">
                         Отличный результат! Узлы и водоразделы закреплены в долговременной памяти.
                     </p>
-                    <div class="flex flex-col gap-2 w-full pt-2">
-                        <button onclick="startPracticeSession()" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs">
-                            [ Пройти еще раз ]
+                    <div id="practice-saved-badge" class="flex items-center justify-center gap-1 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span class="material-symbols-outlined text-sm">check_circle</span>
+                        <span>Результат практики зафиксирован в профиле</span>
+                    </div>
+
+                    <div class="flex flex-col gap-2 w-full pt-1">
+                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm">build</span>
+                            <span>Повторить только ошибки (<span id="practice-errors-count">0</span>)</span>
+                        </button>
+                        <button onclick="startPracticeSession()" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm">refresh</span>
+                            <span>Пройти новую сессию</span>
                         </button>
                         <button onclick="closePracticeModal()" class="w-full py-2.5 px-4 border border-neutral-300 dark:border-neutral-700 hover:border-primary hover:text-primary text-neutral-700 dark:text-neutral-300 font-mono font-bold text-xs uppercase rounded-xl transition-all">
                             [ В главное меню ]
