@@ -4199,13 +4199,13 @@ window.switchKgView = function(viewType) {
             tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
         }
         if (tabGraph) {
-            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-400 hover:text-neutral-200 flex items-center gap-1";
+            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1";
         }
     } else {
         if (treeView) treeView.classList.add('hidden');
         if (graphView) graphView.classList.remove('hidden');
         if (tabTree) {
-            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-400 hover:text-neutral-200 flex items-center gap-1";
+            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1";
         }
         if (tabGraph) {
             tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
@@ -4294,7 +4294,7 @@ function renderKnowledgeTreeNode(node, container, depth) {
     if (!node) return;
 
     const nodeWrapper = document.createElement('div');
-    nodeWrapper.className = depth === 0 ? "mb-3" : "tree-branch-container my-1.5";
+    nodeWrapper.className = depth === 0 ? "mb-2.5" : "tree-branch-container my-1.5";
 
     const hasChildren = node.children && node.children.length > 0;
     const cat = node.category || 'authority';
@@ -4302,28 +4302,28 @@ function renderKnowledgeTreeNode(node, container, depth) {
     const catLabel = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
 
     const card = document.createElement('div');
-    card.className = "tree-node-card p-3 rounded-xl bg-surface-container-lowest border border-neutral-800 hover:border-neutral-600 transition-all flex items-start justify-between gap-2.5 cursor-pointer shadow-sm select-none";
+    card.className = "tree-node-card p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 transition-all flex items-start justify-between gap-2.5 cursor-pointer shadow-xs select-none";
     
     card.innerHTML = `
         <div class="flex items-start gap-2.5 min-w-0">
             ${hasChildren ? `
-                <button class="tree-toggle-btn text-neutral-400 hover:text-white p-0.5 mt-0.5 rounded transition-transform duration-200" title="Свернуть/Развернуть">
+                <button class="tree-toggle-btn text-neutral-400 hover:text-primary p-0.5 mt-0.5 rounded transition-transform duration-200" title="Свернуть/Развернуть">
                     <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
                 </button>
             ` : `
-                <span class="w-1.5 h-1.5 rounded-full bg-neutral-600 mt-2 ml-1 shrink-0"></span>
+                <span class="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600 mt-2 ml-1 shrink-0"></span>
             `}
             <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="font-bold text-xs sm:text-sm text-neutral-100 font-mono">${escapeHTML(node.name || node.id)}</span>
+                    <span class="font-bold text-xs sm:text-sm text-neutral-900 dark:text-neutral-100 font-mono">${escapeHTML(node.name || node.id)}</span>
                     <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${badgeClass}">${escapeHTML(catLabel)}</span>
                 </div>
                 ${node.summary ? `
-                    <p class="text-[11px] text-neutral-400 leading-snug mt-1 font-sans line-clamp-2">${escapeHTML(node.summary)}</p>
+                    <p class="text-[11px] text-neutral-600 dark:text-neutral-400 leading-snug mt-1 font-sans line-clamp-2">${escapeHTML(node.summary)}</p>
                 ` : ''}
             </div>
         </div>
-        <button class="text-neutral-500 hover:text-cyan-400 p-1 shrink-0 rounded transition-colors" title="Подробнее">
+        <button class="text-neutral-400 hover:text-primary p-1 shrink-0 rounded transition-colors" title="Подробнее">
             <span class="material-symbols-outlined text-[16px]">info</span>
         </button>
     `;
@@ -4369,6 +4369,9 @@ window.initForceGraph = function(graphData) {
 
     if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return;
 
+    const isDark = document.documentElement.classList.contains('dark');
+    const bgColor = isDark ? '#0e0e0e' : '#fbfbfb';
+
     // Prepare clean data
     const nodes = graphData.nodes.map(n => ({
         id: n.id,
@@ -4391,6 +4394,7 @@ window.initForceGraph = function(graphData) {
     // If graph already initialized, reuse and update data
     if (currentForceGraphInstance) {
         currentForceGraphInstance.width(width).height(height);
+        currentForceGraphInstance.backgroundColor(bgColor);
         currentForceGraphInstance.graphData({ nodes, links });
         currentForceGraphInstance.zoomToFit(400, 40);
         return;
@@ -4401,42 +4405,41 @@ window.initForceGraph = function(graphData) {
     currentForceGraphInstance = ForceGraph()(wrapper)
         .width(width)
         .height(height)
-        .backgroundColor('#0c0d12')
+        .backgroundColor(bgColor)
         .graphData({ nodes, links })
         .nodeId('id')
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${node.category})`)
-        .linkColor(() => 'rgba(100, 116, 139, 0.4)')
+        .linkColor(() => isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)')
         .linkWidth(1.5)
         .linkDirectionalParticles(2)
         .linkDirectionalParticleSpeed(0.006)
         .linkDirectionalParticleWidth(2)
-        .linkDirectionalParticleColor(() => '#38bdf8')
+        .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
         .cooldownTicks(90)
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
             const fontSize = Math.max(3.5, 12 / globalScale);
             const radius = Math.max(3, (node.val || 5));
+            const currentDark = document.documentElement.classList.contains('dark');
 
-            const color = getKgNodeColor(node.category);
-
-            // Node body
+            // Node body: Black in light mode, crisp light-gray in dark mode
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = color;
+            ctx.fillStyle = currentDark ? '#ededed' : '#1a1a1a';
             ctx.fill();
 
-            // Glow border
-            ctx.lineWidth = 2 / globalScale;
-            ctx.strokeStyle = '#ffffff';
+            // Border
+            ctx.lineWidth = 1.5 / globalScale;
+            ctx.strokeStyle = currentDark ? '#ffffff' : '#404040';
             ctx.stroke();
 
             // Text label
-            if (globalScale >= 0.6) {
+            if (globalScale >= 0.5) {
                 ctx.font = `${fontSize}px Inter, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'top';
-                ctx.fillStyle = '#f1f5f9';
+                ctx.fillStyle = currentDark ? '#f1f5f9' : '#1a1a1a';
                 ctx.fillText(label, node.x, node.y + radius + 3);
             }
         })
@@ -4648,9 +4651,9 @@ function renderPracticeQuestion() {
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
         const btn = document.createElement('button');
-        btn.className = "practice-option-btn w-full p-3.5 rounded-xl bg-surface-container-lowest border border-neutral-800 hover:border-neutral-600 transition-all text-left flex items-start gap-3 cursor-pointer select-none text-xs sm:text-sm text-neutral-200";
+        btn.className = "practice-option-btn w-full p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 transition-all text-left flex items-start gap-3 cursor-pointer select-none text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 shadow-xs";
         btn.innerHTML = `
-            <span class="w-6 h-6 rounded-lg bg-neutral-800/80 border border-neutral-700/80 text-neutral-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+            <span class="w-6 h-6 rounded-lg bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">
                 ${letters[idx] || (idx + 1)}
             </span>
             <span class="leading-snug pt-0.5">${escapeHTML(optText)}</span>
@@ -4672,7 +4675,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     const allButtons = document.querySelectorAll('#practice-options-list button');
     allButtons.forEach(b => {
         b.disabled = true;
-        b.classList.remove('hover:border-neutral-600', 'cursor-pointer');
+        b.classList.remove('hover:border-neutral-400', 'cursor-pointer');
     });
 
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
@@ -4729,10 +4732,10 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
 
         if (statusEl) {
             if (isCorrect) {
-                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-400";
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
             } else {
-                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-400";
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
             }
         }

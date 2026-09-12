@@ -155,27 +155,38 @@ html, body {
     position: relative;
     touch-action: none;
     overscroll-behavior: none;
-    background: #0a0b10;
+    background: transparent;
 }
 
-.badge-authority { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
-.badge-instance { background: rgba(6, 182, 212, 0.15); color: #38bdf8; border: 1px solid rgba(6, 182, 212, 0.4); }
-.badge-condition { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
-.badge-exception { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.4); }
-.badge-legal_status { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+/* Категориальные бейджи: Светлая тема (мягкий фон, темный текст, строгая рамка) */
+.badge-authority { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.badge-instance { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
+.badge-condition { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.badge-exception { background: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3; }
+.badge-legal_status { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+
+/* Категориальные бейджи: Темная тема */
+.dark .badge-authority { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+.dark .badge-instance { background: rgba(6, 182, 212, 0.15); color: #7dd3fc; border: 1px solid rgba(6, 182, 212, 0.3); }
+.dark .badge-condition { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+.dark .badge-exception { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
+.dark .badge-legal_status { background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
 
 .tree-node-card {
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.15s ease-out;
 }
 .tree-node-card:active {
-    transform: scale(0.985);
+    transform: scale(0.99);
 }
 
 .tree-branch-container {
     position: relative;
-    padding-left: 1.25rem;
-    border-left: 2px solid rgba(150, 150, 150, 0.2);
-    margin-left: 0.75rem;
+    padding-left: 0.875rem;
+    border-left: 2px solid #e5e5e5;
+    margin-left: 0.5rem;
+}
+.dark .tree-branch-container {
+    border-left-color: #262626;
 }
 
 /* ==========================================================================
@@ -185,21 +196,25 @@ html, body {
     transition: all 0.15s ease-out;
 }
 .practice-option-btn:active {
-    transform: scale(0.98);
+    transform: scale(0.99);
 }
 .practice-option-correct {
-    background-color: rgba(16, 185, 129, 0.18) !important;
+    background-color: #ecfdf5 !important;
     border-color: #10b981 !important;
-    color: #059669 !important;
+    color: #065f46 !important;
 }
 .dark .practice-option-correct {
+    background-color: rgba(16, 185, 129, 0.15) !important;
+    border-color: #10b981 !important;
     color: #34d399 !important;
 }
 .practice-option-wrong {
-    background-color: rgba(244, 63, 94, 0.18) !important;
+    background-color: #fff1f2 !important;
     border-color: #f43f5e !important;
-    color: #e11d48 !important;
+    color: #9f1239 !important;
 }
 .dark .practice-option-wrong {
+    background-color: rgba(244, 63, 94, 0.15) !important;
+    border-color: #f43f5e !important;
     color: #fb7185 !important;
 }

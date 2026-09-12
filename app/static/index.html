@@ -86,7 +86,7 @@
                 <button onclick="openKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Каркас знаний и Граф">
                     <span class="material-symbols-outlined text-[16px]">account_tree</span>
                 </button>
-                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-secondary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика">
+                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика">
                     <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
                 </button>
             </div>
@@ -125,11 +125,11 @@
                         <span id="btn-session-cram-badge" class="px-2 py-0.5 rounded-md text-[10px] bg-neutral-100 dark:bg-neutral-800 text-neutral-400">--</span>
                     </button>
                     <div class="w-full pt-2 mt-1 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-2">
-                        <button onclick="openKnowledgeGraphModal()" class="w-full flex items-center justify-between px-4 border border-cyan-500/40 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 py-2 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl">
+                        <button onclick="openKnowledgeGraphModal()" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary hover:bg-neutral-50 dark:hover:bg-neutral-800/60 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
                             <span>[ КАРКАС И ГРАФ ]</span>
                             <span class="material-symbols-outlined text-[16px]">account_tree</span>
                         </button>
-                        <button onclick="openPracticeModal()" class="w-full flex items-center justify-between px-4 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 py-2 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl">
+                        <button onclick="openPracticeModal()" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary hover:bg-neutral-50 dark:hover:bg-neutral-800/60 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
                             <span>[ ПРАКТИКА И КЕЙСЫ ]</span>
                             <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
                         </button>
@@ -977,203 +977,207 @@
     </div>
 
     <!-- Модальное окно: Каркас знаний и Obsidian Граф (Milestone 4) -->
-    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[130] bg-[#0c0d12]/95 backdrop-blur-md flex flex-col font-sans select-none" style="touch-action: manipulation; isolation: isolate;">
-        <!-- Хедер модалки -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800/80 bg-surface-container-lowest/80 shrink-0">
-            <div class="flex items-center gap-2 min-w-0">
-                <span class="material-symbols-outlined text-cyan-400 text-xl shrink-0">account_tree</span>
-                <div class="flex flex-col min-w-0">
-                    <h3 class="font-mono font-bold text-xs sm:text-sm text-neutral-100 uppercase tracking-wider truncate">Каркас знаний</h3>
-                    <div class="flex items-center gap-1.5 text-[10px] font-mono text-neutral-400">
-                        <span>ПРЕДМЕТ:</span>
-                        <span id="kg-subject-badge" class="font-bold text-cyan-400 uppercase">---</span>
-                        <span id="kg-node-count-badge" class="px-1.5 py-0.2 bg-neutral-800 text-neutral-300 rounded text-[9px]">0 узлов</span>
+    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <!-- Хедер модалки -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
+                    <div class="flex flex-col min-w-0">
+                        <h3 class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Каркас знаний</h3>
+                        <div class="flex items-center gap-1.5 text-[10px] font-mono text-neutral-500">
+                            <span>ПРЕДМЕТ:</span>
+                            <span id="kg-subject-badge" class="font-bold text-neutral-800 dark:text-neutral-200 uppercase truncate">---</span>
+                            <span id="kg-node-count-badge" class="px-1.5 py-0.2 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 rounded text-[9px]">0 узлов</span>
+                        </div>
                     </div>
                 </div>
-            </div>
-            
-            <!-- Переключатель видов: Дерево / 2D Граф -->
-            <div class="flex items-center bg-neutral-900 border border-neutral-800 p-0.5 rounded-xl">
-                <button id="kg-tab-tree" onclick="switchKgView('tree')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1">
-                    <span class="material-symbols-outlined text-[14px]">park</span>
-                    <span class="hidden sm:inline">Дерево</span>
-                </button>
-                <button id="kg-tab-graph" onclick="switchKgView('graph')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-400 hover:text-neutral-200 flex items-center gap-1">
-                    <span class="material-symbols-outlined text-[14px]">hub</span>
-                    <span class="hidden sm:inline">2D Граф</span>
-                </button>
-            </div>
-
-            <!-- Закрыть -->
-            <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-neutral-200 p-1.5 rounded-xl hover:bg-neutral-800 transition-colors shrink-0" title="Закрыть">
-                <span class="material-symbols-outlined text-xl">close</span>
-            </button>
-        </div>
-
-        <!-- Контентная область -->
-        <div class="flex-1 relative overflow-hidden flex flex-col min-h-0">
-            <!-- Состояние загрузки -->
-            <div id="kg-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c0d12]/80 backdrop-blur-xs gap-3">
-                <span class="material-symbols-outlined text-3xl text-cyan-400 animate-spin">progress_activity</span>
-                <span class="text-xs font-mono text-neutral-400 uppercase tracking-wider">Загрузка структуры знаний...</span>
-            </div>
-
-            <!-- Пустое состояние -->
-            <div id="kg-empty-state" class="hidden flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
-                <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-                    <span class="material-symbols-outlined text-2xl">account_tree</span>
-                </div>
-                <h4 class="font-bold text-sm text-neutral-200 font-mono uppercase">Каркас еще не сформирован</h4>
-                <p class="text-xs text-neutral-400 max-w-sm leading-relaxed">
-                    Для данного предмета граф понятий строится автоматически при нарезке документов или может быть загружен из системных пресетов.
-                </p>
-                <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="mt-2 px-4 py-2 bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-mono text-xs font-bold uppercase rounded-xl hover:bg-cyan-500/30 transition-all">
-                    Загрузить эталонный каркас
-                </button>
-            </div>
-
-            <!-- ВИД 1: Иерархическое дерево (DOM Mindmap) -->
-            <div id="kg-tree-view" class="flex-1 overflow-y-auto p-4 space-y-3 font-sans">
-                <!-- Дерево рендерится динамически JS -->
-            </div>
-
-            <!-- ВИД 2: 2D Obsidian Force Graph -->
-            <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full">
-                <div id="kg-graph-canvas-wrapper" class="w-full h-full"></div>
-                <!-- Оверлей управления зумом -->
-                <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-neutral-900/80 border border-neutral-800 p-1 rounded-xl backdrop-blur-xs">
-                    <button onclick="zoomGraph(1.3)" class="p-2 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">
-                        <span class="material-symbols-outlined text-base">add</span>
+                
+                <!-- Переключатель видов: Дерево / 2D Граф -->
+                <div class="flex items-center bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 p-0.5 rounded-xl">
+                    <button id="kg-tab-tree" onclick="switchKgView('tree')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">park</span>
+                        <span>Дерево</span>
                     </button>
-                    <button onclick="zoomGraph(0.7)" class="p-2 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors" title="Отдалить">
-                        <span class="material-symbols-outlined text-base">remove</span>
-                    </button>
-                    <button onclick="resetGraphZoom()" class="p-2 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors" title="По центру">
-                        <span class="material-symbols-outlined text-base">center_focus_strong</span>
+                    <button id="kg-tab-graph" onclick="switchKgView('graph')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">hub</span>
+                        <span>2D Граф</span>
                     </button>
                 </div>
+
+                <!-- Закрыть -->
+                <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0" title="Закрыть">
+                    <span class="material-symbols-outlined text-xl">close</span>
+                </button>
             </div>
 
-            <!-- Выдвижная панель деталей выбранного узла (Node Detail Drawer) -->
-            <div id="kg-node-drawer" class="hidden absolute bottom-0 inset-x-0 z-30 max-h-[60%] bg-[#12141c] border-t border-neutral-700/80 p-4 rounded-t-2xl shadow-2xl flex flex-col gap-2.5 overflow-y-auto animate-fade-in">
-                <div class="flex items-start justify-between gap-2 border-b border-neutral-800 pb-2">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <span id="kg-drawer-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0">Категория</span>
-                        <h4 id="kg-drawer-title" class="font-bold text-sm text-white font-mono truncate">Название узла</h4>
+            <!-- Контентная область -->
+            <div class="flex-1 relative overflow-hidden flex flex-col min-h-0 bg-background">
+                <!-- Состояние загрузки -->
+                <div id="kg-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-xs gap-3">
+                    <span class="material-symbols-outlined text-3xl text-primary animate-spin">progress_activity</span>
+                    <span class="text-xs font-mono text-neutral-500 uppercase tracking-wider">Загрузка структуры знаний...</span>
+                </div>
+
+                <!-- Пустое состояние -->
+                <div id="kg-empty-state" class="hidden flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center text-primary">
+                        <span class="material-symbols-outlined text-2xl">account_tree</span>
                     </div>
-                    <button onclick="closeKgNodeDrawer()" class="text-neutral-400 hover:text-white p-1 rounded-lg">
-                        <span class="material-symbols-outlined text-base">close</span>
+                    <h4 class="font-bold text-sm text-neutral-900 dark:text-neutral-100 font-mono uppercase">Каркас еще не сформирован</h4>
+                    <p class="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm leading-relaxed font-sans">
+                        Для данного предмета граф понятий строится автоматически при нарезке документов или может быть загружен из системных пресетов.
+                    </p>
+                    <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="mt-2 px-4 py-2 border border-primary text-primary hover:bg-primary hover:text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs">
+                        [ Загрузить эталонный каркас ]
                     </button>
                 </div>
-                <div class="text-xs text-neutral-300 leading-relaxed font-sans" id="kg-drawer-summary">
-                    Описание и правовая норма...
+
+                <!-- ВИД 1: Иерархическое дерево (DOM Mindmap) -->
+                <div id="kg-tree-view" class="flex-1 overflow-y-auto p-4 space-y-2.5 font-sans">
+                    <!-- Дерево рендерится динамически JS -->
                 </div>
-                <div id="kg-drawer-links-section" class="flex flex-col gap-1 text-xs border-t border-neutral-800/60 pt-2">
-                    <span class="text-[10px] font-mono uppercase text-neutral-500 font-bold">Связи и разграничения:</span>
-                    <div id="kg-drawer-links" class="flex flex-wrap gap-1.5 pt-1"></div>
+
+                <!-- ВИД 2: 2D Obsidian Force Graph -->
+                <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full">
+                    <div id="kg-graph-canvas-wrapper" class="w-full h-full"></div>
+                    <!-- Оверлей управления зумом -->
+                    <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">
+                        <button onclick="zoomGraph(1.3)" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">
+                            <span class="material-symbols-outlined text-base">add</span>
+                        </button>
+                        <button onclick="zoomGraph(0.7)" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Отдалить">
+                            <span class="material-symbols-outlined text-base">remove</span>
+                        </button>
+                        <button onclick="resetGraphZoom()" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="По центру">
+                            <span class="material-symbols-outlined text-base">center_focus_strong</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Выдвижная панель деталей выбранного узла (Node Detail Drawer) -->
+                <div id="kg-node-drawer" class="hidden absolute bottom-0 inset-x-0 z-30 max-h-[65%] bg-surface-container-lowest border-t border-neutral-200 dark:border-neutral-800 p-4 rounded-t-2xl shadow-2xl flex flex-col gap-2.5 overflow-y-auto animate-fade-in">
+                    <div class="flex items-start justify-between gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span id="kg-drawer-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0">Категория</span>
+                            <h4 id="kg-drawer-title" class="font-bold text-sm text-neutral-900 dark:text-neutral-100 font-mono truncate">Название узла</h4>
+                        </div>
+                        <button onclick="closeKgNodeDrawer()" class="text-neutral-400 hover:text-primary p-1 rounded-lg">
+                            <span class="material-symbols-outlined text-base">close</span>
+                        </button>
+                    </div>
+                    <div class="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed font-sans" id="kg-drawer-summary">
+                        Описание и правовая норма...
+                    </div>
+                    <div id="kg-drawer-links-section" class="flex flex-col gap-1 text-xs border-t border-neutral-200 dark:border-neutral-800 pt-2">
+                        <span class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Связи и разграничения:</span>
+                        <div id="kg-drawer-links" class="flex flex-wrap gap-1.5 pt-1"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Модальное окно: Интерактивная практика и кейсы (Milestone 4) -->
-    <div id="practice-modal" class="hidden fixed inset-0 z-[130] bg-[#0c0d12]/95 backdrop-blur-md flex flex-col font-sans select-none" style="touch-action: manipulation; isolation: isolate;">
-        <!-- Хедер практики -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800/80 bg-surface-container-lowest/80 shrink-0">
-            <div class="flex items-center gap-2 min-w-0">
-                <span class="material-symbols-outlined text-emerald-400 text-xl shrink-0">psychology_alt</span>
-                <div class="flex flex-col min-w-0">
-                    <h3 class="font-mono font-bold text-xs sm:text-sm text-neutral-100 uppercase tracking-wider truncate">Интерактивная практика</h3>
-                    <div class="flex items-center gap-1.5 text-[10px] font-mono text-neutral-400">
-                        <span>ПРЕДМЕТ:</span>
-                        <span id="practice-subject-badge" class="font-bold text-emerald-400 uppercase">---</span>
+    <div id="practice-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <!-- Хедер практики -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">psychology_alt</span>
+                    <div class="flex flex-col min-w-0">
+                        <h3 class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Интерактивная практика</h3>
+                        <div class="flex items-center gap-1.5 text-[10px] font-mono text-neutral-500">
+                            <span>ПРЕДМЕТ:</span>
+                            <span id="practice-subject-badge" class="font-bold text-neutral-800 dark:text-neutral-200 uppercase truncate">---</span>
+                        </div>
                     </div>
                 </div>
-            </div>
-            
-            <div class="flex items-center gap-2">
-                <div id="practice-counter-badge" class="px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded-xl text-xs font-mono text-neutral-300">
-                    Вопрос <span id="practice-current-step" class="font-bold text-emerald-400">1</span> / <span id="practice-total-step">10</span>
+                
+                <div class="flex items-center gap-2">
+                    <div id="practice-counter-badge" class="px-2.5 py-1 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-mono text-neutral-700 dark:text-neutral-300">
+                        Вопрос <span id="practice-current-step" class="font-bold text-primary">1</span> / <span id="practice-total-step">10</span>
+                    </div>
+                    <button onclick="closePracticeModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Закрыть практику">
+                        <span class="material-symbols-outlined text-xl">close</span>
+                    </button>
                 </div>
-                <button onclick="closePracticeModal()" class="text-neutral-400 hover:text-neutral-200 p-1.5 rounded-xl hover:bg-neutral-800 transition-colors" title="Закрыть практику">
-                    <span class="material-symbols-outlined text-xl">close</span>
-                </button>
-            </div>
-        </div>
-
-        <!-- Контентная область практики -->
-        <div class="flex-1 relative overflow-y-auto p-4 flex flex-col items-center justify-start min-h-0">
-            <!-- Загрузка -->
-            <div id="practice-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c0d12]/80 backdrop-blur-xs gap-3">
-                <span class="material-symbols-outlined text-3xl text-emerald-400 animate-spin">progress_activity</span>
-                <span class="text-xs font-mono text-neutral-400 uppercase tracking-wider">Формирование заданий...</span>
             </div>
 
-            <!-- Карточка задания -->
-            <div id="practice-card-container" class="w-full max-w-xl flex flex-col gap-4 py-2">
-                <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
-                <div class="flex items-center justify-between">
-                    <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                        Ситуационный кейс
-                    </span>
-                    <span class="text-[10px] font-mono text-neutral-500">АВТОНОМНЫЙ ТРЕНАЖЕР</span>
+            <!-- Контентная область практики -->
+            <div class="flex-1 relative overflow-y-auto p-4 flex flex-col items-center justify-start min-h-0 bg-background">
+                <!-- Загрузка -->
+                <div id="practice-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-xs gap-3">
+                    <span class="material-symbols-outlined text-3xl text-primary animate-spin">progress_activity</span>
+                    <span class="text-xs font-mono text-neutral-500 uppercase tracking-wider">Формирование заданий...</span>
                 </div>
 
-                <!-- Текст вопроса / сценария -->
-                <div class="bg-surface-container-lowest border border-neutral-800/90 rounded-2xl p-4 sm:p-5 shadow-lg">
-                    <p id="practice-prompt" class="text-sm sm:text-base text-neutral-100 leading-relaxed font-medium">
-                        Текст фабулы дела или вопрос...
+                <!-- Карточка задания -->
+                <div id="practice-card-container" class="w-full flex flex-col gap-3 py-1">
+                    <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
+                    <div class="flex items-center justify-between">
+                        <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
+                            Ситуационный кейс
+                        </span>
+                        <span class="text-[10px] font-mono text-neutral-400">ТРЕНАЖЕР</span>
+                    </div>
+
+                    <!-- Текст вопроса / сценария -->
+                    <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+                        <p id="practice-prompt" class="text-sm text-neutral-900 dark:text-neutral-100 leading-relaxed font-medium">
+                            Текст фабулы дела или вопрос...
+                        </p>
+                    </div>
+
+                    <!-- Варианты ответов -->
+                    <div id="practice-options-list" class="flex flex-col gap-2">
+                        <!-- Кнопки вариантов ответа генерируются JS -->
+                    </div>
+
+                    <!-- Блок вердикта и Gold Standard объяснения -->
+                    <div id="practice-feedback-container" class="hidden flex flex-col gap-2.5 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-surface-container-lowest shadow-xs animate-fade-in">
+                        <div id="practice-feedback-status" class="flex items-center gap-2 font-mono font-bold text-xs uppercase">
+                            <!-- Статус: ВЕРНО или НЕВЕРНО -->
+                        </div>
+                        
+                        <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
+                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider">⚡ Водораздельный критерий (Gold Standard):</span>
+                            <div id="practice-gold-standard-text" class="font-sans leading-relaxed"></div>
+                        </div>
+
+                        <div id="practice-explanation-box" class="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed font-sans">
+                            <span class="font-mono font-bold text-[10px] uppercase text-neutral-400 block mb-1">Разъяснение:</span>
+                            <div id="practice-explanation-text"></div>
+                        </div>
+
+                        <button id="practice-next-btn" onclick="nextPracticeQuestion()" class="mt-1 w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span>Следующий вопрос</span>
+                            <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Экран завершения практики -->
+                <div id="practice-finish-screen" class="hidden w-full flex flex-col items-center justify-center p-6 text-center gap-4 my-auto animate-fade-in">
+                    <div class="w-16 h-16 rounded-3xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center text-primary">
+                        <span class="material-symbols-outlined text-3xl">military_tech</span>
+                    </div>
+                    <h3 class="font-bold font-mono text-base text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Сессия практики завершена!</h3>
+                    <div class="p-4 rounded-2xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 w-full flex flex-col gap-1 font-mono shadow-xs">
+                        <div class="text-neutral-400 text-xs uppercase">ТОЧНОСТЬ ОТВЕТОВ:</div>
+                        <div id="practice-finish-score" class="text-2xl font-black text-primary">8 / 10 (80%)</div>
+                    </div>
+                    <p id="practice-finish-message" class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed font-sans">
+                        Отличный результат! Узлы и водоразделы закреплены в долговременной памяти.
                     </p>
-                </div>
-
-                <!-- Варианты ответов -->
-                <div id="practice-options-list" class="flex flex-col gap-2.5">
-                    <!-- Кнопки вариантов ответа генерируются JS -->
-                </div>
-
-                <!-- Блок вердикта и Gold Standard объяснения -->
-                <div id="practice-feedback-container" class="hidden flex flex-col gap-3 p-4 rounded-2xl border bg-neutral-900/90 animate-fade-in">
-                    <div id="practice-feedback-status" class="flex items-center gap-2 font-mono font-bold text-xs uppercase">
-                        <!-- Статус: ВЕРНО или НЕВЕРНО -->
+                    <div class="flex flex-col gap-2 w-full pt-2">
+                        <button onclick="startPracticeSession()" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs">
+                            [ Пройти еще раз ]
+                        </button>
+                        <button onclick="closePracticeModal()" class="w-full py-2.5 px-4 border border-neutral-300 dark:border-neutral-700 hover:border-primary hover:text-primary text-neutral-700 dark:text-neutral-300 font-mono font-bold text-xs uppercase rounded-xl transition-all">
+                            [ В главное меню ]
+                        </button>
                     </div>
-                    
-                    <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-                        <span class="font-mono font-bold text-[10px] uppercase text-amber-400 tracking-wider">⚡ Водораздельный критерий (Gold Standard):</span>
-                        <div id="practice-gold-standard-text" class="font-sans leading-relaxed"></div>
-                    </div>
-
-                    <div id="practice-explanation-box" class="text-xs text-neutral-300 leading-relaxed font-sans">
-                        <span class="font-mono font-bold text-[10px] uppercase text-neutral-400 block mb-1">Разъяснение:</span>
-                        <div id="practice-explanation-text"></div>
-                    </div>
-
-                    <button id="practice-next-btn" onclick="nextPracticeQuestion()" class="mt-2 w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5">
-                        <span>Следующий вопрос</span>
-                        <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Экран завершения практики -->
-            <div id="practice-finish-screen" class="hidden w-full max-w-md flex flex-col items-center justify-center p-6 text-center gap-4 my-auto animate-fade-in">
-                <div class="w-16 h-16 rounded-3xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                    <span class="material-symbols-outlined text-3xl">military_tech</span>
-                </div>
-                <h3 class="font-bold font-mono text-base text-white uppercase tracking-wider">Сессия практики завершена!</h3>
-                <div class="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 w-full flex flex-col gap-2 font-mono">
-                    <div class="text-neutral-400 text-xs">ТОЧНОСТЬ ОТВЕТОВ:</div>
-                    <div id="practice-finish-score" class="text-2xl font-black text-emerald-400">8 / 10 (80%)</div>
-                </div>
-                <p id="practice-finish-message" class="text-xs text-neutral-400 leading-relaxed">
-                    Отличный результат! Узлы и водоразделы закреплены в долговременной памяти.
-                </p>
-                <div class="flex flex-col sm:flex-row gap-2 w-full pt-2">
-                    <button onclick="startPracticeSession()" class="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all">
-                        Пройти еще раз
-                    </button>
-                    <button onclick="closePracticeModal()" class="flex-1 py-2.5 px-4 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 font-mono font-bold text-xs uppercase rounded-xl transition-all">
-                        В главное меню
-                    </button>
                 </div>
             </div>
         </div>
