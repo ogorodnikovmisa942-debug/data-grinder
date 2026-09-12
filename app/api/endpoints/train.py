@@ -10,6 +10,7 @@ from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSessio
 from app.services.fsrs_core import calculate_intervals
 from app.core.auth import get_current_user_id
 from app.core.config import settings
+from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from datetime import datetime
 
 router = APIRouter()
@@ -100,6 +101,9 @@ async def get_session_cards(
         subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
         limit = subject_limits.get(subject, user_daily_limit)
 
+    # Разрешаем все алиасы предмета (например, sudoustr <-> sudoustroystvo)
+    sub_aliases = get_all_subject_aliases(subject) if subject != 'all' else ['all']
+
     # 1. Сбор просроченных повторений (REV) текущего пользователя
     review_stmt = select(Card).filter(
         Card.user_id == current_user,
@@ -107,7 +111,7 @@ async def get_session_cards(
         Card.next_review <= now
     )
     if subject != 'all':
-        review_stmt = review_stmt.filter(Card.subject == subject)
+        review_stmt = review_stmt.filter(Card.subject.in_(sub_aliases))
     review_res = await db.execute(review_stmt)
     due_reviews = review_res.scalars().all()
 
@@ -117,7 +121,7 @@ async def get_session_cards(
         Card.state.in_([1, 3])
     )
     if subject != 'all':
-        intra_stmt = intra_stmt.filter(Card.subject == subject)
+        intra_stmt = intra_stmt.filter(Card.subject.in_(sub_aliases))
     intra_res = await db.execute(intra_stmt)
     intra_day_cards = intra_res.scalars().all()
 
@@ -130,7 +134,7 @@ async def get_session_cards(
         ReviewLog.review_time >= today_start
     )
     if subject != 'all':
-        new_today_stmt = new_today_stmt.filter(Card.subject == subject)
+        new_today_stmt = new_today_stmt.filter(Card.subject.in_(sub_aliases))
         
     new_today_res = await db.execute(new_today_stmt)
     already_learned_today = len(new_today_res.scalars().all())
@@ -144,7 +148,7 @@ async def get_session_cards(
             Card.state == 0
         )
         if subject != 'all':
-            new_stmt = new_stmt.filter(Card.subject == subject)
+            new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
         new_stmt = new_stmt.limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
@@ -158,7 +162,7 @@ async def get_session_cards(
     elif mode == "cram":
         cram_stmt = select(Card).filter(Card.user_id == current_user).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
         if subject != 'all':
-            cram_stmt = cram_stmt.filter(Card.subject == subject)
+            cram_stmt = cram_stmt.filter(Card.subject.in_(sub_aliases))
         cram_res = await db.execute(cram_stmt)
         full_pool = cram_res.scalars().all()
     else: # mixed

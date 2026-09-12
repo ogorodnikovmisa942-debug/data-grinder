@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update, text
 from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph
-from app.services.ai_gateway import parse_raw_text, split_text_into_chunks
+from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front
 from app.services.graph_service import consolidate_knowledge_graphs
 from app.core.config import settings
 from aiogram import Bot
@@ -120,6 +120,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         all_collected_cards = []
         all_chunk_graphs = []
         seen_card_texts = set()
+        seen_semantic_keys = set()
         extracted_theme = job_data["theme"]
         any_fallback_used = False
         any_json_repair_applied = False
@@ -166,9 +167,14 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
                     norm_key = normalize_front(raw_c_text)
-                    if norm_key and norm_key not in seen_card_texts:
-                        seen_card_texts.add(norm_key)
-                        all_collected_cards.append(c)
+                    sem_key = semantic_normalize_front(raw_c_text)
+                    if norm_key and norm_key not in seen_card_texts and (not sem_key or sem_key not in seen_semantic_keys):
+                        is_bl, _ = is_blacklisted_card(c, subject_domain=job_data.get("subject", "generic"))
+                        if not is_bl:
+                            seen_card_texts.add(norm_key)
+                            if sem_key:
+                                seen_semantic_keys.add(sem_key)
+                            all_collected_cards.append(c)
 
             chunk_graph = parsed.get("knowledge_graph")
             if chunk_graph and isinstance(chunk_graph, dict):

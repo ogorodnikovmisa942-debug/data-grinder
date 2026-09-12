@@ -61,6 +61,7 @@ class StagingCommitIn(BaseModel):
     theme: str
     cards: list[CardStagingItem]
     job_id: Optional[int] = None
+    knowledge_graph: Optional[dict] = None
 
 
 class ManualCardIn(BaseModel):
@@ -844,6 +845,7 @@ async def import_raw_text(
     subject_slug = target_sub
     phrase_title = parsed_data.get("phrase_title", "Новый блок знаний")
     cards = parsed_data.get("cards", [])
+    kg_data = parsed_data.get("knowledge_graph")
 
     # Если включен режим Staging (по умолчанию True для фронтенда), возвращаем карточки в Песочницу!
     if not payload.commit_now:
@@ -851,7 +853,8 @@ async def import_raw_text(
             "status": "staging",
             "subject": subject_slug,
             "theme": phrase_title,
-            "cards": cards
+            "cards": cards,
+            "knowledge_graph": kg_data
         }
 
     # Прямое сохранение, если запрошено
@@ -864,6 +867,41 @@ async def import_raw_text(
             db=db
         )
         if cards_created > 0:
+            from app.database.models import TopicKnowledgeGraph
+            from app.services.graph_service import synthesize_graph_from_cards
+            if kg_data and kg_data.get("nodes"):
+                kg_stmt = select(TopicKnowledgeGraph).where(
+                    TopicKnowledgeGraph.user_id == current_user,
+                    TopicKnowledgeGraph.subject == clean_sub
+                )
+                kg_rec = (await db.execute(kg_stmt)).scalars().first()
+                if kg_rec:
+                    kg_rec.graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
+                    kg_rec.tree_data = kg_data.get("tree_data")
+                    kg_rec.updated_at = datetime.utcnow()
+                else:
+                    new_kg = TopicKnowledgeGraph(
+                        user_id=current_user,
+                        subject=clean_sub,
+                        graph_data={"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])},
+                        tree_data=kg_data.get("tree_data"),
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(new_kg)
+            else:
+                syn = synthesize_graph_from_cards(cards, fallback_title=clean_title or clean_sub)
+                if syn and syn.get("graph_data", {}).get("nodes"):
+                    new_kg = TopicKnowledgeGraph(
+                        user_id=current_user,
+                        subject=clean_sub,
+                        graph_data=syn["graph_data"],
+                        tree_data=syn["tree_data"],
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(new_kg)
+
             await db.commit()
             return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
         else:
@@ -901,6 +939,51 @@ async def commit_staging_cards(
                 job.status = "completed"
                 job.cards_count = cards_created
                 job.result_cards_json = None  # Освобождаем место в БД после фиксации в карточки
+
+        # Фиксация или синтез графа знаний для предмета
+        from app.database.models import TopicKnowledgeGraph
+        from app.services.graph_service import synthesize_graph_from_cards
+        
+        kg_data = payload.knowledge_graph
+        if kg_data and kg_data.get("nodes"):
+            kg_stmt = select(TopicKnowledgeGraph).where(
+                TopicKnowledgeGraph.user_id == current_user,
+                TopicKnowledgeGraph.subject == clean_sub
+            )
+            kg_rec = (await db.execute(kg_stmt)).scalars().first()
+            if kg_rec:
+                kg_rec.graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
+                kg_rec.tree_data = kg_data.get("tree_data")
+                kg_rec.updated_at = datetime.utcnow()
+            else:
+                new_kg = TopicKnowledgeGraph(
+                    user_id=current_user,
+                    subject=clean_sub,
+                    graph_data={"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])},
+                    tree_data=kg_data.get("tree_data"),
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(new_kg)
+        else:
+            kg_stmt = select(TopicKnowledgeGraph).where(
+                TopicKnowledgeGraph.user_id == current_user,
+                TopicKnowledgeGraph.subject == clean_sub
+            )
+            kg_rec = (await db.execute(kg_stmt)).scalars().first()
+            if not kg_rec:
+                syn = synthesize_graph_from_cards(payload.cards, fallback_title=clean_title or clean_sub)
+                if syn and syn.get("graph_data", {}).get("nodes"):
+                    new_kg = TopicKnowledgeGraph(
+                        user_id=current_user,
+                        subject=clean_sub,
+                        graph_data=syn["graph_data"],
+                        tree_data=syn["tree_data"],
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(new_kg)
+
         await db.commit()
         return {
             "status": "success", 

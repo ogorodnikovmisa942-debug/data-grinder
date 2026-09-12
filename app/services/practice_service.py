@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PracticeItem, Card, Phrase, TopicKnowledgeGraph
 from app.database.session import AsyncSessionLocal
+from app.services.graph_service import resolve_subject_alias
 
 
 # --- PRESET SEED PRACTICE ITEMS (FOR ZERO-CARD / INSTANT START) ---
@@ -260,8 +261,31 @@ SUDOUSTROYSTVO_PRESET_PRACTICE = [
 ]
 
 
-def extract_cloze_target(front_text: str) -> tuple[str, str]:
-    """Извлекает искомое слово из разметки {{c1::слово}} или [слово]."""
+def select_coherent_distractors(target_answer: str, candidate_answers: list[str], count: int = 3) -> list[str]:
+    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины."""
+    target_clean = target_answer.strip().lower()
+    target_words = len(target_clean.split())
+    
+    valid = [a.strip() for a in candidate_answers if a.strip() and a.strip().lower() != target_clean]
+    if not valid:
+        return [f"Альтернативное условие {i+1}" for i in range(count)]
+
+    # Приоритет кандидатам со схожей длиной по словам
+    def dist_score(cand: str):
+        c_words = len(cand.split())
+        return abs(c_words - target_words)
+
+    # Выделяем кандидатов близкой длины
+    similar = [c for c in valid if dist_score(c) <= max(3, target_words // 2)]
+    if len(similar) >= count:
+        return random.sample(similar, count)
+    
+    valid.sort(key=dist_score)
+    return valid[:count]
+
+
+def extract_cloze_target(front_text: str, back_text: str = "") -> tuple[str, str]:
+    """Извлекает искомое слово из разметки {{c1::слово}}, [слово] или числовых сроков/цензов."""
     # 1. Формат Anki cloze {{c1::target}}
     m_anki = re.search(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', front_text)
     if m_anki:
@@ -273,8 +297,29 @@ def extract_cloze_target(front_text: str) -> tuple[str, str]:
     m_bracket = re.search(r'\[(.*?)\]', front_text)
     if m_bracket:
         target = m_bracket.group(1).strip()
-        cloze_prompt = front_text.replace(f"[{target}]", "[...]")
+        if target != "...":
+            cloze_prompt = front_text.replace(f"[{target}]", "[...]")
+            return cloze_prompt, target
+        elif back_text:
+            clean_b = back_text.strip().rstrip('.')
+            if len(clean_b) <= 50:
+                return front_text, clean_b
+
+    # 3. Числовые сроки и цензы в вопросе
+    deadline_pattern = r'\b(\d+\s+(?:суток|дней|дня|месяц(?:а|ев)?|лет|года|часов|часа))\b'
+    m_dead = re.search(deadline_pattern, front_text, re.IGNORECASE)
+    if m_dead:
+        target = m_dead.group(1).strip()
+        cloze_prompt = front_text.replace(target, '[...]')
         return cloze_prompt, target
+
+    # 4. Если в ответе содержится точный нормативный срок/число
+    if back_text:
+        m_dead_back = re.search(deadline_pattern, back_text, re.IGNORECASE)
+        if m_dead_back and len(back_text.strip()) <= 45:
+            target = m_dead_back.group(1).strip()
+            cloze_prompt = front_text.rstrip('?.') + ": срок составляет [...]"
+            return cloze_prompt, target
 
     return front_text, ""
 
@@ -287,13 +332,14 @@ async def generate_practice_session(
 ) -> List[Dict[str, Any]]:
     """Генерирует автономную практическую сессию для пользователя по предмету.
     
-    1. Ищет карточки пользователя в таблице cards по данному предмету.
+    1. Ищет карточки пользователя в таблице cards по данному предмету и его алиасам.
     2. Если карточек достаточно (>=3), динамически синтезирует упражнения 3 типов:
-       - situational (ситуационные кейсы с дистракторами из колоды)
+       - situational (ситуационные кейсы со схожими по длине дистракторами)
        - contrast_pair (разграничение понятий)
-       - slot_filling (заполнение пропусков)
-    3. Если карточек нет или мало (<3), использует предустановленные seed-сценарии или данные графа знаний.
-    4. Сохраняет сформированные PracticeItem в БД для надежной верификации ответов.
+       - slot_filling (заполнение пропусков по срокам и ключевым понятиям)
+    3. Дополняет сценариями из графа знаний предмета.
+    4. Если карточек мало, подгружает эталонные пресеты.
+    5. Сохраняет сформированные PracticeItem в БД для надежной верификации ответов.
     """
     should_close = False
     if db is None:
@@ -301,13 +347,14 @@ async def generate_practice_session(
         should_close = True
 
     try:
-        # 1. Извлекаем карточки пользователя для предмета
-        stmt = select(Card).where(Card.subject == subject, Card.user_id == user_id)
+        alias_subject = resolve_subject_alias(subject)
+
+        # 1. Извлекаем карточки пользователя для предмета и его алиасов
+        stmt = select(Card).where(Card.subject.in_([subject, alias_subject]), Card.user_id == user_id)
         res = await db.execute(stmt)
         user_cards = res.scalars().all()
         if not user_cards:
-            # Попробуем найти карты этого предмета для default_user
-            stmt_default = select(Card).where(Card.subject == subject)
+            stmt_default = select(Card).where(Card.subject.in_([subject, alias_subject]))
             res_default = await db.execute(stmt_default)
             user_cards = res_default.scalars().all()
 
@@ -316,9 +363,12 @@ async def generate_practice_session(
         # 2. Если есть достаточно карточек, синтезируем интерактивные тесты
         if len(user_cards) >= 3:
             all_answers = [c.translation.strip() for c in user_cards if c.translation and len(c.translation.strip()) > 3]
-            sample_cards = random.sample(user_cards, min(count, len(user_cards)))
+            sample_cards = random.sample(user_cards, min(count * 2, len(user_cards)))
 
             for card in sample_cards:
+                if len(practice_records) >= count:
+                    break
+
                 front = (card.text or "").strip()
                 back = (card.translation or "").strip()
                 ex = (card.example or "").strip()
@@ -327,18 +377,24 @@ async def generate_practice_session(
                 if not front or not back:
                     continue
 
-                cloze_prompt, cloze_target = extract_cloze_target(front)
+                cloze_prompt, cloze_target = extract_cloze_target(front, back)
                 item_id = str(uuid.uuid4())
 
                 # Тип 1: Заполнение пропусков (Slot-Filling)
                 if cloze_target and len(cloze_target) > 1:
-                    # Подбираем 3 дистрактора
-                    distractors = [a for a in all_answers if a.lower() != cloze_target.lower()]
-                    chosen_distractors = random.sample(distractors, min(3, len(distractors)))
+                    chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3)
+                    # Если таргет - это числовой срок (напр. "10 суток"), формируем реалистичные альтернативы
+                    m_num = re.match(r'^(\d+)\s+(суток|дней|дня|месяц|месяца|месяцев|лет|года)$', cloze_target.strip().lower())
+                    if m_num:
+                        val = int(m_num.group(1))
+                        unit = m_num.group(2)
+                        alternatives = [f"{val + 5} {unit}", f"{max(1, val - 5)} {unit}", f"{val * 2} {unit}"]
+                        chosen_distractors = [a for a in alternatives if a != cloze_target][:3]
+
                     while len(chosen_distractors) < 3:
                         chosen_distractors.append(f"Альтернативное условие {len(chosen_distractors) + 1}")
 
-                    options = [cloze_target] + chosen_distractors
+                    options = [cloze_target] + chosen_distractors[:3]
                     random.shuffle(options)
 
                     pi = PracticeItem(
@@ -356,12 +412,11 @@ async def generate_practice_session(
 
                 # Тип 2: Контрастная пара (Contrast Pair)
                 elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница")):
-                    distractors = [a for a in all_answers if a.lower() != back.lower()]
-                    chosen_distractors = random.sample(distractors, min(3, len(distractors)))
+                    chosen_distractors = select_coherent_distractors(back, all_answers, count=3)
                     while len(chosen_distractors) < 3:
-                        chosen_distractors.append(f"Неприменимый признак {len(chosen_distractors) + 1}")
+                        chosen_distractors.append(f"Иной критерий {len(chosen_distractors) + 1}")
 
-                    options = [back] + chosen_distractors
+                    options = [back] + chosen_distractors[:3]
                     random.shuffle(options)
 
                     pi = PracticeItem(
@@ -379,12 +434,11 @@ async def generate_practice_session(
 
                 # Тип 3: Ситуационный кейс / Дерево решений (Situational Vignette)
                 else:
-                    distractors = [a for a in all_answers if a.lower() != back.lower()]
-                    chosen_distractors = random.sample(distractors, min(3, len(distractors)))
+                    chosen_distractors = select_coherent_distractors(back, all_answers, count=3)
                     while len(chosen_distractors) < 3:
                         chosen_distractors.append(f"Иная инстанция {len(chosen_distractors) + 1}")
 
-                    options = [back] + chosen_distractors
+                    options = [back] + chosen_distractors[:3]
                     random.shuffle(options)
 
                     pi = PracticeItem(
@@ -402,13 +456,15 @@ async def generate_practice_session(
 
         # 3. Синтез вопросов из графа знаний предмета (топологическая инстанционность и связи)
         try:
-            kg_stmt = select(TopicKnowledgeGraph).where(TopicKnowledgeGraph.subject == subject)
+            kg_stmt = select(TopicKnowledgeGraph).where(TopicKnowledgeGraph.subject.in_([subject, alias_subject]))
             kg_res = await db.execute(kg_stmt)
             kg_record = kg_res.scalars().first()
             if kg_record and kg_record.graph_data:
                 g_nodes = {n["id"]: n for n in kg_record.graph_data.get("nodes", []) if "id" in n}
                 g_edges = kg_record.graph_data.get("edges", [])
                 for e in g_edges:
+                    if len(practice_records) >= count:
+                        break
                     rel = e.get("relation", "")
                     src_id = e.get("source")
                     tgt_id = e.get("target")
@@ -420,7 +476,7 @@ async def generate_practice_session(
                             chosen_dist = random.sample(other_names, min(3, len(other_names)))
                             while len(chosen_dist) < 3:
                                 chosen_dist.append(f"Иная судебная инстанция {len(chosen_dist) + 1}")
-                            opts = [tgt_name] + chosen_dist
+                            opts = [tgt_name] + chosen_dist[:3]
                             random.shuffle(opts)
                             pi = PracticeItem(
                                 item_id=str(uuid.uuid4()),
@@ -437,8 +493,8 @@ async def generate_practice_session(
         except Exception as kg_err:
             print(f"[Practice Engine] Ошибка синтеза из графа: {kg_err}")
 
-        # 4. Fallback / Добор: если заданий меньше count и предмет относится к судоустройству, добираем из пресетов
-        if len(practice_records) < count and subject in ("sudoustroystvo", "court_system", "судоустройство", "default"):
+        # 4. Fallback / Добор: если заданий меньше count, добираем из пресетов
+        if len(practice_records) < count and (alias_subject in ("sudoustroystvo", "court_system", "судоустройство", "default") or len(practice_records) == 0):
             seeds = SUDOUSTROYSTVO_PRESET_PRACTICE.copy()
             random.shuffle(seeds)
             needed = count - len(practice_records)

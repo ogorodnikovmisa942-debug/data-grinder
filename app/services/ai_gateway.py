@@ -254,6 +254,126 @@ CONTRAST CASE 6 (Language - Chinese Vocabulary):
 - Do not generate mnemonics in this initial decomposition batch (mnemonics are generated lazily on demand).
 """
 
+# --- ПРОГРАММНЫЙ ВАЛИДАТОР КАЧЕСТВА И СТРОГИЙ BLACKLIST (R3, R4) ---
+def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bool, str]:
+    """
+    Программный валидатор качества карточек (F8, R3, R4).
+    Проверяет карточку на соответствие стандартам когнитивной ценности:
+    1. Исключает тривиальные 'Да/Нет' ответы.
+    2. Отсеивает тавтологии (ответ полностью повторяет слова вопроса).
+    3. Отсеивает методологическую воду учебников (синергетика, классификация методов, предмет науки).
+    4. Отсеивает устаревший исторический балласт недействующего права (декреты 1918-1930-х гг., ВЧК, ОГПУ), если предмет не история.
+    5. Отсеивает канцелярское делопроизводство (архивные справки vs выписки).
+    6. Отсеивает общие банальности ('Что такое диалог?', 'Что такое правосудие?').
+    """
+    front = (card.get("text") or card.get("front") or card.get("question") or card.get("t") or "").strip()
+    back = (card.get("translation") or card.get("back") or card.get("answer") or card.get("d") or "").strip()
+    sec = (card.get("secondary_text") or card.get("secondary") or card.get("s") or "").strip()
+
+    if not front or not back:
+        return True, "empty_front_or_back"
+
+    if len(front) < 5 or len(back) < 2:
+        return True, "too_short"
+
+    # Cloze-карточки намеренно содержат целевой термин в разметке {{c1::термин}}
+    if "{{c" in front:
+        return False, ""
+
+    back_lower = back.lower()
+    front_lower = front.lower()
+    sec_lower = sec.lower()
+
+    # 1. Бинарные Да/Нет
+    if re.match(r'^(да|нет)[\.,\s!]', back_lower) or back_lower in ("да", "нет", "да.", "нет."):
+        return True, "binary_yes_no"
+
+    # 2. Тавтологии (когда короткий ответ целиком состоит из слов, уже упомянутых в вопросе)
+    stop_words = {
+        "орган", "органы", "органов", "органам", "органами", "дело", "дела", "государство", "государства",
+        "является", "относятся", "относится", "входит", "входят", "группе", "какой", "какому", "какая",
+        "это", "для", "при", "том", "что"
+    }
+    back_words = [w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', back_lower) if w not in stop_words]
+    if back_words and len(back_words) <= 3:
+        back_stems = {w[:6] for w in back_words}
+        front_stems = {w[:6] for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', front_lower)}
+        if back_stems.issubset(front_stems):
+            return True, "tautology"
+
+    # 3. Академическая методология и вода вводных глав
+    methodology_patterns = [
+        r'\bсинергетическ',
+        r'\bдиалектическ',
+        r'\bметодологи',
+        r'методы?\s+исследовани',
+        r'теоретические\s+методы.*эмпирическ',
+        r'эмпирические\s+методы.*теоретическ',
+        r'анкетировани.*интервьюировани',
+        r'метод\s+экспертных\s+оценок',
+        r'предмет\s+курса',
+        r'учебная\s+дисциплина\s*\|\s*предмет',
+    ]
+    for p in methodology_patterns:
+        if re.search(p, front_lower) or re.search(p, back_lower) or re.search(p, sec_lower):
+            return True, "academic_methodology_fluff"
+
+    # 4. Устаревшие исторические справки недействующего советского законодательства (1918–1989)
+    is_history_subject = any(h in subject_domain.lower() for h in ("history", "история"))
+    if not is_history_subject:
+        history_patterns = [
+            r'\b191[7-9]\b', r'\b192[0-9]\b', r'\b193[0-9]\b', r'\b196[1-3]\b',
+            r'\bвчк\b', r'\bогпу\b', r'\bнквд\b', r'ревтрибунал', r'военный\s+трибунал\s+западного\s+фронта',
+            r'декрет\s+о\s+суде', r'положение\s+о\s+судоустройстве\s+бсср', r'сельский\s+\(местечковый\)\s+суд',
+            r'социалистическое\s+отечество\s+в\s+опасности', r'«тройки»\s+нквд', r'особые\s+совещания'
+        ]
+        for p in history_patterns:
+            if re.search(p, front_lower) or re.search(p, sec_lower):
+                return True, "obsolete_historical_trivia"
+
+    # 5. Канцелярское делопроизводство
+    clerical_patterns = [
+        r'архивная\s+справка.*архивной\s+выписк',
+        r'архивная\s+выписка.*архивной\s+справк',
+        r'инструкция\s+по\s+делопроизводству\s*\|\s*виды\s+архивных'
+    ]
+    for p in clerical_patterns:
+        if re.search(p, front_lower) or re.search(p, sec_lower):
+            return True, "clerical_office_trivia"
+
+    # 6. Банальности и пустые бытовые определения
+    banality_patterns = [
+        r'^что\s+такое\s+правосудие\??$',
+        r'^что\s+такое\s+диалог\??$',
+        r'^зачем\s+юристу\s+логика\??$',
+        r'какой\s+главный\s+закон\s+страны\??'
+    ]
+    for p in banality_patterns:
+        if re.search(p, front_lower):
+            return True, "trivial_banality"
+
+    return False, ""
+
+
+def semantic_normalize_front(text: str) -> str:
+    """Формирует инвариантный смысловой отпечаток вопроса для семантической дедупликации."""
+    t = re.sub(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', r'\1', text)
+    t = re.sub(r'\[(.*?)\]', r'\1', t)
+    t = t.lower()
+    words = re.findall(r'[a-zA-Zа-яА-Я0-9]{3,}', t)
+    stop_words = {
+        "чем", "как", "какой", "какая", "какие", "каком", "каков", "что", "где", "куда",
+        "кто", "когда", "почему", "зачем", "отличается", "отличие", "принципиально",
+        "судебном", "процессе", "процесс", "суде", "деле", "случае", "согласно", "соответствии",
+        "рамках", "сферы", "точки", "зрения", "какова"
+    }
+    stems = sorted({w[:5] for w in words if w not in stop_words})
+    # Для коротких или шаблонных вопросов (<3 значащих лемм) не задействуем нечеткую дедупликацию
+    if len(stems) < 3:
+        return ""
+    return " ".join(stems)
+
+
 def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> dict:
     """Десериализует минифицированный JSON от DeepSeek (ключи c, t, s, d, e, l) в стандартный формат карточек Data Grinder.
     
@@ -361,8 +481,7 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         if not str(front).strip() and not str(back).strip():
             continue
 
-        is_cloze = "{{c" in str(front)
-        cards.append({
+        c_obj = {
             "text": str(front).strip(),
             "secondary_text": str(sec).strip(),
             "translation": str(back).strip(),
@@ -370,8 +489,15 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
             "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
             "mnemonic": None,  # Ленивая генерация мнемоник
             "theme": str(theme).strip() or title,
-            "content_type": "cloze" if is_cloze else "text"
-        })
+            "content_type": "cloze" if "{{c" in str(front) else "text"
+        }
+
+        # Фильтр качества (Blacklist Fluff Purge)
+        is_bl, bl_reason = is_blacklisted_card(c_obj, subject_domain=domain)
+        if is_bl:
+            continue
+
+        cards.append(c_obj)
 
     # 4. Извлекаем семантический граф знаний и ментальный каркас
     clean_nodes = []

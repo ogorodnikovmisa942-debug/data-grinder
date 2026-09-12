@@ -646,9 +646,183 @@ def generate_sudoustroystvo_seed_graph() -> dict:
     }
 
 
+def resolve_subject_alias(subject_slug: str) -> str:
+    """Нормализует альтернативные и сокращенные названия предметов."""
+    s = (subject_slug or "").strip().lower()
+    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
+        return "sudoustroystvo"
+    if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
+        return "civil_law"
+    return s
+
+
+def get_all_subject_aliases(subject_slug: str) -> list[str]:
+    """Возвращает все известные синонимы и сокращения предмета для полноты выборки."""
+    canonical = resolve_subject_alias(subject_slug)
+    if canonical == "sudoustroystvo":
+        return ["sudoustroystvo", "sudoustr", "court_system", "судоустройство", "sud", "суд"]
+    if canonical == "civil_law":
+        return ["civil_law", "гражданское", "гк_рф", "гражданское_право"]
+    return [subject_slug] if subject_slug == canonical else [subject_slug, canonical]
+
+
 def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
     """Returns the pre-computed seed knowledge graph for standard preset decks."""
-    normalized = (subject_slug or "").strip().lower()
+    normalized = resolve_subject_alias(subject_slug)
     if normalized in ("sudoustroystvo", "court_system", "судоустройство"):
-        return generate_sudoustroystvo_seed_graph()
+        res = generate_sudoustroystvo_seed_graph()
+        res["subject"] = subject_slug
+        return res
     return None
+
+
+def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас дисциплины") -> dict:
+    """
+    Автоматически синтезирует семантический граф знаний и иерархическое дерево
+    из реальных карточек колоды, если граф еще не был сохранен в БД.
+    Обеспечивает 100% работоспособность дерева и графа для любых пользовательских колод.
+    """
+    if not cards:
+        return {
+            "graph_data": {"nodes": [], "edges": []},
+            "tree_data": None
+        }
+
+    clean_title = (fallback_title or "Дисциплина").strip()
+    root_id = normalize_id(clean_title)
+    
+    root_node = {
+        "id": root_id,
+        "name": clean_title.upper() if len(clean_title) <= 12 else clean_title.capitalize(),
+        "category": "authority",
+        "summary": f"Ментальный каркас и ключевые институты курса «{clean_title}».",
+        "parent_id": None,
+        "level": 0
+    }
+
+    nodes_map: Dict[str, dict] = {root_id: root_node}
+    edges_list: List[dict] = []
+    seen_edges: set = set()
+
+    # Группируем карточки по темам (Phrase или secondary_text)
+    theme_cards: Dict[str, list] = {}
+    for c in cards:
+        theme = ""
+        if hasattr(c, "phrase") and c.phrase and c.phrase.text:
+            theme = c.phrase.text.strip()
+        elif hasattr(c, "theme") and c.theme:
+            theme = c.theme.strip()
+        elif isinstance(c, dict):
+            theme = (c.get("theme") or (c.get("phrase") or {}).get("text") or "").strip()
+
+        if not theme and hasattr(c, "secondary_text") and c.secondary_text:
+            parts = [p.strip() for p in c.secondary_text.split("|") if p.strip()]
+            if parts:
+                theme = parts[0]
+        elif not theme and isinstance(c, dict) and c.get("secondary_text"):
+            parts = [p.strip() for p in c["secondary_text"].split("|") if p.strip()]
+            if parts:
+                theme = parts[0]
+
+        theme = theme or "Ключевые институты"
+        theme_cards.setdefault(theme, []).append(c)
+
+    # Формируем ветви 1-го уровня (Темы / Институты)
+    for t_name, c_list in theme_cards.items():
+        t_id = normalize_id(t_name)
+        if t_id == root_id:
+            t_id = f"{t_id}_branch"
+
+        summary_text = f"Институт «{t_name}» ({len(c_list)} ключевых правил и развилок)."
+        if t_id not in nodes_map:
+            nodes_map[t_id] = {
+                "id": t_id,
+                "name": t_name,
+                "category": "instance",
+                "summary": summary_text,
+                "parent_id": root_id,
+                "level": 1
+            }
+            edge_key = (t_id, root_id)
+            if edge_key not in seen_edges:
+                seen_edges.add(edge_key)
+                edges_list.append({
+                    "source": t_id,
+                    "target": root_id,
+                    "relation": "subject_to_jurisdiction",
+                    "label": "входит в систему"
+                })
+
+        # Формируем развилки и условия 2-го уровня из карточек (до 4 ключевых узлов на тему)
+        sub_added = 0
+        for c in c_list:
+            if sub_added >= 4:
+                break
+            sec = getattr(c, "secondary_text", "") if hasattr(c, "secondary_text") else (c.get("secondary_text", "") if isinstance(c, dict) else "")
+            front = getattr(c, "text", "") if hasattr(c, "text") else (c.get("text", "") if isinstance(c, dict) else "")
+            trans = getattr(c, "translation", "") if hasattr(c, "translation") else (c.get("translation", "") if isinstance(c, dict) else "")
+
+            # Извлекаем сущность из подсказки или вопроса
+            leaf_name = ""
+            if sec and "|" in sec:
+                leaf_name = sec.split("|")[-1].strip()
+            elif sec:
+                leaf_name = sec.strip()
+            elif "?" in front:
+                q_part = front.split("?")[0].strip()
+                if len(q_part) <= 40:
+                    leaf_name = q_part
+
+            if leaf_name and len(leaf_name) >= 3:
+                leaf_id = normalize_id(f"{t_id}_{leaf_name}")
+                if leaf_id not in nodes_map:
+                    cat = "condition"
+                    rel = "subject_to_jurisdiction"
+                    lbl = "условие"
+                    if any(w in leaf_name.lower() or w in front.lower() for w in ("отлич", "разгранич", " vs ", "разниц")):
+                        cat = "condition"
+                        rel = "demarcated_from"
+                        lbl = "разграничивается с"
+                    elif any(w in leaf_name.lower() or w in front.lower() for w in ("обжал", "инстанци", "кассац", "апелляц", "надзор")):
+                        cat = "instance"
+                        rel = "appealed_to"
+                        lbl = "обжалуется в"
+                    elif any(w in leaf_name.lower() or w in front.lower() for w in ("статус", "иммунитет", "гаранти")):
+                        cat = "legal_status"
+                        lbl = "статус"
+                    elif any(w in leaf_name.lower() or w in front.lower() for w in ("запрет", "исключ", "не допускает")):
+                        cat = "exception"
+                        rel = "excludes_application"
+                        lbl = "исключает применение"
+
+                    nodes_map[leaf_id] = {
+                        "id": leaf_id,
+                        "name": leaf_name[:50],
+                        "category": cat,
+                        "summary": trans[:120] if trans else leaf_name,
+                        "parent_id": t_id,
+                        "level": 2
+                    }
+                    edge_key = (leaf_id, t_id)
+                    if edge_key not in seen_edges:
+                        seen_edges.add(edge_key)
+                        edges_list.append({
+                            "source": leaf_id,
+                            "target": t_id,
+                            "relation": rel,
+                            "label": lbl
+                        })
+                    sub_added += 1
+
+    clean_nodes = list(nodes_map.values())
+    tree = build_hierarchical_tree(nodes=clean_nodes, edges=edges_list, root_title=clean_title)
+
+    return {
+        "subject": fallback_title,
+        "graph_data": {
+            "nodes": clean_nodes,
+            "edges": edges_list
+        },
+        "tree_data": tree
+    }
+

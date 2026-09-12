@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database.session import get_db
-from app.database.models import TopicKnowledgeGraph
+from app.database.models import TopicKnowledgeGraph, Card
 from app.core.auth import get_current_user_id
 from app.services.graph_service import (
     clean_graph_data,
     build_hierarchical_tree,
     get_preset_seed_graph,
+    resolve_subject_alias,
+    synthesize_graph_from_cards,
 )
 
 router = APIRouter()
@@ -73,11 +75,14 @@ async def get_knowledge_graph(
     db: AsyncSession = Depends(get_db)
 ):
     """Retrieves the knowledge graph and tree mindmap for the current user and subject.
-    Falls back to authoritative seed graph for standard presets (e.g. sudoustroystvo).
+    Supports alias resolution, preset seed fallbacks, and on-demand synthesis from existing cards.
     """
+    alias_subject = resolve_subject_alias(subject)
+
+    # 1. Поиск в БД строго для текущего пользователя (изоляция пользователей)
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
-        TopicKnowledgeGraph.subject == subject
+        TopicKnowledgeGraph.subject.in_([subject, alias_subject])
     )
     result = await db.execute(stmt)
     record = result.scalars().first()
@@ -91,7 +96,7 @@ async def get_knowledge_graph(
             is_seed=False
         )
 
-    # Check preset seed fallback
+    # 2. Проверка пресетного сид-графа (с авто-разрешением алиасов sudoustr -> sudoustroystvo)
     seed = get_preset_seed_graph(subject)
     if seed:
         return KnowledgeGraphResponse(
@@ -101,6 +106,38 @@ async def get_knowledge_graph(
             updated_at=None,
             is_seed=True
         )
+
+    # 3. Динамический синтез графа и дерева из карточек текущего пользователя
+    card_stmt = select(Card).where(
+        Card.user_id == current_user,
+        Card.subject.in_([subject, alias_subject])
+    )
+    card_res = await db.execute(card_stmt)
+    user_cards = card_res.scalars().all()
+    if user_cards:
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
+        if syn and syn.get("graph_data", {}).get("nodes"):
+            new_kg = TopicKnowledgeGraph(
+                user_id=current_user,
+                subject=subject,
+                graph_data=syn["graph_data"],
+                tree_data=syn["tree_data"],
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(new_kg)
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+            return KnowledgeGraphResponse(
+                subject=subject,
+                graph_data=syn["graph_data"],
+                tree_data=syn["tree_data"],
+                updated_at=datetime.utcnow().isoformat(),
+                is_seed=False
+            )
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
