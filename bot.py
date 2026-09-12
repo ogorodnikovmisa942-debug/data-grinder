@@ -110,30 +110,6 @@ async def cmd_start(message: types.Message):
                     invite_enrolled = True
                     print(f"[Bot] Инвайт {invite_code_clean} успешно активирован для @{username} ({user_id_str})")
 
-                    # Авто-загрузка эталонного пакета карточек по судоустройству для нового студента
-                    preset_path = Path("app/static/presets/sudoustroystvo.json")
-                    if preset_path.exists():
-                        try:
-                            preset_data = json.loads(preset_path.read_text(encoding="utf-8"))
-                            p_cards = preset_data.get("cards", [])
-                            p_title = preset_data.get("phrase_title", "Судоустройство: Основной курс")
-                            p_sub = preset_data.get("subject_slug", "sudoustroystvo")
-                            if p_cards:
-                                has_cards = (await db.execute(
-                                    select(func.count(Card.id)).filter(Card.user_id == user_id_str, Card.subject == p_sub)
-                                )).scalar() or 0
-                                if has_cards == 0:
-                                    await save_cards_to_database(
-                                        cards_data=p_cards,
-                                        subject_slug=p_sub,
-                                        phrase_title=p_title,
-                                        user_id=user_id_str,
-                                        db=db
-                                    )
-                                    print(f"[Bot] Автоматически залито {len(p_cards)} карточек для нового участника {user_id_str}")
-                        except Exception as e:
-                            print(f"[Bot] Ошибка предзагрузки пресета судоустройства: {e}")
-
             # Проверка и подключение колоды по шеринг-ссылке (?start=deck_...)
             shared_deck_info = None
             if payload.startswith("deck_"):

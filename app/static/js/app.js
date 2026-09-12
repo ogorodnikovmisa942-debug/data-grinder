@@ -4288,10 +4288,11 @@ window.loadKnowledgeGraph = async function(subject) {
 };
 
 window.loadSeedOrDemoGraph = async function() {
-    currentKgSubject = 'sudoustroystvo';
+    const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo';
+    currentKgSubject = sub;
     const badge = document.getElementById('kg-subject-badge');
-    if (badge) badge.textContent = 'SUDOUSTROYSTVO';
-    await loadKnowledgeGraph('sudoustroystvo');
+    if (badge) badge.textContent = sub.toUpperCase();
+    await loadKnowledgeGraph(sub);
 };
 
 function renderKnowledgeTreeNode(node, container, depth) {
@@ -4421,12 +4422,12 @@ window.initForceGraph = function(graphData) {
         currentForceGraphInstance.backgroundColor(bgColor);
         currentForceGraphInstance.graphData({ nodes, links });
         if (currentForceGraphInstance.d3Force('charge')) {
-            currentForceGraphInstance.d3Force('charge').strength(-380);
+            currentForceGraphInstance.d3Force('charge').strength(-115);
         }
         if (currentForceGraphInstance.d3Force('link')) {
-            currentForceGraphInstance.d3Force('link').distance(95);
+            currentForceGraphInstance.d3Force('link').distance(45);
         }
-        currentForceGraphInstance.zoomToFit(400, 40);
+        currentForceGraphInstance.zoomToFit(400, 20);
         return;
     }
 
@@ -4447,7 +4448,7 @@ window.initForceGraph = function(graphData) {
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
         .cooldownTicks(90)
-        .d3VelocityDecay(0.3)
+        .d3VelocityDecay(0.35)
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
             const radius = Math.max(3.5, (node.val || 5));
@@ -4502,10 +4503,10 @@ window.initForceGraph = function(graphData) {
         });
 
     if (currentForceGraphInstance.d3Force('charge')) {
-        currentForceGraphInstance.d3Force('charge').strength(-380);
+        currentForceGraphInstance.d3Force('charge').strength(-115);
     }
     if (currentForceGraphInstance.d3Force('link')) {
-        currentForceGraphInstance.d3Force('link').distance(95);
+        currentForceGraphInstance.d3Force('link').distance(45);
     }
 
     // Resize on window resize
@@ -4519,7 +4520,7 @@ window.initForceGraph = function(graphData) {
 
     setTimeout(() => {
         if (currentForceGraphInstance) {
-            currentForceGraphInstance.zoomToFit(400, 40);
+            currentForceGraphInstance.zoomToFit(400, 20);
         }
     }, 400);
 };
@@ -4640,16 +4641,8 @@ window.startPracticeSession = async function(customSub) {
             practiceItems = await res.json();
         }
 
-        // Fallback to sudoustroystvo if empty
         if (!practiceItems || practiceItems.length === 0) {
-            const fallbackRes = await apiFetch(`/api/practice/session?subject=sudoustroystvo&count=10`);
-            if (fallbackRes.ok) {
-                practiceItems = await fallbackRes.json();
-            }
-        }
-
-        if (!practiceItems || practiceItems.length === 0) {
-            alert("Не удалось загрузить задания практики для этого предмета.");
+            alert("Для этого предмета еще нет карточек практики. Загрузите конспект или учебник для автоматической нарезки практических кейсов.");
             closePracticeModal();
             return;
         }

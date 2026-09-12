@@ -437,8 +437,8 @@ async def generate_practice_session(
         except Exception as kg_err:
             print(f"[Practice Engine] Ошибка синтеза из графа: {kg_err}")
 
-        # 4. Fallback / Добор: если заданий меньше count, добираем из расширенного пула пресетов
-        if len(practice_records) < count:
+        # 4. Fallback / Добор: если заданий меньше count и предмет относится к судоустройству, добираем из пресетов
+        if len(practice_records) < count and subject in ("sudoustroystvo", "court_system", "судоустройство", "default"):
             seeds = SUDOUSTROYSTVO_PRESET_PRACTICE.copy()
             random.shuffle(seeds)
             needed = count - len(practice_records)
