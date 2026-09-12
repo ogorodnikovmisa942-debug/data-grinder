@@ -337,35 +337,82 @@ def ensure_connected_spiderweb(
                     "relation": "subject_to_jurisdiction",
                     "label": "входит в состав"
                 })
-                connected_ids.add(n_id)
-                connected_ids.add(p_id)
 
-    # 2. Привязываем любые оставшиеся изолированные узлы (degree == 0)
-    level_1_nodes = [n_id for n_id, n in node_map.items() if n.get("level") == 1 and n_id != root_id]
-    for n_id, n in node_map.items():
-        if n_id == root_id:
-            continue
-        if n_id not in connected_ids:
-            cat = n.get("category", "authority")
-            if cat in ("authority", "instance") or not level_1_nodes:
-                n["level"] = 1
-                clean_edges.append({
-                    "source": n_id,
-                    "target": root_id,
-                    "relation": "subject_to_jurisdiction",
-                    "label": "входит в систему"
-                })
-                level_1_nodes.append(n_id)
-            else:
-                n["level"] = 2
-                target_hub = level_1_nodes[len(connected_ids) % len(level_1_nodes)]
-                clean_edges.append({
-                    "source": n_id,
-                    "target": target_hub,
-                    "relation": "subject_to_jurisdiction",
-                    "label": "регулирует"
-                })
-            connected_ids.add(n_id)
+    # 2. Поиск компонент связности через BFS от корня (гарантия связности 100% узлов без плавающих островков)
+    adj = {n_id: set() for n_id in valid_node_ids}
+    for e in clean_edges:
+        s, t = e["source"], e["target"]
+        if s in adj and t in adj:
+            adj[s].add(t)
+            adj[t].add(s)
+
+    # Обход в ширину от корня
+    reachable = set()
+    queue = [root_id]
+    reachable.add(root_id)
+    while queue:
+        curr = queue.pop(0)
+        for neighbor in adj[curr]:
+            if neighbor not in reachable:
+                reachable.add(neighbor)
+                queue.append(neighbor)
+
+    # Список ключевых хабов level 1, связанных с корнем
+    level_1_nodes = [
+        n_id for n_id in reachable
+        if node_map[n_id].get("level") == 1 and n_id != root_id
+    ]
+
+    # Для любых изолированных компонент (островков) или одиночных узлов
+    unreachable = [n_id for n_id in valid_node_ids if n_id not in reachable]
+    while unreachable:
+        comp_start = unreachable[0]
+        component = set()
+        comp_queue = [comp_start]
+        component.add(comp_start)
+        while comp_queue:
+            curr = comp_queue.pop(0)
+            for neighbor in adj[curr]:
+                if neighbor not in component:
+                    component.add(neighbor)
+                    comp_queue.append(neighbor)
+
+        # Выбираем лучший узел в компоненте для связки с главным графом
+        def node_priority(nid):
+            n = node_map[nid]
+            cat_score = 3 if n.get("category") == "authority" else (2 if n.get("category") == "instance" else 1)
+            return (cat_score, len(adj[nid]))
+
+        best_node_id = max(component, key=node_priority)
+        best_node = node_map[best_node_id]
+
+        # Привязываем к корню или к хабу первого уровня
+        if best_node.get("category") in ("authority", "instance") or not level_1_nodes:
+            target_anchor = root_id
+            best_node["level"] = 1
+            rel_label = "входит в систему"
+            level_1_nodes.append(best_node_id)
+        else:
+            target_anchor = level_1_nodes[len(clean_edges) % len(level_1_nodes)]
+            if best_node.get("level") == 0:
+                best_node["level"] = 2
+            rel_label = "связан с институтом"
+
+        new_edge = {
+            "source": best_node_id,
+            "target": target_anchor,
+            "relation": "subject_to_jurisdiction",
+            "label": rel_label
+        }
+        clean_edges.append(new_edge)
+        adj[best_node_id].add(target_anchor)
+        adj[target_anchor].add(best_node_id)
+
+        # Теперь вся компонента стала достижимой
+        for c_id in component:
+            reachable.add(c_id)
+
+        unreachable = [n_id for n_id in valid_node_ids if n_id not in reachable]
 
     # Нормализуем уровни всех узлов: связанные с корнем напрямую -> level 1
     for e in clean_edges:

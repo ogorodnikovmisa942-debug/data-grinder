@@ -176,7 +176,7 @@ async def get_practice_stats(
             today_count=0
         )
 
-    today = date.today()
+    today = datetime.utcnow().date()
     today_logs = [l for l in logs if l.created_at and l.created_at.date() == today]
     today_log = today_logs[0] if today_logs else None
     latest_log = logs[0] if logs else None

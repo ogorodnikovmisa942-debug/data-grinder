@@ -292,8 +292,14 @@ const STAGING_CARD_TEMPLATE = `
 
     <!-- Шапка карточки -->
     <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2">
-        <span id="staging-card-number" class="font-mono font-medium">Карточка 1 из 1</span>
-        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container">medium</span>
+        <div class="flex items-center gap-1.5 min-w-0">
+            <span id="staging-card-number" class="font-mono font-medium shrink-0">Карточка 1 из 1</span>
+            <span id="staging-card-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-mono text-[9px] truncate max-w-[180px]">
+                <span class="material-symbols-outlined text-[11px]">menu_book</span>
+                <span id="staging-card-chapter-text" class="truncate"></span>
+            </span>
+        </div>
+        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container shrink-0">medium</span>
     </div>
 
     <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
@@ -966,6 +972,20 @@ function renderIntroductionCard(card) {
     if (front) front.classList.add('introduction-mode');
     
     // 1. Заполняем намертво закрепленный заголовок термина (НИКОГДА НЕ СКРОЛЛИТСЯ)
+    const introChapterBadge = document.getElementById('card-intro-chapter-badge');
+    const introChapterText = document.getElementById('card-intro-chapter-text');
+    const introChapterName = (card.chapter || card.phrase_text || '').trim();
+    if (introChapterBadge && introChapterText) {
+        if (introChapterName) {
+            introChapterText.textContent = introChapterName;
+            introChapterBadge.classList.remove('hidden');
+            introChapterBadge.classList.add('inline-flex');
+        } else {
+            introChapterBadge.classList.add('hidden');
+            introChapterBadge.classList.remove('inline-flex');
+        }
+    }
+
     const isIntroCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
     const termEl = document.getElementById('card-intro-term');
     const secEl = document.getElementById('card-intro-secondary');
@@ -1244,6 +1264,20 @@ function renderReviewCard(card) {
             }
         }
     }
+
+    const frontChapterBadge = document.getElementById('card-front-chapter-badge');
+    const frontChapterText = document.getElementById('card-front-chapter-text');
+    const chapterName = (card.chapter || card.phrase_text || '').trim();
+    if (frontChapterBadge && frontChapterText) {
+        if (chapterName) {
+            frontChapterText.textContent = chapterName;
+            frontChapterBadge.classList.remove('hidden');
+            frontChapterBadge.classList.add('inline-flex');
+        } else {
+            frontChapterBadge.classList.add('hidden');
+            frontChapterBadge.classList.remove('inline-flex');
+        }
+    }
     
     if (cardText) {
         if (isCloze) {
@@ -1282,6 +1316,19 @@ function renderReviewCard(card) {
 
     setTimeout(() => {
         // Заполняем оборотную сторону
+        const backChapterBadge = document.getElementById('card-back-chapter-badge');
+        const backChapterText = document.getElementById('card-back-chapter-text');
+        if (backChapterBadge && backChapterText) {
+            if (chapterName) {
+                backChapterText.textContent = chapterName;
+                backChapterBadge.classList.remove('hidden');
+                backChapterBadge.classList.add('inline-flex');
+            } else {
+                backChapterBadge.classList.add('hidden');
+                backChapterBadge.classList.remove('inline-flex');
+            }
+        }
+
         const backTerm = document.getElementById('card-back-term-text');
         if (backTerm) {
             if (isCloze) {
@@ -3022,6 +3069,19 @@ function renderCurrentStagingCard() {
         }
     }
     if (tierEl) tierEl.textContent = card.initial_difficulty_tier || 'medium';
+    const stagingChBadge = document.getElementById('staging-card-chapter-badge');
+    const stagingChText = document.getElementById('staging-card-chapter-text');
+    const stagingChName = (card.chapter || card.phrase_text || card.theme || '').trim();
+    if (stagingChBadge && stagingChText) {
+        if (stagingChName) {
+            stagingChText.textContent = stagingChName;
+            stagingChBadge.classList.remove('hidden');
+            stagingChBadge.classList.add('inline-flex');
+        } else {
+            stagingChBadge.classList.add('hidden');
+            stagingChBadge.classList.remove('inline-flex');
+        }
+    }
     if (textEl) {
         if (card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text)) {
             textEl.innerHTML = formatClozeHTML(card.text, false);
@@ -4312,10 +4372,63 @@ window.closeKnowledgeGraphModal = function() {
     const modal = document.getElementById('knowledge-graph-modal');
     if (modal) modal.classList.add('hidden');
     closeKgNodeDrawer();
+    if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+    }
+    const icon = document.getElementById('kg-fullscreen-icon');
+    if (icon) icon.textContent = 'fullscreen';
     if (currentForceGraphInstance && currentForceGraphInstance.pauseAnimation) {
         currentForceGraphInstance.pauseAnimation();
     }
 };
+
+window.toggleKgFullscreen = function() {
+    const modal = document.getElementById('knowledge-graph-modal');
+    const icon = document.getElementById('kg-fullscreen-icon');
+    if (!modal) return;
+
+    if (!document.fullscreenElement) {
+        if (modal.requestFullscreen) {
+            modal.requestFullscreen().catch(() => {});
+        }
+        if (icon) icon.textContent = 'fullscreen_exit';
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+        if (icon) icon.textContent = 'fullscreen';
+    }
+
+    setTimeout(() => {
+        if (currentForceGraphInstance && currentKgView === 'graph') {
+            const wrapper = document.getElementById('kg-graph-canvas-wrapper');
+            if (wrapper) {
+                const w = wrapper.clientWidth || window.innerWidth;
+                const h = wrapper.clientHeight || (window.innerHeight - 120);
+                currentForceGraphInstance.width(w).height(h);
+                currentForceGraphInstance.zoomToFit(400, 30);
+            }
+        }
+    }, 250);
+};
+
+document.addEventListener('fullscreenchange', () => {
+    const icon = document.getElementById('kg-fullscreen-icon');
+    if (icon) {
+        icon.textContent = document.fullscreenElement ? 'fullscreen_exit' : 'fullscreen';
+    }
+    if (currentForceGraphInstance && currentKgView === 'graph') {
+        setTimeout(() => {
+            const wrapper = document.getElementById('kg-graph-canvas-wrapper');
+            if (wrapper) {
+                const w = wrapper.clientWidth || window.innerWidth;
+                const h = wrapper.clientHeight || (window.innerHeight - 120);
+                currentForceGraphInstance.width(w).height(h);
+                currentForceGraphInstance.zoomToFit(400, 30);
+            }
+        }, 200);
+    }
+});
 
 window.switchKgView = function(viewType) {
     currentKgView = viewType;
@@ -4512,22 +4625,27 @@ function wrapNodeText(text, maxChars = 16) {
 function applySpiderwebForces(graphInstance) {
     if (!graphInstance) return;
 
+    const cleanData = getCleanGraphData();
+    const nodeCount = (cleanData && cleanData.nodes) ? cleanData.nodes.length : 50;
+    const isLarge = nodeCount > 100;
+
     // 1. Charge force with hierarchy gradient:
     // Root has strong repulsion to push institutes out, leaves have gentle repulsion
+    // Dynamically scaled for large graphs (N > 100) so hundreds of nodes don't collapse into a dense ball
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (lvl === 0) return -600;
-                if (lvl === 1) return -220;
-                return -70;
+                if (lvl === 0) return isLarge ? -1200 : -600;
+                if (lvl === 1) return isLarge ? -350 : -220;
+                return isLarge ? -120 : -70;
             })
-            .distanceMax(650);
+            .distanceMax(isLarge ? 1800 : 650);
     }
 
     // 2. Link force with spoke-and-wheel spiderweb distances:
-    // Central spokes from Root (level 0) to Major Institutes (level 1) are long (135px)
-    // Leaf nodes around their institutes are close (42px)
+    // Central spokes from Root (level 0) to Major Institutes (level 1) are long
+    // Leaf nodes around their institutes are spaced cleanly
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
@@ -4535,9 +4653,9 @@ function applySpiderwebForces(graphInstance) {
                 const t = link.target;
                 const sLvl = (s && s.level !== undefined) ? s.level : 1;
                 const tLvl = (t && t.level !== undefined) ? t.level : 1;
-                if (sLvl === 0 || tLvl === 0) return 135;
-                if (sLvl === 1 && tLvl === 1) return 85;
-                return 42;
+                if (sLvl === 0 || tLvl === 0) return isLarge ? 180 : 135;
+                if (sLvl === 1 && tLvl === 1) return isLarge ? 120 : 85;
+                return isLarge ? 65 : 42;
             })
             .strength(link => {
                 const s = link.source;
@@ -4551,7 +4669,9 @@ function applySpiderwebForces(graphInstance) {
 
     // 3. Collision force to prevent node/label overlapping
     if (window.d3 && window.d3.forceCollide) {
-        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => (node.val || 5) * 2.2 + 8));
+        const radiusMultiplier = isLarge ? 3.0 : 2.2;
+        const extraPad = isLarge ? 12 : 8;
+        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => (node.val || 5) * radiusMultiplier + extraPad));
     }
 }
 
@@ -4561,6 +4681,7 @@ window.setGraphLayout = function(layoutType) {
     const btnForce = document.getElementById('kg-layout-force');
     const btnRadial = document.getElementById('kg-layout-radial');
     const btnTree = document.getElementById('kg-layout-tree');
+    const btnLr = document.getElementById('kg-layout-lr');
 
     const inactiveClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer";
     const activeClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
@@ -4568,22 +4689,34 @@ window.setGraphLayout = function(layoutType) {
     if (btnForce) btnForce.className = currentKgLayout === 'force' ? activeClass : inactiveClass;
     if (btnRadial) btnRadial.className = currentKgLayout === 'radial' ? activeClass : inactiveClass;
     if (btnTree) btnTree.className = currentKgLayout === 'tree' ? activeClass : inactiveClass;
+    if (btnLr) btnLr.className = currentKgLayout === 'horizontal' ? activeClass : inactiveClass;
 
     if (!currentForceGraphInstance) return;
 
     const cleanData = getCleanGraphData();
     if (!cleanData) return;
 
+    const nodeCount = cleanData.nodes ? cleanData.nodes.length : 0;
+
     if (currentKgLayout === 'radial') {
+        const radialDist = Math.min(220, Math.max(90, Math.round(nodeCount * 0.35)));
         currentForceGraphInstance
             .dagMode('radialout')
-            .dagLevelDistance(90)
+            .dagLevelDistance(radialDist)
             .onDagError(() => false)
             .graphData(cleanData);
     } else if (currentKgLayout === 'tree') {
+        const treeDist = Math.min(240, Math.max(85, Math.round(nodeCount * 0.4)));
         currentForceGraphInstance
             .dagMode('td')
-            .dagLevelDistance(75)
+            .dagLevelDistance(treeDist)
+            .onDagError(() => false)
+            .graphData(cleanData);
+    } else if (currentKgLayout === 'horizontal') {
+        const lrDist = Math.min(260, Math.max(120, Math.round(nodeCount * 0.45)));
+        currentForceGraphInstance
+            .dagMode('lr')
+            .dagLevelDistance(lrDist)
             .onDagError(() => false)
             .graphData(cleanData);
     } else {

@@ -198,12 +198,14 @@ class TestKnowledgeGraphEmpiricalChallenge(unittest.TestCase):
         }
         res_post = self.client.post("/api/knowledge-graph", headers={"X-User-Id": self.user_c1}, json=payload)
         self.assertEqual(res_post.status_code, 200)
+        self.assertEqual(len(res_post.json()["graph_data"]["edges"]), 5)
 
         res_get = self.client.get("/api/knowledge-graph?subject=disjoint_deck", headers={"X-User-Id": self.user_c1})
         self.assertEqual(res_get.status_code, 200)
         data = res_get.json()
         self.assertEqual(len(data["graph_data"]["nodes"]), 10)
-        self.assertEqual(len(data["graph_data"]["edges"]), 5)
+        # ensure_connected_spiderweb safely connects all 5 disjoint components into a single reachable spiderweb (5 original + 4 connecting edges = 9)
+        self.assertEqual(len(data["graph_data"]["edges"]), 9)
         self.assertEqual(len(data["tree_data"]["children"]), 5)
 
     # =========================================================================

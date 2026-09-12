@@ -149,7 +149,7 @@ async def get_session_cards(
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        new_stmt = new_stmt.limit(allowed_new_count)
+        new_stmt = new_stmt.order_by(Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
 
@@ -193,8 +193,8 @@ async def get_session_cards(
     if subject == 'all':
         full_pool = await asyncio.to_thread(apply_interleaving, full_pool, 1)
     
-    # Оптимизация N+1: собираем все phrase_id для anchored карт и загружаем их с фильтром по пользователю
-    phrase_ids = {c.phrase_id for c in full_pool if c.is_anchored and c.phrase_id}
+    # Оптимизация N+1: собираем все phrase_id для всех карт и загружаем их с фильтром по пользователю
+    phrase_ids = {c.phrase_id for c in full_pool if c.phrase_id}
     phrase_map = {}
     if phrase_ids:
         phrases_stmt = select(Phrase).filter(Phrase.id.in_(list(phrase_ids)), Phrase.user_id == current_user)
@@ -203,7 +203,7 @@ async def get_session_cards(
 
     result = []
     for c in full_pool:
-        phrase_text = phrase_map.get(c.phrase_id, "") if c.is_anchored else ""
+        phrase_text = phrase_map.get(c.phrase_id, "") or ""
 
         lapses_count = c.lapses or 0
         result.append({
@@ -215,6 +215,7 @@ async def get_session_cards(
             "subject": c.subject,
             "is_anchored": c.is_anchored, 
             "phrase_text": phrase_text, 
+            "chapter": phrase_text,
             "mnemonic": c.mnemonic,
             "has_seen_intro": c.has_seen_intro,
             "intro_phase": c.intro_phase,

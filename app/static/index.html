@@ -180,10 +180,14 @@
                         
                         <!-- Обычный режим (Лицевая сторона повторения и штурма) -->
                         <div id="card-front-normal" class="w-full h-full flex-1 min-h-0 flex flex-col justify-between items-center text-center">
-                            <div class="w-full shrink-0 flex justify-center pt-1 pb-1">
+                            <div class="w-full shrink-0 flex flex-col items-center gap-1 pt-1 pb-1">
                                 <div id="card-front-mode-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50">
                                     <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
                                     <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 font-mono">ПОВТОРЕНИЕ FSRS</span>
+                                </div>
+                                <div id="card-front-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-[10px] text-neutral-600 dark:text-neutral-300 font-mono max-w-[320px] truncate">
+                                    <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
+                                    <span id="card-front-chapter-text" class="truncate"></span>
                                 </div>
                             </div>
                             
@@ -202,9 +206,15 @@
                         <div id="card-front-intro" class="hidden w-full h-full min-h-0 flex-1 flex flex-col justify-between pt-1 pb-1 overflow-hidden">
                             <!-- Закрепленный намертво заголовок термина/вопроса -->
                             <div class="w-full shrink-0 flex flex-col items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2 mb-1.5">
-                                <div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider mb-1.5">
-                                    <span class="material-symbols-outlined text-[13px]">school</span>
-                                    <span>РЕЖИМ ЗНАКОМСТВА</span>
+                                <div class="flex items-center gap-1.5 mb-1.5 flex-wrap justify-center">
+                                    <div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
+                                        <span class="material-symbols-outlined text-[13px]">school</span>
+                                        <span>РЕЖИМ ЗНАКОМСТВА</span>
+                                    </div>
+                                    <div id="card-intro-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[10px] font-mono max-w-[220px] truncate">
+                                        <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
+                                        <span id="card-intro-chapter-text" class="truncate"></span>
+                                    </div>
                                 </div>
                                 <div id="card-intro-term" class="max-h-24 overflow-y-auto card-scroll-clean text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-snug">---</div>
                                 <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
@@ -281,7 +291,13 @@
 
                             <!-- Четкий заголовок вопроса/термина (без обрезки, аккуратный и читаемый) -->
                             <div class="w-full flex flex-col items-center px-1">
-                                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-0.5">ВОПРОС</span>
+                                <div class="flex items-center gap-1.5 mb-0.5 flex-wrap justify-center">
+                                    <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">ВОПРОС</span>
+                                    <div id="card-back-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[9px] font-mono max-w-[220px] truncate">
+                                        <span class="material-symbols-outlined text-[11px] text-primary">menu_book</span>
+                                        <span id="card-back-chapter-text" class="truncate"></span>
+                                    </div>
+                                </div>
                                 <div id="card-back-term-text" class="max-h-20 overflow-y-auto card-scroll-clean text-xs sm:text-sm font-semibold text-neutral-800 dark:text-neutral-200 text-center break-words leading-snug px-1">---</div>
                                 <div id="card-secondary-container" class="hidden mt-1">
                                     <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">---</span>
@@ -803,8 +819,14 @@
 
                     <!-- Шапка карточки -->
                     <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2">
-                        <span id="staging-card-number" class="font-mono font-medium">Карточка 1 из 1</span>
-                        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container">medium</span>
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span id="staging-card-number" class="font-mono font-medium shrink-0">Карточка 1 из 1</span>
+                            <span id="staging-card-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-mono text-[9px] truncate max-w-[180px]">
+                                <span class="material-symbols-outlined text-[11px]">menu_book</span>
+                                <span id="staging-card-chapter-text" class="truncate"></span>
+                            </span>
+                        </div>
+                        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container shrink-0">medium</span>
                     </div>
 
                     <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
@@ -1041,8 +1063,8 @@
     </div>
 
     <!-- Модальное окно: Каркас знаний и Obsidian Граф (Milestone 4) -->
-    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
-        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 12px), env(safe-area-inset-top, 12px)) + 8px); padding-bottom: calc(max(var(--tg-safe-bottom, 12px), env(safe-area-inset-bottom, 12px)) + 8px); padding-left: max(env(safe-area-inset-left, 0px), 8px); padding-right: max(env(safe-area-inset-right, 0px), 8px);">
+        <div id="kg-modal-card" class="w-full max-w-[96vw] 2xl:max-w-[1600px] h-full mx-auto flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl transition-all duration-300">
             <!-- Хедер модалки -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
                 <div class="flex items-center gap-2 min-w-0">
@@ -1069,10 +1091,15 @@
                     </button>
                 </div>
 
-                <!-- Закрыть -->
-                <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Закрыть">
-                    <span class="material-symbols-outlined text-xl">close</span>
-                </button>
+                <!-- Кнопки управления (Полный экран / Закрыть) -->
+                <div class="flex items-center gap-1">
+                    <button id="kg-fullscreen-btn" onclick="toggleKgFullscreen()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="На весь экран">
+                        <span id="kg-fullscreen-icon" class="material-symbols-outlined text-xl">fullscreen</span>
+                    </button>
+                    <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Закрыть">
+                        <span class="material-symbols-outlined text-xl">close</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Контентная область -->
@@ -1106,8 +1133,8 @@
                 <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full min-h-0 overflow-hidden">
                     <div id="kg-graph-canvas-wrapper" class="w-full h-full min-h-0"></div>
 
-                    <!-- Панель переключения геометрии (Паутина / Радиальное / Иерархия) -->
-                    <div class="absolute top-3 left-3 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1">
+                    <!-- Панель переключения геометрии (Паутина / Радиальное / Сверху вниз / Слева направо) -->
+                    <div class="absolute top-3 left-3 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 flex-wrap max-w-[calc(100%-24px)]">
                         <button id="kg-layout-force" onclick="setGraphLayout('force')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Органическая паутина со структурированными лучами">
                             <span class="material-symbols-outlined text-[14px]">hub</span>
                             <span>Паутина</span>
@@ -1118,7 +1145,11 @@
                         </button>
                         <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Иерархическое дерево сверху вниз">
                             <span class="material-symbols-outlined text-[14px]">account_tree</span>
-                            <span>Иерархия</span>
+                            <span>Сверху вниз</span>
+                        </button>
+                        <button id="kg-layout-lr" onclick="setGraphLayout('horizontal')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Иерархическое дерево слева направо">
+                            <span class="material-symbols-outlined text-[14px]">east</span>
+                            <span>Слева направо</span>
                         </button>
                     </div>
 
