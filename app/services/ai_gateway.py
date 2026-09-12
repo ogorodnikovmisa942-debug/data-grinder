@@ -45,11 +45,15 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * Understanding the structural system precedes flashcard memorization.
   * Flashcards MUST NOT test dry dictionary definitions or obvious taxonomic existence ("Бывают ли суды 1-й инстанции?").
   * Flashcards serve strictly as "anchors" (transition points, jurisdictional forks, boundary criteria, conflicting conditions).
-- Rule 2: Decision Trees & Situational Forks (Cutting Junctions, Never Lazy Definitions):
-  * ABSOLUTE BAN ON DEFINITION QUESTIONS: NEVER ask "Что такое X?", "Дайте определение Y", "Опишите институт Z". Such cards inflate decks by 60% with zero structural understanding.
-  * Instead, construct a situational decision point (vignette): Given factual conditions A and B, which instance, authority, deadline, or legal/clinical remedy applies?
-  * The front prompt ('t') presents the factual conflict/status.
-  * The back ('d') delivers the exact jurisdictional, clinical, or algorithmic verdict with authority/article.
+- Rule 2: High-Yield Concept Synthesis, Decision Trees & Situational Forks:
+  * STRICT BAN ON PASSIVE GLOSSARY FLUFF: NEVER ask naive dictionary questions ("Что такое диалог?", "Дайте определение права вообще", "Опишите институт Z своими словами"). Such cards cause the cognitive illusion of competence without functional recall.
+  * MANDATORY HIGH-YIELD CONCEPT SYNTHESIS (Preserve Core Conceptual Anchors):
+    Foundational concepts, statutory definitions, and key legal institutions MUST be included using the 3 high-retrieval cognitive patterns:
+    1. Hallmark-to-Concept Subsumption (From Hallmarks to Institution): Describe the exhaustive factual elements, legal conditions, or constitutional purpose -> demand the exact legal concept, status, or institution (e.g. "Какое понятие обозначает самостоятельную форму государственной власти, осуществляемую судами...? -> Судебная власть").
+    2. Genus + Specific Difference (Род + Видовое отличие): Ask for the generic category and the decisive boundary distinguishing this concept from related ones (e.g. "К какому родовому институту относится виндикация и каково ее видовое отличие от негаторного иска?").
+    3. Normative Defining Criteria: Test the exact constituent legal standard or threshold, never dictionary wordiness.
+  * Decision Vignettes: For procedural rules, jurisdiction, and appeals, construct a situational decision point: Given factual status A and conflict B, which instance, authority, deadline, or remedy applies?
+  * The back ('d') delivers the exact concept, definition core, or procedural verdict in 1 grammatically complete sentence with statutory article.
 - Rule 3: The Contrast-Pair Differentiation Law (Comparison Prompts):
   * The human brain understands structure strictly through boundaries and differences.
   * When encountering two related, easily confused concepts, institutions, or diagnoses (e.g. народные vs присяжные заседатели; крайняя необходимость vs необходимая оборона; ИМпST vs расслоение аорты):
@@ -147,7 +151,7 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
 
 5. CONTRASTIVE FEW-SHOT EXAMPLES (BAD VS GOOD COGNITIVE DECOMPOSITION):
 
-CONTRAST CASE 1 (Law - Lazy Definition vs Situational Decision Tree):
+CONTRAST CASE 1 (Law - Lazy Definition vs Situational Decision Tree & High-Yield Concept Synthesis):
 ❌ UNACCEPTABLE DEFINITION LAZINESS:
 {
   "t": "Что такое кассация?",
@@ -162,6 +166,24 @@ CONTRAST CASE 1 (Law - Lazy Definition vs Situational Decision Tree):
   "d": "Надзорное производство (только по протесту уполномоченных должностных лиц: Председатель ВС, Генпрокурор и их заместители).",
   "e": "Жалоба стороны без протеста указанных должностных лиц не дает оснований для надзорного пересмотра.",
   "l": "hard"
+}
+
+✅ CORRECT CONCEPT SYNTHESIS A (Hallmark-to-Concept Subsumption / От признаков к понятию):
+{
+  "t": "Какое понятие обозначает самостоятельную и независимую ветвь государственной власти, осуществляемую исключительно судами посредством установленных видов судопроизводства?",
+  "s": "ст. 118 Конституции РФ | Конституционный статус власти",
+  "d": "Судебная власть.",
+  "e": "Никакие другие органы или должностные лица не вправе принимать на себя осуществление судебной власти.",
+  "l": "easy"
+}
+
+✅ CORRECT CONCEPT SYNTHESIS B (Genus + Specific Difference / Род + Видовое отличие):
+{
+  "t": "К какому родовому способу защиты вещных прав относится виндикационный иск и каково его определяющее видовое отличие от негаторного иска?",
+  "s": "ГК РФ ст. 301, 304 | Вещно-правовые иски",
+  "d": "Внедоговорный вещно-правовой иск; отличие: виндикация защищает собственника при лишении фактического владения (истребование вещи), а негаторный — от нарушений, не связанных с лишением владения.",
+  "e": "Захват земельного участка требует виндикации, а самовольная постройка соседского забора, закрывающего свет — негаторного иска.",
+  "l": "medium"
 }
 
 CONTRAST CASE 2 (Law - Binary Trivia / List vs Contrast Pair):
