@@ -4228,6 +4228,7 @@ let currentKgSubject = 'sudoustroystvo';
 let currentKgGraphData = null;
 let currentKgTreeData = null;
 let currentKgView = 'tree'; // 'tree' | 'graph'
+let currentKgLayout = 'force'; // 'force' | 'radial' | 'tree'
 let currentForceGraphInstance = null;
 
 // Цвета категорий узлов (Neon Dark Cyber theme)
@@ -4252,6 +4253,44 @@ function getKgNodeColor(category) {
     return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
 }
 
+function getCleanGraphData() {
+    if (!currentKgGraphData || !currentKgGraphData.nodes || currentKgGraphData.nodes.length === 0) {
+        return null;
+    }
+
+    // 1. Clean nodes: unpin any fx/fy so layout algorithms can freely position or pin them anew
+    const nodes = currentKgGraphData.nodes.map(n => {
+        const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
+        return {
+            id: String(n.id),
+            name: n.name || n.id,
+            category: n.category || 'authority',
+            summary: n.summary || '',
+            level: lvl,
+            val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5)
+        };
+    });
+
+    const nodeIds = new Set(nodes.map(n => n.id));
+
+    // 2. Clean links: D3 converts source/target to node object references.
+    // We always extract the underlying ID string to prevent object-in-Set lookup failures.
+    const links = (currentKgGraphData.edges || [])
+        .map(e => {
+            const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
+            const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
+            return {
+                source: s,
+                target: t,
+                relation: e.relation || '',
+                label: e.label || ''
+            };
+        })
+        .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target) && e.source !== e.target);
+
+    return { nodes, links };
+}
+
 window.openKnowledgeGraphModal = function(targetSubject) {
     const sub = targetSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
     currentKgSubject = sub;
@@ -4264,8 +4303,8 @@ window.openKnowledgeGraphModal = function(targetSubject) {
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
 
-    // Default to tree view initially
-    switchKgView('tree');
+    // Preserve selected view or default to tree view initially
+    switchKgView(currentKgView || 'tree');
     loadKnowledgeGraph(sub);
 };
 
@@ -4273,6 +4312,9 @@ window.closeKnowledgeGraphModal = function() {
     const modal = document.getElementById('knowledge-graph-modal');
     if (modal) modal.classList.add('hidden');
     closeKgNodeDrawer();
+    if (currentForceGraphInstance && currentForceGraphInstance.pauseAnimation) {
+        currentForceGraphInstance.pauseAnimation();
+    }
 };
 
 window.switchKgView = function(viewType) {
@@ -4282,30 +4324,27 @@ window.switchKgView = function(viewType) {
     const tabTree = document.getElementById('kg-tab-tree');
     const tabGraph = document.getElementById('kg-tab-graph');
 
+    const activeTabClass = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
+    const inactiveTabClass = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1 cursor-pointer";
+
     if (viewType === 'tree') {
         if (treeView) treeView.classList.remove('hidden');
         if (graphView) graphView.classList.add('hidden');
-        if (tabTree) {
-            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
-        }
-        if (tabGraph) {
-            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1";
-        }
+        if (tabTree) tabTree.className = activeTabClass;
+        if (tabGraph) tabGraph.className = inactiveTabClass;
     } else {
         if (treeView) treeView.classList.add('hidden');
         if (graphView) graphView.classList.remove('hidden');
-        if (tabTree) {
-            tabTree.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1";
-        }
-        if (tabGraph) {
-            tabGraph.className = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1";
-        }
+        if (tabTree) tabTree.className = inactiveTabClass;
+        if (tabGraph) tabGraph.className = activeTabClass;
 
-        // Initialize or resize 2D Canvas Force Graph
+        // Initialize or resize 2D Canvas Force Graph after reflow
         if (currentKgGraphData) {
-            setTimeout(() => {
-                initForceGraph(currentKgGraphData);
-            }, 50);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    initForceGraph(currentKgGraphData);
+                });
+            });
         }
     }
 };
@@ -4517,28 +4556,41 @@ function applySpiderwebForces(graphInstance) {
 }
 
 window.setGraphLayout = function(layoutType) {
-    if (!currentForceGraphInstance) return;
+    currentKgLayout = layoutType || 'force';
+
     const btnForce = document.getElementById('kg-layout-force');
     const btnRadial = document.getElementById('kg-layout-radial');
     const btnTree = document.getElementById('kg-layout-tree');
 
-    [btnForce, btnRadial, btnTree].forEach(b => {
-        if (b) b.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800";
-    });
+    const inactiveClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer";
+    const activeClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
 
-    if (layoutType === 'radial') {
-        if (btnRadial) btnRadial.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
+    if (btnForce) btnForce.className = currentKgLayout === 'force' ? activeClass : inactiveClass;
+    if (btnRadial) btnRadial.className = currentKgLayout === 'radial' ? activeClass : inactiveClass;
+    if (btnTree) btnTree.className = currentKgLayout === 'tree' ? activeClass : inactiveClass;
+
+    if (!currentForceGraphInstance) return;
+
+    const cleanData = getCleanGraphData();
+    if (!cleanData) return;
+
+    if (currentKgLayout === 'radial') {
         currentForceGraphInstance
             .dagMode('radialout')
-            .dagLevelDistance(85);
-    } else if (layoutType === 'tree') {
-        if (btnTree) btnTree.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
+            .dagLevelDistance(90)
+            .onDagError(() => false)
+            .graphData(cleanData);
+    } else if (currentKgLayout === 'tree') {
         currentForceGraphInstance
             .dagMode('td')
-            .dagLevelDistance(65);
+            .dagLevelDistance(75)
+            .onDagError(() => false)
+            .graphData(cleanData);
     } else {
-        if (btnForce) btnForce.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
-        currentForceGraphInstance.dagMode(null);
+        currentForceGraphInstance
+            .dagMode(null)
+            .onDagError(() => false)
+            .graphData(cleanData);
         applySpiderwebForces(currentForceGraphInstance);
     }
 
@@ -4556,45 +4608,26 @@ window.initForceGraph = function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
     if (!wrapper || !window.ForceGraph) return;
 
-    // Check width/height
-    const width = wrapper.clientWidth || window.innerWidth;
-    const height = wrapper.clientHeight || (window.innerHeight - 120);
+    const container = wrapper.parentElement || wrapper;
+    const width = wrapper.clientWidth || container.clientWidth || window.innerWidth;
+    const height = wrapper.clientHeight || container.clientHeight || (window.innerHeight - 150);
 
-    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return;
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
 
     const isDark = document.documentElement.classList.contains('dark');
     const bgColor = isDark ? '#0e0e0e' : '#fbfbfb';
 
-    // Prepare clean data with hierarchy level
-    const nodes = graphData.nodes.map(n => {
-        const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
-        return {
-            id: n.id,
-            name: n.name || n.id,
-            category: n.category || 'authority',
-            summary: n.summary || '',
-            level: lvl,
-            val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5)
-        };
-    });
-
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const links = (graphData.edges || [])
-        .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
-        .map(e => ({
-            source: e.source,
-            target: e.target,
-            relation: e.relation || '',
-            label: e.label || ''
-        }));
-
-    // If graph already initialized, reuse and update data
+    // If graph already initialized, resize, update styling, and re-apply current layout
     if (currentForceGraphInstance) {
-        currentForceGraphInstance.width(width).height(height);
-        currentForceGraphInstance.backgroundColor(bgColor);
-        currentForceGraphInstance.graphData({ nodes, links });
-        applySpiderwebForces(currentForceGraphInstance);
-        currentForceGraphInstance.zoomToFit(400, 20);
+        currentForceGraphInstance
+            .width(width)
+            .height(height)
+            .backgroundColor(bgColor);
+        if (currentForceGraphInstance.resumeAnimation) {
+            currentForceGraphInstance.resumeAnimation();
+        }
+        setGraphLayout(currentKgLayout || 'force');
         return;
     }
 
@@ -4604,7 +4637,6 @@ window.initForceGraph = function(graphData) {
         .width(width)
         .height(height)
         .backgroundColor(bgColor)
-        .graphData({ nodes, links })
         .nodeId('id')
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${node.category})`)
@@ -4614,8 +4646,10 @@ window.initForceGraph = function(graphData) {
         .linkDirectionalParticleSpeed(0.006)
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
+        .warmupTicks(35)
         .cooldownTicks(120)
         .d3VelocityDecay(0.3)
+        .onDagError(() => false)
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
             const radius = Math.max(3.5, (node.val || 5));
@@ -4623,7 +4657,7 @@ window.initForceGraph = function(graphData) {
             const bgStrokeColor = currentDark ? '#0e0e0e' : '#fbfbfb';
             const textFillColor = currentDark ? '#f1f5f9' : '#111827';
 
-            // Node body: Black in light mode, crisp light-gray in dark mode
+            // Node body: crisp light/dark styling
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
             ctx.fillStyle = currentDark ? '#ededed' : '#1a1a1a';
@@ -4669,22 +4703,16 @@ window.initForceGraph = function(graphData) {
             showKgNodeDrawer(node);
         });
 
-    applySpiderwebForces(currentForceGraphInstance);
+    setGraphLayout(currentKgLayout || 'force');
 
     // Resize on window resize
     window.addEventListener('resize', () => {
         if (currentForceGraphInstance && currentKgView === 'graph') {
-            const w = wrapper.clientWidth || window.innerWidth;
-            const h = wrapper.clientHeight || (window.innerHeight - 120);
+            const w = wrapper.clientWidth || (wrapper.parentElement ? wrapper.parentElement.clientWidth : 0) || window.innerWidth;
+            const h = wrapper.clientHeight || (wrapper.parentElement ? wrapper.parentElement.clientHeight : 0) || (window.innerHeight - 150);
             currentForceGraphInstance.width(w).height(h);
         }
     });
-
-    setTimeout(() => {
-        if (currentForceGraphInstance) {
-            currentForceGraphInstance.zoomToFit(400, 20);
-        }
-    }, 400);
 };
 
 window.zoomGraph = function(factor) {
@@ -4719,15 +4747,21 @@ window.showKgNodeDrawer = function(node) {
     // Populate links if graph data available
     if (linksContainer && currentKgGraphData && currentKgGraphData.edges) {
         linksContainer.innerHTML = '';
-        const connectedEdges = currentKgGraphData.edges.filter(e => e.source === node.id || e.target === node.id);
+        const connectedEdges = (currentKgGraphData.edges || []).filter(e => {
+            const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
+            const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
+            return s === String(node.id) || t === String(node.id);
+        });
         
         if (connectedEdges.length > 0) {
             if (linksSection) linksSection.classList.remove('hidden');
             connectedEdges.forEach(e => {
-                const isOut = e.source === node.id;
-                const otherId = isOut ? e.target : e.source;
-                const otherNode = currentKgGraphData.nodes.find(n => n.id === otherId);
-                const otherName = otherNode ? otherNode.name : otherId;
+                const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
+                const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
+                const isOut = s === String(node.id);
+                const otherId = isOut ? t : s;
+                const otherNode = (currentKgGraphData.nodes || []).find(n => String(n.id) === String(otherId));
+                const otherName = otherNode ? (otherNode.name || otherNode.id) : otherId;
                 const arrowIcon = isOut ? '<span class="material-symbols-outlined text-[13px] align-middle">arrow_forward</span>' : '<span class="material-symbols-outlined text-[13px] align-middle">arrow_back</span>';
                 const relationLabel = e.label || e.relation || 'связь';
 

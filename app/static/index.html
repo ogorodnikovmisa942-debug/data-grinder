@@ -1059,18 +1059,18 @@
                 
                 <!-- Переключатель видов: Дерево / 2D Граф -->
                 <div class="flex items-center bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 p-0.5 rounded-xl">
-                    <button id="kg-tab-tree" onclick="switchKgView('tree')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1">
+                    <button id="kg-tab-tree" onclick="switchKgView('tree')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer">
                         <span class="material-symbols-outlined text-[14px]">park</span>
                         <span>Дерево</span>
                     </button>
-                    <button id="kg-tab-graph" onclick="switchKgView('graph')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1">
+                    <button id="kg-tab-graph" onclick="switchKgView('graph')" class="px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1 cursor-pointer">
                         <span class="material-symbols-outlined text-[14px]">hub</span>
                         <span>2D Граф</span>
                     </button>
                 </div>
 
                 <!-- Закрыть -->
-                <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0" title="Закрыть">
+                <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Закрыть">
                     <span class="material-symbols-outlined text-xl">close</span>
                 </button>
             </div>
@@ -1092,7 +1092,7 @@
                     <p class="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm leading-relaxed font-sans">
                         Для данного предмета граф понятий строится автоматически при нарезке документов или может быть загружен из системных пресетов.
                     </p>
-                    <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="mt-2 px-4 py-2 border border-primary text-primary hover:bg-primary hover:text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs">
+                    <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="mt-2 px-4 py-2 border border-primary text-primary hover:bg-primary hover:text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer">
                         [ Загрузить эталонный каркас ]
                     </button>
                 </div>
@@ -1103,20 +1103,20 @@
                 </div>
 
                 <!-- ВИД 2: 2D Obsidian Force Graph -->
-                <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full">
-                    <div id="kg-graph-canvas-wrapper" class="w-full h-full"></div>
+                <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full min-h-0 overflow-hidden">
+                    <div id="kg-graph-canvas-wrapper" class="w-full h-full min-h-0"></div>
 
                     <!-- Панель переключения геометрии (Паутина / Радиальное / Иерархия) -->
                     <div class="absolute top-3 left-3 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1">
-                        <button id="kg-layout-force" onclick="setGraphLayout('force')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1" title="Органическая паутина со структурированными лучами">
+                        <button id="kg-layout-force" onclick="setGraphLayout('force')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Органическая паутина со структурированными лучами">
                             <span class="material-symbols-outlined text-[14px]">hub</span>
                             <span>Паутина</span>
                         </button>
-                        <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1" title="Концентрические радиальные кольца от центра">
+                        <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Концентрические радиальные кольца от центра">
                             <span class="material-symbols-outlined text-[14px]">adjust</span>
                             <span>Радиальное</span>
                         </button>
-                        <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1" title="Иерархическое дерево сверху вниз">
+                        <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Иерархическое дерево сверху вниз">
                             <span class="material-symbols-outlined text-[14px]">account_tree</span>
                             <span>Иерархия</span>
                         </button>
