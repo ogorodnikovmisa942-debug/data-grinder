@@ -236,6 +236,120 @@ const COGNITIVE_ASCII_ARTS = [
 
 let flashcard, actionButtons, focusToggle, subjectSelector, body, cardText, cardSecondaryText, cardMainText, cardMnemonic, cardMnemonicContainer, cardCounter, progressFill;
 
+/**
+ * Динамическая адаптивная типографика для карточек (Zero Overflow Architecture).
+ * Классифицирует объем текста на корзины ('short', 'medium', 'long', 'vignette'),
+ * предотвращая вылезание за границы длинных ситуационных вопросов и кейсов.
+ */
+function applyDynamicCardTypography(element, text) {
+    if (!element) return;
+    const cleanText = (text || '').trim();
+    const len = cleanText.length;
+    
+    let bucket = 'medium';
+    if (len < 60) {
+        bucket = 'short';
+    } else if (len <= 160) {
+        bucket = 'medium';
+    } else if (len <= 300) {
+        bucket = 'long';
+    } else {
+        bucket = 'vignette';
+    }
+    
+    element.setAttribute('data-text-length', bucket);
+    element.style.fontSize = ''; // Сброс inline-стилей
+    element.style.lineHeight = '';
+    
+    // Micro-fit guard: плавная проверка реального переполнения контейнера
+    requestAnimationFrame(() => {
+        const parent = element.parentElement;
+        if (!parent) return;
+        
+        let currentFz = parseFloat(window.getComputedStyle(element).fontSize);
+        const minFz = 12; // минимальный размер для комфортного чтения
+        
+        let attempts = 0;
+        while (parent.scrollHeight > parent.clientHeight && currentFz > minFz && attempts < 10) {
+            currentFz -= 0.5;
+            element.style.fontSize = `${currentFz}px`;
+            element.style.lineHeight = '1.45';
+            attempts++;
+        }
+    });
+}
+
+const STAGING_CARD_TEMPLATE = `
+    <!-- Значки-индикаторы свайпа (штампы APPROVED / DISCARDED) -->
+    <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1 font-bold text-xs uppercase tracking-wider rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-surface-container-lowest/95 shadow-md flex items-center gap-1 z-30">
+        <span class="material-symbols-outlined text-sm">check_circle</span>
+        <span>ОДОБРЕНО</span>
+    </div>
+    <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-wider -rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-surface-container-lowest/95 shadow-md flex items-center gap-1 z-30">
+        <span class="material-symbols-outlined text-sm">cancel</span>
+        <span>ОТКЛОНЕНО</span>
+    </div>
+
+    <!-- Шапка карточки -->
+    <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2">
+        <span id="staging-card-number" class="font-mono font-medium">Карточка 1 из 1</span>
+        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container">medium</span>
+    </div>
+
+    <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
+    <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean card-scroll-masked py-1 px-1">
+        <!-- Блок Вопроса / Кейса -->
+        <div class="flex flex-col gap-1 text-left">
+            <div class="flex items-center justify-between">
+                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[12px]">help</span>
+                    <span>ВОПРОС</span>
+                </span>
+                <span id="staging-card-secondary" class="text-[10px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
+            </div>
+            <div id="staging-card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">...</div>
+        </div>
+
+        <!-- Разделитель -->
+        <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
+
+        <!-- Блок Ответа / Дефиниции -->
+        <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left">
+            <span class="block text-[9px] font-mono font-bold uppercase tracking-wider text-outline mb-1 flex items-center gap-1">
+                <span class="material-symbols-outlined text-[12px]">task_alt</span>
+                <span>ОТВЕТ</span>
+            </span>
+            <div id="staging-card-translation" class="text-xs sm:text-sm text-on-surface leading-relaxed break-words font-medium">...</div>
+        </div>
+
+        <!-- Пример (если есть) -->
+        <div id="staging-card-example-box" class="border-l-2 border-primary/40 pl-2.5 py-0.5 text-left empty:hidden">
+            <div id="staging-card-example" class="text-[11px] text-outline italic break-words">...</div>
+        </div>
+        
+        <!-- Мнемоника / Ассоциация (если есть) -->
+        <div id="staging-card-mnemonic-box" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl text-[10px] text-left hidden shadow-xs">
+            <span class="text-amber-700 dark:text-amber-400 font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
+                <span class="material-symbols-outlined text-[12px]">psychology</span>
+                <span>АССОЦИАЦИЯ:</span>
+            </span>
+            <span id="staging-card-mnemonic" class="text-neutral-800 dark:text-neutral-200"></span>
+        </div>
+    </div>
+
+    <!-- Кнопки управления карточкой внутри песочницы -->
+    <div class="w-full grid grid-cols-2 gap-2 pt-2 border-t border-outline-variant/30 shrink-0">
+        <button onclick="openStagingEditor()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-2 uppercase font-bold rounded-xl hover:bg-surface-container transition-all flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-[14px]">edit</span>
+            <span>ПРАВИТЬ</span>
+        </button>
+        <button onclick="regenerateStagingMnemonic()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-2 uppercase font-bold rounded-xl hover:bg-surface-container transition-all flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-[14px]">psychology</span>
+            <span>МНЕМОНИКА</span>
+        </button>
+    </div>
+`;
+
 let trainDrag = { isDragging: false, hasMoved: false, startX: 0, startY: 0, currentX: 0, currentY: 0 };
 
 function initTrainGestures() {
@@ -773,7 +887,7 @@ async function fetchActiveSession(mode = 'mixed') {
                 if (surveyContainer) surveyContainer.classList.add('hidden');
                 if (cardText) {
                     cardText.classList.remove('hidden');
-                    cardText.textContent = mode === 'review' ? "Все повторено ✓" : (mode === 'new' ? "Все новые изучены ✓" : "Очередь пуста");
+                    cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : "Очередь пуста");
                 }
             }
             if (cardSecondaryText) cardSecondaryText.textContent = "";
@@ -861,6 +975,7 @@ function renderIntroductionCard(card) {
         } else {
             termEl.textContent = card.text;
         }
+        applyDynamicCardTypography(termEl, card.text);
     }
     if (secEl) {
         if (card.secondary_text && card.secondary_text !== '---') {
@@ -923,13 +1038,14 @@ function renderIntroductionCard(card) {
         if (footerEl) {
             footerEl.innerHTML = `
                 <button onclick="event.stopPropagation(); advanceIntroduction()" 
-                        class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs">
-                    [→ ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ]
+                        class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs flex items-center justify-center gap-1.5">
+                    <span class="material-symbols-outlined text-[15px]">quiz</span>
+                    <span>ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ</span>
                 </button>
                 <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
-                    <span class="material-symbols-outlined text-[14px]">verified</span>
-                    <span>[ЗНАЮ НАИЗУСТЬ]</span>
+                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
+                    <span class="material-symbols-outlined text-[15px]">verified</span>
+                    <span>ЗНАЮ НАИЗУСТЬ</span>
                 </button>
             `;
         }
@@ -941,7 +1057,7 @@ function renderIntroductionCard(card) {
                     <div onclick="event.stopPropagation(); window.toggleIntroRecall()" 
                          class="w-full h-full flex flex-col items-center justify-center border-2 border-dashed border-primary/40 bg-primary/5 rounded-xl p-5 cursor-pointer hover:bg-primary/10 transition-all text-center animate-fade-in group">
                         <span class="material-symbols-outlined text-primary text-3xl mb-2 group-hover:scale-110 transition-transform">visibility</span>
-                        <div class="text-xs font-mono font-bold text-primary uppercase">[ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ]</div>
+                        <div class="text-xs font-mono font-bold text-primary uppercase">ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ</div>
                         <div class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">Попробуйте воспроизвести значение по памяти</div>
                     </div>
                 `;
@@ -949,13 +1065,14 @@ function renderIntroductionCard(card) {
             if (footerEl) {
                 footerEl.innerHTML = `
                     <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                            class="w-full border border-primary text-primary py-2.5 rounded-xl font-bold tracking-wide hover:bg-primary/10 transition-all text-xs font-mono uppercase">
-                        [ПОКАЗАТЬ ОТВЕТ]
+                            class="w-full border border-primary text-primary py-2.5 rounded-xl font-bold tracking-wide hover:bg-primary/10 transition-all text-xs font-mono uppercase flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">visibility</span>
+                        <span>ПОКАЗАТЬ ОТВЕТ</span>
                     </button>
                     <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
-                        <span class="material-symbols-outlined text-[14px]">verified</span>
-                        <span>[ЗНАЮ НАИЗУСТЬ]</span>
+                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">verified</span>
+                        <span>ЗНАЮ НАИЗУСТЬ</span>
                     </button>
                 `;
             }
@@ -986,12 +1103,14 @@ function renderIntroductionCard(card) {
             if (footerEl) {
                 footerEl.innerHTML = `
                     <button onclick="event.stopPropagation(); completeIntroduction()" 
-                            class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs">
-                        [✓ ВСПОМНИЛ И ЗАКРЕПИЛ, НАЧАТЬ УЧИТЬ]
+                            class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">check_circle</span>
+                        <span>ВСПОМНИЛ И ЗАКРЕПИЛ</span>
                     </button>
                     <button onclick="event.stopPropagation(); stepBackIntroduction()" 
-                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase">
-                        [← ВЕРНУТЬСЯ К ОБЗОРУ]
+                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">arrow_back</span>
+                        <span>ВЕРНУТЬСЯ К ОБЗОРУ</span>
                     </button>
                 `;
             }
@@ -1129,12 +1248,10 @@ function renderReviewCard(card) {
     if (cardText) {
         if (isCloze) {
             cardText.innerHTML = formatClozeHTML(card.text, false);
-            cardText.classList.remove('text-2xl', 'text-3xl');
-            cardText.classList.add('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
         } else {
             cardText.textContent = card.text;
-            cardText.classList.remove('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
         }
+        applyDynamicCardTypography(cardText, card.text);
     }
     
     const hintEl = document.getElementById('card-front-hint');
@@ -1412,7 +1529,7 @@ function renderSessionStarterButtons(data) {
             btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md";
         } else {
             btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
-            btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО ✓)";
+            btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО)";
             btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
             btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
         }
@@ -1429,7 +1546,7 @@ function renderSessionStarterButtons(data) {
             btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs";
         } else {
             btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = "ЛИМИТ ИСЧЕРПАН ✓";
+            btnNewBadge.textContent = "ЛИМИТ ИСЧЕРПАН";
             btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
             btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
         }
@@ -2199,7 +2316,7 @@ window.checkNightQueueStatus = async function() {
                         return `
                             <div class="flex items-center justify-between py-1.5 px-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 rounded-lg text-[10px] font-mono my-1">
                                 <div class="truncate max-w-[60%]">
-                                    <span class="font-bold text-emerald-700 dark:text-emerald-300">✓ ${escapeHTML(j.theme || 'Материал')}</span>
+                                    <span class="font-bold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">check_circle</span>${escapeHTML(j.theme || 'Материал')}</span>
                                     <span class="text-[9px] text-neutral-600 dark:text-neutral-400 block font-sans">${j.cards_count} карт. готовы к разбору</span>
                                 </div>
                                 <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm flex items-center gap-1 font-mono">
@@ -2725,8 +2842,8 @@ window.handleImageOcr = async function(event) {
         }
 
         if (statusEl) {
-            statusEl.textContent = `[✓ РАСПОЗНАНО ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} ЗНАКОВ)]`;
-            statusEl.className = "text-[10px] font-mono text-center text-primary font-bold py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 border border-neutral-300 dark:border-neutral-700 block";
+            statusEl.textContent = `[РАСПОЗНАНО ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} ЗНАКОВ)]`;
+            statusEl.className = "text-[10px] font-mono text-center text-primary font-bold py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 border border-neutral-300 dark:border-neutral-700 block flex items-center justify-center gap-1";
         }
 
         let alertMsg = `Успешно распознано: ${recognizedPages.length} из ${totalFiles} фото (${combinedText.length} символов).`;
@@ -2754,42 +2871,6 @@ let rejectedStagingCards = [];
 let stagingHistory = []; // Стек действий для бесконечного Undo
 let stagingSubject = 'generic';
 let stagingTheme = 'Новый блок знаний';
-
-const STAGING_CARD_TEMPLATE = `
-    <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-primary text-primary px-3 py-1 font-bold text-xs uppercase tracking-widest rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-primary/10">
-        [✓ ОДОБРЕНО]
-    </div>
-    <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-widest -rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-secondary/10">
-        [✕ ОТКЛОНЕНО]
-    </div>
-
-    <div class="w-full flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-xs">
-        <span id="staging-card-number">Карточка 1 из 1</span>
-        <span id="staging-card-tier" class="uppercase font-bold text-primary">medium</span>
-    </div>
-
-    <div class="flex-1 flex flex-col justify-center items-center text-center gap-sm overflow-y-auto my-auto py-sm">
-        <div id="staging-card-text" class="text-2xl sm:text-3xl font-bold text-primary break-words">...</div>
-        <div id="staging-card-secondary" class="text-xs text-outline font-mono">...</div>
-        <div class="w-16 h-px bg-outline-variant/40 my-xs"></div>
-        <div id="staging-card-translation" class="text-sm sm:text-base text-on-surface leading-relaxed break-words">...</div>
-        <div id="staging-card-example" class="text-[11px] text-outline italic mt-xs max-h-16 overflow-hidden">...</div>
-        
-        <div id="staging-card-mnemonic-box" class="w-full mt-xs bg-surface p-2.5 border border-outline-variant/30 rounded-xl text-[10px] text-left hidden shadow-xs">
-            <span class="text-primary font-bold uppercase block mb-0.5">Ассоциация:</span>
-            <span id="staging-card-mnemonic" class="text-on-surface-variant"></span>
-        </div>
-    </div>
-
-    <div class="w-full grid grid-cols-2 gap-xs pt-xs border-t border-outline-variant/30 shrink-0">
-        <button onclick="openStagingEditor()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-1.5 uppercase font-bold rounded-xl hover:bg-surface-container transition-all">
-            [ПРАВИТЬ]
-        </button>
-        <button onclick="regenerateStagingMnemonic()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-1.5 uppercase font-bold rounded-xl hover:bg-surface-container transition-all">
-            [МНЕМОНИКА]
-        </button>
-    </div>
-`;
 
 function startStagingSession(data) {
     stagingCards = (data.cards || []).map((c, idx) => ({ ...c, _orig_idx: idx }));
@@ -2879,16 +2960,18 @@ function renderCurrentStagingCard() {
                         Одобрено карточек: <strong class="text-primary">${approvedStagingCards.length}</strong><br>
                         Отклонено: <strong class="text-secondary">${rejectedStagingCards.length}</strong>
                     </p>
-                    <button onclick="commitApprovedStagingCards()" class="w-full border border-primary bg-primary text-on-primary py-sm font-bold uppercase text-xs hover:bg-transparent hover:text-primary transition-all mt-sm rounded-xl shadow-xs">
-                        [СОХРАНИТЬ В БАЗУ ДАННЫХ (${approvedStagingCards.length})]
+                    <button onclick="commitApprovedStagingCards()" class="w-full border border-primary bg-primary text-on-primary py-sm font-bold uppercase text-xs hover:bg-transparent hover:text-primary transition-all mt-sm rounded-xl shadow-xs flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[15px]">save</span>
+                        <span>СОХРАНИТЬ В БАЗУ ДАННЫХ (${approvedStagingCards.length})</span>
                     </button>
                     <div class="flex gap-2 w-full mt-2">
                         <button onclick="stagingUndo()" class="flex-1 border border-outline-variant text-outline hover:text-primary py-2 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1">
                             <span class="material-symbols-outlined text-[13px]">undo</span>
                             <span>ВЕРНУТЬ КАРТУ</span>
                         </button>
-                        <button onclick="stagingResetSession()" class="flex-1 border border-outline-variant text-outline hover:text-secondary py-2 font-bold uppercase text-[10px] rounded-xl transition-all">
-                            [СБРОСИТЬ]
+                        <button onclick="stagingResetSession()" class="flex-1 border border-outline-variant text-outline hover:text-secondary py-2 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[13px]">restart_alt</span>
+                            <span>СБРОСИТЬ</span>
                         </button>
                     </div>
                 </div>
@@ -2922,6 +3005,7 @@ function renderCurrentStagingCard() {
     const secEl = document.getElementById('staging-card-secondary');
     const transEl = document.getElementById('staging-card-translation');
     const exEl = document.getElementById('staging-card-example');
+    const exBox = document.getElementById('staging-card-example-box');
     const mnemBox = document.getElementById('staging-card-mnemonic-box');
     const mnemEl = document.getElementById('staging-card-mnemonic');
 
@@ -2944,15 +3028,17 @@ function renderCurrentStagingCard() {
         } else {
             textEl.textContent = card.text || '---';
         }
+        applyDynamicCardTypography(textEl, card.text || '');
     }
     if (secEl) secEl.textContent = card.secondary_text || '';
     if (transEl) transEl.textContent = card.translation || '---';
     if (exEl) {
-        if (card.example) {
-            exEl.textContent = `Пример: ${card.example}`;
-            exEl.classList.remove('hidden');
+        if (card.example && card.example.trim() && card.example !== '---') {
+            exEl.textContent = `«${card.example.trim()}»`;
+            if (exBox) exBox.classList.remove('hidden');
         } else {
-            exEl.classList.add('hidden');
+            exEl.textContent = '';
+            if (exBox) exBox.classList.add('hidden');
         }
     }
 
@@ -4642,12 +4728,12 @@ window.showKgNodeDrawer = function(node) {
                 const otherId = isOut ? e.target : e.source;
                 const otherNode = currentKgGraphData.nodes.find(n => n.id === otherId);
                 const otherName = otherNode ? otherNode.name : otherId;
-                const arrow = isOut ? '→' : '←';
+                const arrowIcon = isOut ? '<span class="material-symbols-outlined text-[13px] align-middle">arrow_forward</span>' : '<span class="material-symbols-outlined text-[13px] align-middle">arrow_back</span>';
                 const relationLabel = e.label || e.relation || 'связь';
 
                 const chip = document.createElement('div');
                 chip.className = "px-2 py-1 bg-neutral-900 border border-neutral-700 rounded-lg text-[11px] font-mono text-neutral-300 flex items-center gap-1 hover:border-cyan-400 cursor-pointer transition-colors";
-                chip.innerHTML = `<span class="text-cyan-400 font-bold">${arrow} ${escapeHTML(relationLabel)}:</span> <span>${escapeHTML(otherName)}</span>`;
+                chip.innerHTML = `<span class="text-cyan-400 font-bold inline-flex items-center gap-0.5">${arrowIcon} ${escapeHTML(relationLabel)}:</span> <span>${escapeHTML(otherName)}</span>`;
                 chip.onclick = () => {
                     if (otherNode) showKgNodeDrawer(otherNode);
                 };
