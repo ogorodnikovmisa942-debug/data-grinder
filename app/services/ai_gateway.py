@@ -4,8 +4,6 @@ import re
 import time
 from typing import Optional
 import httpx
-from google import genai
-from google.genai import types
 from pydantic import BaseModel, Field
 from app.core.config import settings
 
@@ -659,53 +657,7 @@ async def call_deepseek(
             print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
-# --- GEMINI ВЫЗОВ (РЕЗЕРВНЫЙ / КАДРИРОВАННЫЙ КАСКАД) ---
-async def call_gemini(prompt: str, system_instruction: str) -> tuple[dict, str]:
-    """Вызывает Google Gemini с каскадным переключением при перегрузке."""
-    if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "placeholder_gemini_key":
-        raise ValueError("GEMINI_API_KEY не установлен или является заглушкой")
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    config = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        response_mime_type="application/json",
-        response_schema=ParsedDataSchema,
-        thinking_config=types.ThinkingConfig(include_thoughts=False),
-        temperature=0.2
-    )
-
-    # Каскад реальных моделей Gemini: 2.5 Flash-Lite -> 2.5 Flash -> 2.0 Flash -> 1.5 Flash
-    models_to_try = [
-        settings.GEMINI_MODEL,
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-    ]
-    models_to_try = list(dict.fromkeys(models_to_try))
-
-    last_err = None
-    for model_name in models_to_try:
-        try:
-            print(f"[AI Gateway / Gemini] Попытка генерации с моделью: {model_name}...")
-            response = await client.aio.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=config
-            )
-            data = json.loads(response.text)
-            return data, model_name
-        except Exception as e:
-            last_err = e
-            err_str = str(e)
-            print(f"[WARNING] Gemini model {model_name} failed: {err_str[:120]}")
-            if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str or "404" in err_str or "NOT_FOUND" in err_str:
-                continue
-            await asyncio.sleep(1.0)
-
-    if last_err:
-        raise last_err
-    raise RuntimeError("Все модели Gemini недоступны.")
 
 # --- УНИВЕРСАЛЬНЫЙ ПАРСЕР ТЕКСТА ---
 async def parse_raw_text(
@@ -785,116 +737,54 @@ async def parse_raw_text(
         + text
     )
 
-    provider = settings.AI_PROVIDER.lower()
     start_ts = time.time()
-    model_requested = settings.DEEPSEEK_MODEL or "deepseek-chat" if provider == "deepseek" else (settings.GEMINI_MODEL or "gemini-2.5-flash-lite")
+    model_requested = settings.DEEPSEEK_MODEL or "deepseek-chat"
     fallback_used = False
     json_repair_applied = False
     res = None
     
-    # 1. Если выбран DeepSeek (основной экономичный провайдер с Prompt Caching)
-    if provider == "deepseek":
-        print(f"[AI Gateway] Вызов DeepSeek ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
-        try:
-            res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
-            json_repair_applied = meta.get("repair_successful", False)
-            duration_ms = int((time.time() - start_ts) * 1000)
-            await record_ai_telemetry(
-                job_id=job_id,
-                user_id=user_id,
-                model_requested=model_requested,
-                model_resolved=meta.get("model_resolved", model_requested),
-                input_chars=len(user_prompt),
-                prompt_tokens=meta.get("prompt_tokens", 0),
-                completion_tokens=meta.get("completion_tokens", 0),
-                cache_hit=meta.get("cache_hit", False),
-                is_truncated=meta.get("is_truncated", False),
-                repair_successful=json_repair_applied,
-                cards_generated=len(res.get("cards", [])),
-                duration_ms=duration_ms,
-                status="success"
-            )
-        except Exception as ds_err:
-            err_str = str(ds_err)
-            print(f"[AI Gateway WARNING] Сбой DeepSeek: {err_str[:150]}. Инициируем каскадный fallback на Gemini...")
-            fallback_used = True
-            try:
-                raw_gemini, resolved_gemini_model = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
-                if isinstance(raw_gemini, dict) and ("c" in raw_gemini or "domain" in raw_gemini):
-                    res = unpack_minified_cards(raw_gemini, fallback_subject=clean_sub)
-                else:
-                    res = raw_gemini
-                duration_ms = int((time.time() - start_ts) * 1000)
-                await record_ai_telemetry(
-                    job_id=job_id,
-                    user_id=user_id,
-                    model_requested=model_requested,
-                    model_resolved=resolved_gemini_model,
-                    input_chars=len(user_prompt),
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    cache_hit=False,
-                    is_truncated=False,
-                    repair_successful=False,
-                    cards_generated=len(res.get("cards", [])) if isinstance(res, dict) else 0,
-                    duration_ms=duration_ms,
-                    status="fallback_cascade",
-                    error_message=f"DeepSeek failure: {err_str[:300]}"
-                )
-            except Exception as fb_err:
-                duration_ms = int((time.time() - start_ts) * 1000)
-                status_label = "rate_limit" if "429" in err_str else ("json_parse_error" if "JSON" in err_str else "failed")
-                await record_ai_telemetry(
-                    job_id=job_id,
-                    user_id=user_id,
-                    model_requested=model_requested,
-                    model_resolved="none",
-                    input_chars=len(user_prompt),
-                    duration_ms=duration_ms,
-                    status=status_label,
-                    error_message=f"DeepSeek: {err_str[:200]} | Gemini fallback: {str(fb_err)[:200]}"
-                )
-                raise fb_err
-
-    # 2. Если изначально выбран Gemini (резервный провайдер)
-    else:
-        print(f"[AI Gateway] Вызов Gemini ({model_requested}) в режиме '{granularity_mode}'...")
-        try:
-            raw_gemini, resolved_gemini_model = await call_gemini(user_prompt, DEEPSEEK_CACHED_SYSTEM_PROMPT)
-            if isinstance(raw_gemini, dict) and ("c" in raw_gemini or "domain" in raw_gemini):
-                res = unpack_minified_cards(raw_gemini, fallback_subject=clean_sub)
-            else:
-                res = raw_gemini
-            duration_ms = int((time.time() - start_ts) * 1000)
-            await record_ai_telemetry(
-                job_id=job_id,
-                user_id=user_id,
-                model_requested=model_requested,
-                model_resolved=resolved_gemini_model,
-                input_chars=len(user_prompt),
-                cards_generated=len(res.get("cards", [])) if isinstance(res, dict) else 0,
-                duration_ms=duration_ms,
-                status="success"
-            )
-        except Exception as gemini_err:
-            duration_ms = int((time.time() - start_ts) * 1000)
-            await record_ai_telemetry(
-                job_id=job_id,
-                user_id=user_id,
-                model_requested=model_requested,
-                model_resolved="none",
-                input_chars=len(user_prompt),
-                duration_ms=duration_ms,
-                status="failed",
-                error_message=str(gemini_err)[:400]
-            )
-            raise gemini_err
+    # 1. Вызов DeepSeek (основной экономичный провайдер с Prompt Caching)
+    print(f"[AI Gateway] Вызов DeepSeek ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
+    try:
+        res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
+        json_repair_applied = meta.get("repair_successful", False)
+        duration_ms = int((time.time() - start_ts) * 1000)
+        await record_ai_telemetry(
+            job_id=job_id,
+            user_id=user_id,
+            model_requested=model_requested,
+            model_resolved=meta.get("model_resolved", model_requested),
+            input_chars=len(user_prompt),
+            prompt_tokens=meta.get("prompt_tokens", 0),
+            completion_tokens=meta.get("completion_tokens", 0),
+            cache_hit=meta.get("cache_hit", False),
+            is_truncated=meta.get("is_truncated", False),
+            repair_successful=json_repair_applied,
+            cards_generated=len(res.get("cards", [])),
+            duration_ms=duration_ms,
+            status="success"
+        )
+    except Exception as ds_err:
+        err_str = str(ds_err)
+        duration_ms = int((time.time() - start_ts) * 1000)
+        status_label = "rate_limit" if "429" in err_str else ("json_parse_error" if "JSON" in err_str else "failed")
+        await record_ai_telemetry(
+            job_id=job_id,
+            user_id=user_id,
+            model_requested=model_requested,
+            model_resolved="none",
+            input_chars=len(user_prompt),
+            duration_ms=duration_ms,
+            status=status_label,
+            error_message=f"DeepSeek: {err_str[:400]}"
+        )
+        raise ds_err
 
     if clean_sub and isinstance(res, dict):
         res["subject_slug"] = clean_sub
     
     if isinstance(res, dict):
-        res["fallback_used"] = fallback_used
+        res["fallback_used"] = False
         res["json_repair_applied"] = json_repair_applied
         res["execution_time_ms"] = int((time.time() - start_ts) * 1000)
 
@@ -914,44 +804,29 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
 
     system_instruction = "You are an expert mnemonic generator. Return strictly a raw JSON object with 'keyword' and 'verbal_cue'. No markdown."
 
-    if settings.AI_PROVIDER.lower() == "deepseek":
-        if not settings.DEEPSEEK_API_KEY:
-            raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
-        url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
-        headers = {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-        payload = {
-            "model": settings.DEEPSEEK_MODEL,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.3
-        }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+    if not settings.DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
+    url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": settings.DEEPSEEK_MODEL or "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.3
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(url, headers=headers, json=payload)
+        if res.status_code in (400, 404) and payload["model"] != "deepseek-chat":
+            payload["model"] = "deepseek-chat"
             res = await client.post(url, headers=headers, json=payload)
-            if res.status_code in (400, 404) and payload["model"] != "deepseek-chat":
-                payload["model"] = "deepseek-chat"
-                res = await client.post(url, headers=headers, json=payload)
-            if res.status_code == 200:
-                content = res.json()["choices"][0]["message"]["content"]
-                return extract_json_payload(content)
-            else:
-                raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
-
-    # Fallback to Gemini
-    try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        cfg = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            response_schema=MnemonicSchema,
-            temperature=0.3
-        )
-        res = await client.aio.models.generate_content(model=settings.GEMINI_MODEL, contents=prompt, config=cfg)
-        return json.loads(res.text)
-    except Exception as e:
-        return {"error": str(e)}
+        if res.status_code == 200:
+            content = res.json()["choices"][0]["message"]["content"]
+            return extract_json_payload(content)
+        else:
+            raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 
 # --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (ОПТИМИЗИРОВАННЫЙ СТАНДАРТ 24K ЗНАКОВ) ---
 def split_text_into_chunks(text: str, max_chunk_chars: int = 24000, overlap_chars: int = 1200) -> list[str]:

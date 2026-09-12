@@ -5,7 +5,7 @@ import json
 import time
 import html
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select, update, text
 from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph
@@ -17,7 +17,19 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.client.session.aiohttp import AiohttpSession
 
 def is_deepseek_offpeak() -> bool:
-    """Проверяет, активно ли внепиковое окно со скидкой 50% у DeepSeek (16:30-00:30 UTC / 19:30-03:30 МСК)."""
+    """Проверяет, активно ли внепиковое окно со скидкой 50% у DeepSeek (16:30-00:30 UTC / 19:30-03:30 МСК).
+    Синхронизировано строго по UTC (всемирному координированному времени):
+    - 16:30-00:30 UTC строго соответствует 19:30-03:30 МСК (UTC+3).
+    - Для сервера в Нидерландах (CET/CEST): это 17:30-01:30 (зима UTC+1) или 18:30-02:30 (лето UTC+2).
+    Использование UTC гарантирует 100% совпадение с биллинговым окном DeepSeek независимо от расположения сервера.
+    """
+    try:
+        now_utc = datetime.now(timezone.utc)
+        if isinstance(now_utc.hour, int):
+            minutes = now_utc.hour * 60 + now_utc.minute
+            return minutes >= 990 or minutes < 30
+    except Exception:
+        pass
     now_utc = datetime.utcnow()
     minutes = now_utc.hour * 60 + now_utc.minute
     # 16:30 UTC = 990 мин, 00:30 UTC = 30 мин

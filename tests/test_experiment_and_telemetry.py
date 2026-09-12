@@ -701,7 +701,6 @@ class TestExperimentAndTelemetry(unittest.TestCase):
     def test_13_deepseek_prompt_caching_and_atomic_rules(self):
         """Phase 2: Проверка соответствия системного промпта DeepSeek порогу кэширования (>1024 токенов) и правилам атомарности."""
         from app.services.ai_gateway import DEEPSEEK_CACHED_SYSTEM_PROMPT, unpack_minified_cards
-        from app.services.gemini_parser import UNIVERSAL_GRINDER_PROMPT
 
         # 1. Проверка длины системного промпта для DeepSeek Context Caching (порог > 1024 токенов)
         # В русско-английском тексте 1 слово = 1.3-2.0 токена. При >1400 словах токенов гарантированно >1800.
@@ -720,13 +719,7 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertIn("1.5–3.5 seconds", DEEPSEEK_CACHED_SYSTEM_PROMPT)
         self.assertIn("CONTRAST CASE 1", DEEPSEEK_CACHED_SYSTEM_PROMPT)
 
-        # 3. Проверка Gemini UNIVERSAL_GRINDER_PROMPT
-        self.assertIn("Minimum Information Principle", UNIVERSAL_GRINDER_PROMPT)
-        self.assertIn("STRICT ANTI-LIST", UNIVERSAL_GRINDER_PROMPT)
-        self.assertIn("NEVER MUTILATE THE ANSWER", UNIVERSAL_GRINDER_PROMPT)
-        self.assertIn("SYNTACTIC COMPLETENESS GUARANTEE", UNIVERSAL_GRINDER_PROMPT)
-
-        # 4. Проверка распаковки атомарных юридических карточек функцией unpack_minified_cards
+        # 3. Проверка распаковки атомарных юридических карточек функцией unpack_minified_cards
         mock_deepseek_output = {
             "domain": "law",
             "slug": "sudoustroystvo",

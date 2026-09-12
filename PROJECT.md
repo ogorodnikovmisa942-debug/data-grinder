@@ -1,4 +1,4 @@
-﻿# Project: Two-Tier Cognitive Deep Learning System in Data Grinder
+# Project: Two-Tier Cognitive Deep Learning System in Data Grinder
 
 ## Architecture
 - **Layer 1: Cognitive Mental Framework (R1, R2)**:
@@ -79,14 +79,14 @@ ame: string (concise entity name)
   - Returns: {correct: boolean, explanation: <str>, gold_standard: <str>}
 
 ## Code Layout
-- pp/database/models.py: Database models (Phrase, Card, TopicKnowledgeGraph, PracticeItem).
-- pp/services/ai_gateway.py: Chunker, DEEPSEEK_CACHED_SYSTEM_PROMPT, LLM calls.
-- pp/services/gemini_parser.py: UNIVERSAL_GRINDER_PROMPT, extraction parsers.
-- pp/services/generation_worker.py: Job processing, multi-chunk graph merge, blacklist filter.
-- pp/services/practice_service.py: Autonomous practice generation and verification.
-- pp/api/endpoints/graph.py: Endpoints for Knowledge Graph retrieval and update.
-- pp/api/endpoints/practice.py: Endpoints for practice sessions and verification.
-- pp/static/index.html: Web structure, tree mindmap modal, force-graph canvas container, practice UI.
-- pp/static/js/app.js: Client runtime, force-graph initialization, tree renderer, practice controller.
-- pp/static/css/main.css: Neon styling, touch-action: none, overscroll-behavior: none, mindmap hierarchy.
-- 	ests/: Existing 21 unit tests + 	est_cognitive_architecture.py.
+- app/database/models.py: Database models (Phrase, Card, TopicKnowledgeGraph, PracticeItem).
+- app/services/ai_gateway.py: Chunker, DEEPSEEK_CACHED_SYSTEM_PROMPT, LLM calls.
+- app/services/generation_worker.py: Job processing, multi-chunk graph merge, blacklist filter.
+- app/services/practice_service.py: Autonomous practice generation and verification.
+- app/api/endpoints/graph.py: Endpoints for Knowledge Graph retrieval and update.
+- app/api/endpoints/practice.py: Endpoints for practice sessions and verification.
+- app/static/index.html: Web structure, tree mindmap modal, force-graph canvas container, practice UI.
+- app/static/js/app.js: Client runtime, force-graph initialization, tree renderer, practice controller.
+- app/static/css/main.css: Neon styling, touch-action: none, overscroll-behavior: none, mindmap hierarchy.
+- tests/: Unit tests.
+
