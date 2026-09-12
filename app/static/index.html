@@ -508,7 +508,10 @@
                         <span class="material-symbols-outlined text-[15px]">folder_managed</span>
                         <span>[УПРАВЛЕНИЕ ВСЕМИ ПРЕДМЕТАМИ]</span>
                     </span>
-                    <span class="text-outline text-[9px]">СПИСОК И ПЕРЕИМЕНОВАНИЕ ➜</span>
+                    <span class="text-outline text-[9px] flex items-center gap-1">
+                        <span>СПИСОК И ПЕРЕИМЕНОВАНИЕ</span>
+                        <span class="material-symbols-outlined text-[12px]">arrow_forward</span>
+                    </span>
                 </button>
                 
                 <div id="config-presets-container" class="flex flex-col gap-sm font-mono text-xs">
@@ -640,10 +643,22 @@
                     <div class="flex flex-col gap-1 mt-1">
                         <span class="text-[9px] text-neutral-400 uppercase font-mono">Быстрый акцент:</span>
                         <div class="flex flex-wrap gap-1" id="focus-chips-container">
-                            <button type="button" onclick="toggleFocusChip(this, 'Только ключевые термины и определения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">🏷️ Термины</button>
-                            <button type="button" onclick="toggleFocusChip(this, 'Правовые нормы, статьи и условия их применения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">⚖️ Статьи и нормы</button>
-                            <button type="button" onclick="toggleFocusChip(this, 'Формулы, теоремы и расчетные правила')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">📐 Формулы</button>
-                            <button type="button" onclick="toggleFocusChip(this, 'Добавь конкретные практические примеры в пример применения')" class="focus-chip px-2 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all">💡 Практика</button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Только ключевые термины и определения')" class="focus-chip px-2.5 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[13px]">label</span>
+                                <span>Термины</span>
+                            </button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Правовые нормы, статьи и условия их применения')" class="focus-chip px-2.5 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[13px]">gavel</span>
+                                <span>Статьи и нормы</span>
+                            </button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Формулы, теоремы и расчетные правила')" class="focus-chip px-2.5 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[13px]">functions</span>
+                                <span>Формулы</span>
+                            </button>
+                            <button type="button" onclick="toggleFocusChip(this, 'Добавь конкретные практические примеры в пример применения')" class="focus-chip px-2.5 py-1 text-[9px] font-mono border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary rounded-lg transition-all flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[13px]">lightbulb</span>
+                                <span>Практика</span>
+                            </button>
                         </div>
                     </div>
 
@@ -810,7 +825,7 @@
             <div class="flex flex-col gap-xs shrink-0 pt-xs">
                 <div class="grid grid-cols-3 gap-xs h-[52px]">
                     <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
-                        <span>[✕] ОТКЛОНИТЬ</span>
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[15px]">close</span>ОТКЛОНИТЬ</span>
                         <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
                     </button>
                     <button id="staging-undo-btn" onclick="stagingUndo()" class="flex flex-col items-center justify-center border border-outline-variant hover:border-primary text-outline hover:text-primary active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs opacity-40 cursor-not-allowed" title="Отменить последнее действие (Ctrl+Z / Backspace)">
@@ -818,7 +833,7 @@
                         <span class="text-[8px] font-mono opacity-70">ОТМЕНА</span>
                     </button>
                     <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
-                        <span>[✓] ПРИНЯТЬ</span>
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[15px]">check</span>ПРИНЯТЬ</span>
                         <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
                     </button>
                 </div>
@@ -836,8 +851,8 @@
                     <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-2 px-3 uppercase font-bold rounded-xl flex-1 text-center hover:bg-transparent hover:text-primary transition-all shadow-xs">
                         СОХРАНИТЬ (0)
                     </button>
-                    <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors">
-                        ✕
+                    <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors flex items-center justify-center">
+                        <span class="material-symbols-outlined text-[16px]">close</span>
                     </button>
                 </div>
             </div>
@@ -849,7 +864,9 @@
         <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-4 flex flex-col gap-sm shadow-2xl max-h-[85vh] font-sans">
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
                 <span class="text-xs font-bold text-secondary uppercase font-mono tracking-wider">ОТКЛОНЕННЫЕ КАРТОЧКИ</span>
-                <button onclick="closeRejectedDrawer()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg">✕</button>
+                <button onclick="closeRejectedDrawer()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
             </div>
             <div id="staging-rejected-list" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 text-xs font-mono max-h-[60vh] pr-1">
                 <!-- Заполняется динамически -->
@@ -869,7 +886,9 @@
         <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-5 flex flex-col gap-sm shadow-2xl max-h-[90vh] overflow-y-auto font-sans">
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
                 <span id="card-editor-title" class="text-xs font-bold text-primary uppercase font-mono tracking-wider">РЕДАКТИРОВАНИЕ КАРТОЧКИ</span>
-                <button onclick="closeCardEditorModal()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg">✕</button>
+                <button onclick="closeCardEditorModal()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
             </div>
 
             <input type="hidden" id="edit-card-id" value="">
@@ -1116,7 +1135,7 @@
                 <div id="practice-card-container" class="w-full flex flex-col gap-3 py-1">
                     <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
                     <div class="flex items-center justify-between">
-                        <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
+                        <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5">
                             Ситуационный кейс
                         </span>
                         <span class="text-[10px] font-mono text-neutral-400">ТРЕНАЖЕР</span>
@@ -1141,7 +1160,10 @@
                         </div>
                         
                         <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
-                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider">⚡ Водораздельный критерий (Gold Standard):</span>
+                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[14px]">bolt</span>
+                                <span>Водораздельный критерий (Gold Standard):</span>
+                            </span>
                             <div id="practice-gold-standard-text" class="font-sans leading-relaxed"></div>
                         </div>
 

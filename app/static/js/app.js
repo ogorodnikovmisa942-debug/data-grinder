@@ -1552,9 +1552,9 @@ function renderFilteredArchiveDOM() {
                     </div>
                 </div>
                 <div class="flex items-center gap-xs shrink-0 archive-row-actions">
-                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Редактировать">✎</button>
-                    <button onclick="event.stopPropagation(); requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold" title="Перенести предмет">➔</button>
-                    <button onclick="event.stopPropagation(); requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center">✕</button>
+                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold flex items-center justify-center" title="Редактировать"><span class="material-symbols-outlined text-[16px]">edit</span></button>
+                    <button onclick="event.stopPropagation(); requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold flex items-center justify-center" title="Перенести предмет"><span class="material-symbols-outlined text-[16px]">drive_file_move</span></button>
+                    <button onclick="event.stopPropagation(); requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center" title="Удалить"><span class="material-symbols-outlined text-[16px]">delete</span></button>
                 </div>
             </div>
         `;
@@ -2213,8 +2213,9 @@ window.checkNightQueueStatus = async function() {
                                 <span class="font-bold text-on-surface">${escapeHTML(j.theme || 'Материал')}</span>
                                 <span class="text-[9px] text-secondary">(${j.status === 'processing' ? 'обрабатывается...' : 'в очереди'})</span>
                             </div>
-                            <button onclick="cancelQueuedJob(${j.id})" class="px-2 py-0.5 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-md text-[9px] font-bold uppercase transition-all">
-                                [✕ Отменить]
+                            <button onclick="cancelQueuedJob(${j.id})" class="px-2 py-0.5 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-md text-[9px] font-bold uppercase transition-all flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[12px]">close</span>
+                                <span>Отменить</span>
                             </button>
                         </div>
                     `;
@@ -2880,8 +2881,9 @@ function renderCurrentStagingCard() {
                         [СОХРАНИТЬ В БАЗУ ДАННЫХ (${approvedStagingCards.length})]
                     </button>
                     <div class="flex gap-2 w-full mt-2">
-                        <button onclick="stagingUndo()" class="flex-1 border border-outline-variant text-outline hover:text-primary py-2 font-bold uppercase text-[10px] rounded-xl transition-all">
-                            [↩ ВЕРНУТЬ КАРТУ]
+                        <button onclick="stagingUndo()" class="flex-1 border border-outline-variant text-outline hover:text-primary py-2 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[13px]">undo</span>
+                            <span>ВЕРНУТЬ КАРТУ</span>
                         </button>
                         <button onclick="stagingResetSession()" class="flex-1 border border-outline-variant text-outline hover:text-secondary py-2 font-bold uppercase text-[10px] rounded-xl transition-all">
                             [СБРОСИТЬ]
@@ -3863,7 +3865,7 @@ window.shareSubjectDeck = async function(subjectSlug) {
         const shareUrl = data.share_url;
         const deckTitle = data.title || subjectSlug.toUpperCase();
         const totalCards = data.total_cards || 0;
-        const shareMsg = `📚 Готовая колода для Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота!`;
+        const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота:`;
         const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
         
         if (window.Telegram?.WebApp?.openTelegramLink) {
@@ -4627,12 +4629,13 @@ function renderPracticeQuestion() {
     // Type badge
     const typeBadge = document.getElementById('practice-item-type-badge');
     if (typeBadge) {
-        const typeLabels = {
-            'situational': '⚖️ СИТУАЦИОННЫЙ КЕЙС',
-            'contrast_pair': '⚖️ КОНТРАСТНАЯ ПАРА',
-            'slot_filling': '📝 ЗАПОЛНЕНИЕ ПРОПУСКА'
+        const typeConfigs = {
+            'situational': { icon: 'gavel', label: 'СИТУАЦИОННЫЙ КЕЙС' },
+            'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
+            'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' }
         };
-        typeBadge.textContent = typeLabels[item.type] || 'ПРАКТИЧЕСКИЙ КЕЙС';
+        const cfg = typeConfigs[item.type] || { icon: 'psychology', label: 'ПРАКТИЧЕСКИЙ КЕЙС' };
+        typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
     }
 
     // Prompt
