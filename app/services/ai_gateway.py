@@ -953,8 +953,8 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
     except Exception as e:
         return {"error": str(e)}
 
-# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (ЗОЛОТОЙ СТАНДАРТ 14K ЗНАКОВ С OVERLAP) ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 14000, overlap_chars: int = 1000) -> list[str]:
+# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (ОПТИМИЗИРОВАННЫЙ СТАНДАРТ 24K ЗНАКОВ) ---
+def split_text_into_chunks(text: str, max_chunk_chars: int = 24000, overlap_chars: int = 1200) -> list[str]:
     """
     Интеллектуальное разбиение длинного документа на сбалансированные смысловые чанки (~6-8 страниц / 10 000 - 14 000 знаков).
     Исключает эффект 'Lost in the middle', гарантирует 100% покрытие фактов и предотвращает обрезку лимита токенов LLM.

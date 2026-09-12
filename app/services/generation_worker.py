@@ -83,8 +83,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if len(clean_text_no_headers) < 15:
             raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-        # Умное разбиение на сбалансированные смысловые блоки (~6-8 страниц / 10 000 - 14 000 знаков)
-        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=14000, overlap_chars=1000)
+        # Умное разбиение на сбалансированные смысловые блоки (~12-14 страниц / 20 000 - 24 000 знаков)
+        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=24000, overlap_chars=1200)
         total_chunks = len(chunks)
         print(f"[Generation Worker] Задача #{job_data['id']}: материал разбит на {total_chunks} частей для 100% охвата.", flush=True)
 
