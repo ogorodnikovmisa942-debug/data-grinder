@@ -88,9 +88,17 @@ async def get_knowledge_graph(
     record = result.scalars().first()
 
     if record:
+        g_data = record.graph_data or {"nodes": [], "edges": []}
+        r_nodes = g_data.get("nodes", [])
+        r_edges = g_data.get("edges", [])
+        if r_nodes:
+            from app.services.graph_service import ensure_connected_spiderweb
+            r_nodes, r_edges = ensure_connected_spiderweb(r_nodes, r_edges, fallback_title=subject)
+            g_data = {"nodes": r_nodes, "edges": r_edges}
+
         return KnowledgeGraphResponse(
             subject=record.subject,
-            graph_data=record.graph_data,
+            graph_data=g_data,
             tree_data=record.tree_data,
             updated_at=record.updated_at.isoformat() if record.updated_at else None,
             is_seed=False

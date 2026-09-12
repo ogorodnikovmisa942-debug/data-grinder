@@ -515,9 +515,10 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         input_edges = raw_graph.get("edges") or raw_graph.get("e") or []
         if isinstance(input_nodes, list) and input_nodes:
             try:
-                from app.services.graph_service import clean_graph_data, build_hierarchical_tree
+                from app.services.graph_service import clean_graph_data, build_hierarchical_tree, ensure_connected_spiderweb
                 clean_nodes, clean_edges = clean_graph_data(input_nodes, input_edges if isinstance(input_edges, list) else [])
                 if clean_nodes:
+                    clean_nodes, clean_edges = ensure_connected_spiderweb(clean_nodes, clean_edges, fallback_title=title or slug or "Каркас дисциплины")
                     tree_data = build_hierarchical_tree(clean_nodes, clean_edges, root_title=title or slug or "Каркас дисциплины")
             except Exception as ge:
                 print(f"[AI Gateway] Ошибка очистки графа из ответа LLM: {ge}")

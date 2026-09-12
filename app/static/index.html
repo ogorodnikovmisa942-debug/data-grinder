@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/force-graph@1.43.5/dist/force-graph.min.js"></script>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     
@@ -1063,6 +1064,20 @@
                 <!-- ВИД 2: 2D Obsidian Force Graph -->
                 <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full">
                     <div id="kg-graph-canvas-wrapper" class="w-full h-full"></div>
+
+                    <!-- Панель переключения геометрии (Паутина / Радиальное / Иерархия) -->
+                    <div class="absolute top-3 left-3 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1">
+                        <button id="kg-layout-force" onclick="setGraphLayout('force')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs" title="Органическая паутина со структурированными лучами">
+                            Паутина
+                        </button>
+                        <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Концентрические радиальные кольца от центра">
+                            Радиальное
+                        </button>
+                        <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Иерархическое дерево сверху вниз">
+                            Иерархия
+                        </button>
+                    </div>
+
                     <!-- Оверлей управления зумом -->
                     <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">
                         <button onclick="zoomGraph(1.3)" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">

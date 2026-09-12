@@ -4384,6 +4384,88 @@ function wrapNodeText(text, maxChars = 16) {
     return lines;
 }
 
+function applySpiderwebForces(graphInstance) {
+    if (!graphInstance) return;
+
+    // 1. Charge force with hierarchy gradient:
+    // Root has strong repulsion to push institutes out, leaves have gentle repulsion
+    if (graphInstance.d3Force('charge')) {
+        graphInstance.d3Force('charge')
+            .strength(node => {
+                const lvl = (node.level !== undefined) ? node.level : 1;
+                if (lvl === 0) return -600;
+                if (lvl === 1) return -220;
+                return -70;
+            })
+            .distanceMax(650);
+    }
+
+    // 2. Link force with spoke-and-wheel spiderweb distances:
+    // Central spokes from Root (level 0) to Major Institutes (level 1) are long (135px)
+    // Leaf nodes around their institutes are close (42px)
+    if (graphInstance.d3Force('link')) {
+        graphInstance.d3Force('link')
+            .distance(link => {
+                const s = link.source;
+                const t = link.target;
+                const sLvl = (s && s.level !== undefined) ? s.level : 1;
+                const tLvl = (t && t.level !== undefined) ? t.level : 1;
+                if (sLvl === 0 || tLvl === 0) return 135;
+                if (sLvl === 1 && tLvl === 1) return 85;
+                return 42;
+            })
+            .strength(link => {
+                const s = link.source;
+                const t = link.target;
+                const sLvl = (s && s.level !== undefined) ? s.level : 1;
+                const tLvl = (t && t.level !== undefined) ? t.level : 1;
+                if (sLvl === 0 || tLvl === 0) return 0.9;
+                return 0.75;
+            });
+    }
+
+    // 3. Collision force to prevent node/label overlapping
+    if (window.d3 && window.d3.forceCollide) {
+        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => (node.val || 5) * 2.2 + 8));
+    }
+}
+
+window.setGraphLayout = function(layoutType) {
+    if (!currentForceGraphInstance) return;
+    const btnForce = document.getElementById('kg-layout-force');
+    const btnRadial = document.getElementById('kg-layout-radial');
+    const btnTree = document.getElementById('kg-layout-tree');
+
+    [btnForce, btnRadial, btnTree].forEach(b => {
+        if (b) b.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800";
+    });
+
+    if (layoutType === 'radial') {
+        if (btnRadial) btnRadial.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
+        currentForceGraphInstance
+            .dagMode('radialout')
+            .dagLevelDistance(85);
+    } else if (layoutType === 'tree') {
+        if (btnTree) btnTree.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
+        currentForceGraphInstance
+            .dagMode('td')
+            .dagLevelDistance(65);
+    } else {
+        if (btnForce) btnForce.className = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs";
+        currentForceGraphInstance.dagMode(null);
+        applySpiderwebForces(currentForceGraphInstance);
+    }
+
+    if (currentForceGraphInstance.d3ReheatSimulation) {
+        currentForceGraphInstance.d3ReheatSimulation();
+    }
+    setTimeout(() => {
+        if (currentForceGraphInstance) {
+            currentForceGraphInstance.zoomToFit(400, 30);
+        }
+    }, 350);
+};
+
 window.initForceGraph = function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
     if (!wrapper || !window.ForceGraph) return;
@@ -4397,14 +4479,18 @@ window.initForceGraph = function(graphData) {
     const isDark = document.documentElement.classList.contains('dark');
     const bgColor = isDark ? '#0e0e0e' : '#fbfbfb';
 
-    // Prepare clean data
-    const nodes = graphData.nodes.map(n => ({
-        id: n.id,
-        name: n.name || n.id,
-        category: n.category || 'authority',
-        summary: n.summary || '',
-        val: n.level === 0 ? 12 : (n.level === 1 ? 8 : 5)
-    }));
+    // Prepare clean data with hierarchy level
+    const nodes = graphData.nodes.map(n => {
+        const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
+        return {
+            id: n.id,
+            name: n.name || n.id,
+            category: n.category || 'authority',
+            summary: n.summary || '',
+            level: lvl,
+            val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5)
+        };
+    });
 
     const nodeIds = new Set(nodes.map(n => n.id));
     const links = (graphData.edges || [])
@@ -4421,12 +4507,7 @@ window.initForceGraph = function(graphData) {
         currentForceGraphInstance.width(width).height(height);
         currentForceGraphInstance.backgroundColor(bgColor);
         currentForceGraphInstance.graphData({ nodes, links });
-        if (currentForceGraphInstance.d3Force('charge')) {
-            currentForceGraphInstance.d3Force('charge').strength(-115);
-        }
-        if (currentForceGraphInstance.d3Force('link')) {
-            currentForceGraphInstance.d3Force('link').distance(45);
-        }
+        applySpiderwebForces(currentForceGraphInstance);
         currentForceGraphInstance.zoomToFit(400, 20);
         return;
     }
@@ -4441,14 +4522,14 @@ window.initForceGraph = function(graphData) {
         .nodeId('id')
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${node.category})`)
-        .linkColor(() => isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)')
+        .linkColor(() => isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.18)')
         .linkWidth(1.5)
         .linkDirectionalParticles(2)
         .linkDirectionalParticleSpeed(0.006)
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
-        .cooldownTicks(90)
-        .d3VelocityDecay(0.35)
+        .cooldownTicks(120)
+        .d3VelocityDecay(0.3)
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
             const radius = Math.max(3.5, (node.val || 5));
@@ -4462,9 +4543,9 @@ window.initForceGraph = function(graphData) {
             ctx.fillStyle = currentDark ? '#ededed' : '#1a1a1a';
             ctx.fill();
 
-            // Border
-            ctx.lineWidth = 1.5 / Math.max(0.5, globalScale);
-            ctx.strokeStyle = currentDark ? '#ffffff' : '#404040';
+            // Border (accent color for root)
+            ctx.lineWidth = (node.level === 0 ? 2.5 : 1.5) / Math.max(0.5, globalScale);
+            ctx.strokeStyle = node.level === 0 ? '#f59e0b' : (currentDark ? '#ffffff' : '#404040');
             ctx.stroke();
 
             // Text label with line wrapping and contrast halo
@@ -4502,12 +4583,7 @@ window.initForceGraph = function(graphData) {
             showKgNodeDrawer(node);
         });
 
-    if (currentForceGraphInstance.d3Force('charge')) {
-        currentForceGraphInstance.d3Force('charge').strength(-115);
-    }
-    if (currentForceGraphInstance.d3Force('link')) {
-        currentForceGraphInstance.d3Force('link').distance(45);
-    }
+    applySpiderwebForces(currentForceGraphInstance);
 
     // Resize on window resize
     window.addEventListener('resize', () => {

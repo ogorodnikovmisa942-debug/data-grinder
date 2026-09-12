@@ -262,6 +262,124 @@ def clean_graph_data(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], 
     return clean_nodes, clean_edges
 
 
+def ensure_connected_spiderweb(
+    nodes: list[dict],
+    edges: list[dict],
+    fallback_title: str = "Каркас знаний"
+) -> tuple[list[dict], list[dict]]:
+    """Гарантирует связность всех узлов в структурированную паутину знаний (без плавающих точек в пустоте).
+    
+    1. Идентифицирует или создает центральный корневой узел (level 0).
+    2. Восстанавливает связи между узлами и их parent_id, если ребро отсутствовало.
+    3. Привязывает любые оставшиеся изолированные узлы (degree == 0) к корневому узлу или институциональному хабу.
+    4. Нормализует уровни иерархии (0 - корень, 1 - институты/органы, 2 - развилки и правила).
+    """
+    if not nodes:
+        return [], []
+
+    valid_node_ids = {str(n.get("id")) for n in nodes if n.get("id")}
+    node_map = {str(n.get("id")): dict(n) for n in nodes if n.get("id")}
+
+    # Ищем корневой узел level 0
+    root_node = next((n for n in node_map.values() if n.get("level") == 0), None)
+    if not root_node:
+        top_candidates = [n for n in node_map.values() if not n.get("parent_id")]
+        if top_candidates:
+            root_node = top_candidates[0]
+            root_node["level"] = 0
+        else:
+            clean_t = (fallback_title or "Дисциплина").strip()
+            root_id = normalize_id(clean_t)
+            if root_id in node_map:
+                root_id = f"{root_id}_master"
+            root_node = {
+                "id": root_id,
+                "name": clean_t.upper() if len(clean_t) <= 15 else clean_t.capitalize(),
+                "label": clean_t,
+                "category": "authority",
+                "summary": f"Ментальный каркас курса «{clean_t}».",
+                "parent_id": None,
+                "level": 0
+            }
+            node_map[root_id] = root_node
+            valid_node_ids.add(root_id)
+
+    root_id = root_node["id"]
+
+    seen_edges = set()
+    clean_edges = []
+    connected_ids = set()
+
+    for e in edges:
+        s = str(e.get("source", "")).strip()
+        t = str(e.get("target", "")).strip()
+        if s in valid_node_ids and t in valid_node_ids and s != t:
+            rel = normalize_relation(str(e.get("relation", "")))
+            key = (s, t, rel)
+            inv_key = (t, s, rel)
+            if key not in seen_edges and inv_key not in seen_edges:
+                seen_edges.add(key)
+                edge_dict = {"source": s, "target": t, "relation": rel}
+                if e.get("label"):
+                    edge_dict["label"] = str(e["label"]).strip()
+                clean_edges.append(edge_dict)
+                connected_ids.add(s)
+                connected_ids.add(t)
+
+    # 1. Добавляем ребра для parent_id
+    for n_id, n in node_map.items():
+        p_id = n.get("parent_id")
+        if p_id and p_id in valid_node_ids and p_id != n_id:
+            if not any((e["source"] == n_id and e["target"] == p_id) or (e["source"] == p_id and e["target"] == n_id) for e in clean_edges):
+                clean_edges.append({
+                    "source": n_id,
+                    "target": p_id,
+                    "relation": "subject_to_jurisdiction",
+                    "label": "входит в состав"
+                })
+                connected_ids.add(n_id)
+                connected_ids.add(p_id)
+
+    # 2. Привязываем любые оставшиеся изолированные узлы (degree == 0)
+    level_1_nodes = [n_id for n_id, n in node_map.items() if n.get("level") == 1 and n_id != root_id]
+    for n_id, n in node_map.items():
+        if n_id == root_id:
+            continue
+        if n_id not in connected_ids:
+            cat = n.get("category", "authority")
+            if cat in ("authority", "instance") or not level_1_nodes:
+                n["level"] = 1
+                clean_edges.append({
+                    "source": n_id,
+                    "target": root_id,
+                    "relation": "subject_to_jurisdiction",
+                    "label": "входит в систему"
+                })
+                level_1_nodes.append(n_id)
+            else:
+                n["level"] = 2
+                target_hub = level_1_nodes[len(connected_ids) % len(level_1_nodes)]
+                clean_edges.append({
+                    "source": n_id,
+                    "target": target_hub,
+                    "relation": "subject_to_jurisdiction",
+                    "label": "регулирует"
+                })
+            connected_ids.add(n_id)
+
+    # Нормализуем уровни всех узлов: связанные с корнем напрямую -> level 1
+    for e in clean_edges:
+        if e["source"] == root_id and e["target"] in node_map:
+            if node_map[e["target"]].get("level") != 0:
+                node_map[e["target"]]["level"] = 1
+        elif e["target"] == root_id and e["source"] in node_map:
+            if node_map[e["source"]].get("level") != 0:
+                node_map[e["source"]]["level"] = 1
+
+    return list(node_map.values()), clean_edges
+
+
+
 def consolidate_knowledge_graphs(
     chunk_graphs: list[dict],
     fallback_title: str = "Каркас дисциплины"
