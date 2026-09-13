@@ -1,14 +1,14 @@
-# app/core/auth.py
 import hmac
 import hashlib
 import json
 import urllib.parse
+from datetime import datetime
 from fastapi import Request, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.config import settings
 from app.database.session import get_db
-from app.database.models import UserSetting, UserSession
+from app.database.models import UserSetting, UserSession, Card, Phrase, TopicKnowledgeGraph
 
 def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
     """
@@ -41,6 +41,110 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
         print(f"[Auth] Ошибка валидации initData: {e}")
         return None
 
+
+async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
+    """
+    Если у пользователя (открывшего Telegram Mini App с числовым ID) еще нет личных карточек,
+    копирует библиотеку карточек и структуру графа знаний из default_user / dev_user.
+    Это дает пользователю персональный прогресс FSRS без пустого экрана.
+    """
+    if not user_id or not user_id.isdigit() or user_id in ("default_user", "dev_user"):
+        return
+
+    try:
+        user_cards_count = (await db.execute(
+            select(func.count(Card.id)).filter(Card.user_id == user_id)
+        )).scalar() or 0
+
+        if user_cards_count > 0:
+            return
+
+        # Ищем источник карточек
+        src_user = "default_user"
+        stmt_src = select(Card).filter(Card.user_id == src_user).order_by(Card.id.asc())
+        src_cards = (await db.execute(stmt_src)).scalars().all()
+        if not src_cards:
+            src_user = "dev_user"
+            stmt_src = select(Card).filter(Card.user_id == src_user).order_by(Card.id.asc())
+            src_cards = (await db.execute(stmt_src)).scalars().all()
+
+        if not src_cards:
+            return
+
+        # Копируем фразы-контейнеры
+        stmt_phrases = select(Phrase).filter(Phrase.user_id == src_user)
+        src_phrases = (await db.execute(stmt_phrases)).scalars().all()
+
+        now = datetime.utcnow()
+        phrase_id_map = {}
+        for p in src_phrases:
+            new_p = Phrase(
+                user_id=user_id,
+                subject=p.subject,
+                text=p.text
+            )
+            db.add(new_p)
+            await db.flush()
+            phrase_id_map[p.id] = new_p.id
+
+        # Копируем карточки с чистым FSRS состоянием
+        for c in src_cards:
+            new_c = Card(
+                user_id=user_id,
+                phrase_id=phrase_id_map.get(c.phrase_id, c.phrase_id),
+                subject=c.subject,
+                text=c.text,
+                secondary_text=c.secondary_text,
+                translation=c.translation,
+                example=c.example,
+                mnemonic=c.mnemonic,
+                card_type=c.card_type,
+                difficulty=c.difficulty,
+                stability=c.stability,
+                state=0,
+                reps=0,
+                lapses=0,
+                step_index=0,
+                last_review=None,
+                next_review=now,
+                organ_slug=c.organ_slug,
+                layer=c.layer,
+                topological_rank=c.topological_rank,
+                has_seen_intro=False,
+                created_at=now
+            )
+            db.add(new_c)
+
+        # Копируем сохраненный граф знаний
+        user_graph_count = (await db.execute(
+            select(func.count(TopicKnowledgeGraph.id)).filter(TopicKnowledgeGraph.user_id == user_id)
+        )).scalar() or 0
+
+        if user_graph_count == 0:
+            stmt_graph = select(TopicKnowledgeGraph).filter(TopicKnowledgeGraph.user_id == src_user)
+            src_graphs = (await db.execute(stmt_graph)).scalars().all()
+            if not src_graphs:
+                stmt_graph = select(TopicKnowledgeGraph).filter(TopicKnowledgeGraph.user_id == "dev_user")
+                src_graphs = (await db.execute(stmt_graph)).scalars().all()
+
+            for g in src_graphs:
+                new_g = TopicKnowledgeGraph(
+                    user_id=user_id,
+                    subject=g.subject,
+                    graph_data=g.graph_data,
+                    tree_data=g.tree_data,
+                    created_at=now,
+                    updated_at=now
+                )
+                db.add(new_g)
+
+        await db.commit()
+        print(f"[Auth Onboarding] Для пользователя {user_id} клонирована библиотека из {len(src_cards)} карточек.")
+    except Exception as e:
+        print(f"[Auth Onboarding] Ошибка автоклонирования для {user_id}: {e}")
+        await db.rollback()
+
+
 async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_db)) -> str:
     """
     Основная зависимость FastAPI для получения проверенного user_id.
@@ -49,6 +153,7 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
     3. Если подпись валидна — возвращает Telegram ID пользователя.
     4. При локальной разработке в браузере (вне Telegram) безопасно использует фолбэк (X-User-Id, tg_id или dev_user).
     5. Автоматически инициализирует запись UserSetting в БД при первом входе.
+    6. Клонирует стартовую библиотеку и граф знаний для новых пользователей.
     """
     auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
     init_data_header = request.headers.get("x-telegram-init-data") or request.headers.get("X-Telegram-Init-Data")
@@ -108,6 +213,10 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
             new_session = UserSession(telegram_id=user_id, user_id=user_id)
             db.add(new_session)
             await db.commit()
+
+        # Онбординг стартовой колоды карточек и графа знаний для нового пользователя
+        if user_id not in ("default_user", "dev_user"):
+            await ensure_user_has_starter_deck(user_id, db)
 
     except Exception as e:
         print(f"[Auth] Предупреждение при инициализации профиля пользователя {user_id}: {e}")

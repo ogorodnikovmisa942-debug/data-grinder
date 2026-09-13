@@ -460,6 +460,17 @@ async def get_all_cards(
     count_stmt = select(func.count()).select_from(stmt.subquery())
     count_res = await db.execute(count_stmt)
     total = count_res.scalar_one()
+
+    if total == 0 and current_user not in ("default_user", "dev_user"):
+        stmt_def = select(Card).filter(Card.user_id.in_(["default_user", "dev_user"]))
+        if subject != 'all':
+            sub_aliases = get_all_subject_aliases(subject)
+            stmt_def = stmt_def.filter(Card.subject.in_(sub_aliases))
+        count_def_res = await db.execute(select(func.count()).select_from(stmt_def.subquery()))
+        total_def = count_def_res.scalar_one()
+        if total_def > 0:
+            stmt = stmt_def
+            total = total_def
     
     offset = (page - 1) * limit
     stmt = stmt.offset(offset).limit(limit)

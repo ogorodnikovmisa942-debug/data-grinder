@@ -240,6 +240,12 @@ async def get_available_subjects(
     res_cards = await db.execute(stmt_cards)
     res_phrases = await db.execute(stmt_phrases)
     raw_subjects = [s[0] for s in res_cards.all() if s[0]] + [s[0] for s in res_phrases.all() if s[0]]
+    if not raw_subjects and current_user not in ("default_user", "dev_user"):
+        stmt_def_cards = select(Card.subject).filter(Card.user_id.in_(["default_user", "dev_user"])).distinct()
+        stmt_def_phrases = select(Phrase.subject).filter(Phrase.user_id.in_(["default_user", "dev_user"])).distinct()
+        res_def_cards = await db.execute(stmt_def_cards)
+        res_def_phrases = await db.execute(stmt_def_phrases)
+        raw_subjects = [s[0] for s in res_def_cards.all() if s[0]] + [s[0] for s in res_def_phrases.all() if s[0]]
     unique_subjects = sorted(list(dict.fromkeys(raw_subjects)))
     return unique_subjects
 

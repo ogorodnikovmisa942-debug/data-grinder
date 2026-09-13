@@ -85,8 +85,15 @@ async def get_knowledge_graph(
             Card.user_id == current_user
         ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
         top_sub = (await db.execute(top_stmt)).scalar()
+        if not top_sub:
+            def_stmt = select(Card.subject).where(
+                Card.user_id.in_(["default_user", "dev_user"])
+            ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
+            top_sub = (await db.execute(def_stmt)).scalar()
         if top_sub:
             subject = top_sub
+        else:
+            subject = "sudoustroystvo"
 
     canonical = resolve_subject_alias(subject)
     all_aliases = get_all_subject_aliases(subject)

@@ -3,38 +3,48 @@
 // ============================================================================
 let tgId = 'default_user'; 
 if (window.Telegram && window.Telegram.WebApp) {
-    const tg = window.Telegram.WebApp;
-    tg.ready(); 
-    tg.expand(); 
-    tg.isVerticalSwipesEnabled = false;
-    
-    if (typeof tg.requestFullscreen === 'function') {
-        tg.requestFullscreen();
-    }
-    
-    tg.setHeaderColor('#fbfbfb'); 
-    tg.setBackgroundColor('#fbfbfb');
-    
-    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-        tgId = tg.initDataUnsafe.user.id.toString();
-    }
+    try {
+        const tg = window.Telegram.WebApp;
+        if (typeof tg.ready === 'function') tg.ready(); 
+        if (typeof tg.expand === 'function') tg.expand(); 
+        if (typeof tg.disableVerticalSwipes === 'function') {
+            try { tg.disableVerticalSwipes(); } catch (_) {}
+        }
+        
+        if (typeof tg.requestFullscreen === 'function') {
+            try { tg.requestFullscreen(); } catch (_) {}
+        }
+        
+        try {
+            if (typeof tg.setHeaderColor === 'function') tg.setHeaderColor('#fbfbfb'); 
+            if (typeof tg.setBackgroundColor === 'function') tg.setBackgroundColor('#fbfbfb');
+        } catch (_) {}
+        
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            tgId = tg.initDataUnsafe.user.id.toString();
+        }
 
-    const updateSafeArea = () => {
-        const safeArea = tg.safeAreaInset || { top: 0, bottom: 0 };
-        const contentSafeArea = tg.contentSafeAreaInset || { top: 0, bottom: 0 };
+        const updateSafeArea = () => {
+            try {
+                const safeArea = tg.safeAreaInset || { top: 0, bottom: 0 };
+                const contentSafeArea = tg.contentSafeAreaInset || { top: 0, bottom: 0 };
+                
+                const safeTop = Math.max(safeArea.top || 0, contentSafeArea.top || 0, 0);
+                const safeBottom = Math.max(safeArea.bottom || 0, contentSafeArea.bottom || 0, 0);
+                
+                document.documentElement.style.setProperty('--tg-safe-top', `${safeTop}px`);
+                document.documentElement.style.setProperty('--tg-safe-bottom', `${safeBottom}px`);
+            } catch (_) {}
+        };
         
-        const safeTop = Math.max(safeArea.top, contentSafeArea.top, 0);
-        const safeBottom = Math.max(safeArea.bottom, contentSafeArea.bottom, 0);
+        updateSafeArea();
         
-        document.documentElement.style.setProperty('--tg-safe-top', `${safeTop}px`);
-        document.documentElement.style.setProperty('--tg-safe-bottom', `${safeBottom}px`);
-    };
-    
-    updateSafeArea();
-    
-    if (typeof tg.onEvent === 'function') {
-        tg.onEvent('safeAreaChanged', updateSafeArea);
-        tg.onEvent('contentSafeAreaChanged', updateSafeArea);
+        if (typeof tg.onEvent === 'function') {
+            tg.onEvent('safeAreaChanged', updateSafeArea);
+            tg.onEvent('contentSafeAreaChanged', updateSafeArea);
+        }
+    } catch (tgInitErr) {
+        console.warn('[Telegram WebApp Init Warning]', tgInitErr);
     }
 }
 
@@ -84,6 +94,8 @@ function triggerHaptic(type = 'light') {
     } catch (e) {
         // Игнорируем вне среды Telegram
     }
+}
+
 // Всплывающие уведомления (Toast Notifications)
 window.showNotification = function(message, type = 'info') {
     console.log(`[Notification ${type}]`, message);
@@ -664,7 +676,7 @@ function bindDOMPointers() {
     initTrainGestures();
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function initApplicationLifecycle() {
     bindDOMPointers();
     await loadDynamicSubjects(); 
     if (subjectSelector) subjectSelector.value = currentSubject;
@@ -743,7 +755,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     });
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApplicationLifecycle);
+} else {
+    initApplicationLifecycle();
+}
 
 function isLanguageCard(card) {
     if (!card) return false;
