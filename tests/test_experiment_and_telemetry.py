@@ -769,6 +769,82 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertIn("USER THEMATIC FOCUS", safe_prompt)
         self.assertNotIn("HIGHEST PRIORITY", safe_prompt)
 
+    def test_14_spoiler_sanitizer_and_clerical_blacklist(self):
+        """Проверка санитайзера спойлеров в secondary_text и фильтра канцелярского шума."""
+        from app.services.ai_gateway import unpack_minified_cards, is_blacklisted_card
+
+        # 1. Проверка санитайзера утечек ответов в 's'
+        spoiler_payload = {
+            "domain": "law",
+            "slug": "sudoustroystvo",
+            "c": [
+                {
+                    "t": "Какие органы в Республике Беларусь осуществляют предварительное следствие?",
+                    "s": "УПК | Следственный комитет и КГБ",
+                    "d": "Следственный комитет Республики Беларусь и Комитет государственной безопасности Республики Беларусь.",
+                    "l": "easy"
+                },
+                {
+                    "t": "В какой срок подается апелляционная жалоба на решение районного суда?",
+                    "s": "ГПК | Срок — 10 суток",
+                    "d": "В течение 10 суток со дня вынесения решения.",
+                    "l": "medium"
+                },
+                {
+                    "t": "Какой орган обладает исключительным правом осуществления правосудия?",
+                    "s": "ст. 109 Конституции | Монополия судейской мантии",
+                    "d": "Только суды Республики Беларусь.",
+                    "l": "easy"
+                }
+            ]
+        }
+        res = unpack_minified_cards(spoiler_payload)
+        cards = res["cards"]
+        self.assertEqual(len(cards), 3)
+        # Утечка "Следственный комитет и КГБ" должна быть отсечена
+        self.assertEqual(cards[0]["secondary_text"], "УПК")
+        # Утечка "Срок — 10 суток" должна быть отсечена
+        self.assertEqual(cards[1]["secondary_text"], "ГПК")
+        # Нейтральный концептуальный якорь должен остаться нетронутым
+        self.assertEqual(cards[2]["secondary_text"], "ст. 109 Конституции | Монополия судейской мантии")
+
+        # 2. Проверка фильтра канцелярского балласта
+        clerical_card_1 = {
+            "text": "Какое количество членов коллегии должно присутствовать для кворума заседания?",
+            "translation": "Не менее двух третей.",
+            "secondary_text": "Положение о коллегии"
+        }
+        is_bl, reason = is_blacklisted_card(clerical_card_1, "law")
+        self.assertTrue(is_bl)
+        self.assertEqual(reason, "clerical_bureaucratic_trivia")
+
+        clerical_card_2 = {
+            "text": "Какова продолжительность стажировки для претендента в адвокаты?",
+            "translation": "От трех до шести месяцев.",
+            "secondary_text": "Закон об адвокатуре"
+        }
+        is_bl2, reason2 = is_blacklisted_card(clerical_card_2, "law")
+        self.assertTrue(is_bl2)
+        self.assertEqual(reason2, "clerical_bureaucratic_trivia")
+
+        clerical_card_3 = {
+            "text": "Через какой минимальный срок возможна повторная сдача квалификационного экзамена?",
+            "translation": "Не ранее чем через шесть месяцев.",
+            "secondary_text": "Закон об адвокатуре"
+        }
+        is_bl3, reason3 = is_blacklisted_card(clerical_card_3, "law")
+        self.assertTrue(is_bl3)
+        self.assertEqual(reason3, "clerical_bureaucratic_trivia")
+
+        valid_card = {
+            "text": "В каком составе рассматриваются уголовные дела о преступлениях несовершеннолетних?",
+            "translation": "Коллегией в составе судьи и двух народных заседателей.",
+            "secondary_text": "ст. 32 УПК"
+        }
+        is_bl4, _ = is_blacklisted_card(valid_card, "law")
+        self.assertFalse(is_bl4)
+
 if __name__ == "__main__":
     unittest.main()
+
 

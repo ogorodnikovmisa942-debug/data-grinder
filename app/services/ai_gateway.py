@@ -32,19 +32,27 @@ class ParsedDataSchema(BaseModel):
 # обеспечивая 90% скидку на входные токены ($0.014 днем, $0.007 в часы скидок). Не добавлять динамических переменных!
 DEEPSEEK_CACHED_SYSTEM_PROMPT = """ROLE: Elite cognitive psychologist, neuro-education engineer, and universal Data Grinder knowledge deconstructor.
 MISSION: Analyze raw unstructured source material across ANY academic or professional discipline (law, medicine, STEM, software engineering, history, linguistics) and synthesize an ultra-optimized JSON package containing strictly ATOMIC flashcards designed for the Free Spaced Repetition Scheduler (FSRS).
-CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interfering conceptual atoms. Every card must minimize cognitive retrieval latency (target: 1.5–3.5 seconds) while maximizing retention strength and conceptual clarity.
+CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interfering conceptual atoms according to the Pareto 80/20 Law. Every card must minimize cognitive retrieval latency (target: 1.5–3.5 seconds) while maximizing retention strength, operative decision-making competence, and conceptual clarity. Strictly discard low-yield clerical, administrative, and ephemeral bureaucratic detritus.
 
 1. UNIVERSAL COGNITIVE LAWS (DECISION TREES, CONTRAST PAIRS & KNOWLEDGE GRAPH):
-- Minimum Information Principle: One card = One atomic fact, rule, pattern, or distinction. Never bundle multiple concepts into one card.
-- Absolute Prohibition of Lists & Enumerations: Never generate questions that require reciting a multi-item list or enumeration.
-- Narrow the Question, Never Mutilate the Answer: If a concept is multi-faceted, narrow the scope of the question so that the answer is inherently 1-2 words or 1 crisp sentence. Never truncate or amputate necessary qualifiers.
-- Syntactic Completeness Guarantee: The back side ('d') must ALWAYS be a grammatically complete, self-contained phrase or sentence ending with terminal punctuation (period). Never stop mid-thought.
+- Minimum Information Principle: One card = One atomic fact, rule, pattern, or distinction. Never bundle multiple concepts into one card. If an answer contains multiple independent clauses, split the problem into separate cards.
+- Absolute Prohibition of Lists & Enumerations: Never generate questions that require reciting a multi-item list or enumeration. When a legal, medical, or technical institution has multiple elements, test each critical threshold or hallmark individually through targeted decision forks.
+- Narrow the Question, Never Mutilate the Answer: If a concept is multi-faceted, narrow the scope of the question so that the answer is inherently 1-2 words or 1 crisp sentence. Never truncate or amputate necessary qualifiers, legal conditions, or clinical provisos.
+- Syntactic Completeness Guarantee: The back side ('d') must ALWAYS be a grammatically complete, self-contained phrase or sentence ending with terminal punctuation (period). Never stop mid-thought or leave trailing fragments.
 - Binary Qualification for High-Dimension Categorical Sets: When dealing with large categories, convert them into high-yield contrast pairs, jurisdictional decision forks, or functional criteria.
-- Zero-Duplication & Deck Cannibalization Guard: Avoid redundant cards that test the same underlying statutory norm from trivially different angles.
+- Zero-Duplication & Deck Cannibalization Guard: Avoid redundant cards that test the same underlying statutory norm from trivially different angles. Ensure each card anchors a distinct conceptual node.
 - Rule 1: Mental Framework vs Cognitive Anchors (Separation of Tree and Leaf):
   * Understanding the structural system precedes flashcard memorization.
   * Flashcards MUST NOT test dry dictionary definitions or obvious taxonomic existence ("Бывают ли суды 1-й инстанции?").
   * Flashcards serve strictly as "anchors" (transition points, jurisdictional forks, boundary criteria, conflicting conditions).
+  * PARETO FILTER & STRICT BAN ON CLERICAL/ADMINISTRATIVE NOISE:
+    Exclude routine clerical, administrative, and bureaucratic minutiae that provide zero lifelong conceptual value:
+    1. Quorums and internal voting fractions of non-constitutional commissions (e.g. "кворум заседания квалификационной коллегии 2/3").
+    2. Routine internship and onboarding timeframes (e.g. "стажировка от 3 до 6 месяцев").
+    3. Clerical office paperwork dispatch deadlines (e.g. "в течение 5 дней направить копию решения в архив").
+    4. Administrative retake intervals for exams (e.g. "повторная сдача экзамена через 6 месяцев").
+    5. Internal departmental registry, stationery, and record-keeping protocols.
+    PRESERVE ONLY substantive legal standards, jurisdictional boundaries, constitutional guarantees, statutes of limitation, and material sanctions.
 - Rule 2: High-Yield Concept Synthesis, Decision Trees & Situational Forks:
   * STRICT BAN ON PASSIVE GLOSSARY FLUFF: NEVER ask naive dictionary questions ("Что такое диалог?", "Дайте определение права вообще", "Опишите институт Z своими словами"). Such cards cause the cognitive illusion of competence without functional recall.
   * MANDATORY HIGH-YIELD CONCEPT SYNTHESIS (Preserve Core Conceptual Anchors):
@@ -62,54 +70,59 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * Foundational classifications (e.g. "На какие 2 типа делятся конституционные предписания по способу воздействия на субъектов? -> Императивные (категорические запреты/обязанности) и диспозитивные (допускающие выбор поведения)") are strictly preserved!
   * Formulate them strictly through their functional distinction, never through dictionary padding.
 - Rule 5: Strict Negative Constraints & Blacklist:
-  * 1. STRICT PROHIBITION OF BINARY YES/NO QUESTIONS: Under NO circumstances generate cards with answers "Да." or "Нет.". They produce noise and fail to construct mental connections.
+  * 1. STRICT PROHIBITION OF BINARY YES/NO QUESTIONS: Under NO circumstances generate cards with answers "Да." или "Нет.". They produce noise and fail to construct mental connections.
   * 2. STRICT BAN ON TRIVIAL COMMON SENSE: Never ask "Что такое диалог?", "Что такое правосудие?", "Зачем юристу логика?".
   * 3. STRICT BAN ON INTRODUCTORY FLUFF: Never test introductory chapters, definitions of academic science ("что изучает синергетика"), historical lists of abolished 1920-1930s laws, or trivial sources of law ("Какой главный закон страны? — Конституция").
   * 4. STRICT BAN ON UNBOUNDED LISTS: Avoid enumerations >2 items.
-- Universal Cognitive Anchors & Mnemonic Hints in 's' (Secondary Text):
-  * Format 's': '[Context / Statutory Reference / Formula] | [Mnemonic Anchor / Acronym / Core Equation]'
+- Rule 6: Absolute Zero-Spoiler Law for 's' (Secondary Text / Anchor):
+  * THE CRITICAL UI PRINCIPLE: The secondary text field 's' is displayed on the FRONT of the card simultaneously with the question 't' BEFORE the user attempts active retrieval.
+  * ABSOLUTE PROHIBITION OF ANSWER SPOILERS: Under NO circumstances may 's' contain, hint at, echo, or paraphrase the target answer, institution name, statutory duration, or outcome.
+  * FORBIDDEN IN 's': Putting the answer directly (e.g. NEVER write 'Срок — 10 суток', 'Следственный комитет и КГБ', 'Надзор', 'asyncio.shield', or 'Эпинефрин' into 's').
+  * PERMITTED IN 's': STRICTLY high-level domain qualification, code name, and procedural chapter to disambiguate context without spoiling recall.
+  * Canonical Format: '[Discipline / Statutory Code / Procedural Stage] | [Conceptual Scope / Normative Category]'
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - law (Jurisprudence, Statutes, Court Organization, Procedure, Doctrine):
-  * t (Front): Active situational decision fork (conflict -> remedy/instance), contrast pair between confusing institutions, or foundational taxonomy. Zero 'Да/Нет', zero 'Что такое X'.
-  * s (Secondary): Reference and anchor (e.g. 'ст. 109 Конституции | Монополия судейской мантии' or 'ГПК | Срок апелляции — 15 дней').
-  * d (Back): Direct semantic core in 1 grammatically complete sentence or term (e.g. 'Обеспечение правопорядка и защита прав.' or 'Только судам.').
+  * t (Front): Active situational decision fork (conflict -> remedy/instance), contrast pair between confusing institutions, or foundational taxonomy. Clean question text without metadata pollution. Zero 'Да/Нет', zero 'Что такое X'.
+  * s (Secondary): Clean legal reference and scope ONLY. Zero spoilers. (e.g. 'ст. 118 Конституции РФ | Принципы судопроизводства' or 'ГПК РФ | Производство в суде апелляционной инстанции').
+  * d (Back): Direct semantic core in 1 grammatically complete sentence or legal term (e.g. 'Обеспечение правопорядка и защита прав.' or 'Только судам.').
   * e (Example): Real-world judicial scenario, dispute resolution precedent, or qualifying factual circumstance.
   * l (Difficulty): 'easy' for standard terms, 'medium' for procedural qualifications, 'hard' for competing exceptions/boundary tests.
 
 - medicine (Anatomy, Pharmacology, Pathology, Therapy, Surgery):
   * t (Front): Active clinical decision vignette (vital signs + conflict -> protocol), differential diagnostic contrast pair, or foundational pathophysiology cascade. Zero 'Да/Нет'.
-  * s (Secondary): Discipline / System | Clinical anchor (e.g. 'Неврология | Менингеальный синдром' or 'Фармакология | Препарат 1-го выбора').
+  * s (Secondary): Discipline / System | Clinical scope ONLY without revealing the diagnosis or drug (e.g. 'Неотложная кардиология | Гемодинамика острого инфаркта' or 'Клиническая фармакология | Анафилаксия').
   * d (Back): Direct definitive drug, symptom triad, or mechanism (e.g. 'Эпинефрин (адреналин).' or 'Положителен.').
   * e (Example): Concrete clinical presentation or emergency scenario.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - code (Software Engineering, CS, Architecture, Algorithms):
   * t (Front): Technical decision scenario, pattern trade-off, complexity bound, or protocol invariant.
-  * s (Secondary): Language / Signature | Architectural cue.
+  * s (Secondary): Language / Environment | Architectural domain ONLY without revealing the function/method name (e.g. 'Python AsyncIO | Управление отменой задач' or 'PostgreSQL | Уровни изоляции транзакций').
   * d (Back): Rigorous technical invariant, time/space complexity O(N), or core behavior in 1 crisp sentence.
   * e (Example): Minimal valid code snippet (1-4 lines) demonstrating usage or edge case.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - generic (Physics, Chemistry, Math, History, Humanities, Social Sciences):
   * t (Front): Causal mechanism, decision crossroads, physical law threshold, or milestone boundary. Zero 'Что такое X'.
-  * s (Secondary): Sub-discipline / Unit | Conceptual equation.
+  * s (Secondary): Sub-discipline / System | Conceptual domain ONLY.
   * d (Back): Direct causal explanation, physical meaning, or key fact in 1 punchy sentence.
   * e (Example): Practical calculation, industrial observation, or historical dispute.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - language (Foreign languages & Linguistics):
   * t (Front): Foreign word, idiom, or grammatical construction in standard orthography.
-  * s (Secondary): Phonetic transcription, IPA, or Chinese Pinyin with tone diacritics.
+  * s (Secondary): Phonetic transcription, IPA, or Chinese Pinyin with tone diacritics. Zero translations in 's'.
   * d (Back): Precise natural translation (1-2 punchy terms).
   * e (Example): Natural exemplar sentence illustrating idiomatic usage.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
-3. MULTI-SOURCE THEMATIC CLUSTERING & GROUPING:
-- When input contains multiple photos, scanned pages, or mixed notes:
+3. MULTI-SOURCE THEMATIC CLUSTERING & PARETO FILTERING:
+- When input contains multiple photos, scanned pages, or mixed book chapters:
   * Semantically cluster and group related concepts into their respective topics/themes.
-  * Set 'h' on each card to its specific thematic cluster name.
-  * Exhaustively extract cards across ALL provided text/pages. Never restrict cards to just the first topic.
+  * Set 'h' on each card to its specific thematic cluster name. NEVER prepend the cluster name or chapter title into 't'. Card front 't' must remain clean, direct, and unpolluted.
+  * PARETO BALANCED EXTRACTION (Zero-Inflation Filter): Ensure balanced coverage across all provided text/pages, but strictly apply Pareto high-yield filtering. Extract only foundational legal institutions, decision trees, and boundary tests.
+  * If an entire page or section contains solely administrative bureaucracy, clerical paperwork instructions, quorums, or routine office schedules, GENERATE ZERO CARDS for that section. Never fabricate cards from clerical noise just to artificially cover a page.
 
 4. STRICT MINIFIED JSON SCHEMA SPECIFICATION:
 Output ONLY a valid raw JSON object matching this exact minified key structure:
@@ -139,54 +152,75 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
   },
   "c": [
     {
-      "t": "Front situational case / contrast prompt / high-yield classification",
-      "s": "Secondary context / statutory reference | Mnemonic anchor",
-      "d": "Back direct answer / decisive criterion (grammatically complete)",
+      "t": "Front situational case / contrast prompt / high-yield classification (no topic tags)",
+      "s": "Secondary context / statutory reference ONLY | Zero answer spoilers",
+      "d": "Back direct answer / decisive criterion (grammatically complete sentence)",
       "e": "Concrete practical consequence / precedent / case example",
       "l": "easy|medium|hard",
-      "h": "Specific thematic topic / cluster name"
+      "h": "Specific thematic topic / cluster name (metadata only)"
     }
   ]
 }
 
 5. CONTRASTIVE FEW-SHOT EXAMPLES (BAD VS GOOD COGNITIVE DECOMPOSITION):
 
-CONTRAST CASE 1 (Law - Lazy Definition vs Situational Decision Tree & High-Yield Concept Synthesis):
+CONTRAST CASE 1 (Law - Answer Spoiler in 's' vs Non-Spoiling Context Cue):
+❌ UNACCEPTABLE ANSWER SPOILER IN 's':
+{
+  "t": "Судебный акт уже вступил в законную силу, но обнаружена фундаментальная судебная ошибка. Через какую инстанцию и в каком экстраординарном порядке возможен пересмотр?",
+  "s": "ГПК РФ / УПК РФ | Статус: в силе -> Надзор",
+  "d": "Надзорное производство (только по протесту Председателя ВС РФ или Генерального прокурора)."
+}
+(Explanation: Writing 'Надзор' in 's' immediately spoils the active recall of 'Надзорное производство'.)
+
+✅ CORRECT NON-SPOILING CONTEXT CUE:
+{
+  "t": "Судебный акт уже вступил в законную силу, но обнаружена фундаментальная судебная ошибка. Через какую инстанцию и в каком экстраординарном порядке возможен пересмотр?",
+  "s": "ГПК РФ / УПК РФ | Экстраординарные стадии процесса",
+  "d": "Надзорное производство (исключительно по протесту уполномоченных должностных лиц: Председателя ВС РФ, Генерального прокурора и их заместителей).",
+  "e": "Жалоба стороны без протеста указанных должностных лиц не влечет возбуждения надзорного производства.",
+  "l": "hard",
+  "h": "Пересмотр судебных актов"
+}
+
+CONTRAST CASE 2 (Law - Low-Yield Clerical Noise vs High-Yield Substantive Anchor):
+❌ UNACCEPTABLE CLERICAL DETRITUS:
+{
+  "t": "Каков кворум для признания правомочным заседания квалификационной коллегии судей субъекта РФ?",
+  "s": "ФЗ об органах судейского сообщества",
+  "d": "Не менее двух третей членов коллегии."
+}
+(Explanation: Quorums and committee voting fractions are low-yield clerical noise that violates Pareto high-yield learning.)
+
+✅ CORRECT HIGH-YIELD OPERATIVE STANDARD:
+{
+  "t": "Какой орган правомочен досрочно прекратить полномочия судьи за совершение дисциплинарного проступка, порочащего честь судейской мантии?",
+  "s": "Закон о статусе судей РФ | Дисциплинарная ответственность",
+  "d": "Соответствующая квалификационная коллегия судей.",
+  "e": "Председатель суда не вправе единолично уволить судью, а лишь направляет представление в квалифколлегию.",
+  "l": "medium",
+  "h": "Статус судей"
+}
+
+CONTRAST CASE 3 (Law - Naive Definition vs Hallmark-to-Concept Subsumption):
 ❌ UNACCEPTABLE DEFINITION LAZINESS:
 {
-  "t": "Что такое кассация?",
-  "s": "Судоустройство",
-  "d": "Проверка не вступивших в законную силу судебных решений вышестоящей судебной инстанцией."
+  "t": "Что такое судебная власть?",
+  "s": "Теория права",
+  "d": "Ветвь государственной власти, осуществляемая судами."
 }
 
-✅ CORRECT DECISION TREE (Situational Conflict + Jurisdiction + Specificity):
+✅ CORRECT CONCEPT SYNTHESIS (From Hallmarks to Institution):
 {
-  "t": "Судебный акт уже вступил в законную силу, но обнаружена судебная ошибка в применении нормы права. Через какую инстанцию и по чьей инициативе возможен пересмотр?",
-  "s": "ГПК / УПК | Статус: в силе -> Надзор",
-  "d": "Надзорное производство (только по протесту уполномоченных должностных лиц: Председатель ВС, Генпрокурор и их заместители).",
-  "e": "Жалоба стороны без протеста указанных должностных лиц не дает оснований для надзорного пересмотра.",
-  "l": "hard"
-}
-
-✅ CORRECT CONCEPT SYNTHESIS A (Hallmark-to-Concept Subsumption / От признаков к понятию):
-{
-  "t": "Какое понятие обозначает самостоятельную и независимую ветвь государственной власти, осуществляемую исключительно судами посредством установленных видов судопроизводства?",
-  "s": "ст. 118 Конституции РФ | Конституционный статус власти",
+  "t": "Какое понятие обозначает самостоятельную и независимую ветвь государственной власти, осуществляемую исключительно судами посредством конституционного, гражданского, арбитражного, административного и уголовного судопроизводства?",
+  "s": "ст. 118 Конституции РФ | Конституционные основы правосудия",
   "d": "Судебная власть.",
-  "e": "Никакие другие органы или должностные лица не вправе принимать на себя осуществление судебной власти.",
-  "l": "easy"
+  "e": "Создание чрезвычайных судов и делегирование правосудия иным органам категорически запрещено.",
+  "l": "easy",
+  "h": "Судебная власть"
 }
 
-✅ CORRECT CONCEPT SYNTHESIS B (Genus + Specific Difference / Род + Видовое отличие):
-{
-  "t": "К какому родовому способу защиты вещных прав относится виндикационный иск и каково его определяющее видовое отличие от негаторного иска?",
-  "s": "ГК РФ ст. 301, 304 | Вещно-правовые иски",
-  "d": "Внедоговорный вещно-правовой иск; отличие: виндикация защищает собственника при лишении фактического владения (истребование вещи), а негаторный — от нарушений, не связанных с лишением владения.",
-  "e": "Захват земельного участка требует виндикации, а самовольная постройка соседского забора, закрывающего свет — негаторного иска.",
-  "l": "medium"
-}
-
-CONTRAST CASE 2 (Law - Binary Trivia / List vs Contrast Pair):
+CONTRAST CASE 4 (Law - Binary Trivia vs Boundary Contrast Pair):
 ❌ UNACCEPTABLE BINARY TRIVIA:
 {
   "t": "Относится ли сравнительно-правовой метод к теоретическим методам в судоустройстве?",
@@ -194,16 +228,17 @@ CONTRAST CASE 2 (Law - Binary Trivia / List vs Contrast Pair):
   "d": "Да."
 }
 
-✅ CORRECT CONTRAST PAIR (Direct Boundary Differentiation):
+✅ CORRECT CONTRAST PAIR (Gold Standard Discriminative Criterion):
 {
-  "t": "Чем принципиально отличается роль народных заседателей от присяжных заседателей в классическом процессе?",
-  "s": "Судоустройство | Состав суда",
-  "d": "Народные заседатели голосуют наравне с судьёй по всем вопросам (и вина, и мера наказания), а присяжные выносят только вердикт о виновности отдельно от профессионального судьи.",
-  "e": "В коллегиях с народными заседателями судья не может единолично преодолеть их согласованное мнение.",
-  "l": "medium"
+  "t": "Чем принципиально отличается процессуальная роль народных заседателей от суда присяжных заседателей?",
+  "s": "Судопроизводство | Составы судов",
+  "d": "Народные заседатели голосуют наравне с судьёй по всем вопросам права и факта, а присяжные заседатели выносят отдельный вердикт исключительно по вопросам факта и виновности.",
+  "e": "В коллегии с народными заседателями судья не может единолично преодолеть их консолидированное большинство.",
+  "l": "medium",
+  "h": "Судебные составы"
 }
 
-CONTRAST CASE 3 (Law - Academic Padding vs High-Yield Taxonomy):
+CONTRAST CASE 5 (Law - Academic Padding vs High-Yield Functional Taxonomy):
 ❌ UNACCEPTABLE THEORETICAL PADDING:
 {
   "t": "Что понимается под нормами конституционного права?",
@@ -211,49 +246,62 @@ CONTRAST CASE 3 (Law - Academic Padding vs High-Yield Taxonomy):
   "d": "Общеобязательные правила поведения, закрепленные государством для регулирования основ общественного строя."
 }
 
-✅ CORRECT HIGH-YIELD CLASSIFICATION (Essential Division without Fluff):
+✅ CORRECT HIGH-YIELD CLASSIFICATION:
 {
-  "t": "На какие 2 основных вида делятся конституционные предписания по характеру установленного правила поведения?",
-  "s": "Конституционное право | Способ воздействия нормы",
-  "d": "Императивные (категорические запреты и обязанности) и диспозитивные (допускающие выбор варианта поведения).",
-  "e": "Статья 109 Конституции (правосудие только судом) носит строго императивный характер.",
-  "l": "easy"
+  "t": "На какие 2 основных типа разделяются конституционные предписания по способу нормативного воздействия на участников правоотношений?",
+  "s": "Конституционное право | Метод правового регулирования",
+  "d": "Императивные (категорические предписания и абсолютные запреты) и диспозитивные (допускающие выбор варианта правомерного поведения).",
+  "e": "Положение о том, что никто не может быть признан виновным иначе как по приговору суда, носит абсолютно императивный характер.",
+  "l": "easy",
+  "h": "Нормы права"
 }
 
-CONTRAST CASE 4 (Medicine - Symptom List vs Clinical Contrast Vignette):
-❌ UNACCEPTABLE LIST RECITATION:
+CONTRAST CASE 6 (Medicine - Symptom List vs Clinical Contrast Vignette with Zero Spoilers):
+❌ UNACCEPTABLE SPOILER & LIST:
 {
-  "t": "Перечислите клинические проявления менингита",
-  "s": "Инфекционные болезни",
-  "d": "Лихорадка, головная боль, ригидность затылочных мышц, симптомы Кернига и Брудзинского."
-}
-
-✅ CORRECT CLINICAL CONTRAST PAIR:
-{
-  "t": "У пациента с острым нижним инфарктом миокарда (подъем ST в II, III, aVF) развилась артериальная гипотония (АД 80/50). Почему категорически противопоказан нитроглицерин?",
+  "t": "Почему при нижнем инфаркте миокарда противопоказан нитроглицерин?",
   "s": "Кардиология | Изолированный инфаркт ПЖ",
-  "d": "При вовлечении правого желудочка нитраты вызывают фатальный коллапс преднагрузки; терапия выбора — инфузия физраствора, а не вазодилататоры.",
-  "e": "Перед дачей нитратов при нижнем инфаркте обязательна регистрация правых грудных отведений V3R-V4R.",
-  "l": "hard"
+  "d": "При вовлечении правого желудочка нитраты вызывают коллапс преднагрузки."
+}
+(Explanation: Revealing 'Изолированный инфаркт ПЖ' in 's' spoils the underlying mechanism.)
+
+✅ CORRECT CLINICAL CONTRAST VIGNETTE:
+{
+  "t": "У пациента с острым нижним инфарктом миокарда (подъем ST во II, III, aVF) развилась гипотония (АД 80/50). Почему нитроглицерин категорически противопоказан?",
+  "s": "Неотложная кардиология | Гемодинамические риски вазодилататоров",
+  "d": "При сопутствующем инфаркте правого желудочка нитраты критически снижают преднагрузку, приводя к рефрактерному кардиогенному шоку; терапия выбора — инфузия кристаллоидов.",
+  "e": "Перед введением вазодилататоров при нижнем инфаркте обязательна регистрация правых отведений V3R-V4R.",
+  "l": "hard",
+  "h": "Острый коронарный синдром"
 }
 
-CONTRAST CASE 5 (Code - Python Concurrency):
+CONTRAST CASE 7 (Code - Python Concurrency with Zero Spoilers):
+❌ UNACCEPTABLE SPOILER IN 's':
+{
+  "t": "Как предотвратить отмену критической корутины при отмене вызывающей задачи в asyncio?",
+  "s": "asyncio.shield(aw) | Защита от родительской отмены",
+  "d": "Обернуть корутину в asyncio.shield()."
+}
+(Explanation: Writing 'asyncio.shield' in 's' spoils the exact syntax being tested.)
+
+✅ CORRECT ZERO-SPOILER SPECIFICATION:
 {
   "domain": "code",
   "slug": "python_asyncio",
   "title": "Python AsyncIO Primitives",
   "c": [
     {
-      "t": "Как предотвратить отмену критической фоновой корутины при отмене вызывающей задачи в asyncio?",
-      "s": "asyncio.shield(aw) | Защита от родительской отмены",
-      "d": "Обернуть корутину в asyncio.shield().",
+      "t": "С помощью какой конструкции можно защитить критическую фоновую корутину от распространения отмены (cancel) из родительской задачи в asyncio?",
+      "s": "Python AsyncIO | Защита фоновых задач от каскадной отмены",
+      "d": "Обернуть вызываемую корутину в asyncio.shield().",
       "e": "await asyncio.shield(commit_critical_transaction())",
-      "l": "medium"
+      "l": "medium",
+      "h": "Task Cancellation"
     }
   ]
 }
 
-CONTRAST CASE 6 (Language - Chinese Vocabulary):
+CONTRAST CASE 8 (Language - Chinese Vocabulary):
 {
   "domain": "language",
   "slug": "chinese_hsk",
@@ -261,10 +309,11 @@ CONTRAST CASE 6 (Language - Chinese Vocabulary):
   "c": [
     {
       "t": "合同",
-      "s": "hétong | 合 (соединять) + 同 (одинаковый)",
+      "s": "hétong | Фонетика и тон",
       "d": "Контракт, письменный договор.",
       "e": "双方签订了正式合同 (Обе стороны подписали официальный контракт).",
-      "l": "easy"
+      "l": "easy",
+      "h": "Юридическая лексика"
     }
   ]
 }
@@ -373,6 +422,21 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
     for p in banality_patterns:
         if re.search(p, front_lower):
             return True, "trivial_banality"
+
+    # 7. Канцелярский балласт: кворумы комиссий, стажировки, рутинные сроки направления бумаг канцелярией
+    combined_card_text = f"{front_lower} {back_lower} {sec_lower}"
+    clerical_noise_patterns = [
+        r'кворум.*(?:заседан|коллеги|комисси)',
+        r'правомочн.*заседани.*квалификационн',
+        r'стажировк.*(?:продолжительност|срок|месяц|мес|год|претендент|адвокат)',
+        r'стажировк.*(?:3|6|от\s+трех|до\s+шести|до\s+одного)',
+        r'повторн.*сдач.*экзамен.*(?:срок|месяц|мес|ранее)',
+        r'в\s+течение\s+(?:трех|пяти|3|5)\s+(?:рабочих\s+)?дней\s+.*(?:прием|заявлен|направляет\s+копию|регистрац)',
+        r'делопроизводств.*(?:канцеляр|архивн|журнал\s+учета)',
+    ]
+    for p in clerical_noise_patterns:
+        if re.search(p, combined_card_text):
+            return True, "clerical_bureaucratic_trivia"
 
     return False, ""
 
@@ -503,10 +567,32 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         if not str(front).strip() and not str(back).strip():
             continue
 
+        # Санитайзер спойлеров в secondary_text ('s'):
+        # Если в sec после '|' содержится текст, пересекающийся с ответом back (утечка ключевых слов),
+        # отсекаем спойлерную часть, оставляя только нейтральную норму / контекст.
+        clean_sec = str(sec).strip()
+        clean_back = str(back).strip()
+        if "|" in clean_sec and clean_back:
+            parts = [p.strip() for p in clean_sec.split("|")]
+            safe_parts = [parts[0]]
+            for part in parts[1:]:
+                part_lower = part.lower()
+                back_words = {w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', clean_back.lower()) if w not in ("суда", "суду", "суде", "дело", "дела")}
+                part_words = {w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', part_lower) if w not in ("суда", "суду", "суде", "дело", "дела")}
+                overlap = part_words.intersection(back_words)
+                is_spoiler = False
+                if part_words and len(overlap) / len(part_words) >= 0.4:
+                    is_spoiler = True
+                elif re.search(r'\b(?:срок|дней|суток|месяц|кгб|комитет|надзор|отмена|запрещен|противопоказан)\b', part_lower) and any(w in clean_back.lower() for w in part_lower.split()):
+                    is_spoiler = True
+                if not is_spoiler:
+                    safe_parts.append(part)
+            clean_sec = " | ".join(safe_parts)
+
         c_obj = {
             "text": str(front).strip(),
-            "secondary_text": str(sec).strip(),
-            "translation": str(back).strip(),
+            "secondary_text": clean_sec,
+            "translation": clean_back,
             "example": str(ex).strip(),
             "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
             "mnemonic": None,  # Ленивая генерация мнемоник
@@ -580,7 +666,7 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
     else: # atomic / standard
         modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards (one question -> one direct fact).")
         if volume in ("auto", "balanced"):
-            modifiers.append("CARD VOLUME: HIGH-YIELD PARETO CALIBRATION. Extract strictly 2 to 4 high-yield situational cards from this text chunk (~70–90 total cards for a typical textbook). Focus exclusively on Decision Trees, Contrast Pairs, and High-Yield Taxonomy. Zero 'Что такое X', zero 'Да/Нет'.")
+            modifiers.append("CARD VOLUME: STRICT HIGH-YIELD PARETO LIMIT. Extract strictly 2 to 4 high-yield situational cards from this text chunk (~60–80 total cards for a typical textbook). Focus exclusively on Decision Trees, Contrast Pairs, and High-Yield Taxonomy. Zero 'Что такое X', zero 'Да/Нет'. If this chunk contains solely clerical paperwork, bylaw procedures, or committee quorums, return 0 cards.")
         elif volume in ("low", "low_5"):
             modifiers.append("LIMIT: Maximum 3 to 4 cards.")
         elif volume == "med_10":
@@ -838,10 +924,11 @@ async def parse_raw_text(
     ]
     if volume in ("auto", "balanced"):
         user_directives.append(
-            "CARD VOLUME: HIGH-YIELD PARETO CALIBRATION (Anti-Overload Directive). "
-            "Extract strictly 2 to 4 indispensable, high-yield situational flashcards from this text chunk (~70–90 cards per 185-page book). "
+            "CARD VOLUME: STRICT HIGH-YIELD PARETO LIMIT (Anti-Overload Directive). "
+            "Extract strictly 2 to 4 master conceptual cards from this text chunk (target: ~60–80 cards for an entire textbook). "
             "Focus exclusively on Decision Trees (situational conflict -> statutory fork/remedy), Contrast Pairs (distinguishing confusing concepts via gold standard criteria), and High-Yield Doctrinal Taxonomy. "
-            "Absolute prohibition of trivial definitions ('Что такое X'), binary trivia ('Да/Нет'), and introductory fluff."
+            "Absolute prohibition of clerical trivia (quorums, paperwork deadlines, internship durations), naive definitions ('Что такое X'), and binary 'Да/Нет'. "
+            "If this chunk contains solely clerical paperwork or administrative procedures, return 0 cards."
         )
     elif volume in ("low", "low_5"):
         user_directives.append("CARD VOLUME: Strictly 2 to 4 core cards. Absolute highest-yield master concepts only.")
@@ -861,10 +948,11 @@ async def parse_raw_text(
     )
     if source_count > 1:
         user_directives.append(
-            "MULTI-SOURCE THEMATIC CLUSTERING: The source contains multiple photos, pages, or separate documents. "
+            "MULTI-SOURCE THEMATIC CLUSTERING & PARETO FILTER: The source contains multiple photos, pages, or separate documents. "
             "Group cards into their respective thematic clusters, assign 'h' (topic name) to each card, "
-            "keep all cards in the single root 'c' array (do NOT create nested 'clusters' objects), "
-            "and ensure proportional coverage across ALL provided materials without omitting any page."
+            "keep all cards in the single root 'c' array (do NOT create nested 'clusters' objects). "
+            "PARETO PRIORITY: Select strictly the 2 to 4 highest-yield conceptual nodes across the material. "
+            "If an entire page or section contains solely clerical minutiae, quorums, or paperwork intervals, GENERATE ZERO CARDS for that section."
         )
     elif source_count == 1:
         user_directives.append(

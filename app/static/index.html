@@ -878,27 +878,27 @@
 
                     <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
                     <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean card-scroll-masked py-1 px-1">
-                        <!-- Блок Вопроса / Кейса -->
+                        <!-- Блок Вопроса / Кейса (чистый, крупный, без подсказок) -->
                         <div class="flex flex-col gap-1 text-left">
-                            <div class="flex items-center justify-between">
-                                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-[12px]">help</span>
-                                    <span>ВОПРОС</span>
-                                </span>
-                                <span id="staging-card-secondary" class="text-[10px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
-                            </div>
+                            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[12px]">help</span>
+                                <span>ВОПРОС</span>
+                            </span>
                             <div id="staging-card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">...</div>
                         </div>
 
                         <!-- Разделитель -->
                         <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
 
-                        <!-- Блок Ответа / Дефиниции -->
+                        <!-- Блок Ответа / Дефиниции с бейджем источника нормы -->
                         <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left">
-                            <span class="block text-[9px] font-mono font-bold uppercase tracking-wider text-outline mb-1 flex items-center gap-1">
-                                <span class="material-symbols-outlined text-[12px]">task_alt</span>
-                                <span>ОТВЕТ</span>
-                            </span>
+                            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[12px]">task_alt</span>
+                                    <span>ОТВЕТ</span>
+                                </span>
+                                <span id="staging-card-secondary" class="text-[9px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
+                            </div>
                             <div id="staging-card-translation" class="text-xs sm:text-sm text-on-surface leading-relaxed break-words font-medium">...</div>
                         </div>
 

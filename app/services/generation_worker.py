@@ -165,6 +165,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 extracted_theme = parsed["phrase_title"]
             chunk_cards = parsed.get("cards", [])
             if isinstance(chunk_cards, list):
+                # Калибровка Парето: в режиме auto/balanced для крупных документов ограничиваем нарезку с блока до 5 карточек
+                is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
+                if is_auto_volume and total_chunks >= 3:
+                    chunk_cards = chunk_cards[:5]
+
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
                     norm_key = normalize_front(raw_c_text)
@@ -180,6 +185,12 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             chunk_graph = parsed.get("knowledge_graph")
             if chunk_graph and isinstance(chunk_graph, dict):
                 all_chunk_graphs.append(chunk_graph)
+
+        # Общий лимит Парето: для крупных книг (>5 блоков) в режиме auto удерживаем целевой пул до 80 карточек
+        is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
+        if is_auto_volume and total_chunks >= 5 and len(all_collected_cards) > 80:
+            print(f"[Generation Worker] Применен лимит Парето: сжатие {len(all_collected_cards)} -> 80 ключевых карточек для {total_chunks} блоков.", flush=True)
+            all_collected_cards = all_collected_cards[:80]
 
         if not all_collected_cards:
             raise ValueError("ИИ не смог выделить карточки из переданного материала.")
