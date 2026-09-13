@@ -250,3 +250,71 @@ async def delete_knowledge_graph(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Knowledge graph for subject '{subject}' not found."
     )
+
+
+@router.post("/knowledge-graph/rebuild", response_model=KnowledgeGraphResponse)
+async def rebuild_knowledge_graph(
+    subject: str = Query(..., min_length=1, max_length=128),
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД.
+    Очищает любые устаревшие фантомные узлы и пересоздает каркас точно под текущий размер колоды."""
+    alias_subject = resolve_subject_alias(subject)
+    
+    from sqlalchemy.orm import selectinload
+    stmt = select(Card).options(selectinload(Card.phrase)).where(
+        Card.user_id == current_user,
+        Card.subject.in_([subject, alias_subject])
+    )
+    cards_res = await db.execute(stmt)
+    user_cards = cards_res.scalars().all()
+    
+    if not user_cards:
+        stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_([subject, alias_subject]))
+        res_def = await db.execute(stmt_def)
+        user_cards = res_def.scalars().all()
+        
+    if not user_cards:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Нет карточек для перестроения графа по предмету '{subject}'."
+        )
+
+    syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
+    g_data = syn.get("graph_data", {"nodes": [], "edges": []})
+    t_data = syn.get("tree_data")
+
+    rec_stmt = select(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.user_id == current_user,
+        TopicKnowledgeGraph.subject.in_([subject, alias_subject])
+    )
+    rec_res = await db.execute(rec_stmt)
+    record = rec_res.scalars().first()
+
+    if record:
+        record.graph_data = g_data
+        record.tree_data = t_data
+        record.updated_at = datetime.utcnow()
+    else:
+        record = TopicKnowledgeGraph(
+            user_id=current_user,
+            subject=subject,
+            graph_data=g_data,
+            tree_data=t_data,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        db.add(record)
+
+    await db.commit()
+    await db.refresh(record)
+
+    return KnowledgeGraphResponse(
+        subject=record.subject,
+        graph_data=record.graph_data,
+        tree_data=record.tree_data,
+        updated_at=record.updated_at.isoformat() if record.updated_at else datetime.utcnow().isoformat(),
+        is_seed=False
+    )
+

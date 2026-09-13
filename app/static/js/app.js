@@ -263,17 +263,17 @@ function applyDynamicCardTypography(element, text) {
     
     // Micro-fit guard: плавная проверка реального переполнения контейнера
     requestAnimationFrame(() => {
-        const parent = element.parentElement;
-        if (!parent) return;
+        const scrollContainer = element.closest('.card-scroll-clean') || element.closest('.overflow-y-auto') || element.parentElement;
+        if (!scrollContainer) return;
         
         let currentFz = parseFloat(window.getComputedStyle(element).fontSize);
-        const minFz = 12; // минимальный размер для комфортного чтения
+        const minFz = 11; // минимальный размер для комфортного чтения
         
         let attempts = 0;
-        while (parent.scrollHeight > parent.clientHeight && currentFz > minFz && attempts < 10) {
+        while ((scrollContainer.scrollHeight > scrollContainer.clientHeight || element.scrollHeight > 220) && currentFz > minFz && attempts < 10) {
             currentFz -= 0.5;
             element.style.fontSize = `${currentFz}px`;
-            element.style.lineHeight = '1.45';
+            element.style.lineHeight = '1.4';
             attempts++;
         }
     });
@@ -365,7 +365,7 @@ function initTrainGestures() {
 
     const onStart = (clientX, clientY) => {
         const currentCard = cardsQueue[currentIndex];
-        if (!currentCard || (currentCard.state === 0 && !currentCard.has_seen_intro)) return;
+        if (!currentCard) return;
         if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
 
         trainDrag.isDragging = true;
@@ -413,7 +413,57 @@ function initTrainGestures() {
         const deltaX = trainDrag.currentX - trainDrag.startX;
         const badgeGood = document.getElementById('train-badge-good');
         const badgeAgain = document.getElementById('train-badge-again');
+        const currentCard = cardsQueue[currentIndex];
 
+        // Обработка жестов для карт в режиме знакомства
+        if (currentCard && currentCard.state === 0 && !currentCard.has_seen_intro) {
+            if (deltaX > 75) {
+                // Свайп вправо: Знаю наизусть
+                card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+                card.style.transform = 'translate(120%, 20px) rotate(15deg)';
+                card.style.opacity = '0';
+                if (badgeGood) badgeGood.style.opacity = '1';
+                setTimeout(() => {
+                    card.style.transition = 'none';
+                    card.style.transform = '';
+                    card.style.opacity = '1';
+                    if (badgeGood) badgeGood.style.opacity = '0';
+                    if (typeof window.fastTrackIntroduction === 'function') {
+                        window.fastTrackIntroduction();
+                    }
+                }, 200);
+            } else if (deltaX < -75) {
+                // Свайп влево: Переход к следующему шагу знакомства
+                card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+                card.style.transform = 'translate(-120%, 20px) rotate(-15deg)';
+                card.style.opacity = '0';
+                if (badgeAgain) badgeAgain.style.opacity = '1';
+                setTimeout(() => {
+                    card.style.transition = 'none';
+                    card.style.transform = '';
+                    card.style.opacity = '1';
+                    if (badgeAgain) badgeAgain.style.opacity = '0';
+                    const phase = currentCard.intro_phase || 0;
+                    if (phase === 0) {
+                        advanceIntroduction();
+                    } else if (!currentCard._recall_checked) {
+                        if (typeof window.toggleIntroRecall === 'function') {
+                            window.toggleIntroRecall();
+                        }
+                    } else {
+                        advanceIntroduction();
+                    }
+                }, 200);
+            } else {
+                card.style.transition = 'transform 0.2s ease';
+                card.style.transform = '';
+                if (badgeGood) badgeGood.style.opacity = '0';
+                if (badgeAgain) badgeAgain.style.opacity = '0';
+            }
+            return;
+        }
+
+        // Обычный режим повторения
         if (deltaX > 75) {
             card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
             const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
@@ -459,8 +509,13 @@ function initTrainGestures() {
     card.addEventListener('touchmove', (e) => {
         if (!trainDrag.isDragging) return;
         const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - trainDrag.startX);
+        const dy = Math.abs(touch.clientY - trainDrag.startY);
+        if (dx > dy && dx > 8 && e.cancelable) {
+            e.preventDefault();
+        }
         onMove(touch.clientX, touch.clientY);
-    }, { passive: true });
+    }, { passive: false });
 
     card.addEventListener('touchend', () => onEnd());
     card.addEventListener('touchcancel', () => onEnd());
@@ -511,13 +566,25 @@ function bindDOMPointers() {
     const cardBack = document.getElementById('card-back');
 
     if (cardFront) {
-        cardFront.onclick = () => {
+        cardFront.onclick = (e) => {
+            if (e && e.target && e.target.closest('button, select, input, textarea, a')) return;
             if (trainDrag && trainDrag.hasMoved) return;
             const card = cardsQueue[currentIndex];
             if (!card) return;
             
-            // НЕ переворачиваем, если карточка новая и не прошла знакомство
+            // В режиме знакомства клик по телу карточки плавно продвигает этап обучения
             if (card.state === 0 && !card.has_seen_intro) {
+                const phase = card.intro_phase || 0;
+                if (phase === 0) {
+                    advanceIntroduction();
+                } else if (!card._recall_checked) {
+                    if (typeof window.toggleIntroRecall === 'function') {
+                        window.toggleIntroRecall();
+                    }
+                } else {
+                    advanceIntroduction();
+                }
+                triggerHaptic('light');
                 return;
             }
             
@@ -4531,6 +4598,37 @@ window.loadSeedOrDemoGraph = async function() {
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
     await loadKnowledgeGraph(sub);
+};
+
+window.rebuildKnowledgeGraph = async function() {
+    const sub = currentKgSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const loading = document.getElementById('kg-loading');
+    const rebuildIcon = document.getElementById('kg-rebuild-icon');
+    
+    if (rebuildIcon) rebuildIcon.classList.add('animate-spin');
+    if (loading) loading.classList.remove('hidden');
+
+    try {
+        const res = await apiFetch(`/api/knowledge-graph/rebuild?subject=${encodeURIComponent(sub)}`, {
+            method: 'POST'
+        });
+        
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showNotification(err.detail || 'Ошибка при перестроении графа', 'error');
+            return;
+        }
+
+        const data = await res.json();
+        const nodesCount = (data.graph_data && data.graph_data.nodes) ? data.graph_data.nodes.length : 0;
+        showNotification(`Граф знаний перестроен из актуальных карточек (${nodesCount} узлов)`, 'success');
+        await loadKnowledgeGraph(sub);
+    } catch (e) {
+        showNotification('Сетевая ошибка при перестроении графа', 'error');
+    } finally {
+        if (rebuildIcon) rebuildIcon.classList.remove('animate-spin');
+        if (loading) loading.classList.add('hidden');
+    }
 };
 
 function renderKnowledgeTreeNode(node, container, depth) {

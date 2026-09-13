@@ -892,15 +892,25 @@ async def import_raw_text(
             else:
                 syn = synthesize_graph_from_cards(cards, fallback_title=clean_title or clean_sub)
                 if syn and syn.get("graph_data", {}).get("nodes"):
-                    new_kg = TopicKnowledgeGraph(
-                        user_id=current_user,
-                        subject=clean_sub,
-                        graph_data=syn["graph_data"],
-                        tree_data=syn["tree_data"],
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                    kg_stmt = select(TopicKnowledgeGraph).where(
+                        TopicKnowledgeGraph.user_id == current_user,
+                        TopicKnowledgeGraph.subject == clean_sub
                     )
-                    db.add(new_kg)
+                    kg_rec = (await db.execute(kg_stmt)).scalars().first()
+                    if kg_rec:
+                        kg_rec.graph_data = syn["graph_data"]
+                        kg_rec.tree_data = syn["tree_data"]
+                        kg_rec.updated_at = datetime.utcnow()
+                    else:
+                        new_kg = TopicKnowledgeGraph(
+                            user_id=current_user,
+                            subject=clean_sub,
+                            graph_data=syn["graph_data"],
+                            tree_data=syn["tree_data"],
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(new_kg)
 
             await db.commit()
             return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
@@ -966,14 +976,18 @@ async def commit_staging_cards(
                 )
                 db.add(new_kg)
         else:
-            kg_stmt = select(TopicKnowledgeGraph).where(
-                TopicKnowledgeGraph.user_id == current_user,
-                TopicKnowledgeGraph.subject == clean_sub
-            )
-            kg_rec = (await db.execute(kg_stmt)).scalars().first()
-            if not kg_rec:
-                syn = synthesize_graph_from_cards(payload.cards, fallback_title=clean_title or clean_sub)
-                if syn and syn.get("graph_data", {}).get("nodes"):
+            syn = synthesize_graph_from_cards(payload.cards, fallback_title=clean_title or clean_sub)
+            if syn and syn.get("graph_data", {}).get("nodes"):
+                kg_stmt = select(TopicKnowledgeGraph).where(
+                    TopicKnowledgeGraph.user_id == current_user,
+                    TopicKnowledgeGraph.subject == clean_sub
+                )
+                kg_rec = (await db.execute(kg_stmt)).scalars().first()
+                if kg_rec:
+                    kg_rec.graph_data = syn["graph_data"]
+                    kg_rec.tree_data = syn["tree_data"]
+                    kg_rec.updated_at = datetime.utcnow()
+                else:
                     new_kg = TopicKnowledgeGraph(
                         user_id=current_user,
                         subject=clean_sub,
@@ -1694,6 +1708,20 @@ async def delete_subject_all(
 
     await db.execute(delete(Phrase).where(Phrase.subject == sub, Phrase.user_id == current_user))
     await db.execute(delete(GenerationJob).where(GenerationJob.subject == sub, GenerationJob.user_id == current_user))
+
+    # Удаляем граф знаний и практические задания предмета
+    from app.database.models import TopicKnowledgeGraph, PracticeItem
+    from app.services.graph_service import resolve_subject_alias
+    alias_sub = resolve_subject_alias(sub)
+    target_subs = list(set([sub, alias_sub]))
+    await db.execute(delete(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.subject.in_(target_subs),
+        TopicKnowledgeGraph.user_id == current_user
+    ))
+    await db.execute(delete(PracticeItem).where(
+        PracticeItem.subject.in_(target_subs),
+        PracticeItem.user_id == current_user
+    ))
 
     # Очищаем лимиты из UserSetting
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

@@ -65,8 +65,52 @@
         .animate-fade-in {
             animation: fadeIn 0.4s ease-out forwards;
         }
+        /* Fluid Card Typography & Anti-Overflow Protection */
+        .dynamic-card-text {
+            word-break: break-word;
+            overflow-wrap: break-word;
+            transition: font-size 0.15s ease-out, line-height 0.15s ease-out;
+        }
+        [data-text-length="short"] .dynamic-card-text,
+        .dynamic-card-text[data-text-length="short"] {
+            font-size: 1.25rem;
+            line-height: 1.35;
+            font-weight: 700;
+        }
+        [data-text-length="medium"] .dynamic-card-text,
+        .dynamic-card-text[data-text-length="medium"] {
+            font-size: 1.0rem;
+            line-height: 1.45;
+            font-weight: 600;
+        }
+        [data-text-length="long"] .dynamic-card-text,
+        .dynamic-card-text[data-text-length="long"] {
+            font-size: 0.88rem;
+            line-height: 1.5;
+            font-weight: 500;
+            text-align: left;
+        }
+        [data-text-length="vignette"] .dynamic-card-text,
+        .dynamic-card-text[data-text-length="vignette"] {
+            font-size: 0.82rem;
+            line-height: 1.55;
+            font-weight: 500;
+            text-align: left;
+            letter-spacing: -0.01em;
+        }
+        .card-scroll-clean {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(120, 120, 120, 0.25) transparent;
+        }
+        .card-scroll-clean::-webkit-scrollbar {
+            width: 4px;
+        }
+        .card-scroll-clean::-webkit-scrollbar-thumb {
+            background-color: rgba(120, 120, 120, 0.25);
+            border-radius: 9999px;
+        }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=8">
+    <link rel="stylesheet" href="/css/main.css?v=9">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -202,31 +246,34 @@
                             </div>
                         </div>
 
-                        <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, Вопрос ВСЕГДА закреплен сверху) -->
+                        <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, единый плавный скролл без обрезки) -->
                         <div id="card-front-intro" class="hidden w-full h-full min-h-0 flex-1 flex flex-col justify-between pt-1 pb-1 overflow-hidden">
-                            <!-- Закрепленный намертво заголовок термина/вопроса -->
-                            <div class="w-full shrink-0 flex flex-col items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2 mb-1.5">
-                                <div class="flex items-center gap-1.5 mb-1.5 flex-wrap justify-center">
-                                    <div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
-                                        <span class="material-symbols-outlined text-[13px]">school</span>
-                                        <span>РЕЖИМ ЗНАКОМСТВА</span>
+                            <!-- Единая скроллируемая область контента карточки -->
+                            <div class="w-full flex-1 min-h-0 flex flex-col items-stretch overflow-y-auto card-scroll-clean card-scroll-masked px-1 py-1" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
+                                <!-- Шапка с бейджами и вопросом -->
+                                <div class="w-full shrink-0 flex flex-col items-center pb-2 mb-1.5 border-b border-neutral-200/60 dark:border-neutral-800">
+                                    <div class="flex items-center gap-1.5 mb-1.5 flex-wrap justify-center">
+                                        <div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
+                                            <span class="material-symbols-outlined text-[13px]">school</span>
+                                            <span>РЕЖИМ ЗНАКОМСТВА</span>
+                                        </div>
+                                        <div id="card-intro-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[10px] font-mono max-w-[220px] truncate">
+                                            <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
+                                            <span id="card-intro-chapter-text" class="truncate"></span>
+                                        </div>
                                     </div>
-                                    <div id="card-intro-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[10px] font-mono max-w-[220px] truncate">
-                                        <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
-                                        <span id="card-intro-chapter-text" class="truncate"></span>
-                                    </div>
+                                    <div id="card-intro-term" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-snug">---</div>
+                                    <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
                                 </div>
-                                <div id="card-intro-term" class="max-h-24 overflow-y-auto card-scroll-clean text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-snug">---</div>
-                                <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
-                            </div>
 
-                            <!-- Центральная область с содержимым (компактная, скроллируемая, не уезжает) -->
-                            <div id="card-intro-body" class="w-full flex-1 min-h-0 flex flex-col justify-start items-stretch gap-2 overflow-y-auto px-1 py-1 select-text overscroll-contain" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
-                                <!-- Динамическое наполнение шага 1 (Обзор) или шага 2 (Самопроверка) -->
+                                <!-- Центральная область с содержимым (Определение / Самопроверка / Мнемоника) -->
+                                <div id="card-intro-body" class="w-full flex-1 flex flex-col justify-start items-stretch gap-2 py-1 select-text">
+                                    <!-- Динамическое наполнение шага 1 (Обзор) или шага 2 (Самопроверка) -->
+                                </div>
                             </div>
 
                             <!-- Закрепленный внизу блок кнопок управления -->
-                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-2 pt-2.5 border-t border-neutral-200/60 dark:border-neutral-800">
+                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-1.5 pt-2 border-t border-neutral-200/60 dark:border-neutral-800">
                                 <!-- Динамические кнопки -->
                             </div>
                         </div>
@@ -781,7 +828,7 @@
     <!-- ===================================================================== -->
     <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
     <!-- ===================================================================== -->
-    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-mono select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
+    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-sans select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
         <div class="max-w-md mx-auto w-full h-full flex flex-col justify-between">
             <!-- Верхняя панель песочницы -->
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
@@ -1091,8 +1138,11 @@
                     </button>
                 </div>
 
-                <!-- Кнопки управления (Полный экран / Закрыть) -->
+                <!-- Кнопки управления (Перестроить / Полный экран / Закрыть) -->
                 <div class="flex items-center gap-1">
+                    <button id="kg-rebuild-btn" onclick="rebuildKnowledgeGraph()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Перестроить граф из актуальных карточек">
+                        <span id="kg-rebuild-icon" class="material-symbols-outlined text-xl">refresh</span>
+                    </button>
                     <button id="kg-fullscreen-btn" onclick="toggleKgFullscreen()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="На весь экран">
                         <span id="kg-fullscreen-icon" class="material-symbols-outlined text-xl">fullscreen</span>
                     </button>

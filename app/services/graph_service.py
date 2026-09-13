@@ -873,10 +873,11 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
     theme_cards: Dict[str, list] = {}
     for c in cards:
         theme = ""
-        if hasattr(c, "phrase") and c.phrase and c.phrase.text:
-            theme = c.phrase.text.strip()
-        elif hasattr(c, "theme") and c.theme:
-            theme = c.theme.strip()
+        phrase_obj = c.__dict__.get("phrase") if hasattr(c, "__dict__") else None
+        if phrase_obj and getattr(phrase_obj, "text", None):
+            theme = phrase_obj.text.strip()
+        elif hasattr(c, "theme") and getattr(c, "theme", None):
+            theme = str(c.theme).strip()
         elif isinstance(c, dict):
             theme = (c.get("theme") or (c.get("phrase") or {}).get("text") or "").strip()
 

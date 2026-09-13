@@ -519,7 +519,11 @@ async def generate_practice_session(
         random.shuffle(practice_records)
         practice_records = practice_records[:count]
 
-        # 5. Сохраняем элементы в БД для верификации
+        # 5. Очищаем старые временные задания по предмету и сохраняем свежие элементы в БД
+        await db.execute(delete(PracticeItem).where(
+            PracticeItem.user_id == user_id,
+            PracticeItem.subject.in_([subject, alias_subject])
+        ))
         for pi in practice_records:
             db.add(pi)
         await db.commit()
