@@ -3415,6 +3415,9 @@ window.commitApprovedStagingCards = async function() {
             updateGlobalBadges();
             if (typeof checkNightQueueStatus === 'function') checkNightQueueStatus();
             if (currentTab === 'data') loadDataTab();
+            if (typeof loadKnowledgeGraph === 'function') {
+                loadKnowledgeGraph(data.subject || stagingSubject);
+            }
         } else {
             let errMsg = data.detail || data.message || "Неизвестная ошибка";
             if (typeof errMsg === 'object') {

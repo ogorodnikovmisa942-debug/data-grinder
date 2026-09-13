@@ -122,12 +122,17 @@ async def get_knowledge_graph(
             node_count = len(record.graph_data.get("nodes", []))
             if node_count < 20:
                 is_stale = True
-            elif record.updated_at and record.updated_at.date() < now.date():
+            elif not record.updated_at:
+                is_stale = True
+            elif record.updated_at.date() < now.date():
+                is_stale = True
+            elif record.graph_data.get("deck_size") and record.graph_data.get("deck_size") != len(user_cards):
                 is_stale = True
 
     if is_stale and user_cards:
         syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
         g_data = syn.get("graph_data", {"nodes": [], "edges": []})
+        g_data["deck_size"] = len(user_cards)
         t_data = syn.get("tree_data")
 
         if record:
@@ -359,6 +364,7 @@ async def rebuild_knowledge_graph(
 
     syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
     g_data = syn.get("graph_data", {"nodes": [], "edges": []})
+    g_data["deck_size"] = len(user_cards)
     t_data = syn.get("tree_data")
 
     # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя

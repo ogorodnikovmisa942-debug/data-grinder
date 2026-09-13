@@ -264,8 +264,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
         # Консолидация и сохранение семантического графа знаний (Milestone 2)
         total_graph_nodes = 0
-        if all_chunk_graphs:
-            try:
+        try:
+            if all_chunk_graphs:
                 consolidated = consolidate_knowledge_graphs(
                     chunk_graphs=all_chunk_graphs,
                     fallback_title=extracted_theme or job_data["subject"] or "Каркас знаний"
@@ -273,82 +273,93 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 graph_nodes = consolidated.get("nodes", [])
                 graph_edges = consolidated.get("edges", [])
                 tree_data = consolidated.get("tree_data")
+            elif all_collected_cards:
+                from app.services.graph_service import synthesize_graph_from_cards
+                syn = synthesize_graph_from_cards(
+                    all_collected_cards,
+                    fallback_title=extracted_theme or job_data["subject"] or "Каркас знаний"
+                )
+                graph_nodes = syn.get("graph_data", {}).get("nodes", [])
+                graph_edges = syn.get("graph_data", {}).get("edges", [])
+                tree_data = syn.get("tree_data")
+            else:
+                graph_nodes, graph_edges, tree_data = [], [], None
 
-                if graph_nodes:
-                    async with AsyncSessionLocal() as db:
-                        raw_subj = job_data["subject"]
-                        subj = resolve_subject_alias(raw_subj)
-                        all_aliases = get_all_subject_aliases(raw_subj)
-                        u_id = job_data.get("user_id", "default_user")
+            if graph_nodes:
+                async with AsyncSessionLocal() as db:
+                    raw_subj = job_data["subject"]
+                    subj = resolve_subject_alias(raw_subj)
+                    all_aliases = get_all_subject_aliases(raw_subj)
+                    u_id = job_data.get("user_id", "default_user")
 
-                        # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя
-                        await db.execute(
-                            delete(TopicKnowledgeGraph).where(
-                                TopicKnowledgeGraph.user_id == u_id,
-                                TopicKnowledgeGraph.subject.in_(all_aliases),
-                                TopicKnowledgeGraph.subject != subj
-                            )
-                        )
-
-                        stmt = select(TopicKnowledgeGraph).where(
+                    # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя
+                    await db.execute(
+                        delete(TopicKnowledgeGraph).where(
                             TopicKnowledgeGraph.user_id == u_id,
-                            TopicKnowledgeGraph.subject == subj
+                            TopicKnowledgeGraph.subject.in_(all_aliases),
+                            TopicKnowledgeGraph.subject != subj
                         )
+                    )
+
+                    stmt = select(TopicKnowledgeGraph).where(
+                        TopicKnowledgeGraph.user_id == u_id,
+                        TopicKnowledgeGraph.subject == subj
+                    )
+                    res = await db.execute(stmt)
+                    rec = res.scalars().first()
+                    final_graph_data = {"nodes": graph_nodes, "edges": graph_edges, "deck_size": len(all_collected_cards)}
+                    if rec and rec.graph_data:
+                        existing_chunk = {
+                            "nodes": rec.graph_data.get("nodes", []),
+                            "edges": rec.graph_data.get("edges", [])
+                        }
+                        if existing_chunk.get("nodes"):
+                            merged = consolidate_knowledge_graphs(
+                                chunk_graphs=[existing_chunk, final_graph_data],
+                                fallback_title=extracted_theme or subj or "Каркас знаний"
+                            )
+                            final_graph_data = {"nodes": merged.get("nodes", []), "edges": merged.get("edges", []), "deck_size": len(all_collected_cards)}
+                            tree_data = merged.get("tree_data")
+                        rec.graph_data = final_graph_data
+                        rec.tree_data = tree_data
+                        rec.updated_at = datetime.utcnow()
+                    elif rec:
+                        rec.graph_data = final_graph_data
+                        rec.tree_data = tree_data
+                        rec.updated_at = datetime.utcnow()
+                    else:
+                        rec = TopicKnowledgeGraph(
+                            user_id=u_id,
+                            subject=subj,
+                            graph_data=final_graph_data,
+                            tree_data=tree_data,
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(rec)
+                    try:
+                        await db.commit()
+                        total_graph_nodes = len(final_graph_data["nodes"])
+                        print(f"[Generation Worker] Граф знаний для '{subj}' сохранен: {total_graph_nodes} узлов, {len(final_graph_data['edges'])} связей.", flush=True)
+                    except Exception as ce:
+                        await db.rollback()
                         res = await db.execute(stmt)
                         rec = res.scalars().first()
-                        final_graph_data = {"nodes": graph_nodes, "edges": graph_edges}
-                        if rec and rec.graph_data:
-                            existing_chunk = {
-                                "nodes": rec.graph_data.get("nodes", []),
-                                "edges": rec.graph_data.get("edges", [])
-                            }
-                            if existing_chunk.get("nodes"):
-                                merged = consolidate_knowledge_graphs(
-                                    chunk_graphs=[existing_chunk, final_graph_data],
-                                    fallback_title=extracted_theme or subj or "Каркас знаний"
-                                )
-                                final_graph_data = {"nodes": merged.get("nodes", []), "edges": merged.get("edges", [])}
-                                tree_data = merged.get("tree_data")
+                        if rec:
                             rec.graph_data = final_graph_data
                             rec.tree_data = tree_data
                             rec.updated_at = datetime.utcnow()
-                        elif rec:
-                            rec.graph_data = final_graph_data
-                            rec.tree_data = tree_data
-                            rec.updated_at = datetime.utcnow()
-                        else:
-                            rec = TopicKnowledgeGraph(
-                                user_id=u_id,
-                                subject=subj,
-                                graph_data=final_graph_data,
-                                tree_data=tree_data,
-                                created_at=datetime.utcnow(),
-                                updated_at=datetime.utcnow()
-                            )
-                            db.add(rec)
-                        try:
                             await db.commit()
                             total_graph_nodes = len(final_graph_data["nodes"])
-                            print(f"[Generation Worker] Граф знаний для '{subj}' сохранен: {total_graph_nodes} узлов, {len(final_graph_data['edges'])} связей.", flush=True)
-                        except Exception as ce:
-                            await db.rollback()
-                            res = await db.execute(stmt)
-                            rec = res.scalars().first()
-                            if rec:
-                                rec.graph_data = final_graph_data
-                                rec.tree_data = tree_data
-                                rec.updated_at = datetime.utcnow()
-                                await db.commit()
-                                total_graph_nodes = len(final_graph_data["nodes"])
 
-                        # Синхронизируем интерактивные практические задания по предмету (R2.2)
-                        try:
-                            await generate_practice_session(user_id=u_id, subject=subj, count=10, db=db)
-                            print(f"[Generation Worker] Практические задания для '{subj}' успешно синхронизированы.", flush=True)
-                        except Exception as p_err:
-                            print(f"[Generation Worker WARN] Сбой синхронизации практики: {p_err}", flush=True)
-            except Exception as graph_err:
-                print(f"[Generation Worker WARN] Сбой консолидации графа знаний: {graph_err}", flush=True)
+                    # Синхронизируем интерактивные практические задания по предмету (R2.2)
+                    try:
+                        await generate_practice_session(user_id=u_id, subject=subj, count=10, db=db)
+                        print(f"[Generation Worker] Практические задания для '{subj}' успешно синхронизированы.", flush=True)
+                    except Exception as p_err:
+                        print(f"[Generation Worker WARN] Сбой синхронизации практики: {p_err}", flush=True)
+        except Exception as graph_err:
+            print(f"[Generation Worker WARN] Сбой консолидации графа знаний: {graph_err}", flush=True)
 
         # Отправка Telegram Push пользователю с кнопкой перехода в Песочницу
         if job_data.get("telegram_id"):

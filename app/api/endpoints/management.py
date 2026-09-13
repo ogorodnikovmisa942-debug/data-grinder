@@ -401,6 +401,7 @@ async def sync_subject_knowledge_and_practice(
         syn = synthesize_graph_from_cards(cards_payload, fallback_title=fallback_title or canonical)
         if syn and syn.get("graph_data", {}).get("nodes"):
             graph_data = syn["graph_data"]
+            graph_data["deck_size"] = len(deck_cards) if deck_cards else len(cards_payload)
             tree_data = syn.get("tree_data")
 
     if graph_data:
@@ -1066,6 +1067,7 @@ async def commit_staging_cards(
             user_id=current_user,
             db=db
         )
+        await db.flush()
         # Если карточки были импортированы из фоновой задачи, помечаем её завершенной
         if payload.job_id:
             stmt_job = select(GenerationJob).filter(GenerationJob.id == payload.job_id, GenerationJob.user_id == current_user)
