@@ -897,14 +897,9 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
             "tree_data": None
         }
 
-    canonical = resolve_subject_alias(fallback_title)
     clean_title = (fallback_title or "Дисциплина").strip()
-    root_id = normalize_id(canonical or clean_title)
-
-    if canonical == "sudoustroystvo":
-        root_name = "Судебная система РФ"
-    else:
-        root_name = clean_title.upper() if len(clean_title) <= 12 else clean_title.capitalize()
+    root_id = normalize_id(clean_title)
+    root_name = clean_title.upper() if len(clean_title) <= 14 else clean_title.capitalize()
 
     root_node = {
         "id": root_id,

@@ -177,24 +177,13 @@ async def get_knowledge_graph(
             is_seed=False
         )
 
-    # 4. Проверка пресетного сид-графа (с авто-разрешением алиасов sudoustr -> sudoustroystvo)
-    seed = get_preset_seed_graph(subject)
-    if seed:
-        return KnowledgeGraphResponse(
-            subject=subject,
-            graph_data=seed["graph_data"],
-            tree_data=seed.get("tree_data"),
-            updated_at=None,
-            is_seed=True
-        )
-
-    # 5. Динамический синтез графа и дерева из карточек текущего пользователя
+    # 4. Динамический синтез графа и дерева из карточек текущего пользователя
     if user_cards:
-        syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
         if syn and syn.get("graph_data", {}).get("nodes"):
             new_kg = TopicKnowledgeGraph(
                 user_id=current_user,
-                subject=canonical,
+                subject=subject,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
                 created_at=now,
@@ -207,12 +196,23 @@ async def get_knowledge_graph(
                 await db.rollback()
 
             return KnowledgeGraphResponse(
-                subject=canonical,
+                subject=subject,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
                 updated_at=now.isoformat(),
                 is_seed=False
             )
+
+    # 5. Проверка пресетного сид-графа (только для тестовых/демо колод без пользовательских карточек)
+    seed = get_preset_seed_graph(subject)
+    if seed:
+        return KnowledgeGraphResponse(
+            subject=subject,
+            graph_data=seed["graph_data"],
+            tree_data=seed.get("tree_data"),
+            updated_at=None,
+            is_seed=True
+        )
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -389,6 +389,7 @@ async def rebuild_knowledge_graph(
             created_at=now,
             updated_at=now
         )
+        db.add(record)
     # Синхронизируем интерактивные практические задания по предмету (R2)
     try:
         from app.services.practice_service import generate_practice_session

@@ -4363,7 +4363,19 @@ window.exportCardsJSON = async function() {
    MILESTONE 4: KNOWLEDGE GRAPH & TREE MINDMAP CONTROLLER
    ========================================================================== */
 
-let currentKgSubject = 'sudoustroystvo';
+function getActiveDeckSubject() {
+    if (currentSubject && currentSubject !== 'all') return currentSubject;
+    const sel = document.getElementById('subject-selector');
+    if (sel && sel.options) {
+        for (let i = 0; i < sel.options.length; i++) {
+            const val = sel.options[i].value;
+            if (val && val !== 'all') return val;
+        }
+    }
+    return currentKgSubject || '';
+}
+
+let currentKgSubject = '';
 let currentKgGraphData = null;
 let currentKgTreeData = null;
 let currentKgView = 'tree'; // 'tree' | 'graph'
@@ -4431,7 +4443,7 @@ function getCleanGraphData() {
 }
 
 window.openKnowledgeGraphModal = function(targetSubject) {
-    const sub = targetSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const sub = targetSubject || getActiveDeckSubject();
     currentKgSubject = sub;
 
     const modal = document.getElementById('knowledge-graph-modal');
@@ -4605,7 +4617,7 @@ window.loadKnowledgeGraph = async function(subject) {
 };
 
 window.loadSeedOrDemoGraph = async function() {
-    const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo';
+    const sub = getActiveDeckSubject();
     currentKgSubject = sub;
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
@@ -4613,7 +4625,7 @@ window.loadSeedOrDemoGraph = async function() {
 };
 
 window.rebuildKnowledgeGraph = async function() {
-    const sub = currentKgSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const sub = currentKgSubject || getActiveDeckSubject();
     const loading = document.getElementById('kg-loading');
     const rebuildIcon = document.getElementById('kg-rebuild-icon');
     
@@ -5068,7 +5080,7 @@ window.openPracticeModal = function(targetSubject) {
     const modal = document.getElementById('practice-modal');
     if (!modal) return;
 
-    const sub = targetSubject || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const sub = targetSubject || getActiveDeckSubject();
     const badge = document.getElementById('practice-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
 
@@ -5082,7 +5094,7 @@ window.closePracticeModal = function() {
 };
 
 window.startPracticeSession = async function(customSub) {
-    const sub = customSub || (currentSubject && currentSubject !== 'all' ? currentSubject : 'sudoustroystvo');
+    const sub = customSub || getActiveDeckSubject();
     
     const loading = document.getElementById('practice-loading');
     const cardContainer = document.getElementById('practice-card-container');
@@ -5313,7 +5325,7 @@ function showPracticeFinish() {
     }
 
     // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране
-    const curSub = (currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo';
+    const curSub = getActiveDeckSubject();
     apiFetch('/api/practice/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5359,7 +5371,7 @@ window.retryPracticeErrors = function() {
 };
 
 window.checkTodayPracticeStats = async function(sub) {
-    const targetSub = sub || ((currentSubject && currentSubject !== 'all') ? currentSubject : 'sudoustroystvo');
+    const targetSub = sub || getActiveDeckSubject();
     const badge = document.getElementById('starter-practice-badge');
     if (!badge) return;
 

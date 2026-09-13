@@ -237,8 +237,8 @@ async def get_available_subjects(
     res_cards = await db.execute(stmt_cards)
     res_phrases = await db.execute(stmt_phrases)
     raw_subjects = [s[0] for s in res_cards.all() if s[0]] + [s[0] for s in res_phrases.all() if s[0]]
-    canonical_subjects = list(dict.fromkeys([resolve_subject_alias(s) for s in raw_subjects]))
-    return sorted(canonical_subjects)
+    unique_subjects = sorted(list(dict.fromkeys(raw_subjects)))
+    return unique_subjects
 
 # --- 3. ОБРАБОТКА ОТВЕТОВ И ВАЛИДАЦИЯ FSRS В БД ---
 @router.post("/answer")

@@ -1756,21 +1756,18 @@ async def get_subjects_details(
     phrase_res = await db.execute(phrase_stmt)
     phrase_subs = [s[0] for s in phrase_res.all() if s[0]]
 
-    aggregated_counts: dict[str, int] = defaultdict(int)
+    subjects_map: dict[str, int] = {}
     for sub, count in rows:
         if sub:
-            canon = resolve_subject_alias(sub)
-            aggregated_counts[canon] += count
+            subjects_map[sub] = count
 
     for ps in phrase_subs:
-        if ps:
-            canon = resolve_subject_alias(ps)
-            if canon not in aggregated_counts:
-                aggregated_counts[canon] = 0
+        if ps and ps not in subjects_map:
+            subjects_map[ps] = 0
 
     subjects_list = [
-        {"slug": sub, "name": sub.upper(), "cards_count": aggregated_counts[sub]}
-        for sub in sorted(aggregated_counts.keys())
+        {"slug": sub, "name": sub.upper(), "cards_count": subjects_map[sub]}
+        for sub in sorted(subjects_map.keys())
     ]
     return {"status": "success", "subjects": subjects_list}
 

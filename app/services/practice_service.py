@@ -659,27 +659,34 @@ async def generate_practice_session(
         except Exception as kg_err:
             print(f"[Practice Engine] Ошибка синтеза из графа: {kg_err}")
 
-        # 4. Fallback / Добор: если заданий меньше count и предмет относится к судоустройству, добираем из пресетов
-        if len(practice_records) < count and canonical_subject in ("sudoustroystvo", "court_system", "судоустройство", "default"):
-            seeds = SUDOUSTROYSTVO_PRESET_PRACTICE.copy()
-            random.shuffle(seeds)
-            needed = count - len(practice_records)
-
-            for seed in seeds[:needed]:
-                opts = list(seed["options"])
+        # 4. Добор заданий строго из реальных карточек колоды
+        if len(practice_records) < count and len(user_cards) > 0:
+            remaining = count - len(practice_records)
+            all_answers = [c.translation.strip() for c in user_cards if c.translation and len(c.translation.strip()) > 3]
+            all_fronts = [c.text.strip() for c in user_cards if c.text and len(c.text.strip()) > 2]
+            for c in random.sample(user_cards, min(remaining * 2, len(user_cards))):
+                if len(practice_records) >= count:
+                    break
+                front = (c.text or "").strip()
+                back = (c.translation or "").strip()
+                if not front or not back:
+                    continue
+                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                opts = [back] + chosen[:3]
+                while len(opts) < 4:
+                    opts.append(f"Иное положение {len(opts)}")
                 random.shuffle(opts)
-                pi = PracticeItem(
+                practice_records.append(PracticeItem(
                     item_id=str(uuid.uuid4()),
                     user_id=user_id,
-                    subject=canonical_subject,
-                    item_type=seed["type"],
-                    prompt=seed["prompt"],
-                    options=opts,
-                    correct_answer=seed["correct_answer"],
-                    explanation=seed["explanation"],
-                    gold_standard=seed["gold_standard"]
-                )
-                practice_records.append(pi)
+                    subject=subject,
+                    item_type="situational",
+                    prompt=front,
+                    options=opts[:4],
+                    correct_answer=back,
+                    explanation=c.example or c.secondary_text or f"Правильный ответ: {back}",
+                    gold_standard=f"{front} -> {back}"
+                ))
 
         # Перемешиваем и отбираем count разнообразных заданий
         random.shuffle(practice_records)
