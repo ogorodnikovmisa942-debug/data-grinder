@@ -165,6 +165,9 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
         c_ex = (c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")) or ""
         c_tier = (c.get("initial_difficulty_tier", "medium") if isinstance(c, dict) else getattr(c, "initial_difficulty_tier", "medium"))
         c_mnem = c.get("mnemonic", None) if isinstance(c, dict) else getattr(c, "mnemonic", None)
+        c_organ = (c.get("organ_slug") if isinstance(c, dict) else getattr(c, "organ_slug", None)) or None
+        c_layer = int(c.get("layer", 1) if isinstance(c, dict) else getattr(c, "layer", 1) or 1)
+        c_rank = int(c.get("topological_rank", 0) if isinstance(c, dict) else getattr(c, "topological_rank", 0) or 0)
 
         if c_key in existing_map:
             # Обновляем существующую карточку (сохраняя прогресс FSRS) и нормализуем subject
@@ -178,6 +181,12 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
                 card.example = c_ex
             if c_mnem is not None:
                 card.mnemonic = c_mnem
+            if c_organ:
+                card.organ_slug = c_organ
+            if c_layer:
+                card.layer = c_layer
+            if c_rank:
+                card.topological_rank = c_rank
             cards_created += 1
         else:
             difficulty = 5.5
@@ -208,6 +217,9 @@ async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_tit
                 state=0,
                 mnemonic=c_mnem,
                 content_type=c_type,
+                organ_slug=c_organ,
+                layer=c_layer,
+                topological_rank=c_rank,
                 next_review=now
             )
             db.add(card)
@@ -486,7 +498,7 @@ async def export_cards_json(
     stmt = select(Card).filter(Card.user_id == current_user)
     if subject != "all":
         stmt = stmt.filter(Card.subject.in_(sub_aliases))
-    stmt = stmt.order_by(Card.id.asc())
+    stmt = stmt.order_by(Card.topological_rank.asc(), Card.id.asc())
 
     res = await db.execute(stmt)
     cards = res.scalars().all()
@@ -496,7 +508,7 @@ async def export_cards_json(
         stmt_def = select(Card).filter(Card.user_id == "default_user")
         if subject != "all":
             stmt_def = stmt_def.filter(Card.subject.in_(sub_aliases))
-        stmt_def = stmt_def.order_by(Card.id.asc())
+        stmt_def = stmt_def.order_by(Card.topological_rank.asc(), Card.id.asc())
         res_def = await db.execute(stmt_def)
         cards = res_def.scalars().all()
 
@@ -520,7 +532,10 @@ async def export_cards_json(
                 "secondary_text": c.secondary_text or "",
                 "translation": c.translation,
                 "example": c.example or "",
-                "mnemonic": c.mnemonic
+                "mnemonic": c.mnemonic,
+                "organ_slug": c.organ_slug,
+                "layer": c.layer,
+                "topological_rank": c.topological_rank
             }
             for c in cards
         ]

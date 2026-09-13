@@ -64,6 +64,12 @@ async def lifespan(app: FastAPI):
                 await db.execute(text("ALTER TABLE cards ADD COLUMN content_type VARCHAR DEFAULT 'text'"))
             if "example" not in columns_cards:
                 await db.execute(text("ALTER TABLE cards ADD COLUMN example VARCHAR"))
+            if "topological_rank" not in columns_cards:
+                await db.execute(text("ALTER TABLE cards ADD COLUMN topological_rank INTEGER DEFAULT 0"))
+            if "organ_slug" not in columns_cards:
+                await db.execute(text("ALTER TABLE cards ADD COLUMN organ_slug VARCHAR"))
+            if "layer" not in columns_cards:
+                await db.execute(text("ALTER TABLE cards ADD COLUMN layer INTEGER DEFAULT 1"))
 
             # Миграции для user_sessions (отметки уведомлений и флаги эксперимента)
             res_users = await db.execute(text("PRAGMA table_info(user_sessions)"))

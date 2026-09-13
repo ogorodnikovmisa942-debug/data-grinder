@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update, text, delete
 from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph
-from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front
+from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front, extract_curriculum_skeleton
 from app.services.graph_service import consolidate_knowledge_graphs, resolve_subject_alias, get_all_subject_aliases
 from app.services.practice_service import generate_practice_session
 from app.core.config import settings
@@ -126,6 +126,27 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         any_fallback_used = False
         any_json_repair_applied = False
 
+        # --- ПРОХОД 1: СИНТЕЗ КАРКАСА ДИСЦИПЛИНЫ (CURRICULUM SKELETON) ДЛЯ КРУПНЫХ ТЕКСТОВ ---
+        curriculum_skeleton = None
+        if total_chunks >= 3 or char_count >= 30000:
+            print(f"[Generation Worker] Задача #{job_data['id']}: Проход 1 — извлечение дерева органов и институтов...", flush=True)
+            try:
+                curriculum_skeleton = await extract_curriculum_skeleton(
+                    text=job_data["raw_text"],
+                    target_subject=job_data["subject"],
+                    target_card_count=70,
+                    user_id=job_data.get("user_id", "default_user"),
+                    job_id=str(job_data["id"])
+                )
+                if curriculum_skeleton and curriculum_skeleton.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", ""):
+                    extracted_theme = curriculum_skeleton["phrase_title"]
+                if curriculum_skeleton and curriculum_skeleton.get("graph") and isinstance(curriculum_skeleton["graph"], dict):
+                    skel_nodes = curriculum_skeleton["graph"].get("nodes") or []
+                    if skel_nodes:
+                        all_chunk_graphs.append(curriculum_skeleton["graph"])
+            except Exception as skel_err:
+                print(f"[Generation Worker WARN] Сбой Прохода 1: {skel_err}", flush=True)
+
         # Конкурентная нарезка чанков с семафором (2 параллельных запроса для ускорения без исчерпания RPM)
         semaphore = asyncio.Semaphore(2)
 
@@ -185,6 +206,28 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             chunk_graph = parsed.get("knowledge_graph")
             if chunk_graph and isinstance(chunk_graph, dict):
                 all_chunk_graphs.append(chunk_graph)
+
+        # Топологическая пересортировка и сквозное ранжирование деки ("Graph in engine, playlist in UI")
+        organ_order = {}
+        if curriculum_skeleton and curriculum_skeleton.get("modules"):
+            for m_idx, m in enumerate(curriculum_skeleton["modules"]):
+                m_slug = str(m.get("slug") or "").strip().lower()
+                if m_slug:
+                    organ_order[m_slug] = m_idx
+
+        for c in all_collected_cards:
+            o = (c.get("organ_slug") or "").strip().lower()
+            if o and o not in organ_order:
+                organ_order[o] = len(organ_order)
+
+        all_collected_cards.sort(
+            key=lambda c: (
+                organ_order.get((c.get("organ_slug") or "").strip().lower(), 999),
+                int(c.get("layer", 1)) if str(c.get("layer", 1)).isdigit() else 1
+            )
+        )
+        for rank_idx, c in enumerate(all_collected_cards, 1):
+            c["topological_rank"] = rank_idx
 
         # Общий лимит Парето: для крупных книг (>5 блоков) в режиме auto удерживаем целевой пул до 80 карточек
         is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")

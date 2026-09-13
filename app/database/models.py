@@ -66,6 +66,11 @@ class Card(Base):
     content_type = Column(String, default="text")
     example = Column(String, nullable=True)
 
+    # Топологический порядок изучения и структурная привязка (Curriculum-First)
+    topological_rank = Column(Integer, default=0, index=True) # Порядковый номер изучения от корня к частностям
+    organ_slug = Column(String, nullable=True, index=True)    # Идентификатор органа / института / школы
+    layer = Column(Integer, default=1)                        # Когнитивный слой (0: скелет, 1: основы, 2: составы, 3: развилки/примеры)
+
     # Реляционные связи
     phrase = relationship("Phrase", back_populates="cards")
     category = relationship("Category", back_populates="cards")

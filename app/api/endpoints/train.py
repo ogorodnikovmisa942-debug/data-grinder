@@ -149,7 +149,7 @@ async def get_session_cards(
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        new_stmt = new_stmt.order_by(Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
+        new_stmt = new_stmt.order_by(Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
 
@@ -221,6 +221,9 @@ async def get_session_cards(
             "intro_phase": c.intro_phase,
             "content_type": c.content_type,
             "example": c.example if c.example else "",
+            "topological_rank": c.topological_rank or 0,
+            "organ_slug": c.organ_slug or "",
+            "layer": c.layer if c.layer is not None else 1,
             "lapses": lapses_count,
             "is_leech": lapses_count >= 4
         })

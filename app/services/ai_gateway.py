@@ -16,10 +16,13 @@ class CardSchema(BaseModel):
     text: str = Field(description="Лицевая сторона карточки")
     secondary_text: str = Field(description="Подсказка, пиньинь, номер статьи или сигнатура")
     translation: str = Field(description="Точный перевод или определение на русском языке")
-    example: str = Field(description="Пример применения или кейс")
+    example: str = Field(description="Пример применения простыми понятными словами (Фейнман-стиль)")
     initial_difficulty_tier: str = Field(description="easy, medium или hard")
     mnemonic: Optional[MnemonicSchema] = None
     theme: Optional[str] = Field(default="", description="Название темы или подраздела для кластеризации")
+    organ_slug: Optional[str] = Field(default="", description="Идентификатор органа, института или школы мысли")
+    layer: Optional[int] = Field(default=1, description="Когнитивный слой (0: скелет, 1: основы, 2: составы, 3: развилки)")
+    topological_rank: Optional[int] = Field(default=0, description="Порядковый номер изучения от корня к веткам")
 
 class ParsedDataSchema(BaseModel):
     subject_domain: str = Field(description="language, law, code или generic")
@@ -69,45 +72,53 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
 - Rule 4: High-Yield Doctrinal Taxonomy (Functional Classification, Zero Fluff):
   * Foundational classifications (e.g. "На какие 2 типа делятся конституционные предписания по способу воздействия на субъектов? -> Императивные (категорические запреты/обязанности) и диспозитивные (допускающие выбор поведения)") are strictly preserved!
   * Formulate them strictly through their functional distinction, never through dictionary padding.
-- Rule 5: Strict Negative Constraints & Blacklist:
+- Rule 5: Strict Negative Constraints & Context-Aware Scope Governance:
   * 1. STRICT PROHIBITION OF BINARY YES/NO QUESTIONS: Under NO circumstances generate cards with answers "Да." или "Нет.". They produce noise and fail to construct mental connections.
   * 2. STRICT BAN ON TRIVIAL COMMON SENSE: Never ask "Что такое диалог?", "Что такое правосудие?", "Зачем юристу логика?".
-  * 3. STRICT BAN ON INTRODUCTORY FLUFF: Never test introductory chapters, definitions of academic science ("что изучает синергетика"), historical lists of abolished 1920-1930s laws, or trivial sources of law ("Какой главный закон страны? — Конституция").
-  * 4. STRICT BAN ON UNBOUNDED LISTS: Avoid enumerations >2 items.
+  * 3. STRICT BAN ON META-COURSE TRIVIA: Never generate cards asking about the structure of the textbook or syllabus (e.g. "На какие 3 части делится курс судоустройства? — Общая, специальная, особенная"). That tests textbook design, not the discipline.
+  * 4. DISCIPLINE-AWARE SCOPE GOVERNANCE (Prevention of Out-of-Domain Noise):
+    - IN APPLIED & STATUTORY DISCIPLINES (law, medicine, STEM, code): Strictly exclude out-of-domain historical-philosophical preambles (e.g. do NOT generate cards on Montesquieu vs Locke, ancient 1920s revolutionary tribunals, or abolished 1992 draft reform concepts in a modern court organization or procedure deck). Students need the working operative legal architecture.
+    - IN HUMANITIES & PHILOSOPHY (philosophy, ethics, history of thought): Thinkers (Plato, Descartes, Kant, Locke), paradigms, and schools of thought (rationalism vs empiricism, utilitarianism vs deontology) ARE the core substantive entities! Here, eliminate empty rhetorical fluff and biographical trivialities (e.g. "в каком году родился мыслитель"), and preserve core philosophical problems, theses, contrast pairs, and thought experiments.
+  * 5. STRICT BAN ON UNBOUNDED LISTS: Avoid enumerations >2 items.
 - Rule 6: Absolute Zero-Spoiler Law for 's' (Secondary Text / Anchor):
   * THE CRITICAL UI PRINCIPLE: The secondary text field 's' is displayed on the FRONT of the card simultaneously with the question 't' BEFORE the user attempts active retrieval.
   * ABSOLUTE PROHIBITION OF ANSWER SPOILERS: Under NO circumstances may 's' contain, hint at, echo, or paraphrase the target answer, institution name, statutory duration, or outcome.
   * FORBIDDEN IN 's': Putting the answer directly (e.g. NEVER write 'Срок — 10 суток', 'Следственный комитет и КГБ', 'Надзор', 'asyncio.shield', or 'Эпинефрин' into 's').
   * PERMITTED IN 's': STRICTLY high-level domain qualification, code name, and procedural chapter to disambiguate context without spoiling recall.
   * Canonical Format: '[Discipline / Statutory Code / Procedural Stage] | [Conceptual Scope / Normative Category]'
+- Rule 7: Plain Language & Intuitive Example Directive (Feynman Principle):
+  * The back side ('d') must deliver the semantic core in simple, crystal-clear, direct language. Avoid impenetrable academic jargon and heavy bureaucratic legalese where a straightforward term suffices.
+  * The example field ('e') MUST explain the concept using a vivid, intuitive real-world scenario, practical case, or thought experiment ("на пальцах" / "на живом примере").
+  * Absolute prohibition in 'e' of merely copying dry legal statutes, quoting bylaw articles verbatim, or using abstract philosophical mumbo-jumbo.
+  * Show the rule or principle in action: Who did what? What was the immediate practical consequence?
 
 2. DISCIPLINE DIRECTIVES & TAXONOMY:
 - law (Jurisprudence, Statutes, Court Organization, Procedure, Doctrine):
   * t (Front): Active situational decision fork (conflict -> remedy/instance), contrast pair between confusing institutions, or foundational taxonomy. Clean question text without metadata pollution. Zero 'Да/Нет', zero 'Что такое X'.
   * s (Secondary): Clean legal reference and scope ONLY. Zero spoilers. (e.g. 'ст. 118 Конституции РФ | Принципы судопроизводства' or 'ГПК РФ | Производство в суде апелляционной инстанции').
   * d (Back): Direct semantic core in 1 grammatically complete sentence or legal term (e.g. 'Обеспечение правопорядка и защита прав.' or 'Только судам.').
-  * e (Example): Real-world judicial scenario, dispute resolution precedent, or qualifying factual circumstance.
+  * e (Example): Real-world judicial scenario, dispute resolution precedent, or qualifying factual circumstance explained in plain language.
   * l (Difficulty): 'easy' for standard terms, 'medium' for procedural qualifications, 'hard' for competing exceptions/boundary tests.
 
 - medicine (Anatomy, Pharmacology, Pathology, Therapy, Surgery):
   * t (Front): Active clinical decision vignette (vital signs + conflict -> protocol), differential diagnostic contrast pair, or foundational pathophysiology cascade. Zero 'Да/Нет'.
-  * s (Secondary): Discipline / System | Clinical scope ONLY without revealing the diagnosis or drug (e.g. 'Неотложная кардиология | Гемодинамика острого инфаркта' or 'Клиническая фармакология | Анафилаксия').
-  * d (Back): Direct definitive drug, symptom triad, or mechanism (e.g. 'Эпинефрин (адреналин).' or 'Положителен.').
-  * e (Example): Concrete clinical presentation or emergency scenario.
+  * s (Secondary): Discipline / System | Clinical scope ONLY without revealing the diagnosis or drug.
+  * d (Back): Direct definitive drug, symptom triad, or mechanism.
+  * e (Example): Concrete clinical presentation or emergency scenario in plain intuitive terms.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - code (Software Engineering, CS, Architecture, Algorithms):
   * t (Front): Technical decision scenario, pattern trade-off, complexity bound, or protocol invariant.
-  * s (Secondary): Language / Environment | Architectural domain ONLY without revealing the function/method name (e.g. 'Python AsyncIO | Управление отменой задач' or 'PostgreSQL | Уровни изоляции транзакций').
+  * s (Secondary): Language / Environment | Architectural domain ONLY without revealing the function/method name.
   * d (Back): Rigorous technical invariant, time/space complexity O(N), or core behavior in 1 crisp sentence.
   * e (Example): Minimal valid code snippet (1-4 lines) demonstrating usage or edge case.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
-- generic (Physics, Chemistry, Math, History, Humanities, Social Sciences):
+- generic (Physics, Chemistry, Math, History, Philosophy, Humanities, Social Sciences):
   * t (Front): Causal mechanism, decision crossroads, physical law threshold, or milestone boundary. Zero 'Что такое X'.
   * s (Secondary): Sub-discipline / System | Conceptual domain ONLY.
-  * d (Back): Direct causal explanation, physical meaning, or key fact in 1 punchy sentence.
-  * e (Example): Practical calculation, industrial observation, or historical dispute.
+  * d (Back): Direct causal explanation, physical meaning, thesis, or key fact in 1 punchy sentence.
+  * e (Example): Practical calculation, industrial observation, historical dispute, or intuitive thought experiment.
   * l (Difficulty): 'easy', 'medium', or 'hard'.
 
 - language (Foreign languages & Linguistics):
@@ -154,10 +165,12 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
     {
       "t": "Front situational case / contrast prompt / high-yield classification (no topic tags)",
       "s": "Secondary context / statutory reference ONLY | Zero answer spoilers",
-      "d": "Back direct answer / decisive criterion (grammatically complete sentence)",
-      "e": "Concrete practical consequence / precedent / case example",
+      "d": "Back direct answer / decisive criterion (crystal-clear plain language)",
+      "e": "Vivid intuitive real-world scenario / case example / thought experiment ('на пальцах')",
       "l": "easy|medium|hard",
-      "h": "Specific thematic topic / cluster name (metadata only)"
+      "h": "Specific thematic topic / cluster name (metadata only)",
+      "o": "organ_slug or module_slug (e.g. 'district_court', 'regional_court', 'epistemology', 'cardiology')",
+      "y": 0
     }
   ]
 }
@@ -423,6 +436,45 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
         if re.search(p, front_lower):
             return True, "trivial_banality"
 
+    # 6.1. Мета-вопросы о структуре учебника или программы курса
+    meta_course_patterns = [
+        r'какие\s+(?:три|3|две|2|четыре|4)\s+части.*(?:курса|дисциплин)',
+        r'части\s+курса.*судоустройств',
+        r'структур[аеы]\s+учебной\s+дисциплины',
+        r'система\s+курса\s+«?судоустройство»?',
+        r'на\s+какие\s+(?:три|3)\s+части\s+условно\s+выделяются'
+    ]
+    for p in meta_course_patterns:
+        if re.search(p, front_lower) or re.search(p, sec_lower):
+            return True, "meta_course_trivia"
+
+    # 6.2. Контекстная фильтрация (Domain-Aware Scope Governance):
+    # В прикладных предметах (право, медицина, IT) отсекаем внепредметные философские экскурсы вводных глав
+    is_humanities_subject = any(h in subject_domain.lower() for h in ("philosophy", "философ", "history", "истори", "sociology", "социолог", "political", "политол"))
+    if not is_humanities_subject:
+        out_of_domain_patterns = [
+            r'монтескь[её].*локк',
+            r'локк.*монтескь[её]',
+            r'концепци[яи]\s+судебно-правовой\s+реформы\s+1992',
+            r'джон\s+локк',
+            r'шарль\s+монтескь',
+            r'монтескь[её]'
+        ]
+        for p in out_of_domain_patterns:
+            if re.search(p, front_lower) or re.search(p, sec_lower):
+                return True, "out_of_domain_intro_theory"
+    else:
+        # В философии и истории отсекаем пустую биографическую шелуху
+        bio_trivia = [
+            r'в\s+каком\s+году\s+родился',
+            r'где\s+родился',
+            r'в\s+каком\s+городе\s+(?:жил|умер)',
+            r'годы\s+жизни\s+философа'
+        ]
+        for p in bio_trivia:
+            if re.search(p, front_lower):
+                return True, "biographical_trivia"
+
     # 7. Канцелярский балласт: кворумы комиссий, стажировки, рутинные сроки направления бумаг канцелярией
     combined_card_text = f"{front_lower} {back_lower} {sec_lower}"
     clerical_noise_patterns = [
@@ -589,6 +641,21 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
                     safe_parts.append(part)
             clean_sec = " | ".join(safe_parts)
 
+        organ = (
+            item.get("o")
+            or item.get("organ_slug")
+            or item.get("organ")
+            or item.get("module")
+            or item.get("subsystem")
+            or ""
+        )
+        try:
+            layer_val = item.get("y") if item.get("y") is not None else (item.get("layer") if item.get("layer") is not None else 1)
+            layer = int(layer_val)
+        except (ValueError, TypeError):
+            layer = 1
+        layer = max(0, min(3, layer))
+
         c_obj = {
             "text": str(front).strip(),
             "secondary_text": clean_sec,
@@ -597,6 +664,9 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
             "initial_difficulty_tier": diff if diff in ("easy", "medium", "hard") else "medium",
             "mnemonic": None,  # Ленивая генерация мнемоник
             "theme": str(theme).strip() or title,
+            "organ_slug": str(organ).strip().lower() or None,
+            "layer": layer,
+            "topological_rank": 0,
             "content_type": "cloze" if "{{c" in str(front) else "text"
         }
 
@@ -606,6 +676,20 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
             continue
 
         cards.append(c_obj)
+
+    # Топологическое ранжирование (Curriculum-First / "Graph in engine, playlist in UI"):
+    # Упорядочиваем карточки от фундамента к частностям:
+    # 1. По порядку появления органов/модулей (organ_slug)
+    # 2. По когнитивному слою (layer: 0 -> 1 -> 2 -> 3)
+    organ_order = {}
+    for c in cards:
+        o = c.get("organ_slug") or "general"
+        if o not in organ_order:
+            organ_order[o] = len(organ_order)
+
+    cards.sort(key=lambda c: (organ_order.get(c.get("organ_slug") or "general", 999), c.get("layer", 1)))
+    for rank_idx, c in enumerate(cards, 1):
+        c["topological_rank"] = rank_idx
 
     # 4. Извлекаем семантический граф знаний и ментальный каркас
     clean_nodes = []
@@ -893,6 +977,100 @@ async def call_deepseek(
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
 
+
+# --- ПРОХОД 1 (TWO-PASS ARCHITECTURE): ИЗВЛЕЧЕНИЕ АРХИТЕКТУРНОГО ДЕРЕВА ОРГАНОВ/МОДУЛЕЙ ---
+CURRICULUM_SKELETON_SYSTEM_PROMPT = """ROLE: Chief Educational Architect and Knowledge Graph Ontologist.
+MISSION: Analyze the uploaded syllabus, table of contents, or course material across ANY academic or professional discipline (law, medicine, STEM, humanities, philosophy).
+Synthesize a strictly hierarchical, clean, cycle-free curriculum outline and knowledge graph structure.
+CORE GOAL: Break down the discipline into 5 to 8 major organs, branches, or structural modules in strict didactic order (from foundational macro-structures to specialized components).
+
+STRICT MINIFIED JSON SCHEMA:
+{
+  "subject_slug": "snake_case_slug",
+  "phrase_title": "Informative Main Course Title",
+  "modules": [
+    {
+      "slug": "unique_slug",
+      "name": "Clear Module / Organ Name",
+      "summary": "1 sentence defining this module's place and purpose",
+      "quota": 10,
+      "layer": 0
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "slug_id",
+        "name": "Entity Name",
+        "category": "authority|instance|condition|exception|legal_status",
+        "summary": "1 sentence definition",
+        "parent_id": null,
+        "level": 0
+      }
+    ],
+    "edges": [
+      {
+        "source": "source_id",
+        "target": "target_id",
+        "relation": "appealed_to|excludes_application|demarcated_from|subject_to_jurisdiction",
+        "label": "Связка на русском"
+      }
+    ]
+  }
+}
+Return STRICTLY raw JSON without markdown or commentary.
+"""
+
+async def extract_curriculum_skeleton(
+    text: str,
+    target_subject: str = "",
+    target_card_count: int = 70,
+    user_id: str = "default_user",
+    job_id: str | None = None
+) -> dict:
+    """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек."""
+    clean_sub = target_subject.strip().lower() or "generic"
+    sample_text = text[:60000] if len(text) > 60000 else text
+    user_prompt = (
+        f"[TARGET SUBJECT]: {clean_sub}\n"
+        f"[TARGET TOTAL CARDS]: {target_card_count}\n"
+        f"Extract strictly 5 to 8 pedagogical modules/organs in logical didactic progression (from root foundation to branches).\n"
+        f"Distribute the {target_card_count} card quota across these modules so that the sum of 'quota' equals {target_card_count}.\n\n"
+        f"[COURSE MATERIAL SAMPLE / OUTLINE]:\n{sample_text}"
+    )
+    start_ts = time.time()
+    model_requested = settings.DEEPSEEK_MODEL or "deepseek-chat"
+    try:
+        raw_res, meta = await call_deepseek(
+            user_prompt,
+            system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
+            fallback_subject=clean_sub
+        )
+        duration_ms = int((time.time() - start_ts) * 1000)
+        await record_ai_telemetry(
+            job_id=job_id,
+            user_id=user_id,
+            model_requested=model_requested,
+            model_resolved=meta.get("model_resolved", model_requested),
+            input_chars=len(user_prompt),
+            prompt_tokens=meta.get("prompt_tokens", 0),
+            completion_tokens=meta.get("completion_tokens", 0),
+            cache_hit=meta.get("cache_hit", False),
+            is_truncated=meta.get("is_truncated", False),
+            repair_successful=meta.get("repair_successful", False),
+            cards_generated=0,
+            duration_ms=duration_ms,
+            status="success"
+        )
+        return raw_res
+    except Exception as e:
+        print(f"[AI Gateway WARN] Сбой Прохода 1 (Curriculum Skeleton): {e}")
+        return {
+            "subject_slug": clean_sub,
+            "phrase_title": clean_sub,
+            "modules": [],
+            "graph": {"nodes": [], "edges": []}
+        }
 
 # --- УНИВЕРСАЛЬНЫЙ ПАРСЕР ТЕКСТА ---
 async def parse_raw_text(
