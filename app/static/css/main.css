@@ -1,15 +1,19 @@
 /* --- 3D Рендеринг Карточки --- */
 .perspective-1000 {
     perspective: 1000px;
+    -webkit-perspective: 1000px;
 }
 .transform-style-3d {
     transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
 }
 .backface-hidden {
     backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 .rotate-y-180 {
     transform: rotateY(180deg);
+    -webkit-transform: rotateY(180deg);
 }
 
 html, body {
@@ -22,6 +26,24 @@ html, body {
 #flashcard {
     will-change: transform;
     transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
+}
+
+#card-front, #card-back {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform-style: preserve-3d;
+    -webkit-transform-style: preserve-3d;
+}
+
+#card-front {
+    transform: rotateY(0deg) translateZ(1px);
+    -webkit-transform: rotateY(0deg) translateZ(1px);
+}
+
+#card-back {
+    transform: rotateY(180deg) translateZ(1px);
+    -webkit-transform: rotateY(180deg) translateZ(1px);
 }
 
 /* Изменение прозрачности для плавного скрытия статус-бара */

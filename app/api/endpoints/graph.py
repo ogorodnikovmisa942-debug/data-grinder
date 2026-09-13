@@ -9,7 +9,8 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
 
 from app.database.session import get_db
 from app.database.models import TopicKnowledgeGraph, Card
@@ -19,6 +20,7 @@ from app.services.graph_service import (
     build_hierarchical_tree,
     get_preset_seed_graph,
     resolve_subject_alias,
+    get_all_subject_aliases,
     synthesize_graph_from_cards,
 )
 
@@ -75,17 +77,88 @@ async def get_knowledge_graph(
     db: AsyncSession = Depends(get_db)
 ):
     """Retrieves the knowledge graph and tree mindmap for the current user and subject.
-    Supports alias resolution, preset seed fallbacks, and on-demand synthesis from existing cards.
+    Supports unified alias resolution, conflict elimination, automatic synchronization of stale
+    snapshots from current user deck, and preset seed fallbacks.
     """
-    alias_subject = resolve_subject_alias(subject)
+    canonical = resolve_subject_alias(subject)
+    all_aliases = get_all_subject_aliases(subject)
+    now = datetime.utcnow()
 
-    # 1. Поиск в БД строго для текущего пользователя (изоляция пользователей)
+    # 1. Извлекаем актуальные карточки пользователя по всей группе алиасов
+    card_stmt = select(Card).options(selectinload(Card.phrase)).where(
+        Card.user_id == current_user,
+        Card.subject.in_(all_aliases)
+    )
+    card_res = await db.execute(card_stmt)
+    user_cards = card_res.scalars().all()
+
+    # 2. Поиск записей графа в БД строго для текущего пользователя по всей группе алиасов
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
-        TopicKnowledgeGraph.subject.in_([subject, alias_subject])
-    )
+        TopicKnowledgeGraph.subject.in_(all_aliases)
+    ).order_by(TopicKnowledgeGraph.updated_at.desc())
     result = await db.execute(stmt)
-    record = result.scalars().first()
+    records = result.scalars().all()
+
+    # Устраняем конфликты записей по алиасам одного и того же предмета для одного пользователя
+    if len(records) > 1:
+        primary_record = records[0]
+        for dup in records[1:]:
+            await db.delete(dup)
+        await db.commit()
+        records = [primary_record]
+
+    record = records[0] if records else None
+
+    # 3. Синхронизация устаревших снапшотов:
+    # Если у пользователя сформирована реальная колода (15+ карт, напр. 300+ карт),
+    # а сохраненный граф отсутствует, содержит < 20 узлов (старый баг 6 узлов)
+    # или является вчерашним снапшотом (updated_at раньше сегодняшнего дня):
+    is_stale = False
+    if user_cards and len(user_cards) >= 15:
+        if not record:
+            is_stale = True
+        elif record.graph_data:
+            node_count = len(record.graph_data.get("nodes", []))
+            if node_count < 20:
+                is_stale = True
+            elif record.updated_at and record.updated_at.date() < now.date():
+                is_stale = True
+
+    if is_stale and user_cards:
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
+        g_data = syn.get("graph_data", {"nodes": [], "edges": []})
+        t_data = syn.get("tree_data")
+
+        if record:
+            record.subject = canonical
+            record.graph_data = g_data
+            record.tree_data = t_data
+            record.updated_at = now
+        else:
+            record = TopicKnowledgeGraph(
+                user_id=current_user,
+                subject=canonical,
+                graph_data=g_data,
+                tree_data=t_data,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(record)
+
+        try:
+            await db.commit()
+            await db.refresh(record)
+        except Exception:
+            await db.rollback()
+
+        return KnowledgeGraphResponse(
+            subject=record.subject,
+            graph_data=record.graph_data,
+            tree_data=record.tree_data,
+            updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),
+            is_seed=False
+        )
 
     if record:
         g_data = record.graph_data or {"nodes": [], "edges": []}
@@ -104,7 +177,7 @@ async def get_knowledge_graph(
             is_seed=False
         )
 
-    # 2. Проверка пресетного сид-графа (с авто-разрешением алиасов sudoustr -> sudoustroystvo)
+    # 4. Проверка пресетного сид-графа (с авто-разрешением алиасов sudoustr -> sudoustroystvo)
     seed = get_preset_seed_graph(subject)
     if seed:
         return KnowledgeGraphResponse(
@@ -115,23 +188,17 @@ async def get_knowledge_graph(
             is_seed=True
         )
 
-    # 3. Динамический синтез графа и дерева из карточек текущего пользователя
-    card_stmt = select(Card).where(
-        Card.user_id == current_user,
-        Card.subject.in_([subject, alias_subject])
-    )
-    card_res = await db.execute(card_stmt)
-    user_cards = card_res.scalars().all()
+    # 5. Динамический синтез графа и дерева из карточек текущего пользователя
     if user_cards:
-        syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
         if syn and syn.get("graph_data", {}).get("nodes"):
             new_kg = TopicKnowledgeGraph(
                 user_id=current_user,
-                subject=subject,
+                subject=canonical,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=now,
+                updated_at=now
             )
             db.add(new_kg)
             try:
@@ -140,10 +207,10 @@ async def get_knowledge_graph(
                 await db.rollback()
 
             return KnowledgeGraphResponse(
-                subject=subject,
+                subject=canonical,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
-                updated_at=datetime.utcnow().isoformat(),
+                updated_at=now.isoformat(),
                 is_seed=False
             )
 
@@ -176,6 +243,13 @@ async def upsert_knowledge_graph(
         "nodes": clean_nodes,
         "edges": clean_edges
     }
+
+    all_aliases = get_all_subject_aliases(payload.subject)
+    await db.execute(delete(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.user_id == current_user,
+        TopicKnowledgeGraph.subject.in_(all_aliases),
+        TopicKnowledgeGraph.subject != payload.subject
+    ))
 
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
@@ -235,15 +309,17 @@ async def delete_knowledge_graph(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Deletes custom knowledge graph for the given subject."""
+    """Deletes custom knowledge graph for the given subject across all aliases."""
+    all_aliases = get_all_subject_aliases(subject)
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
-        TopicKnowledgeGraph.subject == subject
+        TopicKnowledgeGraph.subject.in_(all_aliases)
     )
     result = await db.execute(stmt)
-    record = result.scalars().first()
-    if record:
-        await db.delete(record)
+    records = result.scalars().all()
+    if records:
+        for r in records:
+            await db.delete(r)
         await db.commit()
         return {"status": "deleted", "subject": subject}
     raise HTTPException(
@@ -259,53 +335,66 @@ async def rebuild_knowledge_graph(
     db: AsyncSession = Depends(get_db)
 ):
     """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД.
-    Очищает любые устаревшие фантомные узлы и пересоздает каркас точно под текущий размер колоды."""
-    alias_subject = resolve_subject_alias(subject)
-    
-    from sqlalchemy.orm import selectinload
+    Очищает любые устаревшие фантомные узлы и пересоздает каркас точно под текущий размер колоды по всей группе алиасов."""
+    canonical = resolve_subject_alias(subject)
+    all_aliases = get_all_subject_aliases(subject)
+
     stmt = select(Card).options(selectinload(Card.phrase)).where(
         Card.user_id == current_user,
-        Card.subject.in_([subject, alias_subject])
+        Card.subject.in_(all_aliases)
     )
     cards_res = await db.execute(stmt)
     user_cards = cards_res.scalars().all()
-    
+
     if not user_cards:
-        stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_([subject, alias_subject]))
+        stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_(all_aliases))
         res_def = await db.execute(stmt_def)
         user_cards = res_def.scalars().all()
-        
+
     if not user_cards:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Нет карточек для перестроения графа по предмету '{subject}'."
         )
 
-    syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
+    syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
     g_data = syn.get("graph_data", {"nodes": [], "edges": []})
     t_data = syn.get("tree_data")
 
+    # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя
+    await db.execute(delete(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.user_id == current_user,
+        TopicKnowledgeGraph.subject.in_(all_aliases),
+        TopicKnowledgeGraph.subject != canonical
+    ))
+
     rec_stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
-        TopicKnowledgeGraph.subject.in_([subject, alias_subject])
+        TopicKnowledgeGraph.subject == canonical
     )
     rec_res = await db.execute(rec_stmt)
     record = rec_res.scalars().first()
 
+    now = datetime.utcnow()
     if record:
         record.graph_data = g_data
         record.tree_data = t_data
-        record.updated_at = datetime.utcnow()
+        record.updated_at = now
     else:
         record = TopicKnowledgeGraph(
             user_id=current_user,
-            subject=subject,
+            subject=canonical,
             graph_data=g_data,
             tree_data=t_data,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=now,
+            updated_at=now
         )
-        db.add(record)
+    # Синхронизируем интерактивные практические задания по предмету (R2)
+    try:
+        from app.services.practice_service import generate_practice_session
+        await generate_practice_session(user_id=current_user, subject=canonical, count=10, db=db)
+    except Exception as pe:
+        print(f"[Graph Rebuild] Предупреждение: сбой синхронизации практики: {pe}")
 
     await db.commit()
     await db.refresh(record)
@@ -314,7 +403,7 @@ async def rebuild_knowledge_graph(
         subject=record.subject,
         graph_data=record.graph_data,
         tree_data=record.tree_data,
-        updated_at=record.updated_at.isoformat() if record.updated_at else datetime.utcnow().isoformat(),
+        updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),
         is_seed=False
     )
 

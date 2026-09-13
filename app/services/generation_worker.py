@@ -6,11 +6,12 @@ import time
 import html
 import asyncio
 from datetime import datetime, timezone
-from sqlalchemy import select, update, text
+from sqlalchemy import select, update, text, delete
 from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph
 from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front
-from app.services.graph_service import consolidate_knowledge_graphs
+from app.services.graph_service import consolidate_knowledge_graphs, resolve_subject_alias, get_all_subject_aliases
+from app.services.practice_service import generate_practice_session
 from app.core.config import settings
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -221,8 +222,20 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
                 if graph_nodes:
                     async with AsyncSessionLocal() as db:
-                        subj = job_data["subject"]
+                        raw_subj = job_data["subject"]
+                        subj = resolve_subject_alias(raw_subj)
+                        all_aliases = get_all_subject_aliases(raw_subj)
                         u_id = job_data.get("user_id", "default_user")
+
+                        # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя
+                        await db.execute(
+                            delete(TopicKnowledgeGraph).where(
+                                TopicKnowledgeGraph.user_id == u_id,
+                                TopicKnowledgeGraph.subject.in_(all_aliases),
+                                TopicKnowledgeGraph.subject != subj
+                            )
+                        )
+
                         stmt = select(TopicKnowledgeGraph).where(
                             TopicKnowledgeGraph.user_id == u_id,
                             TopicKnowledgeGraph.subject == subj
@@ -273,6 +286,13 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                                 rec.updated_at = datetime.utcnow()
                                 await db.commit()
                                 total_graph_nodes = len(final_graph_data["nodes"])
+
+                        # Синхронизируем интерактивные практические задания по предмету (R2.2)
+                        try:
+                            await generate_practice_session(user_id=u_id, subject=subj, count=10, db=db)
+                            print(f"[Generation Worker] Практические задания для '{subj}' успешно синхронизированы.", flush=True)
+                        except Exception as p_err:
+                            print(f"[Generation Worker WARN] Сбой синхронизации практики: {p_err}", flush=True)
             except Exception as graph_err:
                 print(f"[Generation Worker WARN] Сбой консолидации графа знаний: {graph_err}", flush=True)
 

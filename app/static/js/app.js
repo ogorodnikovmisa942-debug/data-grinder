@@ -881,6 +881,12 @@ function showSurveyDirectly() {
 }
 
 function resetCardDOM() {
+    isFlipped = false;
+    const flashcardEl = document.getElementById('flashcard');
+    if (flashcardEl) {
+        flashcardEl.style.transform = '';
+        flashcardEl.classList.remove('rotate-y-180');
+    }
     const normalFront = document.getElementById('card-front-normal');
     const introFront = document.getElementById('card-front-intro');
     const front = document.getElementById('card-front');
@@ -1018,7 +1024,10 @@ function renderCurrentCard() {
 
 function renderIntroductionCard(card) {
     isFlipped = false;
-    if (flashcard) flashcard.classList.remove('rotate-y-180');
+    if (flashcard) {
+        flashcard.style.transform = '';
+        flashcard.classList.remove('rotate-y-180');
+    }
     
     // Скрываем кнопки FSRS
     if (actionButtons) {
@@ -1288,7 +1297,10 @@ window.fastTrackIntroduction = function() {
 
 function renderReviewCard(card) {
     isFlipped = false;
-    if (flashcard) flashcard.classList.remove('rotate-y-180'); 
+    if (flashcard) {
+        flashcard.style.transform = '';
+        flashcard.classList.remove('rotate-y-180');
+    }
     if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
     
     // Показываем/скрываем нужные контейнеры на лицевой стороне
@@ -4720,61 +4732,65 @@ function wrapNodeText(text, maxChars = 16) {
     return lines;
 }
 
+let isInitialLayoutFit = true;
+
 function applySpiderwebForces(graphInstance) {
     if (!graphInstance) return;
 
     const cleanData = getCleanGraphData();
-    const nodeCount = (cleanData && cleanData.nodes) ? cleanData.nodes.length : 50;
-    const isLarge = nodeCount > 100;
+    const nodeCount = (cleanData && cleanData.nodes) ? cleanData.nodes.length : 35;
+    const isLarge = nodeCount > 50;
 
-    // 1. Charge force with hierarchy gradient:
-    // Root has strong repulsion to push institutes out, leaves have gentle repulsion
-    // Dynamically scaled for large graphs (N > 100) so hundreds of nodes don't collapse into a dense ball
+    // Fast lookup map in case link.source/target are string IDs
+    const nodeMap = new Map((cleanData && cleanData.nodes) ? cleanData.nodes.map(n => [String(n.id), n]) : []);
+
+    // 1. Charge force with calibrated repulsion gradient:
+    // Root pushes major institutes outward; institutes push leaves; leaves maintain generous breathing room
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (lvl === 0) return isLarge ? -1200 : -600;
-                if (lvl === 1) return isLarge ? -350 : -220;
-                return isLarge ? -120 : -70;
+                if (lvl === 0) return isLarge ? -1600 : -1200;
+                if (lvl === 1) return isLarge ? -650 : -480;
+                return isLarge ? -320 : -220;
             })
-            .distanceMax(isLarge ? 1800 : 650);
+            .distanceMax(isLarge ? 2200 : 1400);
     }
 
-    // 2. Link force with spoke-and-wheel spiderweb distances:
-    // Central spokes from Root (level 0) to Major Institutes (level 1) are long
-    // Leaf nodes around their institutes are spaced cleanly
+    // 2. Link force with calibrated spoke-and-wheel spiderweb distances:
+    // Guarantees generous spacing between hierarchy levels and leaf clusters
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
-                const s = link.source;
-                const t = link.target;
-                const sLvl = (s && s.level !== undefined) ? s.level : 1;
-                const tLvl = (t && t.level !== undefined) ? t.level : 1;
-                if (sLvl === 0 || tLvl === 0) return isLarge ? 180 : 135;
-                if (sLvl === 1 && tLvl === 1) return isLarge ? 120 : 85;
-                return isLarge ? 65 : 42;
+                const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
+                const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
+                const sLvl = (s.level !== undefined) ? s.level : 1;
+                const tLvl = (t.level !== undefined) ? t.level : 1;
+                if (sLvl === 0 || tLvl === 0) return isLarge ? 240 : 180;
+                if (sLvl === 1 && tLvl === 1) return isLarge ? 170 : 130;
+                return isLarge ? 110 : 85;
             })
             .strength(link => {
-                const s = link.source;
-                const t = link.target;
-                const sLvl = (s && s.level !== undefined) ? s.level : 1;
-                const tLvl = (t && t.level !== undefined) ? t.level : 1;
-                if (sLvl === 0 || tLvl === 0) return 0.9;
-                return 0.75;
+                const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
+                const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
+                const sLvl = (s.level !== undefined) ? s.level : 1;
+                const tLvl = (t.level !== undefined) ? t.level : 1;
+                if (sLvl === 0 || tLvl === 0) return 0.85;
+                return 0.7;
             });
     }
 
-    // 3. Collision force to prevent node/label overlapping
+    // 3. Collision force to prevent node and text badge overlapping
     if (window.d3 && window.d3.forceCollide) {
-        const radiusMultiplier = isLarge ? 3.0 : 2.2;
-        const extraPad = isLarge ? 12 : 8;
-        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => (node.val || 5) * radiusMultiplier + extraPad));
+        const radiusMultiplier = isLarge ? 3.5 : 2.8;
+        const extraPad = isLarge ? 24 : 18;
+        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => Math.max(34, (node.val || 5) * radiusMultiplier + extraPad)).iterations(3));
     }
 }
 
 window.setGraphLayout = function(layoutType) {
     currentKgLayout = layoutType || 'force';
+    isInitialLayoutFit = true;
 
     const btnForce = document.getElementById('kg-layout-force');
     const btnRadial = document.getElementById('kg-layout-radial');
@@ -4797,26 +4813,29 @@ window.setGraphLayout = function(layoutType) {
     const nodeCount = cleanData.nodes ? cleanData.nodes.length : 0;
 
     if (currentKgLayout === 'radial') {
-        const radialDist = Math.min(220, Math.max(90, Math.round(nodeCount * 0.35)));
+        const radialDist = Math.min(320, Math.max(160, Math.round(nodeCount * 4.5)));
         currentForceGraphInstance
             .dagMode('radialout')
             .dagLevelDistance(radialDist)
             .onDagError(() => false)
             .graphData(cleanData);
+        applySpiderwebForces(currentForceGraphInstance);
     } else if (currentKgLayout === 'tree') {
-        const treeDist = Math.min(240, Math.max(85, Math.round(nodeCount * 0.4)));
+        const treeDist = Math.min(300, Math.max(140, Math.round(nodeCount * 4.0)));
         currentForceGraphInstance
             .dagMode('td')
             .dagLevelDistance(treeDist)
             .onDagError(() => false)
             .graphData(cleanData);
+        applySpiderwebForces(currentForceGraphInstance);
     } else if (currentKgLayout === 'horizontal') {
-        const lrDist = Math.min(260, Math.max(120, Math.round(nodeCount * 0.45)));
+        const lrDist = Math.min(340, Math.max(180, Math.round(nodeCount * 4.5)));
         currentForceGraphInstance
             .dagMode('lr')
             .dagLevelDistance(lrDist)
             .onDagError(() => false)
             .graphData(cleanData);
+        applySpiderwebForces(currentForceGraphInstance);
     } else {
         currentForceGraphInstance
             .dagMode(null)
@@ -4829,10 +4848,11 @@ window.setGraphLayout = function(layoutType) {
         currentForceGraphInstance.d3ReheatSimulation();
     }
     setTimeout(() => {
-        if (currentForceGraphInstance) {
-            currentForceGraphInstance.zoomToFit(400, 30);
+        if (currentForceGraphInstance && isInitialLayoutFit) {
+            isInitialLayoutFit = false;
+            currentForceGraphInstance.zoomToFit(400, 40);
         }
-    }, 350);
+    }, 450);
 };
 
 window.initForceGraph = function(graphData) {
@@ -4863,6 +4883,10 @@ window.initForceGraph = function(graphData) {
     }
 
     wrapper.innerHTML = '';
+    isInitialLayoutFit = true;
+    wrapper.addEventListener('pointerdown', () => { isInitialLayoutFit = false; }, { passive: true });
+    wrapper.addEventListener('touchstart', () => { isInitialLayoutFit = false; }, { passive: true });
+    wrapper.addEventListener('wheel', () => { isInitialLayoutFit = false; }, { passive: true });
 
     currentForceGraphInstance = ForceGraph()(wrapper)
         .width(width)
@@ -4878,9 +4902,21 @@ window.initForceGraph = function(graphData) {
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
         .warmupTicks(35)
-        .cooldownTicks(120)
+        .cooldownTicks(90)
         .d3VelocityDecay(0.3)
         .onDagError(() => false)
+        .onEngineStop(() => {
+            if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
+                isInitialLayoutFit = false;
+                currentForceGraphInstance.zoomToFit(400, 40);
+            }
+        })
+        .onNodeDrag(() => {
+            isInitialLayoutFit = false;
+        })
+        .onNodeDragEnd(() => {
+            isInitialLayoutFit = false;
+        })
         .nodeCanvasObject((node, ctx, globalScale) => {
             const label = node.name || node.id;
             const radius = Math.max(3.5, (node.val || 5));
@@ -4954,7 +4990,7 @@ window.zoomGraph = function(factor) {
 
 window.resetGraphZoom = function() {
     if (!currentForceGraphInstance) return;
-    currentForceGraphInstance.zoomToFit(400, 30);
+    currentForceGraphInstance.zoomToFit(400, 40);
 };
 
 window.showKgNodeDrawer = function(node) {

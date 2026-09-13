@@ -13,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob
+from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog
 from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic, split_text_into_chunks
 from app.services.generation_worker import is_deepseek_offpeak
+from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases, synthesize_graph_from_cards, clean_graph_data, build_hierarchical_tree
+from app.services.practice_service import generate_practice_session
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from datetime import datetime, timedelta
@@ -119,73 +121,100 @@ async def check_experiment_lock(current_user: str, db: AsyncSession):
 # Вспомогательная функция для создания карточек в БД
 async def save_cards_to_database(cards_data: list, subject_slug: str, phrase_title: str, user_id: str, db: AsyncSession):
     clean_sub = subject_slug.strip().lower() or "generic"
+    canonical = resolve_subject_alias(clean_sub)
+    all_aliases = get_all_subject_aliases(clean_sub)
+    if clean_sub not in all_aliases:
+        all_aliases.append(clean_sub)
+    if canonical not in all_aliases:
+        all_aliases.append(canonical)
+
     clean_title = phrase_title.strip() or "Новый блок знаний"
-    
+
+    # Кэш существующих карточек пользователя по всем алиасам для исключения дубликатов
+    stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject.in_(all_aliases))
+    res_existing = await db.execute(stmt_existing)
+    existing_cards = res_existing.scalars().all()
+    existing_map = {c.text.strip().lower(): c for c in existing_cards if c.text}
+
     # Кэш тем (Phrases) для поддержки мульти-тематической кластеризации в одном пакете карточек
-    phrase_cache = {}
+    stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject.in_(all_aliases))
+    res_phrases = await db.execute(stmt_phrases)
+    phrase_cache = {p.text.strip(): p for p in res_phrases.scalars().all() if p.text}
 
     cards_created = 0
     now = datetime.utcnow()
     for c in cards_data:
-        c_text = c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")
-        c_trans = c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")
-        if not c_text or not c_trans:
+        c_text = (c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")) or ""
+        c_trans = (c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")) or ""
+        if not c_text.strip() or not c_trans.strip():
             continue
 
-        c_theme = (c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "") or "").strip() or clean_title
+        c_text_clean = c_text.strip()
+        c_key = c_text_clean.lower()
+        c_theme = ((c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "")) or "").strip() or clean_title
 
         if c_theme not in phrase_cache:
-            phrase_res = await db.execute(
-                select(Phrase).filter(Phrase.text == c_theme, Phrase.subject == clean_sub, Phrase.user_id == user_id)
-            )
-            phrase = phrase_res.scalar_one_or_none()
-            if not phrase:
-                phrase = Phrase(text=c_theme, subject=clean_sub, user_id=user_id)
-                db.add(phrase)
-                await db.flush()
+            phrase = Phrase(text=c_theme, subject=canonical, user_id=user_id)
+            db.add(phrase)
+            await db.flush()
             phrase_cache[c_theme] = phrase
 
         target_phrase = phrase_cache[c_theme]
 
-        c_sec = c.get("secondary_text", "") if isinstance(c, dict) else getattr(c, "secondary_text", "")
-        c_ex = c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")
-        c_tier = c.get("initial_difficulty_tier", "medium") if isinstance(c, dict) else getattr(c, "initial_difficulty_tier", "medium")
+        c_sec = (c.get("secondary_text", "") if isinstance(c, dict) else getattr(c, "secondary_text", "")) or ""
+        c_ex = (c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")) or ""
+        c_tier = (c.get("initial_difficulty_tier", "medium") if isinstance(c, dict) else getattr(c, "initial_difficulty_tier", "medium"))
         c_mnem = c.get("mnemonic", None) if isinstance(c, dict) else getattr(c, "mnemonic", None)
 
-        difficulty = 5.5
-        if c_tier == "easy":
-            difficulty = 3.5
-        elif c_tier == "hard":
-            difficulty = 7.5
+        if c_key in existing_map:
+            # Обновляем существующую карточку (сохраняя прогресс FSRS) и нормализуем subject
+            card = existing_map[c_key]
+            card.translation = c_trans
+            card.subject = canonical
+            card.phrase_id = target_phrase.id
+            if c_sec:
+                card.secondary_text = c_sec
+            if c_ex:
+                card.example = c_ex
+            if c_mnem is not None:
+                card.mnemonic = c_mnem
+            cards_created += 1
+        else:
+            difficulty = 5.5
+            if c_tier == "easy":
+                difficulty = 3.5
+            elif c_tier == "hard":
+                difficulty = 7.5
 
-        stability = 1.0
-        if c_mnem:
-            if isinstance(c_mnem, dict) and c_mnem.get("keyword"):
-                stability = 1.5
-            elif isinstance(c_mnem, str) and c_mnem.strip():
-                stability = 1.5
+            stability = 1.0
+            if c_mnem:
+                if isinstance(c_mnem, dict) and c_mnem.get("keyword"):
+                    stability = 1.5
+                elif isinstance(c_mnem, str) and c_mnem.strip():
+                    stability = 1.5
 
-        c_type = (c.get("content_type") if isinstance(c, dict) else getattr(c, "content_type", None)) or ("cloze" if "{{c" in c_text else "text")
+            c_type = (c.get("content_type") if isinstance(c, dict) else getattr(c, "content_type", None)) or ("cloze" if "{{c" in c_text_clean else "text")
 
-        card = Card(
-            phrase_id=target_phrase.id,
-            user_id=user_id,
-            subject=clean_sub,
-            text=c_text,
-            secondary_text=c_sec,
-            translation=c_trans,
-            example=c_ex,
-            difficulty=difficulty,
-            stability=stability,
-            state=0,
-            mnemonic=c_mnem,
-            content_type=c_type,
-            next_review=now
-        )
-        db.add(card)
-        cards_created += 1
+            card = Card(
+                phrase_id=target_phrase.id,
+                user_id=user_id,
+                subject=canonical,
+                text=c_text_clean,
+                secondary_text=c_sec,
+                translation=c_trans,
+                example=c_ex,
+                difficulty=difficulty,
+                stability=stability,
+                state=0,
+                mnemonic=c_mnem,
+                content_type=c_type,
+                next_review=now
+            )
+            db.add(card)
+            existing_map[c_key] = card
+            cards_created += 1
 
-    return cards_created, clean_sub, clean_title
+    return cards_created, canonical, clean_title
 
 async def append_or_sync_cards_to_database(
     cards_data: list,
@@ -203,16 +232,23 @@ async def append_or_sync_cards_to_database(
     Возвращает (cards_created, cards_updated, clean_sub, clean_title).
     """
     clean_sub = subject_slug.strip().lower() or "generic"
+    canonical = resolve_subject_alias(clean_sub)
+    all_aliases = get_all_subject_aliases(clean_sub)
+    if clean_sub not in all_aliases:
+        all_aliases.append(clean_sub)
+    if canonical not in all_aliases:
+        all_aliases.append(canonical)
+
     clean_title = phrase_title.strip() or "Новый блок знаний"
 
-    # Загружаем существующие карточки пользователя по данному предмету
-    stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject == clean_sub)
+    # Загружаем существующие карточки пользователя по всем алиасам данного предмета
+    stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject.in_(all_aliases))
     res_existing = await db.execute(stmt_existing)
     existing_cards = res_existing.scalars().all()
     existing_map = {c.text.strip().lower(): c for c in existing_cards if c.text}
 
     # Кэш тем (Phrases)
-    stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject == clean_sub)
+    stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject.in_(all_aliases))
     res_phrases = await db.execute(stmt_phrases)
     phrase_cache = {p.text.strip(): p for p in res_phrases.scalars().all() if p.text}
 
@@ -237,6 +273,7 @@ async def append_or_sync_cards_to_database(
             # Существующая карточка: обновляем только текстовые поля, сохраняя весь прогресс FSRS
             card = existing_map[c_key]
             card.translation = c_trans
+            card.subject = canonical  # гарантируем нормализацию предмета к каноническому
             if c_sec:
                 card.secondary_text = c_sec
             if c_ex:
@@ -249,7 +286,7 @@ async def append_or_sync_cards_to_database(
             c_theme = ((c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "")) or "").strip() or clean_title
 
             if c_theme not in phrase_cache:
-                phrase = Phrase(text=c_theme, subject=clean_sub, user_id=user_id)
+                phrase = Phrase(text=c_theme, subject=canonical, user_id=user_id)
                 db.add(phrase)
                 await db.flush()
                 phrase_cache[c_theme] = phrase
@@ -273,7 +310,7 @@ async def append_or_sync_cards_to_database(
             new_card = Card(
                 phrase_id=target_phrase.id,
                 user_id=user_id,
-                subject=clean_sub,
+                subject=canonical,
                 text=c_text_clean,
                 secondary_text=c_sec,
                 translation=c_trans,
@@ -289,7 +326,109 @@ async def append_or_sync_cards_to_database(
             existing_map[c_key] = new_card  # предотвращаем дубли внутри пачки
             cards_created += 1
 
-    return cards_created, cards_updated, clean_sub, clean_title
+    return cards_created, cards_updated, canonical, clean_title
+
+
+async def sync_subject_knowledge_and_practice(
+    db: AsyncSession,
+    user_id: str,
+    subject_slug: str,
+    cards_data: Optional[list] = None,
+    kg_data: Optional[dict] = None,
+    fallback_title: Optional[str] = None
+) -> None:
+    """
+    Автоматическая синхронизация графа знаний и интерактивных практических заданий (R2).
+    - Очищает устаревшие дублирующие записи по всем алиасам предмета.
+    - Обеспечивает актуальный граф знаний (25-45 узлов) и свежие практические задания.
+    """
+    clean_sub = subject_slug.strip().lower() or "generic"
+    canonical = resolve_subject_alias(clean_sub)
+    all_aliases = get_all_subject_aliases(clean_sub)
+    if clean_sub not in all_aliases:
+        all_aliases.append(clean_sub)
+    if canonical not in all_aliases:
+        all_aliases.append(canonical)
+
+    # 1. Удаляем устаревшие конфликтующие записи графа по не-каноническим алиасам
+    await db.execute(
+        delete(TopicKnowledgeGraph).where(
+            TopicKnowledgeGraph.user_id == user_id,
+            TopicKnowledgeGraph.subject.in_(all_aliases),
+            TopicKnowledgeGraph.subject != canonical
+        )
+    )
+
+    # 2. Формируем актуальный граф знаний
+    now = datetime.utcnow()
+    graph_data = None
+    tree_data = None
+
+    if kg_data and kg_data.get("nodes") and len(kg_data.get("nodes", [])) >= 20:
+        graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
+        tree_data = kg_data.get("tree_data")
+    else:
+        # Извлекаем все актуальные карточки пользователя по всем алиасам для построения полного графа
+        stmt_c = select(Card).where(Card.user_id == user_id, Card.subject.in_(all_aliases))
+        res_c = await db.execute(stmt_c)
+        deck_cards = res_c.scalars().all()
+
+        cards_payload = [
+            {
+                "text": c.text,
+                "translation": c.translation,
+                "secondary_text": c.secondary_text or "",
+                "example": c.example or "",
+                "phrase": {"text": fallback_title or canonical}
+            }
+            for c in deck_cards
+        ]
+        if not cards_payload and cards_data:
+            cards_payload = cards_data
+
+        syn = synthesize_graph_from_cards(cards_payload, fallback_title=fallback_title or canonical)
+        if syn and syn.get("graph_data", {}).get("nodes"):
+            graph_data = syn["graph_data"]
+            tree_data = syn.get("tree_data")
+
+    if graph_data:
+        kg_stmt = select(TopicKnowledgeGraph).where(
+            TopicKnowledgeGraph.user_id == user_id,
+            TopicKnowledgeGraph.subject == canonical
+        )
+        kg_rec = (await db.execute(kg_stmt)).scalars().first()
+        if kg_rec:
+            kg_rec.graph_data = graph_data
+            kg_rec.tree_data = tree_data
+            kg_rec.updated_at = now
+        else:
+            new_kg = TopicKnowledgeGraph(
+                user_id=user_id,
+                subject=canonical,
+                graph_data=graph_data,
+                tree_data=tree_data,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(new_kg)
+    elif not cards_payload and not cards_data:
+        # Если в предмете не осталось карточек, очищаем граф и практику для пользовательских предметов
+        if canonical not in ("sudoustroystvo", "court_system", "судоустройство", "default"):
+            await db.execute(delete(TopicKnowledgeGraph).where(
+                TopicKnowledgeGraph.user_id == user_id,
+                TopicKnowledgeGraph.subject.in_(all_aliases)
+            ))
+            await db.execute(delete(PracticeItem).where(
+                PracticeItem.user_id == user_id,
+                PracticeItem.subject.in_(all_aliases)
+            ))
+
+    # 3. Синхронизируем интерактивную практику
+    try:
+        await generate_practice_session(user_id=user_id, subject=canonical, count=10, db=db)
+    except Exception as e:
+        print(f"[Practice Sync] Ошибка синхронизации практики: {e}")
+
 
 # --- 1. ВЫДАЧА АРХИВА КАРТОЧЕК ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/data/cards")
@@ -302,7 +441,8 @@ async def get_all_cards(
 ):
     stmt = select(Card).filter(Card.user_id == current_user)
     if subject != 'all': 
-        stmt = stmt.filter(Card.subject == subject)
+        sub_aliases = get_all_subject_aliases(subject)
+        stmt = stmt.filter(Card.subject.in_(sub_aliases))
     
     count_stmt = select(func.count()).select_from(stmt.subquery())
     count_res = await db.execute(count_stmt)
@@ -342,9 +482,10 @@ async def export_cards_json(
     Экспорт карточек текущего пользователя в эталонном формате пресета .json.
     Идеально подходит для скачивания колоды и последующей раздачи всем участникам.
     """
+    sub_aliases = get_all_subject_aliases(subject) if subject != "all" else ["all"]
     stmt = select(Card).filter(Card.user_id == current_user)
     if subject != "all":
-        stmt = stmt.filter(Card.subject == subject)
+        stmt = stmt.filter(Card.subject.in_(sub_aliases))
     stmt = stmt.order_by(Card.id.asc())
 
     res = await db.execute(stmt)
@@ -354,23 +495,24 @@ async def export_cards_json(
     if not cards and current_user != "default_user":
         stmt_def = select(Card).filter(Card.user_id == "default_user")
         if subject != "all":
-            stmt_def = stmt_def.filter(Card.subject == subject)
+            stmt_def = stmt_def.filter(Card.subject.in_(sub_aliases))
         stmt_def = stmt_def.order_by(Card.id.asc())
         res_def = await db.execute(stmt_def)
         cards = res_def.scalars().all()
 
-    phrase_title = "Судоустройство: Основной курс" if subject == "sudoustroystvo" else f"Курс: {subject}"
+    canonical = resolve_subject_alias(subject)
+    phrase_title = "Судоустройство: Основной курс" if canonical == "sudoustroystvo" else f"Курс: {canonical}"
     if cards:
         p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
         if subject != "all":
-            p_stmt = p_stmt.filter(Phrase.subject == subject)
+            p_stmt = p_stmt.filter(Phrase.subject.in_(sub_aliases))
         found_title = (await db.execute(p_stmt)).scalar()
         if found_title:
             phrase_title = found_title
 
     payload = {
         "phrase_title": phrase_title,
-        "subject_slug": subject if subject != "all" else (cards[0].subject if cards else "sudoustroystvo"),
+        "subject_slug": canonical if subject != "all" else (cards[0].subject if cards else "sudoustroystvo"),
         "total_cards": len(cards),
         "cards": [
             {
@@ -385,7 +527,7 @@ async def export_cards_json(
     }
 
     json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-    sub_tag = subject if subject != "all" else "all_subjects"
+    sub_tag = canonical if subject != "all" else "all_subjects"
     filename = f"grinder_deck_{sub_tag}.json"
 
     return Response(
@@ -410,22 +552,25 @@ async def share_cards_deck(
     if not sub or sub == "all":
         raise HTTPException(status_code=400, detail="Укажите конкретный предмет для шеринга.")
 
-    stmt = select(Card).filter(Card.user_id == current_user, Card.subject == sub).order_by(Card.id.asc())
+    canonical = resolve_subject_alias(sub)
+    sub_aliases = get_all_subject_aliases(sub)
+
+    stmt = select(Card).filter(Card.user_id == current_user, Card.subject.in_(sub_aliases)).order_by(Card.id.asc())
     cards = (await db.execute(stmt)).scalars().all()
     if not cards and current_user != "default_user":
-        stmt_def = select(Card).filter(Card.user_id == "default_user", Card.subject == sub).order_by(Card.id.asc())
+        stmt_def = select(Card).filter(Card.user_id == "default_user", Card.subject.in_(sub_aliases)).order_by(Card.id.asc())
         cards = (await db.execute(stmt_def)).scalars().all()
 
     if not cards:
         raise HTTPException(status_code=404, detail="В этой колоде пока нет карточек для шеринга.")
 
-    p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id, Phrase.subject == sub)
-    found_title = (await db.execute(p_stmt)).scalar() or f"Колода: {sub}"
+    p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id, Phrase.subject.in_(sub_aliases))
+    found_title = (await db.execute(p_stmt)).scalar() or f"Колода: {canonical}"
 
     share_key = secrets.token_hex(4)
     deck_data = {
         "phrase_title": found_title,
-        "subject_slug": sub,
+        "subject_slug": canonical,
         "created_by": current_user,
         "created_at": datetime.utcnow().isoformat(),
         "total_cards": len(cards),
@@ -470,9 +615,10 @@ async def get_analytics(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    sub_aliases = get_all_subject_aliases(subject) if subject != 'all' else ['all']
     card_stmt = select(Card).filter(Card.user_id == current_user)
     if subject != 'all': 
-        card_stmt = card_stmt.filter(Card.subject == subject)
+        card_stmt = card_stmt.filter(Card.subject.in_(sub_aliases))
     card_res = await db.execute(card_stmt)
     cards = card_res.scalars().all()
     
@@ -490,7 +636,7 @@ async def get_analytics(
         log_stmt = select(ReviewLog).join(Card, ReviewLog.card_id == Card.id).filter(
             ReviewLog.user_id == current_user,
             ReviewLog.review_time >= one_month_ago, 
-            Card.subject == subject
+            Card.subject.in_(sub_aliases)
         )
     else:
         log_stmt = select(ReviewLog).filter(
@@ -527,7 +673,8 @@ async def get_analytics(
         by_sub = defaultdict(list)
         for c in cards:
             if c.subject:
-                by_sub[c.subject].append(c)
+                canon = resolve_subject_alias(c.subject)
+                by_sub[canon].append(c)
         for sub, sub_cards in by_sub.items():
             sub_total = len(sub_cards)
             sub_review = sum(1 for c in sub_cards if c.state == 2)
@@ -536,7 +683,7 @@ async def get_analytics(
                 "progress": round((sub_review / sub_total) * 100) if sub_total > 0 else 0
             })
     else:
-        phrase_stmt = select(Phrase).filter(Phrase.subject == subject, Phrase.user_id == current_user)
+        phrase_stmt = select(Phrase).filter(Phrase.subject.in_(sub_aliases), Phrase.user_id == current_user)
         phrase_res = await db.execute(phrase_stmt)
         phrases = phrase_res.scalars().all()
         for phrase in phrases:
@@ -573,7 +720,7 @@ async def get_analytics(
         Card.next_review <= evening_utc
     )
     if subject != 'all':
-        evening_stmt = evening_stmt.filter(Card.subject == subject)
+        evening_stmt = evening_stmt.filter(Card.subject.in_(sub_aliases))
     evening_res = await db.execute(evening_stmt)
     due_evening = evening_res.scalar() or 0
 
@@ -588,7 +735,7 @@ async def get_analytics(
         )
     )
     if subject != 'all':
-        due_stmt = due_stmt.filter(Card.subject == subject)
+        due_stmt = due_stmt.filter(Card.subject.in_(sub_aliases))
     due_res = await db.execute(due_stmt)
     due_reviews_now = due_res.scalar() or 0
 
@@ -605,8 +752,9 @@ async def get_analytics(
         setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
         user_setting = setting_res.scalar_one_or_none()
         user_daily_limit = user_setting.daily_limit if user_setting else 10
+        canonical_sub = resolve_subject_alias(subject)
         subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
-        daily_new_limit = subject_limits.get(subject, user_daily_limit)
+        daily_new_limit = subject_limits.get(canonical_sub, subject_limits.get(subject, user_daily_limit))
 
     # Сколько новых карточек изучено сегодня
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -616,7 +764,7 @@ async def get_analytics(
         ReviewLog.review_time >= today_start
     )
     if subject != 'all':
-        new_today_stmt = new_today_stmt.filter(Card.subject == subject)
+        new_today_stmt = new_today_stmt.filter(Card.subject.in_(sub_aliases))
     new_today_res = await db.execute(new_today_stmt)
     already_learned_today = len(new_today_res.scalars().all())
 
@@ -746,7 +894,7 @@ async def import_raw_text(
     if not payload.text.strip(): 
         return {"status": "error", "message": "Входящий текст пуст."}
     
-    target_sub = payload.subject.strip().lower()
+    target_sub = resolve_subject_alias(payload.subject.strip().lower())
     if not target_sub:
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
@@ -867,51 +1015,14 @@ async def import_raw_text(
             db=db
         )
         if cards_created > 0:
-            from app.database.models import TopicKnowledgeGraph
-            from app.services.graph_service import synthesize_graph_from_cards
-            if kg_data and kg_data.get("nodes"):
-                kg_stmt = select(TopicKnowledgeGraph).where(
-                    TopicKnowledgeGraph.user_id == current_user,
-                    TopicKnowledgeGraph.subject == clean_sub
-                )
-                kg_rec = (await db.execute(kg_stmt)).scalars().first()
-                if kg_rec:
-                    kg_rec.graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
-                    kg_rec.tree_data = kg_data.get("tree_data")
-                    kg_rec.updated_at = datetime.utcnow()
-                else:
-                    new_kg = TopicKnowledgeGraph(
-                        user_id=current_user,
-                        subject=clean_sub,
-                        graph_data={"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])},
-                        tree_data=kg_data.get("tree_data"),
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(new_kg)
-            else:
-                syn = synthesize_graph_from_cards(cards, fallback_title=clean_title or clean_sub)
-                if syn and syn.get("graph_data", {}).get("nodes"):
-                    kg_stmt = select(TopicKnowledgeGraph).where(
-                        TopicKnowledgeGraph.user_id == current_user,
-                        TopicKnowledgeGraph.subject == clean_sub
-                    )
-                    kg_rec = (await db.execute(kg_stmt)).scalars().first()
-                    if kg_rec:
-                        kg_rec.graph_data = syn["graph_data"]
-                        kg_rec.tree_data = syn["tree_data"]
-                        kg_rec.updated_at = datetime.utcnow()
-                    else:
-                        new_kg = TopicKnowledgeGraph(
-                            user_id=current_user,
-                            subject=clean_sub,
-                            graph_data=syn["graph_data"],
-                            tree_data=syn["tree_data"],
-                            created_at=datetime.utcnow(),
-                            updated_at=datetime.utcnow()
-                        )
-                        db.add(new_kg)
-
+            await sync_subject_knowledge_and_practice(
+                db=db,
+                user_id=current_user,
+                subject_slug=clean_sub,
+                cards_data=cards,
+                kg_data=kg_data,
+                fallback_title=clean_title or clean_sub
+            )
             await db.commit()
             return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
         else:
@@ -950,53 +1061,15 @@ async def commit_staging_cards(
                 job.cards_count = cards_created
                 job.result_cards_json = None  # Освобождаем место в БД после фиксации в карточки
 
-        # Фиксация или синтез графа знаний для предмета
-        from app.database.models import TopicKnowledgeGraph
-        from app.services.graph_service import synthesize_graph_from_cards
-        
-        kg_data = payload.knowledge_graph
-        if kg_data and kg_data.get("nodes"):
-            kg_stmt = select(TopicKnowledgeGraph).where(
-                TopicKnowledgeGraph.user_id == current_user,
-                TopicKnowledgeGraph.subject == clean_sub
-            )
-            kg_rec = (await db.execute(kg_stmt)).scalars().first()
-            if kg_rec:
-                kg_rec.graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
-                kg_rec.tree_data = kg_data.get("tree_data")
-                kg_rec.updated_at = datetime.utcnow()
-            else:
-                new_kg = TopicKnowledgeGraph(
-                    user_id=current_user,
-                    subject=clean_sub,
-                    graph_data={"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])},
-                    tree_data=kg_data.get("tree_data"),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(new_kg)
-        else:
-            syn = synthesize_graph_from_cards(payload.cards, fallback_title=clean_title or clean_sub)
-            if syn and syn.get("graph_data", {}).get("nodes"):
-                kg_stmt = select(TopicKnowledgeGraph).where(
-                    TopicKnowledgeGraph.user_id == current_user,
-                    TopicKnowledgeGraph.subject == clean_sub
-                )
-                kg_rec = (await db.execute(kg_stmt)).scalars().first()
-                if kg_rec:
-                    kg_rec.graph_data = syn["graph_data"]
-                    kg_rec.tree_data = syn["tree_data"]
-                    kg_rec.updated_at = datetime.utcnow()
-                else:
-                    new_kg = TopicKnowledgeGraph(
-                        user_id=current_user,
-                        subject=clean_sub,
-                        graph_data=syn["graph_data"],
-                        tree_data=syn["tree_data"],
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(new_kg)
+        # Фиксация и синхронизация графа знаний и практики для предмета
+        await sync_subject_knowledge_and_practice(
+            db=db,
+            user_id=current_user,
+            subject_slug=clean_sub,
+            cards_data=[c.dict() for c in payload.cards],
+            kg_data=payload.knowledge_graph,
+            fallback_title=clean_title or clean_sub
+        )
 
         await db.commit()
         return {
@@ -1031,7 +1104,7 @@ async def import_file_at_code_level(
     if not upload_list:
         raise HTTPException(status_code=400, detail="Не передано ни одного файла.")
 
-    target_sub = str(form.get("subject", "")).strip().lower()
+    target_sub = resolve_subject_alias(str(form.get("subject", "")).strip().lower())
     if not target_sub:
         raise HTTPException(status_code=400, detail="Целевой предмет не выбран. Выберите предмет из списка или укажите новый.")
 
@@ -1250,6 +1323,14 @@ async def import_file_at_code_level(
             user_id=current_user,
             db=db
         )
+        if cards_created > 0:
+            await sync_subject_knowledge_and_practice(
+                db=db,
+                user_id=current_user,
+                subject_slug=clean_sub,
+                cards_data=all_cards,
+                fallback_title=clean_title or clean_sub
+            )
         await db.commit()
         return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
 
@@ -1391,6 +1472,13 @@ async def import_preset_library(
             db=db
         )
         if cards_created > 0:
+            await sync_subject_knowledge_and_practice(
+                db=db,
+                user_id=current_user,
+                subject_slug=clean_sub,
+                cards_data=cards,
+                fallback_title=clean_title or clean_sub
+            )
             await db.commit()
             return {"status": "success", "subject": clean_sub, "theme": clean_title, "cards_count": cards_created}
         else:
@@ -1412,14 +1500,15 @@ async def create_manual_card(
         raise HTTPException(status_code=400, detail="Лицевая сторона и перевод обязательны.")
 
     clean_sub = payload.subject.strip().lower() or "generic"
+    canonical = resolve_subject_alias(clean_sub)
     clean_title = payload.phrase_title.strip() or "Пользовательские карточки"
     
     phrase_res = await db.execute(
-        select(Phrase).filter(Phrase.text == clean_title, Phrase.subject == clean_sub, Phrase.user_id == current_user)
+        select(Phrase).filter(Phrase.text == clean_title, Phrase.subject == canonical, Phrase.user_id == current_user)
     )
     phrase = phrase_res.scalar_one_or_none()
     if not phrase:
-        phrase = Phrase(text=clean_title, subject=clean_sub, user_id=current_user)
+        phrase = Phrase(text=clean_title, subject=canonical, user_id=current_user)
         db.add(phrase)
         await db.flush()
 
@@ -1433,7 +1522,7 @@ async def create_manual_card(
     card = Card(
         phrase_id=phrase.id,
         user_id=current_user,
-        subject=clean_sub,
+        subject=canonical,
         text=payload.text.strip(),
         secondary_text=payload.secondary_text.strip(),
         translation=payload.translation.strip(),
@@ -1447,6 +1536,15 @@ async def create_manual_card(
     db.add(card)
     await db.flush()
     saved_id = card.id
+
+    # Синхронизируем граф знаний и практику для предмета (R2.2)
+    await sync_subject_knowledge_and_practice(
+        db=db,
+        user_id=current_user,
+        subject_slug=canonical,
+        fallback_title=clean_title or canonical
+    )
+
     await db.commit()
     return {"status": "success", "card_id": saved_id}
 
@@ -1491,10 +1589,11 @@ async def move_card(
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
     
-    target_sub = payload.target_subject.strip().lower()
+    target_sub = resolve_subject_alias(payload.target_subject.strip().lower())
+    target_aliases = get_all_subject_aliases(target_sub)
     
     phrase_res = await db.execute(
-        select(Phrase).filter(Phrase.text == "[МИГРИРОВАВШИЕ КАРТОЧКИ]", Phrase.subject == target_sub, Phrase.user_id == current_user)
+        select(Phrase).filter(Phrase.text == "[МИГРИРОВАВШИЕ КАРТОЧКИ]", Phrase.subject.in_(target_aliases), Phrase.user_id == current_user)
     )
     phrase = phrase_res.scalar_one_or_none()
     if not phrase:
@@ -1502,10 +1601,15 @@ async def move_card(
         db.add(phrase)
         await db.flush()
         
+    old_sub = card.subject
     card.subject = target_sub
     card.phrase_id = phrase.id
     await db.commit()
-    
+    await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=target_sub)
+    if old_sub and resolve_subject_alias(old_sub) != target_sub:
+        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=old_sub)
+    await db.commit()
+
     return {"status": "success", "card_id": card_id, "target_subject": target_sub}
 
 # --- 7. БЕЗОПАСНОЕ УДАЛЕНИЕ КАРТОЧЕК ---
@@ -1520,8 +1624,13 @@ async def delete_card(
     card = card_res.scalar_one_or_none()
     if not card: 
         raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
+    sub = card.subject
+    await db.execute(delete(ReviewLog).where(ReviewLog.card_id == card_id))
     await db.delete(card)
     await db.commit()
+    if sub:
+        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=sub)
+        await db.commit()
     return None
 
 # --- 7.5 ПЕРЕГЕНЕРАЦИЯ АССОЦИАЦИИ ---
@@ -1565,10 +1674,17 @@ async def bulk_move_cards(
             detail="Идентификаторы карточек не могут быть пустыми и целевой предмет должен быть указан"
         )
     
-    target_sub = payload.target_subject.strip().lower()
+    target_sub = resolve_subject_alias(payload.target_subject.strip().lower())
+    target_aliases = get_all_subject_aliases(target_sub)
     
+    # Извлекаем исходные предметы перемещаемых карточек для синхронизации
+    source_subs_res = await db.execute(
+        select(Card.subject).where(Card.id.in_(payload.card_ids), Card.user_id == current_user).distinct()
+    )
+    source_subs = [s[0] for s in source_subs_res.all() if s[0]]
+
     phrase_res = await db.execute(
-        select(Phrase).filter(Phrase.text == "[МИГРИРОВАВШИЕ КАРТОЧКИ]", Phrase.subject == target_sub, Phrase.user_id == current_user)
+        select(Phrase).filter(Phrase.text == "[МИГРИРОВАВШИЕ КАРТОЧКИ]", Phrase.subject.in_(target_aliases), Phrase.user_id == current_user)
     )
     phrase = phrase_res.scalar_one_or_none()
     if not phrase:
@@ -1582,6 +1698,11 @@ async def bulk_move_cards(
         .values(subject=target_sub, phrase_id=phrase.id)
     )
     await db.execute(stmt)
+    await db.commit()
+    await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=target_sub)
+    for s in source_subs:
+        if s and resolve_subject_alias(s) != target_sub:
+            await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=s)
     await db.commit()
     
     return {
@@ -1600,7 +1721,20 @@ async def bulk_delete_cards(
     await check_experiment_lock(current_user, db)
     if not payload.card_ids:
         raise HTTPException(status_code=400, detail="Список идентификаторов пуст")
+    
+    # Извлекаем предметы удаляемых карточек для каскадной синхронизации
+    card_subs_res = await db.execute(
+        select(Card.subject).where(Card.id.in_(payload.card_ids), Card.user_id == current_user).distinct()
+    )
+    affected_subs = [s[0] for s in card_subs_res.all() if s[0]]
+
+    # Удаляем логи повторений удаляемых карточек во избежание повисших записей
+    await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(payload.card_ids)))
     await db.execute(delete(Card).where(Card.id.in_(payload.card_ids), Card.user_id == current_user))
+    await db.commit()
+
+    for s in affected_subs:
+        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=s)
     await db.commit()
     return {"status": "success", "deleted_count": len(payload.card_ids)}
 
@@ -1622,14 +1756,21 @@ async def get_subjects_details(
     phrase_res = await db.execute(phrase_stmt)
     phrase_subs = [s[0] for s in phrase_res.all() if s[0]]
 
-    counts_map = {sub: count for sub, count in rows if sub}
+    aggregated_counts: dict[str, int] = defaultdict(int)
+    for sub, count in rows:
+        if sub:
+            canon = resolve_subject_alias(sub)
+            aggregated_counts[canon] += count
+
     for ps in phrase_subs:
-        if ps not in counts_map:
-            counts_map[ps] = 0
+        if ps:
+            canon = resolve_subject_alias(ps)
+            if canon not in aggregated_counts:
+                aggregated_counts[canon] = 0
 
     subjects_list = [
-        {"slug": sub, "name": sub.upper(), "cards_count": counts_map[sub]}
-        for sub in sorted(counts_map.keys())
+        {"slug": sub, "name": sub.upper(), "cards_count": aggregated_counts[sub]}
+        for sub in sorted(aggregated_counts.keys())
     ]
     return {"status": "success", "subjects": subjects_list}
 
@@ -1650,10 +1791,14 @@ async def rename_subject(
     if old_sub == new_sub:
         return {"status": "success", "message": "Имена совпадают", "subject": new_sub, "cards_updated": 0}
 
+    target_subs = get_all_subject_aliases(old_sub)
+    if old_sub not in target_subs:
+        target_subs.append(old_sub)
+
     # 1. Обновляем карточки
     card_res = await db.execute(
         update(Card)
-        .where(Card.subject == old_sub, Card.user_id == current_user)
+        .where(Card.subject.in_(target_subs), Card.user_id == current_user)
         .values(subject=new_sub)
     )
     cards_updated = card_res.rowcount
@@ -1661,24 +1806,46 @@ async def rename_subject(
     # 2. Обновляем темы (Phrase)
     await db.execute(
         update(Phrase)
-        .where(Phrase.subject == old_sub, Phrase.user_id == current_user)
+        .where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user)
         .values(subject=new_sub)
     )
 
     # 3. Обновляем задачи генерации (GenerationJob)
     await db.execute(
         update(GenerationJob)
-        .where(GenerationJob.subject == old_sub, GenerationJob.user_id == current_user)
+        .where(GenerationJob.subject.in_(target_subs), GenerationJob.user_id == current_user)
         .values(subject=new_sub)
     )
 
-    # 4. Обновляем лимиты в UserSetting
+    # 4. Обновляем граф знаний, практические задания и лог сессий (R2)
+    await db.execute(
+        update(TopicKnowledgeGraph)
+        .where(TopicKnowledgeGraph.subject.in_(target_subs), TopicKnowledgeGraph.user_id == current_user)
+        .values(subject=new_sub)
+    )
+    await db.execute(
+        update(PracticeItem)
+        .where(PracticeItem.subject.in_(target_subs), PracticeItem.user_id == current_user)
+        .values(subject=new_sub)
+    )
+    await db.execute(
+        update(PracticeSessionLog)
+        .where(PracticeSessionLog.subject.in_(target_subs), PracticeSessionLog.user_id == current_user)
+        .values(subject=new_sub)
+    )
+
+    # 5. Обновляем лимиты в UserSetting
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
     setting = setting_res.scalar_one_or_none()
-    if setting and setting.subject_limits and old_sub in setting.subject_limits:
+    if setting and setting.subject_limits:
         limits = dict(setting.subject_limits)
-        limits[new_sub] = limits.pop(old_sub)
-        setting.subject_limits = limits
+        limits_changed = False
+        for s in target_subs:
+            if s in limits:
+                limits[new_sub] = limits.pop(s)
+                limits_changed = True
+        if limits_changed:
+            setting.subject_limits = limits
 
     await db.commit()
     return {
@@ -1699,21 +1866,31 @@ async def delete_subject_all(
     if sub == "all":
         raise HTTPException(status_code=400, detail="Нельзя удалить служебный фильтр 'all'.")
 
-    # Удаляем ReviewLog карточек предмета, чтобы не оставалось повисших записей
-    card_ids_res = await db.execute(select(Card.id).where(Card.subject == sub, Card.user_id == current_user))
+    target_subs = get_all_subject_aliases(sub)
+    if sub not in target_subs:
+        target_subs.append(sub)
+
+    # 1. Удаляем ReviewLog карточек предмета по всем алиасам (по subject и по phrase_id)
+    phrase_ids_res = await db.execute(select(Phrase.id).where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user))
+    phrase_ids = phrase_ids_res.scalars().all()
+
+    card_stmt = select(Card.id).where(Card.user_id == current_user)
+    if phrase_ids:
+        card_stmt = card_stmt.where((Card.subject.in_(target_subs)) | (Card.phrase_id.in_(phrase_ids)))
+    else:
+        card_stmt = card_stmt.where(Card.subject.in_(target_subs))
+
+    card_ids_res = await db.execute(card_stmt)
     card_ids = card_ids_res.scalars().all()
     if card_ids:
         await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
         await db.execute(delete(Card).where(Card.id.in_(card_ids)))
 
-    await db.execute(delete(Phrase).where(Phrase.subject == sub, Phrase.user_id == current_user))
-    await db.execute(delete(GenerationJob).where(GenerationJob.subject == sub, GenerationJob.user_id == current_user))
+    # 2. Удаляем Phrase и GenerationJob по всем алиасам
+    await db.execute(delete(Phrase).where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user))
+    await db.execute(delete(GenerationJob).where(GenerationJob.subject.in_(target_subs), GenerationJob.user_id == current_user))
 
-    # Удаляем граф знаний и практические задания предмета
-    from app.database.models import TopicKnowledgeGraph, PracticeItem
-    from app.services.graph_service import resolve_subject_alias
-    alias_sub = resolve_subject_alias(sub)
-    target_subs = list(set([sub, alias_sub]))
+    # 3. Удаляем граф знаний, практические задания и лог сессий предмета
     await db.execute(delete(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.subject.in_(target_subs),
         TopicKnowledgeGraph.user_id == current_user
@@ -1722,14 +1899,61 @@ async def delete_subject_all(
         PracticeItem.subject.in_(target_subs),
         PracticeItem.user_id == current_user
     ))
+    await db.execute(delete(PracticeSessionLog).where(
+        PracticeSessionLog.subject.in_(target_subs),
+        PracticeSessionLog.user_id == current_user
+    ))
 
-    # Очищаем лимиты из UserSetting
+    # 4. Межпредметные связи (R2.1: очистка cross links в графах знаний других предметов)
+    other_kg_stmt = select(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.user_id == current_user,
+        ~TopicKnowledgeGraph.subject.in_(target_subs)
+    )
+    other_kgs = (await db.execute(other_kg_stmt)).scalars().all()
+    for okg in other_kgs:
+        if not okg.graph_data:
+            continue
+        nodes = okg.graph_data.get("nodes", [])
+        edges = okg.graph_data.get("edges", [])
+        modified = False
+        new_edges = []
+        for e in edges:
+            src = str(e.get("source", ""))
+            tgt = str(e.get("target", ""))
+            lbl = str(e.get("label", ""))
+            if any(s in src.lower() or s in tgt.lower() or s in lbl.lower() for s in target_subs):
+                modified = True
+            else:
+                new_edges.append(e)
+
+        new_nodes = []
+        for n in nodes:
+            n_id = str(n.get("id", "")).lower()
+            n_sub = str(n.get("subject", "")).lower()
+            n_name = str(n.get("name", "")).lower()
+            if any(s in n_id or s in n_sub or s in n_name for s in target_subs):
+                modified = True
+            else:
+                new_nodes.append(n)
+
+        if modified:
+            c_nodes, c_edges = clean_graph_data(new_nodes, new_edges)
+            okg.graph_data = {"nodes": c_nodes, "edges": c_edges}
+            okg.tree_data = build_hierarchical_tree(c_nodes, c_edges, root_title=okg.subject)
+            okg.updated_at = datetime.utcnow()
+
+    # 5. Очищаем лимиты из UserSetting по всем алиасам
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
     setting = setting_res.scalar_one_or_none()
-    if setting and setting.subject_limits and sub in setting.subject_limits:
+    if setting and setting.subject_limits:
         limits = dict(setting.subject_limits)
-        del limits[sub]
-        setting.subject_limits = limits
+        limits_changed = False
+        for s in target_subs:
+            if s in limits:
+                del limits[s]
+                limits_changed = True
+        if limits_changed:
+            setting.subject_limits = limits
 
     await db.commit()
     return {"status": "success", "deleted_subject": sub, "deleted_cards": len(card_ids)}

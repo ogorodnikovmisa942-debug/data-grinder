@@ -112,8 +112,10 @@ async def complete_practice(
     Фиксирует завершение сессии практики, сохраняет результат в журнал и вычисляет процент освоения.
     """
     from app.database.models import PracticeSessionLog
+    from app.services.graph_service import resolve_subject_alias
     from datetime import datetime
     
+    canonical_sub = resolve_subject_alias(payload.subject)
     pct = round((payload.score / payload.total) * 100.0, 1)
     
     if pct >= 80:
@@ -125,7 +127,7 @@ async def complete_practice(
 
     log = PracticeSessionLog(
         user_id=current_user,
-        subject=payload.subject,
+        subject=canonical_sub,
         score=payload.score,
         total=payload.total,
         percentage=pct,
@@ -155,12 +157,14 @@ async def get_practice_stats(
     Возвращает статистику практики по предмету: пройдено ли сегодня, балл и история.
     """
     from app.database.models import PracticeSessionLog
+    from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
     from sqlalchemy import select, func, desc
     from datetime import datetime, date
 
+    all_aliases = get_all_subject_aliases(subject)
     stmt = (
         select(PracticeSessionLog)
-        .where(PracticeSessionLog.user_id == current_user, PracticeSessionLog.subject == subject)
+        .where(PracticeSessionLog.user_id == current_user, PracticeSessionLog.subject.in_(all_aliases))
         .order_by(desc(PracticeSessionLog.created_at))
     )
     res = await db.execute(stmt)

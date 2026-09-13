@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PracticeItem, Card, Phrase, TopicKnowledgeGraph
 from app.database.session import AsyncSessionLocal
-from app.services.graph_service import resolve_subject_alias
+from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 
 
 # --- PRESET SEED PRACTICE ITEMS (FOR ZERO-CARD / INSTANT START) ---
@@ -261,14 +261,57 @@ SUDOUSTROYSTVO_PRESET_PRACTICE = [
 ]
 
 
-def select_coherent_distractors(target_answer: str, candidate_answers: list[str], count: int = 3) -> list[str]:
+def select_coherent_distractors(
+    target_answer: str,
+    candidate_answers: list[str],
+    count: int = 3,
+    fallback_pool: Optional[list[str]] = None
+) -> list[str]:
     """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины."""
     target_clean = target_answer.strip().lower()
     target_words = len(target_clean.split())
-    
+
     valid = [a.strip() for a in candidate_answers if a.strip() and a.strip().lower() != target_clean]
-    if not valid:
-        return [f"Альтернативное условие {i+1}" for i in range(count)]
+
+    # 1. Если переданы дополнительные кандидаты (например, фразы или термины)
+    if fallback_pool:
+        for fb in fallback_pool:
+            clean_fb = fb.strip()
+            if clean_fb and clean_fb.lower() != target_clean and clean_fb not in valid:
+                valid.append(clean_fb)
+
+    # 2. Если ответ числовой/временной (например "3 года", "10 суток"), формируем реалистичные альтернативы
+    deadline_pattern = r'^(\d+)\s+(суток|дней|дня|месяц|месяца|месяцев|лет|года|часов|часа)$'
+    m_num = re.match(deadline_pattern, target_answer.strip(), re.IGNORECASE)
+    if m_num:
+        val = int(m_num.group(1))
+        unit = m_num.group(2)
+        alts = [
+            f"{val + 1} {unit}",
+            f"{max(1, val - 1)} {unit}",
+            f"{val * 2} {unit}",
+            f"{val + 5} {unit}",
+            f"{max(1, val - 5)} {unit}"
+        ]
+        for a in alts:
+            if a.lower() != target_clean and a not in valid:
+                valid.append(a)
+
+    # 3. Если кандидатов все еще не хватает, добавляем интеллектуальные смысловые альтернативы
+    if len(valid) < count:
+        semantic_fallbacks = [
+            "Применяется факультативно по взаимному соглашению сторон",
+            "Определяется решением уполномоченного органа в каждом отдельном случае",
+            "Допускается только при наличии специального письменного разрешения",
+            "Не является обязательным условием для наступления правовых последствий",
+            "Исключается в случае наступления обстоятельств непреодолимой силы",
+            "Регулируется общими правилами без применения специальных исключений"
+        ]
+        for sf in semantic_fallbacks:
+            if sf.lower() != target_clean and sf not in valid:
+                valid.append(sf)
+            if len(valid) >= count:
+                break
 
     # Приоритет кандидатам со схожей длиной по словам
     def dist_score(cand: str):
@@ -279,9 +322,10 @@ def select_coherent_distractors(target_answer: str, candidate_answers: list[str]
     similar = [c for c in valid if dist_score(c) <= max(3, target_words // 2)]
     if len(similar) >= count:
         return random.sample(similar, count)
-    
+
     valid.sort(key=dist_score)
     return valid[:count]
+
 
 
 def extract_cloze_target(front_text: str, back_text: str = "") -> tuple[str, str]:
@@ -347,118 +391,240 @@ async def generate_practice_session(
         should_close = True
 
     try:
-        alias_subject = resolve_subject_alias(subject)
+        canonical_subject = resolve_subject_alias(subject)
+        all_aliases = get_all_subject_aliases(subject)
+        if subject not in all_aliases:
+            all_aliases.append(subject)
+        if canonical_subject not in all_aliases:
+            all_aliases.append(canonical_subject)
 
         # 1. Извлекаем карточки пользователя для предмета и его алиасов
-        stmt = select(Card).where(Card.subject.in_([subject, alias_subject]), Card.user_id == user_id)
+        stmt = select(Card).where(Card.subject.in_(all_aliases), Card.user_id == user_id)
         res = await db.execute(stmt)
         user_cards = res.scalars().all()
         if not user_cards:
-            stmt_default = select(Card).where(Card.subject.in_([subject, alias_subject]))
+            stmt_default = select(Card).where(Card.subject.in_(all_aliases))
             res_default = await db.execute(stmt_default)
             user_cards = res_default.scalars().all()
 
         practice_records: List[PracticeItem] = []
 
-        # 2. Если есть достаточно карточек, синтезируем интерактивные тесты
-        if len(user_cards) >= 3:
+        # 2. Если есть карточки (включая колоды из 1-2 карт), динамически синтезируем интерактивные тесты
+        if len(user_cards) >= 1:
             all_answers = [c.translation.strip() for c in user_cards if c.translation and len(c.translation.strip()) > 3]
-            sample_cards = random.sample(user_cards, min(count * 2, len(user_cards)))
+            all_fronts = [c.text.strip() for c in user_cards if c.text and len(c.text.strip()) > 2]
 
-            for card in sample_cards:
-                if len(practice_records) >= count:
-                    break
+            # Извлекаем фразы предмета в качестве дополнительного пула понятий
+            stmt_p = select(Phrase).where(Phrase.subject.in_(all_aliases))
+            res_p = await db.execute(stmt_p)
+            deck_phrases = res_p.scalars().all()
+            for p in deck_phrases:
+                p_text = (p.text or "").strip()
+                if p_text and len(p_text) > 2 and p_text not in all_fronts:
+                    all_fronts.append(p_text)
 
-                front = (card.text or "").strip()
-                back = (card.translation or "").strip()
-                ex = (card.example or "").strip()
-                sec = (card.secondary_text or "").strip()
+            # Для маленьких колод (< 3 карт) синтезируем по несколько разнообразных когнитивных упражнений на карту
+            if len(user_cards) < 3:
+                for card in user_cards:
+                    if len(practice_records) >= count:
+                        break
+                    front = (card.text or "").strip()
+                    back = (card.translation or "").strip()
+                    ex = (card.example or "").strip()
+                    sec = (card.secondary_text or "").strip()
+                    if not front or not back:
+                        continue
 
-                if not front or not back:
-                    continue
+                    # Вариант A: Прямой вопрос (front -> back)
+                    item_id_a = str(uuid.uuid4())
+                    chosen_a = select_coherent_distractors(back, all_answers, count=3, fallback_pool=[p.text for p in deck_phrases])
+                    opts_a = [back] + chosen_a[:3]
+                    while len(opts_a) < 4:
+                        opts_a.append(f"Альтернативное правило {len(opts_a)}")
+                    random.shuffle(opts_a)
 
-                cloze_prompt, cloze_target = extract_cloze_target(front, back)
-                item_id = str(uuid.uuid4())
-
-                # Тип 1: Заполнение пропусков (Slot-Filling)
-                if cloze_target and len(cloze_target) > 1:
-                    chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3)
-                    # Если таргет - это числовой срок (напр. "10 суток"), формируем реалистичные альтернативы
-                    m_num = re.match(r'^(\d+)\s+(суток|дней|дня|месяц|месяца|месяцев|лет|года)$', cloze_target.strip().lower())
-                    if m_num:
-                        val = int(m_num.group(1))
-                        unit = m_num.group(2)
-                        alternatives = [f"{val + 5} {unit}", f"{max(1, val - 5)} {unit}", f"{val * 2} {unit}"]
-                        chosen_distractors = [a for a in alternatives if a != cloze_target][:3]
-
-                    while len(chosen_distractors) < 3:
-                        chosen_distractors.append(f"Альтернативное условие {len(chosen_distractors) + 1}")
-
-                    options = [cloze_target] + chosen_distractors[:3]
-                    random.shuffle(options)
-
-                    pi = PracticeItem(
-                        item_id=item_id,
+                    is_contrast = any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница"))
+                    i_type = "contrast_pair" if is_contrast else "situational"
+                    practice_records.append(PracticeItem(
+                        item_id=item_id_a,
                         user_id=user_id,
-                        subject=subject,
-                        item_type="slot_filling",
-                        prompt=cloze_prompt,
-                        options=options,
-                        correct_answer=cloze_target,
-                        explanation=ex or sec or f"Правильный термин в контексте нормы: {cloze_target}.",
-                        gold_standard=f"Точное соответствие: {cloze_target}."
-                    )
-                    practice_records.append(pi)
-
-                # Тип 2: Контрастная пара (Contrast Pair)
-                elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница")):
-                    chosen_distractors = select_coherent_distractors(back, all_answers, count=3)
-                    while len(chosen_distractors) < 3:
-                        chosen_distractors.append(f"Иной критерий {len(chosen_distractors) + 1}")
-
-                    options = [back] + chosen_distractors[:3]
-                    random.shuffle(options)
-
-                    pi = PracticeItem(
-                        item_id=item_id,
-                        user_id=user_id,
-                        subject=subject,
-                        item_type="contrast_pair",
+                        subject=canonical_subject,
+                        item_type=i_type,
                         prompt=front,
-                        options=options,
+                        options=opts_a[:4],
                         correct_answer=back,
-                        explanation=ex or sec or f"Водораздельный критерий: {back}",
-                        gold_standard=f"Разграничительный критерий: {back}"
-                    )
-                    practice_records.append(pi)
+                        explanation=ex or sec or f"Правильное нормативное содержание: {back}.",
+                        gold_standard=f"Точное определение: {back}."
+                    ))
 
-                # Тип 3: Ситуационный кейс / Дерево решений (Situational Vignette)
-                else:
-                    chosen_distractors = select_coherent_distractors(back, all_answers, count=3)
-                    while len(chosen_distractors) < 3:
-                        chosen_distractors.append(f"Иная инстанция {len(chosen_distractors) + 1}")
+                    if len(practice_records) >= count:
+                        break
 
-                    options = [back] + chosen_distractors[:3]
-                    random.shuffle(options)
+                    # Вариант B: Заполнение пропуска (Slot-Filling)
+                    cloze_prompt, cloze_target = extract_cloze_target(front, back)
+                    if not cloze_target and ex:
+                        cloze_prompt, cloze_target = extract_cloze_target(ex, back)
+                    if cloze_target and len(cloze_target) > 1:
+                        item_id_b = str(uuid.uuid4())
+                        chosen_b = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=all_fronts)
+                        opts_b = [cloze_target] + chosen_b[:3]
+                        while len(opts_b) < 4:
+                            opts_b.append(f"Альтернативное условие {len(opts_b)}")
+                        random.shuffle(opts_b)
+                        practice_records.append(PracticeItem(
+                            item_id=item_id_b,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="slot_filling",
+                            prompt=cloze_prompt,
+                            options=opts_b[:4],
+                            correct_answer=cloze_target,
+                            explanation=ex or sec or f"Искомый термин/срок: {cloze_target}.",
+                            gold_standard=f"Точное соответствие: {cloze_target}."
+                        ))
 
-                    pi = PracticeItem(
-                        item_id=item_id,
-                        user_id=user_id,
-                        subject=subject,
-                        item_type="situational",
-                        prompt=front,
-                        options=options,
-                        correct_answer=back,
-                        explanation=ex or sec or f"Обоснование: {back}",
-                        gold_standard=f"Правовое последствие: {back}"
-                    )
-                    practice_records.append(pi)
+                    if len(practice_records) >= count:
+                        break
+
+                    # Вариант C: Обратная идентификация понятия (back -> front)
+                    clean_front = front.rstrip('?:.')
+                    if len(clean_front) <= 60 and clean_front != back:
+                        item_id_c = str(uuid.uuid4())
+                        chosen_c = select_coherent_distractors(clean_front, all_fronts, count=3, fallback_pool=[p.text for p in deck_phrases])
+                        opts_c = [clean_front] + chosen_c[:3]
+                        while len(opts_c) < 4:
+                            opts_c.append(f"Иное понятие {len(opts_c)}")
+                        random.shuffle(opts_c)
+                        practice_records.append(PracticeItem(
+                            item_id=item_id_c,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="situational",
+                            prompt=f"Какому понятию или институту соответствует следующее определение:\n«{back}»?",
+                            options=opts_c[:4],
+                            correct_answer=clean_front,
+                            explanation=f"Определение «{back}» относится именно к понятию «{clean_front}».",
+                            gold_standard=f"{clean_front} <-> {back}."
+                        ))
+
+                    if len(practice_records) >= count:
+                        break
+
+                    # Вариант D: Рубрикация по разделу (если есть secondary_text)
+                    if sec and len(sec) > 3 and sec != front and sec != back:
+                        sec_label = sec.split("|")[0].strip() if "|" in sec else sec.strip()
+                        item_id_d = str(uuid.uuid4())
+                        chosen_d = select_coherent_distractors(sec_label, [c.secondary_text for c in user_cards if c.secondary_text], count=3, fallback_pool=["Общая часть", "Особенная часть", "Процессуальный порядок"])
+                        opts_d = [sec_label] + chosen_d[:3]
+                        while len(opts_d) < 4:
+                            opts_d.append(f"Иной раздел {len(opts_d)}")
+                        random.shuffle(opts_d)
+                        practice_records.append(PracticeItem(
+                            item_id=item_id_d,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="situational",
+                            prompt=f"К какому институту или разделу относится положение:\n«{front}»?",
+                            options=opts_d[:4],
+                            correct_answer=sec_label,
+                            explanation=f"Данный вопрос классифицируется в рамках раздела: «{sec_label}».",
+                            gold_standard=f"Институт: {sec_label}."
+                        ))
+
+            else:
+                # Стандартный режим для колод от 3 карт
+                sample_cards = random.sample(user_cards, min(count * 2, len(user_cards)))
+                for card in sample_cards:
+                    if len(practice_records) >= count:
+                        break
+                    front = (card.text or "").strip()
+                    back = (card.translation or "").strip()
+                    ex = (card.example or "").strip()
+                    sec = (card.secondary_text or "").strip()
+
+                    if not front or not back:
+                        continue
+
+                    cloze_prompt, cloze_target = extract_cloze_target(front, back)
+                    item_id = str(uuid.uuid4())
+
+                    # Тип 1: Заполнение пропусков (Slot-Filling)
+                    if cloze_target and len(cloze_target) > 1:
+                        chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=all_fronts)
+                        options = [cloze_target] + chosen_distractors[:3]
+                        while len(options) < 4:
+                            options.append(f"Альтернативное условие {len(options)}")
+                        random.shuffle(options)
+
+                        pi = PracticeItem(
+                            item_id=item_id,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="slot_filling",
+                            prompt=cloze_prompt,
+                            options=options[:4],
+                            correct_answer=cloze_target,
+                            explanation=ex or sec or f"Правильный термин в контексте нормы: {cloze_target}.",
+                            gold_standard=f"Точное соответствие: {cloze_target}."
+                        )
+                        practice_records.append(pi)
+
+                    # Тип 2: Контрастная пара (Contrast Pair)
+                    elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница")):
+                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                        options = [back] + chosen_distractors[:3]
+                        while len(options) < 4:
+                            options.append(f"Иной критерий {len(options)}")
+                        random.shuffle(options)
+
+                        pi = PracticeItem(
+                            item_id=item_id,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="contrast_pair",
+                            prompt=front,
+                            options=options[:4],
+                            correct_answer=back,
+                            explanation=ex or sec or f"Водораздельный критерий: {back}",
+                            gold_standard=f"Разграничительный критерий: {back}"
+                        )
+                        practice_records.append(pi)
+
+                    # Тип 3: Ситуационный кейс / Дерево решений (Situational Vignette)
+                    else:
+                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                        options = [back] + chosen_distractors[:3]
+                        while len(options) < 4:
+                            options.append(f"Альтернативный вариант {len(options)}")
+                        random.shuffle(options)
+
+                        pi = PracticeItem(
+                            item_id=item_id,
+                            user_id=user_id,
+                            subject=canonical_subject,
+                            item_type="situational",
+                            prompt=front,
+                            options=options[:4],
+                            correct_answer=back,
+                            explanation=ex or sec or f"Обоснование: {back}",
+                            gold_standard=f"Правовое последствие: {back}"
+                        )
+                        practice_records.append(pi)
 
         # 3. Синтез вопросов из графа знаний предмета (топологическая инстанционность и связи)
         try:
-            kg_stmt = select(TopicKnowledgeGraph).where(TopicKnowledgeGraph.subject.in_([subject, alias_subject]))
+            kg_stmt = select(TopicKnowledgeGraph).where(
+                TopicKnowledgeGraph.user_id == user_id,
+                TopicKnowledgeGraph.subject.in_(all_aliases)
+            ).order_by(TopicKnowledgeGraph.updated_at.desc())
             kg_res = await db.execute(kg_stmt)
             kg_record = kg_res.scalars().first()
+            if not kg_record:
+                kg_stmt_any = select(TopicKnowledgeGraph).where(
+                    TopicKnowledgeGraph.subject.in_(all_aliases)
+                ).order_by(TopicKnowledgeGraph.updated_at.desc())
+                kg_res_any = await db.execute(kg_stmt_any)
+                kg_record = kg_res_any.scalars().first()
             if kg_record and kg_record.graph_data:
                 g_nodes = {n["id"]: n for n in kg_record.graph_data.get("nodes", []) if "id" in n}
                 g_edges = kg_record.graph_data.get("edges", [])
@@ -475,13 +641,13 @@ async def generate_practice_session(
                         if len(other_names) >= 2:
                             chosen_dist = random.sample(other_names, min(3, len(other_names)))
                             while len(chosen_dist) < 3:
-                                chosen_dist.append(f"Иная судебная инстанция {len(chosen_dist) + 1}")
+                                chosen_dist.append(f"Иная инстанция {len(chosen_dist) + 1}")
                             opts = [tgt_name] + chosen_dist[:3]
                             random.shuffle(opts)
                             pi = PracticeItem(
                                 item_id=str(uuid.uuid4()),
                                 user_id=user_id,
-                                subject=subject,
+                                subject=canonical_subject,
                                 item_type="situational",
                                 prompt=f"В какую судебную инстанцию в вышестоящем порядке обжалуются акты суда: «{src_name}»?",
                                 options=opts,
@@ -493,8 +659,8 @@ async def generate_practice_session(
         except Exception as kg_err:
             print(f"[Practice Engine] Ошибка синтеза из графа: {kg_err}")
 
-        # 4. Fallback / Добор: если заданий меньше count, добираем из пресетов
-        if len(practice_records) < count and (alias_subject in ("sudoustroystvo", "court_system", "судоустройство", "default") or len(practice_records) == 0):
+        # 4. Fallback / Добор: если заданий меньше count и предмет относится к судоустройству, добираем из пресетов
+        if len(practice_records) < count and canonical_subject in ("sudoustroystvo", "court_system", "судоустройство", "default"):
             seeds = SUDOUSTROYSTVO_PRESET_PRACTICE.copy()
             random.shuffle(seeds)
             needed = count - len(practice_records)
@@ -505,7 +671,7 @@ async def generate_practice_session(
                 pi = PracticeItem(
                     item_id=str(uuid.uuid4()),
                     user_id=user_id,
-                    subject=subject,
+                    subject=canonical_subject,
                     item_type=seed["type"],
                     prompt=seed["prompt"],
                     options=opts,
@@ -522,7 +688,7 @@ async def generate_practice_session(
         # 5. Очищаем старые временные задания по предмету и сохраняем свежие элементы в БД
         await db.execute(delete(PracticeItem).where(
             PracticeItem.user_id == user_id,
-            PracticeItem.subject.in_([subject, alias_subject])
+            PracticeItem.subject.in_(all_aliases)
         ))
         for pi in practice_records:
             db.add(pi)

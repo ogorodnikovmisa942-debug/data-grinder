@@ -213,10 +213,10 @@
                     <span>НЕ ВСПОМНИЛ</span>
                 </div>
 
-                <div class="relative w-full max-w-[400px] aspect-[4/5] min-h-[460px] max-h-[580px] transition-transform duration-500 transform-style-3d rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-surface-container-lowest shrink-0 shadow-lg shadow-neutral-900/5 dark:shadow-black/40 overflow-hidden" id="flashcard">
+                <div class="relative w-full max-w-[400px] aspect-[4/5] min-h-[460px] max-h-[580px] transition-transform duration-500 transform-style-3d rounded-2xl shrink-0" id="flashcard">
                     
                     <!-- Лицевая сторона -->
-                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-between bg-surface-container-lowest p-4 sm:p-5 rounded-2xl cursor-pointer select-none overflow-hidden">
+                    <div id="card-front" class="absolute inset-0 backface-hidden flex flex-col items-center justify-between bg-surface-container-lowest p-4 sm:p-5 rounded-2xl cursor-pointer select-none overflow-hidden border border-neutral-200/90 dark:border-neutral-800 shadow-lg shadow-neutral-900/5 dark:shadow-black/40">
                         <button id="voice-btn-front" class="absolute top-3 left-3 text-neutral-400 hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden z-10" aria-label="Озвучить" onclick="event.stopPropagation(); window.replayAudio();">
                             <span class="material-symbols-outlined text-[18px]">volume_up</span>
                         </button>
@@ -323,7 +323,7 @@
                     </div>
 
                     <!-- Обратная сторона (Гармоничная структурированная архитектура) -->
-                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center overflow-hidden select-none">
+                    <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center overflow-hidden select-none border border-neutral-200/90 dark:border-neutral-800 shadow-lg shadow-neutral-900/5 dark:shadow-black/40">
                         <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
                         <div class="w-full shrink-0 flex flex-col items-center gap-1 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
