@@ -84,7 +84,58 @@ function triggerHaptic(type = 'light') {
     } catch (e) {
         // Игнорируем вне среды Telegram
     }
-}
+// Всплывающие уведомления (Toast Notifications)
+window.showNotification = function(message, type = 'info') {
+    console.log(`[Notification ${type}]`, message);
+    try {
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none max-w-sm w-full px-3';
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        const colorClasses = {
+            success: 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200 shadow-emerald-950/40',
+            error: 'bg-rose-950/95 border-rose-500/60 text-rose-200 shadow-rose-950/40',
+            warning: 'bg-amber-950/95 border-amber-500/60 text-amber-200 shadow-amber-950/40',
+            info: 'bg-neutral-900/95 border-cyan-500/60 text-cyan-200 shadow-cyan-950/40'
+        }[type] || 'bg-neutral-900/95 border-neutral-700 text-neutral-200 shadow-black/40';
+
+        const iconName = {
+            success: 'check_circle',
+            error: 'error',
+            warning: 'warning',
+            info: 'info'
+        }[type] || 'info';
+
+        toast.className = `flex items-center gap-2.5 px-4 py-3 rounded-2xl border backdrop-blur-md shadow-2xl text-xs font-mono transition-all duration-300 transform translate-y-[-10px] opacity-0 pointer-events-auto ${colorClasses}`;
+        toast.innerHTML = `
+            <span class="material-symbols-outlined text-lg shrink-0">${iconName}</span>
+            <span class="flex-1 leading-snug">${escapeHTML(message)}</span>
+        `;
+
+        container.appendChild(toast);
+
+        // Плавное появление
+        requestAnimationFrame(() => {
+            toast.classList.remove('translate-y-[-10px]', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+        });
+
+        // Плавное автоисчезновение
+        setTimeout(() => {
+            toast.classList.add('opacity-0', 'translate-y-[-10px]');
+            setTimeout(() => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 300);
+        }, 3500);
+    } catch (err) {
+        alert(message);
+    }
+};
 
 // Форматирование карточки с пропусками (Cloze Deletion)
 // Синтаксис: {{c1::ответ::подсказка}} или {{c1::ответ}}
@@ -4560,6 +4611,24 @@ window.switchKgView = function(viewType) {
 };
 
 window.loadKnowledgeGraph = async function(subject) {
+    let sub = subject || currentKgSubject || getActiveDeckSubject();
+    if (!sub || sub === 'all') {
+        const sel = document.getElementById('subject-selector');
+        if (sel && sel.options) {
+            for (let i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value && sel.options[i].value !== 'all') {
+                    sub = sel.options[i].value;
+                    break;
+                }
+            }
+        }
+    }
+    if (!sub || sub === 'all') sub = 'sudoustr';
+    currentKgSubject = sub;
+
+    const badge = document.getElementById('kg-subject-badge');
+    if (badge) badge.textContent = sub.toUpperCase();
+
     const loading = document.getElementById('kg-loading');
     const emptyState = document.getElementById('kg-empty-state');
     const treeView = document.getElementById('kg-tree-view');
@@ -4570,7 +4639,7 @@ window.loadKnowledgeGraph = async function(subject) {
     closeKgNodeDrawer();
 
     try {
-        const res = await apiFetch(`/api/knowledge-graph?subject=${encodeURIComponent(subject)}`);
+        const res = await apiFetch(`/api/knowledge-graph?subject=${encodeURIComponent(sub)}`);
         if (!res.ok) {
             // Check if 404
             if (emptyState) emptyState.classList.remove('hidden');
@@ -4631,7 +4700,20 @@ window.loadSeedOrDemoGraph = async function() {
 };
 
 window.rebuildKnowledgeGraph = async function() {
-    const sub = currentKgSubject || getActiveDeckSubject();
+    let sub = currentKgSubject || getActiveDeckSubject();
+    if (!sub || sub === 'all') {
+        const sel = document.getElementById('subject-selector');
+        if (sel && sel.options) {
+            for (let i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value && sel.options[i].value !== 'all') {
+                    sub = sel.options[i].value;
+                    break;
+                }
+            }
+        }
+    }
+    if (!sub || sub === 'all') sub = 'sudoustr';
+
     const loading = document.getElementById('kg-loading');
     const rebuildIcon = document.getElementById('kg-rebuild-icon');
     
@@ -4645,16 +4727,20 @@ window.rebuildKnowledgeGraph = async function() {
         
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            showNotification(err.detail || 'Ошибка при перестроении графа', 'error');
+            window.showNotification(err.detail || 'Ошибка при перестроении графа', 'error');
             return;
         }
 
         const data = await res.json();
         const nodesCount = (data.graph_data && data.graph_data.nodes) ? data.graph_data.nodes.length : 0;
-        showNotification(`Граф знаний перестроен из актуальных карточек (${nodesCount} узлов)`, 'success');
+        currentKgSubject = sub;
+        const badge = document.getElementById('kg-subject-badge');
+        if (badge) badge.textContent = sub.toUpperCase();
         await loadKnowledgeGraph(sub);
+        window.showNotification(`Граф знаний перестроен из актуальных карточек (${nodesCount} узлов)`, 'success');
     } catch (e) {
-        showNotification('Сетевая ошибка при перестроении графа', 'error');
+        console.error("Сбой перестроения графа:", e);
+        window.showNotification('Сетевая ошибка при перестроении графа', 'error');
     } finally {
         if (rebuildIcon) rebuildIcon.classList.remove('animate-spin');
         if (loading) loading.classList.add('hidden');

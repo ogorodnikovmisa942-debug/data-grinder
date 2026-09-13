@@ -80,6 +80,14 @@ async def get_knowledge_graph(
     Supports unified alias resolution, conflict elimination, automatic synchronization of stale
     snapshots from current user deck, and preset seed fallbacks.
     """
+    if subject.strip().lower() in ("all", "*", "", "generic"):
+        top_stmt = select(Card.subject).where(
+            Card.user_id == current_user
+        ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
+        top_sub = (await db.execute(top_stmt)).scalar()
+        if top_sub:
+            subject = top_sub
+
     canonical = resolve_subject_alias(subject)
     all_aliases = get_all_subject_aliases(subject)
     now = datetime.utcnow()
@@ -339,8 +347,15 @@ async def rebuild_knowledge_graph(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД.
-    Очищает любые устаревшие фантомные узлы и пересоздает каркас точно под текущий размер колоды по всей группе алиасов."""
+    """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД."""
+    if subject.strip().lower() in ("all", "*", "", "generic"):
+        top_stmt = select(Card.subject).where(
+            Card.user_id == current_user
+        ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
+        top_sub = (await db.execute(top_stmt)).scalar()
+        if top_sub:
+            subject = top_sub
+
     canonical = resolve_subject_alias(subject)
     all_aliases = get_all_subject_aliases(subject)
 
