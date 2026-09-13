@@ -80,7 +80,8 @@ async def get_knowledge_graph(
     Supports unified alias resolution, conflict elimination, automatic synchronization of stale
     snapshots from current user deck, and preset seed fallbacks.
     """
-    if subject.strip().lower() in ("all", "*", "", "generic"):
+    clean_sub = subject.strip()
+    if clean_sub.lower() in ("all", "*", "", "generic"):
         top_stmt = select(Card.subject).where(
             Card.user_id == current_user
         ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
@@ -90,13 +91,11 @@ async def get_knowledge_graph(
                 Card.user_id.in_(["default_user", "dev_user"])
             ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
             top_sub = (await db.execute(def_stmt)).scalar()
-        if top_sub:
-            subject = top_sub
-        else:
-            subject = "sudoustroystvo"
+        clean_sub = top_sub if top_sub else "sudoustr"
 
-    canonical = resolve_subject_alias(subject)
-    all_aliases = get_all_subject_aliases(subject)
+    all_aliases = get_all_subject_aliases(clean_sub)
+    if clean_sub not in all_aliases:
+        all_aliases.insert(0, clean_sub)
     now = datetime.utcnow()
 
     # 1. Извлекаем актуальные карточки пользователя по всей группе алиасов
@@ -107,6 +106,14 @@ async def get_knowledge_graph(
     card_res = await db.execute(card_stmt)
     user_cards = card_res.scalars().all()
 
+    # Fallback на системные/общие карточки, если у текущего Telegram-пользователя они еще не скопированы
+    if not user_cards and current_user not in ("default_user", "dev_user"):
+        card_def_stmt = select(Card).options(selectinload(Card.phrase)).where(
+            Card.user_id.in_(["default_user", "dev_user"]),
+            Card.subject.in_(all_aliases)
+        )
+        user_cards = (await db.execute(card_def_stmt)).scalars().all()
+
     # 2. Поиск записей графа в БД строго для текущего пользователя по всей группе алиасов
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
@@ -115,11 +122,20 @@ async def get_knowledge_graph(
     result = await db.execute(stmt)
     records = result.scalars().all()
 
+    # Fallback на системный граф, если у текущего пользователя граф еще не создан
+    if not records and current_user not in ("default_user", "dev_user"):
+        stmt_def = select(TopicKnowledgeGraph).where(
+            TopicKnowledgeGraph.user_id.in_(["default_user", "dev_user"]),
+            TopicKnowledgeGraph.subject.in_(all_aliases)
+        ).order_by(TopicKnowledgeGraph.updated_at.desc())
+        records = (await db.execute(stmt_def)).scalars().all()
+
     # Устраняем конфликты записей по алиасам одного и того же предмета для одного пользователя
     if len(records) > 1:
         primary_record = records[0]
         for dup in records[1:]:
-            await db.delete(dup)
+            if dup.user_id == current_user:
+                await db.delete(dup)
         await db.commit()
         records = [primary_record]
 
@@ -145,20 +161,20 @@ async def get_knowledge_graph(
                 is_stale = True
 
     if is_stale and user_cards:
-        syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=clean_sub)
         g_data = syn.get("graph_data", {"nodes": [], "edges": []})
         g_data["deck_size"] = len(user_cards)
         t_data = syn.get("tree_data")
 
-        if record:
-            record.subject = canonical
+        if record and record.user_id == current_user:
+            record.subject = clean_sub
             record.graph_data = g_data
             record.tree_data = t_data
             record.updated_at = now
         else:
             record = TopicKnowledgeGraph(
                 user_id=current_user,
-                subject=canonical,
+                subject=clean_sub,
                 graph_data=g_data,
                 tree_data=t_data,
                 created_at=now,
@@ -173,7 +189,7 @@ async def get_knowledge_graph(
             await db.rollback()
 
         return KnowledgeGraphResponse(
-            subject=record.subject,
+            subject=clean_sub,
             graph_data=record.graph_data,
             tree_data=record.tree_data,
             updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),
@@ -186,11 +202,11 @@ async def get_knowledge_graph(
         r_edges = g_data.get("edges", [])
         if r_nodes:
             from app.services.graph_service import ensure_connected_spiderweb
-            r_nodes, r_edges = ensure_connected_spiderweb(r_nodes, r_edges, fallback_title=subject)
+            r_nodes, r_edges = ensure_connected_spiderweb(r_nodes, r_edges, fallback_title=clean_sub)
             g_data = {"nodes": r_nodes, "edges": r_edges}
 
         return KnowledgeGraphResponse(
-            subject=record.subject,
+            subject=clean_sub,
             graph_data=g_data,
             tree_data=record.tree_data,
             updated_at=record.updated_at.isoformat() if record.updated_at else None,
@@ -199,11 +215,11 @@ async def get_knowledge_graph(
 
     # 4. Динамический синтез графа и дерева из карточек текущего пользователя
     if user_cards:
-        syn = synthesize_graph_from_cards(user_cards, fallback_title=subject)
+        syn = synthesize_graph_from_cards(user_cards, fallback_title=clean_sub)
         if syn and syn.get("graph_data", {}).get("nodes"):
             new_kg = TopicKnowledgeGraph(
                 user_id=current_user,
-                subject=subject,
+                subject=clean_sub,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
                 created_at=now,
@@ -216,7 +232,7 @@ async def get_knowledge_graph(
                 await db.rollback()
 
             return KnowledgeGraphResponse(
-                subject=subject,
+                subject=clean_sub,
                 graph_data=syn["graph_data"],
                 tree_data=syn["tree_data"],
                 updated_at=now.isoformat(),
@@ -224,10 +240,10 @@ async def get_knowledge_graph(
             )
 
     # 5. Проверка пресетного сид-графа (только для тестовых/демо колод без пользовательских карточек)
-    seed = get_preset_seed_graph(subject)
+    seed = get_preset_seed_graph(clean_sub)
     if seed:
         return KnowledgeGraphResponse(
-            subject=subject,
+            subject=clean_sub,
             graph_data=seed["graph_data"],
             tree_data=seed.get("tree_data"),
             updated_at=None,
@@ -236,7 +252,7 @@ async def get_knowledge_graph(
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Knowledge graph for subject '{subject}' not found."
+        detail=f"Knowledge graph for subject '{clean_sub}' not found."
     )
 
 
@@ -355,16 +371,22 @@ async def rebuild_knowledge_graph(
     db: AsyncSession = Depends(get_db)
 ):
     """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД."""
-    if subject.strip().lower() in ("all", "*", "", "generic"):
+    clean_sub = subject.strip()
+    if clean_sub.lower() in ("all", "*", "", "generic"):
         top_stmt = select(Card.subject).where(
             Card.user_id == current_user
         ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
         top_sub = (await db.execute(top_stmt)).scalar()
-        if top_sub:
-            subject = top_sub
+        if not top_sub:
+            def_stmt = select(Card.subject).where(
+                Card.user_id.in_(["default_user", "dev_user"])
+            ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
+            top_sub = (await db.execute(def_stmt)).scalar()
+        clean_sub = top_sub if top_sub else "sudoustr"
 
-    canonical = resolve_subject_alias(subject)
-    all_aliases = get_all_subject_aliases(subject)
+    all_aliases = get_all_subject_aliases(clean_sub)
+    if clean_sub not in all_aliases:
+        all_aliases.insert(0, clean_sub)
 
     stmt = select(Card).options(selectinload(Card.phrase)).where(
         Card.user_id == current_user,
@@ -381,10 +403,10 @@ async def rebuild_knowledge_graph(
     if not user_cards:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Нет карточек для перестроения графа по предмету '{subject}'."
+            detail=f"Нет карточек для перестроения графа по предмету '{clean_sub}'."
         )
 
-    syn = synthesize_graph_from_cards(user_cards, fallback_title=canonical)
+    syn = synthesize_graph_from_cards(user_cards, fallback_title=clean_sub)
     g_data = syn.get("graph_data", {"nodes": [], "edges": []})
     g_data["deck_size"] = len(user_cards)
     t_data = syn.get("tree_data")
@@ -393,12 +415,12 @@ async def rebuild_knowledge_graph(
     await db.execute(delete(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
         TopicKnowledgeGraph.subject.in_(all_aliases),
-        TopicKnowledgeGraph.subject != canonical
+        TopicKnowledgeGraph.subject != clean_sub
     ))
 
     rec_stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
-        TopicKnowledgeGraph.subject == canonical
+        TopicKnowledgeGraph.subject == clean_sub
     )
     rec_res = await db.execute(rec_stmt)
     record = rec_res.scalars().first()
@@ -411,7 +433,7 @@ async def rebuild_knowledge_graph(
     else:
         record = TopicKnowledgeGraph(
             user_id=current_user,
-            subject=canonical,
+            subject=clean_sub,
             graph_data=g_data,
             tree_data=t_data,
             created_at=now,
@@ -421,7 +443,7 @@ async def rebuild_knowledge_graph(
     # Синхронизируем интерактивные практические задания по предмету (R2)
     try:
         from app.services.practice_service import generate_practice_session
-        await generate_practice_session(user_id=current_user, subject=canonical, count=10, db=db)
+        await generate_practice_session(user_id=current_user, subject=clean_sub, count=10, db=db)
     except Exception as pe:
         print(f"[Graph Rebuild] Предупреждение: сбой синхронизации практики: {pe}")
 
@@ -429,7 +451,7 @@ async def rebuild_knowledge_graph(
     await db.refresh(record)
 
     return KnowledgeGraphResponse(
-        subject=record.subject,
+        subject=clean_sub,
         graph_data=record.graph_data,
         tree_data=record.tree_data,
         updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),

@@ -4669,6 +4669,8 @@ window.loadKnowledgeGraph = async function(subject) {
         }
 
         const data = await res.json();
+        currentKgSubject = data.subject || sub;
+        if (badge) badge.textContent = currentKgSubject.toUpperCase();
         currentKgGraphData = data.graph_data;
         currentKgTreeData = data.tree_data;
 
@@ -4710,11 +4712,12 @@ window.loadKnowledgeGraph = async function(subject) {
 };
 
 window.loadSeedOrDemoGraph = async function() {
-    const sub = getActiveDeckSubject();
+    let sub = currentKgSubject || getActiveDeckSubject();
+    if (!sub || sub === 'all') sub = 'sudoustr';
     currentKgSubject = sub;
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
-    await loadKnowledgeGraph(sub);
+    await rebuildKnowledgeGraph();
 };
 
 window.rebuildKnowledgeGraph = async function() {
@@ -4750,11 +4753,42 @@ window.rebuildKnowledgeGraph = async function() {
         }
 
         const data = await res.json();
-        const nodesCount = (data.graph_data && data.graph_data.nodes) ? data.graph_data.nodes.length : 0;
-        currentKgSubject = sub;
+        currentKgSubject = data.subject || sub;
+        currentKgGraphData = data.graph_data;
+        currentKgTreeData = data.tree_data;
+
         const badge = document.getElementById('kg-subject-badge');
-        if (badge) badge.textContent = sub.toUpperCase();
-        await loadKnowledgeGraph(sub);
+        if (badge) badge.textContent = currentKgSubject.toUpperCase();
+
+        const countBadge = document.getElementById('kg-node-count-badge');
+        const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
+        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
+
+        const emptyState = document.getElementById('kg-empty-state');
+        if (emptyState) emptyState.classList.add('hidden');
+
+        const treeView = document.getElementById('kg-tree-view');
+        if (treeView) {
+            treeView.innerHTML = '';
+            if (currentKgTreeData) {
+                renderKnowledgeTreeNode(currentKgTreeData, treeView, 0);
+            } else if (currentKgGraphData && currentKgGraphData.nodes) {
+                currentKgGraphData.nodes.forEach(node => {
+                    renderKnowledgeTreeNode(node, treeView, 0);
+                });
+            }
+        }
+
+        if (currentKgView === 'graph') {
+            setTimeout(() => {
+                if (currentForceGraphInstance) {
+                    setGraphLayout(currentKgLayout || 'force');
+                } else {
+                    initForceGraph(currentKgGraphData);
+                }
+            }, 50);
+        }
+
         window.showNotification(`Граф знаний перестроен из актуальных карточек (${nodesCount} узлов)`, 'success');
     } catch (e) {
         console.error("Сбой перестроения графа:", e);

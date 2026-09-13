@@ -288,8 +288,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             if graph_nodes:
                 async with AsyncSessionLocal() as db:
                     raw_subj = job_data["subject"]
-                    subj = resolve_subject_alias(raw_subj)
-                    all_aliases = get_all_subject_aliases(raw_subj)
+                    subj = (raw_subj or "").strip() or "sudoustr"
+                    all_aliases = get_all_subject_aliases(subj)
                     u_id = job_data.get("user_id", "default_user")
 
                     # Исключаем конфликты записей по алиасам одного и того же предмета для одного пользователя

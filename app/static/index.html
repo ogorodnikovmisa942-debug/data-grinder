@@ -1169,9 +1169,15 @@
                     <p class="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm leading-relaxed font-sans">
                         Для данного предмета граф понятий строится автоматически при нарезке документов или может быть загружен из системных пресетов.
                     </p>
-                    <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="mt-2 px-4 py-2 border border-primary text-primary hover:bg-primary hover:text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer">
-                        [ Загрузить эталонный каркас ]
-                    </button>
+                    <div class="flex flex-col sm:flex-row gap-2 mt-2">
+                        <button onclick="rebuildKnowledgeGraph()" id="kg-create-graph-btn" class="px-4 py-2 bg-primary text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">account_tree</span>
+                            <span>Создать граф из колоды</span>
+                        </button>
+                        <button onclick="loadSeedOrDemoGraph()" id="kg-load-seed-btn" class="px-4 py-2 border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer">
+                            [ Загрузить демо-каркас ]
+                        </button>
+                    </div>
                 </div>
 
                 <!-- ВИД 1: Иерархическое дерево (DOM Mindmap) -->
@@ -1358,6 +1364,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=59"></script>
+    <script src="/js/app.js?v=60"></script>
 </body>
 </html>

@@ -813,10 +813,12 @@ def generate_sudoustroystvo_seed_graph() -> dict:
 
 
 def resolve_subject_alias(subject_slug: str) -> str:
-    """Нормализует альтернативные и сокращенные названия предметов."""
+    """Нормализует альтернативные и сокращенные названия предметов, сохраняя пользовательские слаги."""
     s = (subject_slug or "").strip().lower()
-    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
-        return "sudoustroystvo"
+    if s in ("sudoustr", "sudoustroystvo"):
+        return s
+    if s in ("court_system", "судоустройство", "sud", "суд"):
+        return "sudoustr"
     if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
         return "civil_law"
     return s
@@ -824,20 +826,35 @@ def resolve_subject_alias(subject_slug: str) -> str:
 
 def get_all_subject_aliases(subject_slug: str) -> list[str]:
     """Возвращает все известные синонимы и сокращения предмета для полноты выборки."""
+    s = (subject_slug or "").strip().lower()
+    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
+        aliases = ["sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"]
+        if s in aliases:
+            aliases.remove(s)
+            aliases.insert(0, s)
+        return aliases
+    if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
+        aliases = ["civil_law", "гражданское", "гк_рф", "гражданское_право"]
+        if s in aliases:
+            aliases.remove(s)
+            aliases.insert(0, s)
+        return aliases
     canonical = resolve_subject_alias(subject_slug)
-    if canonical == "sudoustroystvo":
-        return ["sudoustroystvo", "sudoustr", "court_system", "судоустройство", "sud", "суд"]
-    if canonical == "civil_law":
-        return ["civil_law", "гражданское", "гк_рф", "гражданское_право"]
     return [subject_slug] if subject_slug == canonical else [subject_slug, canonical]
 
 
 def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
     """Returns the pre-computed seed knowledge graph for standard preset decks."""
-    normalized = resolve_subject_alias(subject_slug)
-    if normalized in ("sudoustroystvo", "court_system", "судоустройство"):
+    s = (subject_slug or "").strip().lower()
+    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
         res = generate_sudoustroystvo_seed_graph()
         res["subject"] = subject_slug
+        if s == "sudoustr":
+            if res.get("graph_data", {}).get("nodes"):
+                res["graph_data"]["nodes"][0]["name"] = "SUDOUSTR"
+                res["graph_data"]["nodes"][0]["label"] = "SUDOUSTR"
+            if res.get("tree_data"):
+                res["tree_data"]["name"] = "SUDOUSTR"
         return res
     return None
 
@@ -915,19 +932,25 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
     edges_list: List[dict] = []
     seen_edges: set = set()
 
-    # 1. Группируем карточки по институтам/разделам, извлекая их преимущественно из secondary_text
+    # 1. Группируем карточки по институтам/разделам, извлекая их преимущественно из organ_slug и secondary_text
     theme_cards: Dict[str, list] = defaultdict(list)
     for c in cards:
-        sec = getattr(c, "secondary_text", "") if hasattr(c, "secondary_text") else (c.get("secondary_text", "") if isinstance(c, dict) else "")
-        sec = (sec or "").strip()
-
         inst_raw = ""
-        if sec and "|" in sec:
-            parts = [p.strip() for p in sec.split("|") if p.strip()]
-            if parts:
-                inst_raw = parts[0]
-        elif sec:
-            inst_raw = sec
+        # 1.1. Проверяем organ_slug (структурный каркас институтов из двухпроходного воркера)
+        org = getattr(c, "organ_slug", "") if hasattr(c, "organ_slug") else (c.get("organ_slug", "") if isinstance(c, dict) else "")
+        org = (org or "").strip()
+        if org and org.lower() not in (clean_title.lower(), canonical.lower(), "none", "null"):
+            inst_raw = org.replace("_", " ").title()
+
+        if not inst_raw:
+            sec = getattr(c, "secondary_text", "") if hasattr(c, "secondary_text") else (c.get("secondary_text", "") if isinstance(c, dict) else "")
+            sec = (sec or "").strip()
+            if sec and "|" in sec:
+                parts = [p.strip() for p in sec.split("|") if p.strip()]
+                if parts:
+                    inst_raw = parts[0]
+            elif sec:
+                inst_raw = sec
 
         if not inst_raw:
             phrase_obj = c.__dict__.get("phrase") if hasattr(c, "__dict__") else None
