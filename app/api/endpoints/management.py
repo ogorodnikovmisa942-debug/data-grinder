@@ -8,7 +8,7 @@ import secrets
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, File, Form, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 from collections import defaultdict
@@ -50,13 +50,25 @@ class PresetImportIn(BaseModel):
     commit_now: bool = False  # False = вернуть в Песочницу (Staging)
 
 class CardStagingItem(BaseModel):
-    text: str
+    text: str = ""
     secondary_text: Optional[str] = ""
-    translation: str
+    translation: str = ""
     example: Optional[str] = ""
     initial_difficulty_tier: Optional[str] = "medium"
     mnemonic: dict | str | None = None
     theme: Optional[str] = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, data):
+        if isinstance(data, dict):
+            if not data.get("text"):
+                data["text"] = data.get("front") or data.get("question") or ""
+            if not data.get("secondary_text"):
+                data["secondary_text"] = data.get("secondary") or data.get("hint") or ""
+            if not data.get("translation"):
+                data["translation"] = data.get("back") or data.get("answer") or data.get("definition") or ""
+        return data
 
 class StagingCommitIn(BaseModel):
     subject: str
@@ -1399,6 +1411,23 @@ async def get_staging_job_cards(
         "cards": cards
     }
 
+@router.delete("/config/import/staging/job/{job_id}")
+async def delete_staging_job(
+    job_id: int,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Удаляет задачу генерации и все её карточки из песочницы/базы данных."""
+    stmt = select(GenerationJob).filter(GenerationJob.id == job_id, GenerationJob.user_id == current_user)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена или нет прав доступа.")
+
+    await db.delete(job)
+    await db.commit()
+    return {"status": "success", "message": f"Колода задачи #{job_id} успешно удалена из песочницы."}
+
 # --- 4.2.1 ОЧЕРЕДЬ НОЧНОГО ГРАЙНДА И ФОНОВЫХ ЗАДАЧ ---
 @router.get("/config/import/queue")
 async def get_import_queue(
@@ -1438,7 +1467,7 @@ async def cancel_import_queue_job(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Отменяет задачу пользователя в очереди ночной генерации."""
+    """Отменяет или удаляет задачу пользователя в очереди ночной генерации (включая задачи со статусом ready_for_review)."""
     stmt = select(GenerationJob).filter(GenerationJob.id == job_id, GenerationJob.user_id == current_user)
     res = await db.execute(stmt)
     job = res.scalar_one_or_none()

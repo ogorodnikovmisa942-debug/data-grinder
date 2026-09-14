@@ -54,6 +54,49 @@ html, body {
 
 /* --- ПРАВИЛА РЕЖИМА ВЫСОКОЙ КОНЦЕНТРАЦИИ (Focus Mode) --- */
 
+.focus-active main {
+    max-width: min(94vw, 760px) !important;
+}
+
+.focus-active #card-zone {
+    width: 100% !important;
+    padding: 0.5rem 0 !important;
+}
+
+.focus-active #flashcard {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: calc(100dvh - 90px) !important;
+    min-height: 520px !important;
+    height: 100% !important;
+    aspect-ratio: auto !important;
+    box-shadow: none !important;
+    background-image: none !important;
+}
+
+@media (max-height: 640px) {
+    .focus-active #flashcard {
+        min-height: 380px !important;
+    }
+}
+
+/* Улучшение типографики и комфорта чтения для активного фокуса */
+.focus-active #card-text,
+.focus-active #card-intro-term {
+    font-size: clamp(1.25rem, 2.5vw, 1.85rem) !important;
+    line-height: 1.4 !important;
+}
+
+.focus-active #card-main-text {
+    font-size: clamp(1rem, 2vw, 1.3rem) !important;
+    line-height: 1.65 !important;
+}
+
+.focus-active #card-front,
+.focus-active #card-back {
+    padding: clamp(1.25rem, 3vw, 2rem) !important;
+}
+
 /* Скрываем прогресс-бар, подвал и служебные элементы полностью с усадкой сетки */
 .focus-active #progress-bar,
 .focus-active #bottom-nav,
@@ -65,12 +108,6 @@ html, body {
 /* Гасим таймер Помодоро, чтобы не создавал когнитивного давления */
 .focus-active #session-timer-container {
     display: none !important;
-}
-
-/* Снижаем визуальную сложность карточки — убираем тени и эффекты */
-.focus-active #flashcard {
-    box-shadow: none !important;
-    background-image: none !important;
 }
 
 /* Намертво приглушаем FAB кнопку фокуса под большим пальцем, стирая границы */
@@ -299,6 +336,11 @@ html, body {
         transparent 100%
     );
     transition: mask-image 0.15s ease, -webkit-mask-image 0.15s ease;
+}
+
+#staging-card .card-scroll-clean {
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
 }
 
 /* Character Count Bucketing Rules for Questions & Vignettes */

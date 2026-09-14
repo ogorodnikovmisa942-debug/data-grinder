@@ -354,7 +354,7 @@ const STAGING_CARD_TEMPLATE = `
     </div>
 
     <!-- Шапка карточки -->
-    <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2">
+    <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2 select-none">
         <div class="flex items-center gap-1.5 min-w-0">
             <span id="staging-card-number" class="font-mono font-medium shrink-0">Карточка 1 из 1</span>
             <span id="staging-card-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-mono text-[9px] truncate max-w-[180px]">
@@ -366,9 +366,9 @@ const STAGING_CARD_TEMPLATE = `
     </div>
 
     <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
-    <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean card-scroll-masked py-1 px-1">
+    <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean overflow-y-auto py-1 px-1 select-text" style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
         <!-- Блок Вопроса / Кейса (чистый, крупный, без подсказок) -->
-        <div class="flex flex-col gap-1 text-left">
+        <div class="flex flex-col gap-1 text-left select-text">
             <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
                 <span class="material-symbols-outlined text-[12px]">help</span>
                 <span>ВОПРОС</span>
@@ -380,7 +380,7 @@ const STAGING_CARD_TEMPLATE = `
         <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
 
         <!-- Блок Ответа / Дефиниции с бейджем источника нормы -->
-        <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left">
+        <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left select-text">
             <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                 <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
                     <span class="material-symbols-outlined text-[12px]">task_alt</span>
@@ -2505,6 +2505,49 @@ window.updateTariffBanner = function() {
 
 window.currentStagingJobId = null;
 
+window.discardStagingDeck = async function(targetJobId) {
+    const idToDelete = targetJobId || window.currentStagingJobId;
+    if (!confirm("Удалить эту колоду карточек? Это действие необратимо.")) {
+        return;
+    }
+
+    try {
+        if (idToDelete) {
+            const res = await apiFetch(`/api/config/import/staging/job/${idToDelete}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.detail || data.message || "Не удалось удалить колоду.");
+                return;
+            }
+        }
+
+        // Если удалялась текущая открытая колода или колода из песочницы
+        if (!targetJobId || String(targetJobId) === String(window.currentStagingJobId)) {
+            window.currentStagingJobId = null;
+            stagingCards = [];
+            approvedStagingCards = [];
+            rejectedStagingCards = [];
+            stagingHistory = [];
+            currentStagingIndex = 0;
+            if (window.location.hash && window.location.hash.includes('staging_job')) {
+                try {
+                    history.replaceState(null, '', window.location.pathname + window.location.search);
+                } catch (e) {}
+            }
+            closeStagingOverlay();
+        }
+
+        if (typeof checkNightQueueStatus === 'function') {
+            checkNightQueueStatus();
+        }
+    } catch (e) {
+        console.error("Ошибка при удалении колоды из песочницы:", e);
+        alert("Сбой сети при удалении колоды.");
+    }
+};
+
 window.openStagingJob = async function(jobId) {
     try {
         const res = await apiFetch(`/api/config/import/staging/job/${jobId}`);
@@ -2560,14 +2603,20 @@ window.checkNightQueueStatus = async function() {
                     if (j.status === 'ready_for_review') {
                         return `
                             <div class="flex items-center justify-between py-1.5 px-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 rounded-lg text-[10px] font-mono my-1">
-                                <div class="truncate max-w-[60%]">
+                                <div class="truncate max-w-[55%]">
                                     <span class="font-bold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">check_circle</span>${escapeHTML(j.theme || 'Материал')}</span>
                                     <span class="text-[9px] text-neutral-600 dark:text-neutral-400 block font-sans">${j.cards_count} карт. готовы к разбору</span>
                                 </div>
-                                <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm flex items-center gap-1 font-mono">
-                                    <span class="material-symbols-outlined text-[13px]">style</span>
-                                    <span>[РАЗОБРАТЬ]</span>
-                                </button>
+                                <div class="flex items-center gap-1">
+                                    <button onclick="discardStagingDeck(${j.id})" class="px-2 py-1 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1 font-mono" title="Удалить колоду">
+                                        <span class="material-symbols-outlined text-[12px]">delete</span>
+                                        <span>[УДАЛИТЬ]</span>
+                                    </button>
+                                    <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm flex items-center gap-1 font-mono">
+                                        <span class="material-symbols-outlined text-[13px]">style</span>
+                                        <span>[РАЗОБРАТЬ]</span>
+                                    </button>
+                                </div>
                             </div>
                         `;
                     }
@@ -3118,7 +3167,26 @@ let stagingSubject = 'generic';
 let stagingTheme = 'Новый блок знаний';
 
 function startStagingSession(data) {
-    stagingCards = (data.cards || []).map((c, idx) => ({ ...c, _orig_idx: idx }));
+    window.currentStagingJobId = data.job_id || null;
+    stagingCards = (data.cards || []).map((c, idx) => {
+        const text = c.text || c.front || c.question || '';
+        const secondary = c.secondary_text || c.secondary || c.hint || '';
+        const translation = c.translation || c.back || c.answer || c.definition || '';
+        return {
+            ...c,
+            text: text,
+            front: text,
+            question: text,
+            secondary_text: secondary,
+            secondary: secondary,
+            hint: secondary,
+            translation: translation,
+            back: translation,
+            answer: translation,
+            definition: translation,
+            _orig_idx: idx
+        };
+    });
     currentStagingIndex = 0;
     approvedStagingCards = [];
     rejectedStagingCards = [];
@@ -3218,6 +3286,10 @@ function renderCurrentStagingCard() {
                             <span class="material-symbols-outlined text-[13px]">restart_alt</span>
                             <span>СБРОСИТЬ</span>
                         </button>
+                        <button onclick="discardStagingDeck()" class="flex-1 border border-secondary text-secondary hover:bg-error-container/20 py-2 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1" title="Удалить эту колоду">
+                            <span class="material-symbols-outlined text-[13px]">delete</span>
+                            <span>УДАЛИТЬ</span>
+                        </button>
                     </div>
                 </div>
             `;
@@ -3228,7 +3300,6 @@ function renderCurrentStagingCard() {
     if (!document.getElementById('staging-card-text')) {
         if (cardEl) {
             cardEl.innerHTML = STAGING_CARD_TEMPLATE;
-            cardEl._gestures_bound = false;
             initStagingGestures();
         }
     }
@@ -3280,16 +3351,28 @@ function renderCurrentStagingCard() {
             stagingChBadge.classList.remove('inline-flex');
         }
     }
+    const cardText = card.text || card.front || card.question || '---';
     if (textEl) {
-        if (card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text)) {
-            textEl.innerHTML = formatClozeHTML(card.text, false);
+        if (card.content_type === 'cloze' || /\{\{c\d+::/.test(cardText)) {
+            textEl.innerHTML = formatClozeHTML(cardText, false);
         } else {
-            textEl.textContent = card.text || '---';
+            textEl.textContent = cardText;
         }
-        applyDynamicCardTypography(textEl, card.text || '');
+        applyDynamicCardTypography(textEl, cardText);
     }
-    if (secEl) secEl.textContent = card.secondary_text || '';
-    if (transEl) transEl.textContent = card.translation || '---';
+    const secText = (card.secondary_text || card.secondary || card.hint || '').trim();
+    if (secEl) {
+        secEl.textContent = secText;
+        if (secText) {
+            secEl.classList.remove('hidden');
+        } else {
+            secEl.classList.add('hidden');
+        }
+    }
+    const answerText = (card.translation || card.back || card.answer || card.definition || '').trim();
+    if (transEl) {
+        transEl.textContent = answerText || '---';
+    }
     if (exEl) {
         if (card.example && card.example.trim() && card.example !== '---') {
             exEl.textContent = `«${card.example.trim()}»`;
@@ -3487,6 +3570,12 @@ window.closeStagingOverlay = function() {
     }
     document.getElementById('bottom-nav')?.classList.remove('hidden');
     document.body.classList.remove('overflow-hidden');
+    window.currentStagingJobId = null;
+    if (window.location.hash && window.location.hash.includes('staging_job')) {
+        try {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+        } catch (e) {}
+    }
 };
 
 window.commitApprovedStagingCards = async function() {
@@ -3505,7 +3594,15 @@ window.commitApprovedStagingCards = async function() {
         const payload = {
             subject: stagingSubject,
             theme: stagingTheme,
-            cards: approvedStagingCards
+            cards: approvedStagingCards.map(c => ({
+                text: c.text || c.front || c.question || '',
+                secondary_text: c.secondary_text || c.secondary || c.hint || '',
+                translation: c.translation || c.back || c.answer || c.definition || '',
+                example: c.example || '',
+                initial_difficulty_tier: c.initial_difficulty_tier || 'medium',
+                mnemonic: c.mnemonic || null,
+                theme: c.theme || ''
+            }))
         };
         if (window.currentStagingJobId) {
             payload.job_id = window.currentStagingJobId;
@@ -3553,12 +3650,27 @@ window.commitApprovedStagingCards = async function() {
     }
 };
 
-let stagingDrag = { isDragging: false, startX: 0, startY: 0, currentX: 0, currentY: 0 };
+let stagingDrag = { 
+    isDragging: false, 
+    startX: 0, 
+    startY: 0, 
+    currentX: 0, 
+    currentY: 0,
+    isScrolling: false,
+    isSwiping: false,
+    gestureDetermined: false
+};
 
 function initStagingGestures() {
     const card = document.getElementById('staging-card');
-    if (!card || card._gestures_bound) return;
-    card._gestures_bound = true;
+    if (!card) return;
+
+    const resetDrag = () => {
+        stagingDrag.isDragging = false;
+        stagingDrag.isScrolling = false;
+        stagingDrag.isSwiping = false;
+        stagingDrag.gestureDetermined = false;
+    };
 
     const onStart = (clientX, clientY) => {
         stagingDrag.isDragging = true;
@@ -3566,82 +3678,122 @@ function initStagingGestures() {
         stagingDrag.startY = clientY;
         stagingDrag.currentX = clientX;
         stagingDrag.currentY = clientY;
-        card.style.transition = 'none';
+        stagingDrag.isScrolling = false;
+        stagingDrag.isSwiping = false;
+        stagingDrag.gestureDetermined = false;
     };
 
-    const onMove = (clientX, clientY) => {
-        if (!stagingDrag.isDragging) return;
+    const onMove = (clientX, clientY, e) => {
+        if (!stagingDrag.isDragging || stagingDrag.isScrolling) return;
         stagingDrag.currentX = clientX;
         stagingDrag.currentY = clientY;
         const deltaX = clientX - stagingDrag.startX;
         const deltaY = clientY - stagingDrag.startY;
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
 
-        const rotate = deltaX * 0.07;
-        card.style.transform = `translate(${deltaX}px, ${deltaY * 0.3}px) rotate(${rotate}deg)`;
+        if (!stagingDrag.gestureDetermined) {
+            if (absX < 8 && absY < 8) return; // порог чувствительности
+            if (absY >= absX) {
+                // Преимущественно вертикальный жест: отдаем нативный скролл контейнеру .card-scroll-clean
+                stagingDrag.isScrolling = true;
+                stagingDrag.gestureDetermined = true;
+                return;
+            } else {
+                // Горизонтальный свайп карточки
+                stagingDrag.isSwiping = true;
+                stagingDrag.gestureDetermined = true;
+                card.style.transition = 'none';
+            }
+        }
 
-        const badgeAccept = document.getElementById('staging-badge-accept');
-        const badgeReject = document.getElementById('staging-badge-reject');
+        if (stagingDrag.isSwiping) {
+            if (e && e.cancelable) e.preventDefault();
+            const rotate = deltaX * 0.07;
+            card.style.transform = `translate(${deltaX}px, ${deltaY * 0.3}px) rotate(${rotate}deg)`;
 
-        if (deltaX > 25) {
-            if (badgeAccept) badgeAccept.style.opacity = Math.min(1, (deltaX - 25) / 80).toString();
-            if (badgeReject) badgeReject.style.opacity = '0';
-        } else if (deltaX < -25) {
-            if (badgeReject) badgeReject.style.opacity = Math.min(1, (-deltaX - 25) / 80).toString();
-            if (badgeAccept) badgeAccept.style.opacity = '0';
-        } else {
-            if (badgeAccept) badgeAccept.style.opacity = '0';
-            if (badgeReject) badgeReject.style.opacity = '0';
+            const badgeAccept = document.getElementById('staging-badge-accept');
+            const badgeReject = document.getElementById('staging-badge-reject');
+
+            if (deltaX > 25) {
+                if (badgeAccept) badgeAccept.style.opacity = Math.min(1, (deltaX - 25) / 80).toString();
+                if (badgeReject) badgeReject.style.opacity = '0';
+            } else if (deltaX < -25) {
+                if (badgeReject) badgeReject.style.opacity = Math.min(1, (-deltaX - 25) / 80).toString();
+                if (badgeAccept) badgeAccept.style.opacity = '0';
+            } else {
+                if (badgeAccept) badgeAccept.style.opacity = '0';
+                if (badgeReject) badgeReject.style.opacity = '0';
+            }
         }
     };
 
     const onEnd = () => {
         if (!stagingDrag.isDragging) return;
-        stagingDrag.isDragging = false;
+        const wasSwiping = stagingDrag.isSwiping;
         const deltaX = stagingDrag.currentX - stagingDrag.startX;
+        resetDrag();
 
-        if (deltaX > 80) {
-            stagingSwipeRight();
-        } else if (deltaX < -80) {
-            stagingSwipeLeft();
-        } else {
-            card.style.transition = 'transform 0.2s ease';
-            card.style.transform = 'translate(0px, 0px) rotate(0deg)';
-            const badgeAccept = document.getElementById('staging-badge-accept');
-            const badgeReject = document.getElementById('staging-badge-reject');
-            if (badgeAccept) badgeAccept.style.opacity = '0';
-            if (badgeReject) badgeReject.style.opacity = '0';
+        if (wasSwiping) {
+            if (deltaX > 80) {
+                stagingSwipeRight();
+            } else if (deltaX < -80) {
+                stagingSwipeLeft();
+            } else {
+                card.style.transition = 'transform 0.2s ease';
+                card.style.transform = 'translate(0px, 0px) rotate(0deg)';
+                const badgeAccept = document.getElementById('staging-badge-accept');
+                const badgeReject = document.getElementById('staging-badge-reject');
+                if (badgeAccept) badgeAccept.style.opacity = '0';
+                if (badgeReject) badgeReject.style.opacity = '0';
+            }
         }
     };
 
-    card.addEventListener('touchstart', (e) => {
-        if (e.target.closest('button')) return;
-        const t = e.touches[0];
-        onStart(t.clientX, t.clientY);
-    }, { passive: true });
+    if (!card._gestures_bound) {
+        card._gestures_bound = true;
 
-    window.addEventListener('touchmove', (e) => {
-        if (!stagingDrag.isDragging) return;
-        const t = e.touches[0];
-        onMove(t.clientX, t.clientY);
-    }, { passive: true });
+        // На тач-экранах: не блокируем интерактивные элементы, разделяем скролл/свайп
+        card.addEventListener('touchstart', (e) => {
+            if (e.target.closest('button, a, select, input, textarea')) return;
+            const t = e.touches[0];
+            onStart(t.clientX, t.clientY);
+        }, { passive: true });
 
-    window.addEventListener('touchend', () => {
-        if (stagingDrag.isDragging) onEnd();
-    });
+        // На мыши: не блокируем скролл и выделение текста внутри карточки
+        card.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            if (e.target.closest('button, a, select, input, textarea, .card-scroll-clean')) return;
+            onStart(e.clientX, e.clientY);
+        });
+    }
 
-    card.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button')) return;
-        onStart(e.clientX, e.clientY);
-    });
+    if (!window._staging_window_gestures_bound) {
+        window._staging_window_gestures_bound = true;
 
-    window.addEventListener('mousemove', (e) => {
-        if (!stagingDrag.isDragging) return;
-        onMove(e.clientX, e.clientY);
-    });
+        window.addEventListener('touchmove', (e) => {
+            if (!stagingDrag.isDragging) return;
+            const t = e.touches[0];
+            onMove(t.clientX, t.clientY, e);
+        }, { passive: false });
 
-    window.addEventListener('mouseup', () => {
-        if (stagingDrag.isDragging) onEnd();
-    });
+        window.addEventListener('touchend', () => {
+            if (stagingDrag.isDragging) onEnd();
+        });
+
+        window.addEventListener('touchcancel', () => {
+            if (stagingDrag.isDragging) onEnd();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!stagingDrag.isDragging) return;
+            onMove(e.clientX, e.clientY, e);
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (stagingDrag.isDragging) onEnd();
+        });
+    }
 }
 
 // Горячие клавиши для Песочницы (Tinder-like Sandbox)
@@ -3748,9 +3900,9 @@ window.openStagingEditor = function() {
     document.getElementById('edit-card-id').value = "";
     document.getElementById('edit-is-staging').value = "true";
     document.getElementById('edit-card-subject').value = stagingSubject;
-    document.getElementById('edit-card-text').value = card.text || "";
-    document.getElementById('edit-card-secondary').value = card.secondary_text || "";
-    document.getElementById('edit-card-translation').value = card.translation || "";
+    document.getElementById('edit-card-text').value = card.text || card.front || card.question || "";
+    document.getElementById('edit-card-secondary').value = card.secondary_text || card.secondary || card.hint || "";
+    document.getElementById('edit-card-translation').value = card.translation || card.back || card.answer || card.definition || "";
     document.getElementById('edit-card-example').value = card.example || "";
 
     let kw = "", cue = "";
@@ -3787,8 +3939,13 @@ window.saveCardEditorData = async function() {
 
     if (isStaging) {
         stagingCards[currentStagingIndex].text = text;
+        stagingCards[currentStagingIndex].front = text;
         stagingCards[currentStagingIndex].secondary_text = secondary;
+        stagingCards[currentStagingIndex].secondary = secondary;
+        stagingCards[currentStagingIndex].hint = secondary;
         stagingCards[currentStagingIndex].translation = translation;
+        stagingCards[currentStagingIndex].back = translation;
+        stagingCards[currentStagingIndex].answer = translation;
         stagingCards[currentStagingIndex].example = example;
         stagingCards[currentStagingIndex].mnemonic = (mnemKw || mnemCue) ? { keyword: mnemKw, verbal_cue: mnemCue } : null;
         stagingSubject = subject.toLowerCase();
