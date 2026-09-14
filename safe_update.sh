@@ -10,6 +10,10 @@ if [ -f "data_grinder.db" ]; then
     cp data_grinder.db "$BACKUP_NAME"
     cp data_grinder.db backups/data_grinder.latest.bak
     echo "[OK] Резервная копия базы сохранена в $BACKUP_NAME"
+
+    # Автоматическая ротация: оставляем только последние 5 копий, чтобы диск не переполнялся
+    ls -t backups/data_grinder_*.db 2>/dev/null | tail -n +6 | xargs -r rm -f 2>/dev/null || true
+    ls -t backups/*.bak 2>/dev/null | tail -n +6 | xargs -r rm -f 2>/dev/null || true
 fi
 
 # 2. Убираем из кэша git БД, если попала

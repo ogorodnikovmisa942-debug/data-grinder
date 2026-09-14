@@ -1,0 +1,26 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# External tools & cache
+.mimocode/
+node_modules/
+
+# Python cache & bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Binary database files & dumps (stops ripgrep/fd from scanning huge DBs)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+backups/
+
+# Version control
+.git/
