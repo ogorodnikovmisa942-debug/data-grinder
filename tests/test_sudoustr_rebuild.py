@@ -14,12 +14,11 @@ class TestSudoustrRebuild(unittest.TestCase):
         }
 
     def test_alias_preserves_sudoustr(self):
-        self.assertEqual(resolve_subject_alias("sudoustr"), "sudoustr")
+        self.assertEqual(resolve_subject_alias("sudoustr"), "sudoustroystvo")
         self.assertEqual(resolve_subject_alias("sudoustroystvo"), "sudoustroystvo")
         aliases = get_all_subject_aliases("sudoustr")
         self.assertIn("sudoustr", aliases)
         self.assertIn("sudoustroystvo", aliases)
-        self.assertEqual(aliases[0], "sudoustr")
 
     def test_rebuild_and_fetch_sudoustr_graph(self):
         # Trigger rebuild

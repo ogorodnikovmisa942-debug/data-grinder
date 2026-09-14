@@ -1418,7 +1418,30 @@ function renderReviewCard(card) {
 
     const frontChapterBadge = document.getElementById('card-front-chapter-badge');
     const frontChapterText = document.getElementById('card-front-chapter-text');
-    const chapterName = (card.chapter || card.phrase_text || '').trim();
+    let chapterName = (card.chapter || card.phrase_text || '').trim();
+
+    const qLower = (card.text || '').toLowerCase();
+    const ansLower = (card.translation || '').toLowerCase();
+    const isDefQuery = /\b(какое понятие|какой термин|назовите понятие|назовите термин|что обозначает|what concept|what term|which term)\b/i.test(qLower);
+
+    // Проверка названия главы на спойлер ответа на лицевой стороне
+    if (chapterName && ansLower) {
+        const chWords = chapterName.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || [];
+        const ansWords = ansLower.match(/[a-zа-яё0-9]{4,}/g) || [];
+        const stopWords = new Set(["суда", "суду", "суде", "дело", "дела", "орган", "закон", "право", "кодекс", "понятие", "термин", "case", "term", "rule"]);
+        for (const w of chWords) {
+            if (stopWords.has(w)) continue;
+            const stem = w.slice(0, 5);
+            if (ansWords.some(aw => aw.startsWith(stem) || stem.startsWith(aw.slice(0, 5)))) {
+                chapterName = '';
+                break;
+            }
+        }
+    }
+    if (isDefQuery) {
+        chapterName = '';
+    }
+
     if (frontChapterBadge && frontChapterText) {
         if (chapterName) {
             frontChapterText.textContent = chapterName;
@@ -1441,8 +1464,32 @@ function renderReviewCard(card) {
     
     const hintEl = document.getElementById('card-front-hint');
     if (hintEl) {
-        if (card.secondary_text && card.secondary_text !== '---') {
-            hintEl.textContent = card.secondary_text;
+        const isLang = isLanguageCard(card);
+        let secText = (card.secondary_text || '').trim();
+        if (secText === '---') secText = '';
+        
+        if (secText) {
+            // Защита от спойлеров: на лицевой стороне оставляем только нейтральный нормативный контекст (до '|')
+            if (secText.includes('|')) {
+                secText = secText.split('|')[0].trim();
+            }
+            if (ansLower) {
+                const secWords = secText.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || [];
+                const ansWords = ansLower.match(/[a-zа-яё0-9]{4,}/g) || [];
+                const stopWords = new Set(["суда", "суду", "суде", "дело", "дела", "орган", "закон", "право", "кодекс", "понятие", "термин"]);
+                for (const w of secWords) {
+                    if (stopWords.has(w)) continue;
+                    const stem = w.slice(0, 5);
+                    if (ansWords.some(aw => aw.startsWith(stem) || stem.startsWith(aw.slice(0, 5)))) {
+                        secText = '';
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (secText && (isLang || !isDefQuery)) {
+            hintEl.textContent = secText;
             hintEl.classList.remove('hidden');
         } else {
             hintEl.classList.add('hidden');
@@ -5296,11 +5343,13 @@ function renderPracticeQuestion() {
     const typeBadge = document.getElementById('practice-item-type-badge');
     if (typeBadge) {
         const typeConfigs = {
-            'situational': { icon: 'gavel', label: 'СИТУАЦИОННЫЙ КЕЙС' },
+            'situational': { icon: 'psychology', label: 'СИТУАЦИОННЫЙ КЕЙС' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
-            'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' }
+            'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
+            'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
+            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' }
         };
-        const cfg = typeConfigs[item.type] || { icon: 'psychology', label: 'ПРАКТИЧЕСКИЙ КЕЙС' };
+        const cfg = typeConfigs[item.type] || { icon: 'quiz', label: 'ПРАКТИЧЕСКИЙ ТЕСТ' };
         typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
     }
 

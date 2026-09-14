@@ -400,8 +400,8 @@ def ensure_connected_spiderweb(
             rel_label = "связан с институтом"
 
         new_edge = {
-            "source": best_node_id,
-            "target": target_anchor,
+            "source": target_anchor,
+            "target": best_node_id,
             "relation": "subject_to_jurisdiction",
             "label": rel_label
         }
@@ -813,12 +813,10 @@ def generate_sudoustroystvo_seed_graph() -> dict:
 
 
 def resolve_subject_alias(subject_slug: str) -> str:
-    """Нормализует альтернативные и сокращенные названия предметов, сохраняя пользовательские слаги."""
+    """Нормализует альтернативные и сокращенные названия предметов."""
     s = (subject_slug or "").strip().lower()
-    if s in ("sudoustr", "sudoustroystvo"):
-        return s
-    if s in ("court_system", "судоустройство", "sud", "суд"):
-        return "sudoustr"
+    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
+        return "sudoustroystvo"
     if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
         return "civil_law"
     return s
@@ -860,9 +858,9 @@ def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
 
 
 def normalize_institute_name(raw: str) -> str:
-    """Нормализует и кластеризует названия правовых институтов и глав из secondary_text."""
+    """Нормализует и кластеризует названия институтов, модулей и глав для любой дисциплины."""
     if not raw:
-        return "Ключевые институты"
+        return "Базовые понятия"
     cleaned = re.sub(r'[\"«»]', '', raw).strip()
     cleaned = re.sub(r',?\s*ст\..*$', '', cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r',?\s*ред\..*$', '', cleaned, flags=re.IGNORECASE).strip()
@@ -871,6 +869,7 @@ def normalize_institute_name(raw: str) -> str:
     cleaned = re.sub(r'\s+РФ$', '', cleaned).strip()
 
     low = cleaned.lower()
+    # Юриспруденция
     if 'адвокат' in low:
         return 'Адвокатура и юридическая помощь'
     if 'нотари' in low:
@@ -896,9 +895,35 @@ def normalize_institute_name(raw: str) -> str:
     if 'правосуди' in low or 'компетенц' in low:
         return 'Принципы правосудия и юрисдикция'
 
+    # Медицина
+    if 'кардио' in low or 'сердц' in low or 'инфаркт' in low:
+        return 'Кардиология и гемодинамика'
+    if 'невро' in low or 'мозг' in low:
+        return 'Неврология'
+    if 'фарма' in low or 'препарат' in low or 'доз' in low:
+        return 'Фармакология'
+
+    # Программирование / STEM
+    if 'async' in low or 'поток' in low or 'thread' in low:
+        return 'Асинхронность и параллелизм'
+    if 'баз' in low and 'данн' in low or 'sql' in low:
+        return 'Базы данных и хранение'
+    if 'сет' in low or 'http' in low or 'tcp' in low:
+        return 'Сетевые протоколы'
+    if 'алгоритм' in low or 'структур' in low:
+        return 'Алгоритмы и структуры данных'
+
+    # Философия и гуманитарные науки
+    if 'гносеолог' in low or 'познани' in low:
+        return 'Теория познания (Гносеология)'
+    if 'онтолог' in low or 'быти' in low:
+        return 'Онтология'
+    if 'этик' in low or 'морал' in low:
+        return 'Этика и моральная философия'
+
     if len(cleaned) > 40:
         cleaned = cleaned[:40].rsplit(' ', 1)[0]
-    return cleaned or "Ключевые институты"
+    return cleaned.capitalize() if cleaned else "Базовые понятия"
 
 
 def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас дисциплины") -> dict:
@@ -966,7 +991,7 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
                 if th.lower() not in (clean_title.lower(), canonical.lower()):
                     inst_raw = th
 
-        inst_name = normalize_institute_name(inst_raw or "Ключевые институты")
+        inst_name = normalize_institute_name(inst_raw or "Базовые понятия")
         theme_cards[inst_name].append(c)
 
     # 2. Ранжируем институты по числу карточек
@@ -997,7 +1022,7 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
         if t_id == root_id:
             t_id = f"{t_id}_branch"
 
-        summary_text = f"Институт «{t_name}» ({len(c_list)} ключевых правил и развилок)."
+        summary_text = f"Раздел «{t_name}» ({len(c_list)} ключевых правил и развилок)."
         if t_id not in nodes_map:
             nodes_map[t_id] = {
                 "id": t_id,
@@ -1007,14 +1032,15 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
                 "parent_id": root_id,
                 "level": 1
             }
-            edge_key = (t_id, root_id)
+            # Ребро иерархии: корень -> ветвь (сверху вниз)
+            edge_key = (root_id, t_id)
             if edge_key not in seen_edges:
                 seen_edges.add(edge_key)
                 edges_list.append({
-                    "source": t_id,
-                    "target": root_id,
+                    "source": root_id,
+                    "target": t_id,
                     "relation": "subject_to_jurisdiction",
-                    "label": "входит в систему"
+                    "label": "входит в структуру"
                 })
         branch_ids.append(t_id)
 
@@ -1086,12 +1112,12 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
                     "parent_id": t_id,
                     "level": 2
                 }
-                edge_key = (leaf_id, t_id)
+                edge_key = (t_id, leaf_id)
                 if edge_key not in seen_edges:
                     seen_edges.add(edge_key)
                     edges_list.append({
-                        "source": leaf_id,
-                        "target": t_id,
+                        "source": t_id,
+                        "target": leaf_id,
                         "relation": rel,
                         "label": lbl
                     })
@@ -1134,12 +1160,12 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
                         "parent_id": t_id,
                         "level": 2
                     }
-                    edge_key = (leaf_id, t_id)
+                    edge_key = (t_id, leaf_id)
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
                         edges_list.append({
-                            "source": leaf_id,
-                            "target": t_id,
+                            "source": t_id,
+                            "target": leaf_id,
                             "relation": "subject_to_jurisdiction",
                             "label": "регулирует"
                         })

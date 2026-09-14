@@ -261,23 +261,38 @@ SUDOUSTROYSTVO_PRESET_PRACTICE = [
 ]
 
 
+def is_invalid_distractor(text: str) -> bool:
+    """Проверяет, является ли кандидат вопросом, пустой строкой или недопустимым дистрактором."""
+    t = text.strip()
+    if not t or len(t) < 2:
+        return True
+    if t.endswith("?"):
+        return True
+    if re.search(r'^(?:какой|какая|какое|какие|каком|каких|какому|какую|чем|в чем|кто|что|где|когда|куда|почему|зачем|назовите|укажите|which|what|who|where|when|why|how)\b', t, re.IGNORECASE):
+        return True
+    return False
+
+
 def select_coherent_distractors(
     target_answer: str,
     candidate_answers: list[str],
     count: int = 3,
     fallback_pool: Optional[list[str]] = None
 ) -> list[str]:
-    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины."""
+    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины (без вопросительных предложений)."""
     target_clean = target_answer.strip().lower()
     target_words = len(target_clean.split())
 
-    valid = [a.strip() for a in candidate_answers if a.strip() and a.strip().lower() != target_clean]
+    valid = [
+        a.strip() for a in candidate_answers 
+        if a.strip() and a.strip().lower() != target_clean and not is_invalid_distractor(a)
+    ]
 
-    # 1. Если переданы дополнительные кандидаты (например, фразы или термины)
+    # 1. Если переданы дополнительные кандидаты (термины или определения)
     if fallback_pool:
         for fb in fallback_pool:
             clean_fb = fb.strip()
-            if clean_fb and clean_fb.lower() != target_clean and clean_fb not in valid:
+            if clean_fb and clean_fb.lower() != target_clean and clean_fb not in valid and not is_invalid_distractor(clean_fb):
                 valid.append(clean_fb)
 
     # 2. Если ответ числовой/временной (например "3 года", "10 суток"), формируем реалистичные альтернативы
@@ -297,15 +312,15 @@ def select_coherent_distractors(
             if a.lower() != target_clean and a not in valid:
                 valid.append(a)
 
-    # 3. Если кандидатов все еще не хватает, добавляем интеллектуальные смысловые альтернативы
+    # 3. Универсальные смысловые альтернативы для любой дисциплины
     if len(valid) < count:
         semantic_fallbacks = [
-            "Применяется факультативно по взаимному соглашению сторон",
-            "Определяется решением уполномоченного органа в каждом отдельном случае",
-            "Допускается только при наличии специального письменного разрешения",
-            "Не является обязательным условием для наступления правовых последствий",
-            "Исключается в случае наступления обстоятельств непреодолимой силы",
-            "Регулируется общими правилами без применения специальных исключений"
+            "Применяется факультативно по специальному соглашению сторон",
+            "Определяется базовыми общими правилами системы",
+            "Допускается исключительно при наличии прямо установленных условий",
+            "Не является обязательным признаком для стандартного режима",
+            "Регулируется отдельным специальным регламентом дисциплины",
+            "Исключается при наступлении ограничивающих факторов"
         ]
         for sf in semantic_fallbacks:
             if sf.lower() != target_clean and sf not in valid:
@@ -318,7 +333,6 @@ def select_coherent_distractors(
         c_words = len(cand.split())
         return abs(c_words - target_words)
 
-    # Выделяем кандидатов близкой длины
     similar = [c for c in valid if dist_score(c) <= max(3, target_words // 2)]
     if len(similar) >= count:
         return random.sample(similar, count)
@@ -550,7 +564,7 @@ async def generate_practice_session(
 
                     # Тип 1: Заполнение пропусков (Slot-Filling)
                     if cloze_target and len(cloze_target) > 1:
-                        chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=all_fronts)
+                        chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=None)
                         options = [cloze_target] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Альтернативное условие {len(options)}")
@@ -564,14 +578,14 @@ async def generate_practice_session(
                             prompt=cloze_prompt,
                             options=options[:4],
                             correct_answer=cloze_target,
-                            explanation=ex or sec or f"Правильный термин в контексте нормы: {cloze_target}.",
+                            explanation=ex or sec or f"Правильный термин: {cloze_target}.",
                             gold_standard=f"Точное соответствие: {cloze_target}."
                         )
                         practice_records.append(pi)
 
                     # Тип 2: Контрастная пара (Contrast Pair)
-                    elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница")):
-                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                    elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница", "difference")):
+                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
                         options = [back] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Иной критерий {len(options)}")
@@ -585,14 +599,15 @@ async def generate_practice_session(
                             prompt=front,
                             options=options[:4],
                             correct_answer=back,
-                            explanation=ex or sec or f"Водораздельный критерий: {back}",
-                            gold_standard=f"Разграничительный критерий: {back}"
+                            explanation=ex or sec or f"Разграничительный критерий: {back}",
+                            gold_standard=f"Критерий: {back}"
                         )
                         practice_records.append(pi)
 
-                    # Тип 3: Ситуационный кейс / Дерево решений (Situational Vignette)
+                    # Тип 3: Ситуационный кейс / Концептуальный вопрос (для любой дисциплины)
                     else:
-                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                        is_case = any(w in front.lower() for w in ("если", "в случае", "при условии", "сторона", "спор", "пациент", "клиент", "пользователь", "задача", "дело", "иск", "ситуация", "if", "when", "case"))
+                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
                         options = [back] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Альтернативный вариант {len(options)}")
@@ -607,7 +622,7 @@ async def generate_practice_session(
                             options=options[:4],
                             correct_answer=back,
                             explanation=ex or sec or f"Обоснование: {back}",
-                            gold_standard=f"Правовое последствие: {back}"
+                            gold_standard=f"Правильное решение: {back}"
                         )
                         practice_records.append(pi)
 
@@ -671,21 +686,22 @@ async def generate_practice_session(
                 back = (c.translation or "").strip()
                 if not front or not back:
                     continue
-                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=all_fronts)
+                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
                 opts = [back] + chosen[:3]
                 while len(opts) < 4:
-                    opts.append(f"Иное положение {len(opts)}")
+                    opts.append(f"Альтернативный вариант {len(opts)}")
                 random.shuffle(opts)
+                is_case = any(w in front.lower() for w in ("если", "в случае", "при условии", "сторона", "спор", "пациент", "клиент", "пользователь", "задача", "дело", "иск", "ситуация", "if", "when", "case"))
                 practice_records.append(PracticeItem(
                     item_id=str(uuid.uuid4()),
                     user_id=user_id,
-                    subject=subject,
+                    subject=canonical_subject,
                     item_type="situational",
                     prompt=front,
                     options=opts[:4],
                     correct_answer=back,
                     explanation=c.example or c.secondary_text or f"Правильный ответ: {back}",
-                    gold_standard=f"{front} -> {back}"
+                    gold_standard=f"Правильный ответ: {back}"
                 ))
 
         # Перемешиваем и отбираем count разнообразных заданий

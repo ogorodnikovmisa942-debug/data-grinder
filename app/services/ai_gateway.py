@@ -624,19 +624,37 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         # отсекаем спойлерную часть, оставляя только нейтральную норму / контекст.
         clean_sec = str(sec).strip()
         clean_back = str(back).strip()
+        clean_front = str(front).strip()
         if "|" in clean_sec and clean_back:
             parts = [p.strip() for p in clean_sec.split("|")]
             safe_parts = [parts[0]]
+            
+            def extract_stems(text_val: str) -> set[str]:
+                stop_stems = {"суд", "дел", "прав", "закон", "орган", "норм", "стат", "кодекс", "област", "виды", "вид", "form", "part", "case", "rule", "type"}
+                w_list = re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', text_val.lower())
+                stems = set()
+                for w in w_list:
+                    s = re.sub(r'(?:ый|ий|ой|ая|яя|ое|ее|ые|ие|ого|его|ому|ему|ых|их|ым|им|ом|ем|ами|ями|ях|ах|ов|ев|ей|ам|ям|а|я|у|ю|е|о|ы|и|ь|ing|ed|es|s)$', '', w)
+                    if len(s) >= 3 and s not in stop_stems:
+                        stems.add(s)
+                return stems
+
+            back_stems = extract_stems(clean_back)
+            is_concept_def = bool(re.search(r'\b(?:какое понятие|какой термин|назовите понятие|назовите термин|что обозначает|what concept|what term|which term)\b', clean_front.lower()))
+
             for part in parts[1:]:
                 part_lower = part.lower()
-                back_words = {w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', clean_back.lower()) if w not in ("суда", "суду", "суде", "дело", "дела")}
-                part_words = {w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', part_lower) if w not in ("суда", "суду", "суде", "дело", "дела")}
-                overlap = part_words.intersection(back_words)
+                part_stems = extract_stems(part)
+                overlap_stems = part_stems.intersection(back_stems)
                 is_spoiler = False
-                if part_words and len(overlap) / len(part_words) >= 0.4:
+
+                if part_stems and len(overlap_stems) > 0:
+                    is_spoiler = True
+                elif is_concept_def and any(s in clean_back.lower() for s in part_stems if len(s) >= 4):
                     is_spoiler = True
                 elif re.search(r'\b(?:срок|дней|суток|месяц|кгб|комитет|надзор|отмена|запрещен|противопоказан)\b', part_lower) and any(w in clean_back.lower() for w in part_lower.split()):
                     is_spoiler = True
+
                 if not is_spoiler:
                     safe_parts.append(part)
             clean_sec = " | ".join(safe_parts)
@@ -678,7 +696,7 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         cards.append(c_obj)
 
     # Топологическое ранжирование (Curriculum-First / "Graph in engine, playlist in UI"):
-    # Упорядочиваем карточки от фундамента к частностям:
+    # Упорядочиваем карточки строго от фундамента к частностям:
     # 1. По порядку появления органов/модулей (organ_slug)
     # 2. По когнитивному слою (layer: 0 -> 1 -> 2 -> 3)
     organ_order = {}
@@ -687,7 +705,7 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         if o not in organ_order:
             organ_order[o] = len(organ_order)
 
-    cards.sort(key=lambda c: (organ_order.get(c.get("organ_slug") or "general", 999), c.get("layer", 1)))
+    cards.sort(key=lambda c: (organ_order.get(c.get("organ_slug") or "general", 999), int(c.get("layer", 1))))
     for rank_idx, c in enumerate(cards, 1):
         c["topological_rank"] = rank_idx
 

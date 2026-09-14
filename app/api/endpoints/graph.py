@@ -106,14 +106,6 @@ async def get_knowledge_graph(
     card_res = await db.execute(card_stmt)
     user_cards = card_res.scalars().all()
 
-    # Fallback на системные/общие карточки, если у текущего Telegram-пользователя они еще не скопированы
-    if not user_cards and current_user not in ("default_user", "dev_user"):
-        card_def_stmt = select(Card).options(selectinload(Card.phrase)).where(
-            Card.user_id.in_(["default_user", "dev_user"]),
-            Card.subject.in_(all_aliases)
-        )
-        user_cards = (await db.execute(card_def_stmt)).scalars().all()
-
     # 2. Поиск записей графа в БД строго для текущего пользователя по всей группе алиасов
     stmt = select(TopicKnowledgeGraph).where(
         TopicKnowledgeGraph.user_id == current_user,
@@ -122,13 +114,30 @@ async def get_knowledge_graph(
     result = await db.execute(stmt)
     records = result.scalars().all()
 
-    # Fallback на системный граф, если у текущего пользователя граф еще не создан
-    if not records and current_user not in ("default_user", "dev_user"):
-        stmt_def = select(TopicKnowledgeGraph).where(
-            TopicKnowledgeGraph.user_id.in_(["default_user", "dev_user"]),
-            TopicKnowledgeGraph.subject.in_(all_aliases)
-        ).order_by(TopicKnowledgeGraph.updated_at.desc())
-        records = (await db.execute(stmt_def)).scalars().all()
+    # Fallback на пресетный сид-граф при отсутствии персональных карточек и графа
+    if not records and not user_cards:
+        seed = get_preset_seed_graph(clean_sub)
+        if seed:
+            return KnowledgeGraphResponse(
+                subject=clean_sub,
+                graph_data=seed["graph_data"],
+                tree_data=seed.get("tree_data"),
+                updated_at=None,
+                is_seed=True
+            )
+        # Для несеменированных предметов у реальных Telegram-пользователей проверяем системный демо-профиль
+        if current_user.isdigit():
+            card_def_stmt = select(Card).options(selectinload(Card.phrase)).where(
+                Card.user_id.in_(["default_user", "dev_user"]),
+                Card.subject.in_(all_aliases)
+            )
+            user_cards = (await db.execute(card_def_stmt)).scalars().all()
+
+            stmt_def = select(TopicKnowledgeGraph).where(
+                TopicKnowledgeGraph.user_id.in_(["default_user", "dev_user"]),
+                TopicKnowledgeGraph.subject.in_(all_aliases)
+            ).order_by(TopicKnowledgeGraph.updated_at.desc())
+            records = (await db.execute(stmt_def)).scalars().all()
 
     # Устраняем конфликты записей по алиасам одного и того же предмета для одного пользователя
     if len(records) > 1:

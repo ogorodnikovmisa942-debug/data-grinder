@@ -187,9 +187,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             chunk_cards = parsed.get("cards", [])
             if isinstance(chunk_cards, list):
                 # Калибровка Парето: в режиме auto/balanced для крупных документов ограничиваем нарезку с блока до 5 карточек
+                # Калибровка объема: в режиме auto сохраняем до 8 ключевых карточек с блока для полноценного охвата глав
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
                 if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:5]
+                    chunk_cards = chunk_cards[:8]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
@@ -222,18 +223,18 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
         all_collected_cards.sort(
             key=lambda c: (
-                organ_order.get((c.get("organ_slug") or "").strip().lower(), 999),
-                int(c.get("layer", 1)) if str(c.get("layer", 1)).isdigit() else 1
+                int(c.get("layer", 1)) if str(c.get("layer", 1)).isdigit() else 1,
+                organ_order.get((c.get("organ_slug") or "").strip().lower(), 999)
             )
         )
         for rank_idx, c in enumerate(all_collected_cards, 1):
             c["topological_rank"] = rank_idx
 
-        # Общий лимит Парето: для крупных книг (>5 блоков) в режиме auto удерживаем целевой пул до 80 карточек
+        # Ограничение по объему: для крупных книг (>15 блоков) удерживаем целевой пул до 200 карточек для баланса памяти
         is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
-        if is_auto_volume and total_chunks >= 5 and len(all_collected_cards) > 80:
-            print(f"[Generation Worker] Применен лимит Парето: сжатие {len(all_collected_cards)} -> 80 ключевых карточек для {total_chunks} блоков.", flush=True)
-            all_collected_cards = all_collected_cards[:80]
+        if is_auto_volume and total_chunks >= 15 and len(all_collected_cards) > 200:
+            print(f"[Generation Worker] Оптимизация объема: сжатие {len(all_collected_cards)} -> 200 ключевых карточек для {total_chunks} блоков.", flush=True)
+            all_collected_cards = all_collected_cards[:200]
 
         if not all_collected_cards:
             raise ValueError("ИИ не смог выделить карточки из переданного материала.")

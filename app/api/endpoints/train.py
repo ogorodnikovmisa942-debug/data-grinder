@@ -149,7 +149,7 @@ async def get_session_cards(
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        new_stmt = new_stmt.order_by(Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
+        new_stmt = new_stmt.order_by(Card.layer.asc(), Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
 
