@@ -449,6 +449,47 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
 
+    def test_16_cross_provider_failover_mimo_402_to_deepseek(self):
+        """Проверка автоматического failover с Xiaomi MiMo на DeepSeek при ошибке 402 (Insufficient balance)."""
+        orig_provider = settings.AI_PROVIDER
+        orig_ds_key = settings.DEEPSEEK_API_KEY
+        settings.AI_PROVIDER = "mimo"
+        settings.DEEPSEEK_API_KEY = "sk-deepseek-failover-test"
+
+        try:
+            # 1. Тест failover в parse_raw_text
+            mimo_error = RuntimeError("Xiaomi MiMo API error (402): {\"error\": {\"code\": \"402\", \"message\": \"Insufficient account balance\"}}")
+            mock_unpacked = {"cards": [{"text": "Тест после failover", "translation": "Ответ DeepSeek"}]}
+            mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 120, "completion_tokens": 40, "repair_successful": False}
+
+            with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, side_effect=mimo_error) as mock_mimo, \
+                 patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds:
+                res = self.run_async(parse_raw_text("Учебный текст для проверки failover", target_subject="law"))
+                mock_mimo.assert_called_once()
+                mock_ds.assert_called_once()
+                self.assertTrue(res.get("fallback_used"))
+                self.assertEqual(len(res.get("cards", [])), 1)
+                # Провайдер должен автоматически переключиться на deepseek
+                self.assertEqual(settings.AI_PROVIDER, "deepseek")
+
+            # 2. Тест failover в extract_curriculum_skeleton
+            settings.AI_PROVIDER = "mimo"
+            mock_skel_res = {"modules": [{"slug": "mod_1", "name": "Введение", "quota": 10}], "phrase_title": "Скелет курса"}
+            mock_skel_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 200, "completion_tokens": 50}
+
+            with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, side_effect=mimo_error) as mock_mimo_skel, \
+                 patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_skel_res, mock_skel_meta)) as mock_ds_skel:
+                skel = self.run_async(extract_curriculum_skeleton("Учебный план для failover", target_subject="law"))
+                mock_mimo_skel.assert_called_once()
+                mock_ds_skel.assert_called_once()
+                self.assertEqual(len(skel.get("modules", [])), 1)
+                self.assertEqual(settings.AI_PROVIDER, "deepseek")
+
+        finally:
+            settings.AI_PROVIDER = orig_provider
+            settings.DEEPSEEK_API_KEY = orig_ds_key
+
 
 if __name__ == "__main__":
     unittest.main()
+
