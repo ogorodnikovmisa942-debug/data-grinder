@@ -503,3 +503,107 @@ async def distribute_deck(
     }
 
 
+# --- 7. ПЕРЕКЛЮЧЕНИЕ ИИ-ПРОВАЙДЕРА (DEEPSEEK <-> XIAOMI MIMO) ---
+
+class SwitchAiProviderIn(BaseModel):
+    provider: str  # "deepseek" или "mimo"
+
+def set_active_ai_provider(provider: str) -> str:
+    """Устанавливает активного ИИ-провайдера и сохраняет выбор в .env для персистентности."""
+    import os
+    import re
+    norm = provider.strip().lower()
+    if norm not in ("deepseek", "mimo"):
+        raise ValueError(f"Недопустимый ИИ-провайдер: '{provider}'. Поддерживаются: 'deepseek', 'mimo'")
+    
+    settings.AI_PROVIDER = norm
+    os.environ["AI_PROVIDER"] = norm
+
+    env_path = Path(".env")
+    try:
+        if env_path.exists():
+            content = env_path.read_text(encoding="utf-8")
+            if re.search(r"^AI_PROVIDER=.*", content, flags=re.MULTILINE):
+                new_content = re.sub(r"^AI_PROVIDER=.*", f"AI_PROVIDER={norm}", content, flags=re.MULTILINE)
+            else:
+                new_content = content.rstrip() + f"\nAI_PROVIDER={norm}\n"
+            env_path.write_text(new_content, encoding="utf-8")
+        else:
+            env_path.write_text(f"AI_PROVIDER={norm}\n", encoding="utf-8")
+        print(f"[Admin] AI_PROVIDER успешно обновлен на '{norm}' в .env")
+    except Exception as env_err:
+        print(f"[Admin WARN] Ошибка записи AI_PROVIDER в .env: {env_err}")
+    return norm
+
+@router.get("/ai-provider")
+async def get_ai_provider_status(
+    token: str = Depends(verify_admin_token)
+):
+    """Возвращает статус текущего активного ИИ-провайдера и конфигурацию моделей."""
+    current_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
+    current_model = settings.MIMO_MODEL if current_provider == "mimo" else settings.DEEPSEEK_MODEL
+    active_has_key = bool(settings.MIMO_API_KEY) if current_provider == "mimo" else bool(settings.DEEPSEEK_API_KEY)
+
+    def mask_key(k: str) -> str:
+        if not k:
+            return ""
+        if len(k) <= 8:
+            return "***"
+        return f"{k[:4]}...{k[-4:]}"
+
+    return {
+        "status": "success",
+        "provider": current_provider,
+        "model": current_model,
+        "active_has_key": active_has_key,
+        "available_providers": ["deepseek", "mimo"],
+        "deepseek": {
+            "model": settings.DEEPSEEK_MODEL,
+            "base_url": settings.DEEPSEEK_BASE_URL,
+            "has_key": bool(settings.DEEPSEEK_API_KEY),
+            "key_masked": mask_key(settings.DEEPSEEK_API_KEY)
+        },
+        "mimo": {
+            "model": settings.MIMO_MODEL,
+            "base_url": settings.MIMO_BASE_URL,
+            "has_key": bool(settings.MIMO_API_KEY),
+            "key_masked": mask_key(settings.MIMO_API_KEY)
+        }
+    }
+
+@router.post("/switch-ai-provider")
+async def switch_ai_provider(
+    payload: SwitchAiProviderIn,
+    token: str = Depends(verify_admin_token)
+):
+    """
+    Переключает активного ИИ-провайдера системы между DeepSeek и Xiaomi MiMo.
+    Обновляет глобальные настройки приложения в памяти и файл .env.
+    """
+    try:
+        active = set_active_ai_provider(payload.provider)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    active_model = settings.MIMO_MODEL if active == "mimo" else settings.DEEPSEEK_MODEL
+    provider_name = "Xiaomi MiMo" if active == "mimo" else "DeepSeek"
+    has_key = bool(settings.MIMO_API_KEY) if active == "mimo" else bool(settings.DEEPSEEK_API_KEY)
+    
+    warning = None
+    if not has_key:
+        warning = f"Ключ {active.upper()}_API_KEY еще не настроен в файле .env"
+        msg = f"ИИ переключен на {provider_name} ({active_model}). ⚠️ Внимание: {warning}!"
+    else:
+        msg = f"ИИ-провайдер успешно переключен на {provider_name} ({active_model})."
+
+    return {
+        "status": "success",
+        "provider": active,
+        "model": active_model,
+        "has_key": has_key,
+        "warning": warning,
+        "message": msg
+    }
+
+
+
