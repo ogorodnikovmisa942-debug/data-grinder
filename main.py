@@ -232,9 +232,9 @@ async def admin_web_page():
                             {'АКТИВЕН' if curr_provider == 'deepseek' else 'ВЫБРАТЬ'}
                         </span>
                     </div>
-                    <div class="switch-sub">deepseek-chat (V3)<br>Экономичный стандарт</div>
+                    <div class="switch-sub">deepseek-flash (V4.1 Flash)<br>1M Контекст / 384K Вывод</div>
                     <div class="switch-specs">
-                        Контекст: 64K | Вывод: 8K<br>
+                        Контекст: 1M | Вывод: 384K<br>
                         {ds_key_badge}
                     </div>
                 </div>
@@ -273,11 +273,11 @@ async def admin_web_page():
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="color:#38bdf8; font-weight:600;">DeepSeek</td>
-                        <td>64,000</td>
-                        <td>$0.014 <span style="color:#4ade80;">(-90%)</span></td>
-                        <td>$0.14</td>
-                        <td>$0.28</td>
+                        <td style="color:#38bdf8; font-weight:600;">DeepSeek V4.1 Flash</td>
+                        <td>1,000,000</td>
+                        <td>$0.003 / $0.006 <span style="color:#4ade80;">(-98%)</span></td>
+                        <td>$0.15 / $0.30</td>
+                        <td>$0.60 / $1.20</td>
                     </tr>
                     <tr>
                         <td style="color:#a855f7; font-weight:600;">Xiaomi MiMo</td>

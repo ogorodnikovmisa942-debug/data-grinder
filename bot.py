@@ -265,7 +265,7 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None) -> InlineKe
 
 def render_admin_dashboard_text(d: dict) -> str:
     phase_str = "Фаза 1 (Изоляция колод, лимит 20 карт)" if d['phase'] == 1 else "Фаза 2 (Свободный режим, ночная нарезка)"
-    provider_name = "Xiaomi MiMo (1M Context)" if d.get('ai_provider') == "mimo" else "DeepSeek (Prompt Caching)"
+    provider_name = "Xiaomi MiMo (1M Context)" if d.get('ai_provider') == "mimo" else "DeepSeek V4.1 Flash (1M Context)"
     key_badge = "🔑 Ключ: OK" if d.get('has_key') else "⚠️ Ключ: НЕ ЗАДАН (.env)"
     return (
         "🛠 <b>ПАНЕЛЬ УПРАВЛЕНИЯ ЭКСПЕРИМЕНТОМ</b>\n\n"

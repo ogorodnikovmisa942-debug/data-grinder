@@ -34,6 +34,8 @@ from bot import build_admin_keyboard, render_admin_dashboard_text, get_admin_das
 class TestPromptCachingAndAtomicRules(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.worker_patcher = patch("app.services.generation_worker.claim_next_pending_job", return_value=None)
+        cls.worker_patcher.start()
         cls.client_cm = TestClient(app)
         cls.client = cls.client_cm.__enter__()
         cls.orig_provider = getattr(settings, "AI_PROVIDER", "deepseek")
@@ -42,6 +44,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
     def tearDownClass(cls):
         settings.AI_PROVIDER = cls.orig_provider
         cls.client_cm.__exit__(None, None, None)
+        cls.worker_patcher.stop()
 
     def run_async(self, coro):
         return asyncio.run(coro)
@@ -235,7 +238,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         # 1. При settings.AI_PROVIDER == "deepseek"
         settings.AI_PROVIDER = "deepseek"
         mock_unpacked = {"cards": [{"text": "Тест DeepSeek", "translation": "Ответ DS"}]}
-        mock_meta = {"model_resolved": "deepseek-chat", "prompt_tokens": 100, "completion_tokens": 50}
+        mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 100, "completion_tokens": 50}
 
         with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds, \
              patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock) as mock_mimo:
@@ -283,9 +286,9 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         dash_ds = render_admin_dashboard_text({
             "phase": 1, "participants": 5, "invites_active": 3, "cards": 120,
             "reviews": 340, "outliers": 2, "pending_jobs": 0,
-            "ai_provider": "deepseek", "ai_model": "deepseek-chat"
+            "ai_provider": "deepseek", "ai_model": "deepseek-flash"
         })
-        self.assertIn("DeepSeek", dash_ds)
+        self.assertIn("DeepSeek V4.1 Flash", dash_ds)
 
         # 2. При mimo
         kb_mimo = build_admin_keyboard(phase=2, ai_provider="mimo")
@@ -393,6 +396,58 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 self.assertGreater(len(user_prompt_passed), 60000)
         finally:
             settings.AI_PROVIDER = "deepseek"
+
+    def test_15_call_deepseek_flash_payload_and_large_context(self):
+        """Проверка отправки параметров V4.1 Flash (32k tokens, disabled thinking, large context) в call_deepseek."""
+        settings.AI_PROVIDER = "deepseek"
+        settings.DEEPSEEK_MODEL = "deepseek-flash"
+        orig_key = settings.DEEPSEEK_API_KEY
+        settings.DEEPSEEK_API_KEY = "sk-test-deepseek-flash-key"
+        try:
+            mock_response_json = {
+                "id": "chatcmpl-ds-flash-01",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"domain":"law","slug":"test_sub","title":"Flash блок","c":[{"t":"Что такое преюдиция?","s":"ГПК РФ | Преюдиция","d":"Обязательность фактов, установленных вступившим в силу судебным постановлением.","e":"Факты не доказываются вновь.","l":"easy"}]}'
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_cache_hit_tokens": 1400,
+                    "prompt_cache_miss_tokens": 200,
+                    "completion_tokens": 150
+                }
+            }
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = mock_response_json
+
+            with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+                unpacked, meta = self.run_async(call_deepseek("Исходный учебный материал для Flash"))
+                mock_post.assert_called_once()
+                call_args = mock_post.call_args
+                json_payload = call_args[1]["json"]
+
+                self.assertEqual(json_payload["model"], "deepseek-flash")
+                self.assertEqual(json_payload["max_tokens"], 32768)
+                self.assertEqual(json_payload["thinking"], {"type": "disabled"})
+                self.assertTrue(meta["cache_hit"])
+                self.assertEqual(meta["prompt_tokens"], 1600)
+
+            # Проверяем расширенный контекст (>60k) для DeepSeek в extract_curriculum_skeleton
+            large_text = "Раздел курса " * 10000  # ~130 000 символов
+            mock_skel_res = {"modules": [], "phrase_title": "Большой каркас курса"}
+            mock_skel_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 800, "completion_tokens": 60}
+            with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_skel_res, mock_skel_meta)) as mock_ds_skel:
+                self.run_async(extract_curriculum_skeleton(large_text, target_subject="law"))
+                mock_ds_skel.assert_called_once()
+                prompt_sent = mock_ds_skel.call_args[0][0]
+                self.assertGreater(len(prompt_sent), 60000)
+        finally:
+            settings.DEEPSEEK_API_KEY = orig_key
 
 
 if __name__ == "__main__":

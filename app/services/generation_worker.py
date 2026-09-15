@@ -96,10 +96,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if len(clean_text_no_headers) < 15:
             raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-        # Умное разбиение на сбалансированные смысловые блоки (~12-14 страниц / 20 000 - 24 000 знаков)
-        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=24000, overlap_chars=1200)
+        # Укрупненное разбиение на разделы/главы (до 120 000 знаков) под 1M контекст DeepSeek V4.1 Flash
+        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=120000, overlap_chars=2400)
         total_chunks = len(chunks)
-        print(f"[Generation Worker] Задача #{job_data['id']}: материал разбит на {total_chunks} частей для 100% охвата.", flush=True)
+        print(f"[Generation Worker] Задача #{job_data['id']}: материал скомпонован в {total_chunks} макро-разделов под 1M контекст.", flush=True)
 
         # Отправляем мгновенное уведомление в Telegram о старте генерации
         if job_data.get("telegram_id"):
@@ -110,7 +110,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                     f"{discount_badge}"
                     f"🚀 <b>Документ взят в обработку ИИ!</b>\n\n"
                     f"Материал: «<b>{escaped_theme}</b>»\n"
-                    f"Объем: <b>{char_count:,} знаков</b> (~{total_chunks} смысловых блоков)\n"
+                    f"Объем: <b>{char_count:,} знаков</b> (~{total_chunks} смысловых разделов)\n"
                     f"Тариф: <i>{tariff_label}</i>\n\n"
                     f"⏳ <i>ИИ нарезает карточки. По готовности пришлю кнопку для разбора в Песочнице!</i>"
                 )
@@ -128,7 +128,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
         # --- ПРОХОД 1: СИНТЕЗ КАРКАСА ДИСЦИПЛИНЫ (CURRICULUM SKELETON) ДЛЯ КРУПНЫХ ТЕКСТОВ ---
         curriculum_skeleton = None
-        if total_chunks >= 3 or char_count >= 30000:
+        if total_chunks >= 2 or char_count >= 30000:
             print(f"[Generation Worker] Задача #{job_data['id']}: Проход 1 — извлечение дерева органов и институтов...", flush=True)
             try:
                 curriculum_skeleton = await extract_curriculum_skeleton(
@@ -147,8 +147,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             except Exception as skel_err:
                 print(f"[Generation Worker WARN] Сбой Прохода 1: {skel_err}", flush=True)
 
-        # Конкурентная нарезка чанков с семафором (2 параллельных запроса для ускорения без исчерпания RPM)
-        semaphore = asyncio.Semaphore(2)
+        # Конкурентная нарезка чанков с семафором (4 параллельных запроса благодаря concurrency 2500 у V4.1 Flash)
+        semaphore = asyncio.Semaphore(4)
 
         async def process_chunk(chunk_idx: int, chunk_text: str):
             async with semaphore:
@@ -186,11 +186,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 extracted_theme = parsed["phrase_title"]
             chunk_cards = parsed.get("cards", [])
             if isinstance(chunk_cards, list):
-                # Калибровка Парето: в режиме auto/balanced для крупных документов ограничиваем нарезку с блока до 5 карточек
-                # Калибровка объема: в режиме auto сохраняем до 8 ключевых карточек с блока для полноценного охвата глав
+                # Калибровка объема: в режиме auto сохраняем до 16 ключевых карточек с макро-раздела
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
                 if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:8]
+                    chunk_cards = chunk_cards[:16]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()

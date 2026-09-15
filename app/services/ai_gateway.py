@@ -940,7 +940,7 @@ async def call_deepseek(
         "Content-Type": "application/json"
     }
 
-    target_model = settings.DEEPSEEK_MODEL or "deepseek-chat"
+    target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
 
     payload = {
         "model": target_model,
@@ -950,18 +950,21 @@ async def call_deepseek(
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
-        "max_tokens": 8192
+        "max_tokens": 32768,
+        "thinking": {"type": "disabled"}
     }
 
-    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
+    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (1M Context / Prompt Caching enabled)...")
     resolved_model = target_model
-    async with httpx.AsyncClient(timeout=90.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(url, headers=headers, json=payload)
         
         # Автоматический fallback: если запрошенная модель недоступна/не найдена на сервере провайдера, пробуем deepseek-chat
         if response.status_code in (400, 404) and target_model != "deepseek-chat":
             print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем стандартную 'deepseek-chat'...")
             payload["model"] = "deepseek-chat"
+            payload["max_tokens"] = 8192
+            payload.pop("thinking", None)
             resolved_model = "deepseek-chat"
             response = await client.post(url, headers=headers, json=payload)
 
@@ -975,7 +978,7 @@ async def call_deepseek(
             prompt_tokens = usage.get("prompt_tokens", cache_hit_tokens + cache_miss_tokens)
             output_tokens = usage.get("completion_tokens", 0)
             cache_hit = cache_hit_tokens > 0
-            print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit_tokens} токенов (-90% цена) | Мисс: {cache_miss_tokens} токенов | Вывод: {output_tokens} токенов")
+            print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit_tokens} токенов (~$0.003-0.006/1M) | Мисс: {cache_miss_tokens} токенов | Вывод: {output_tokens} токенов | Модель: {resolved_model}")
 
             content = data["choices"][0]["message"]["content"]
             raw_payload, is_truncated, repair_successful = extract_json_payload_with_telemetry(content)
@@ -1138,7 +1141,7 @@ async def extract_curriculum_skeleton(
     """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек."""
     clean_sub = target_subject.strip().lower() or "generic"
     active_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    max_sample_chars = 400000 if active_provider == "mimo" else 60000
+    max_sample_chars = 500000
     sample_text = text[:max_sample_chars] if len(text) > max_sample_chars else text
     user_prompt = (
         f"[TARGET SUBJECT]: {clean_sub}\n"
@@ -1148,7 +1151,7 @@ async def extract_curriculum_skeleton(
         f"[COURSE MATERIAL SAMPLE / OUTLINE]:\n{sample_text}"
     )
     start_ts = time.time()
-    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-chat")
+    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-flash")
     try:
         if active_provider == "mimo":
             raw_res, meta = await call_mimo(
@@ -1270,7 +1273,7 @@ async def parse_raw_text(
 
     start_ts = time.time()
     active_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-chat")
+    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-flash")
     fallback_used = False
     json_repair_applied = False
     res = None
@@ -1361,7 +1364,7 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        target_model = settings.DEEPSEEK_MODEL or "deepseek-chat"
+        target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
         fallback_model = "deepseek-chat"
 
     payload = {
@@ -1388,11 +1391,11 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
             provider_label = "Xiaomi MiMo" if active_provider == "mimo" else "DeepSeek"
             raise RuntimeError(f"{provider_label} mnemonic error ({res.status_code}): {res.text}")
 
-# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (ОПТИМИЗИРОВАННЫЙ СТАНДАРТ 24K ЗНАКОВ) ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 24000, overlap_chars: int = 1200) -> list[str]:
+# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 1M КОНТЕКСТА) ---
+def split_text_into_chunks(text: str, max_chunk_chars: int = 120000, overlap_chars: int = 2400) -> list[str]:
     """
-    Интеллектуальное разбиение длинного документа на сбалансированные смысловые чанки (~6-8 страниц / 10 000 - 14 000 знаков).
-    Исключает эффект 'Lost in the middle', гарантирует 100% покрытие фактов и предотвращает обрезку лимита токенов LLM.
+    Интеллектуальное разбиение длинного документа на укрупненные смысловые разделы/главы (~30-50 страниц / до 120 000 знаков).
+    Использует контекстное окно 1M токенов DeepSeek V4.1 Flash и Xiaomi MiMo, устраняя излишнее дробление текста.
     Сохраняет границы страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).
     """
     text = text.strip()

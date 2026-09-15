@@ -2480,7 +2480,7 @@ window.updateTariffBanner = function() {
 
     const isOffPeak = isOffPeakWindow();
     if (isOffPeak) {
-        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V4.1 FLASH</span>`;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
         bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
         if (btnDeferred) {
@@ -2494,7 +2494,7 @@ window.updateTariffBanner = function() {
         const h = Math.floor(diffMinutes / 60);
         const m = diffMinutes % 60;
 
-        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V3</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V4.1 FLASH</span>`;
         bannerBadge.className = "text-secondary font-bold font-mono";
         bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
         if (btnDeferred) {
