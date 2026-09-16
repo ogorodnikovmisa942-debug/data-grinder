@@ -60,11 +60,18 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * STRICT BAN ON PASSIVE GLOSSARY FLUFF: NEVER ask naive dictionary questions ("Что такое диалог?", "Дайте определение права вообще", "Опишите институт Z своими словами"). Such cards cause the cognitive illusion of competence without functional recall.
   * MANDATORY HIGH-YIELD CONCEPT SYNTHESIS (Preserve Core Conceptual Anchors):
     Foundational concepts, statutory definitions, and key legal institutions MUST be included using the 3 high-retrieval cognitive patterns:
-    1. Hallmark-to-Concept Subsumption (From Hallmarks to Institution): Describe the exhaustive factual elements, legal conditions, or constitutional purpose -> demand the exact legal concept, status, or institution (e.g. "Какое понятие обозначает самостоятельную форму государственной власти, осуществляемую судами...? -> Судебная власть").
+    1. Hallmark-to-Concept Subsumption (From Hallmarks to Institution): Describe the exhaustive factual elements, legal conditions, or constitutional purpose -> demand the exact legal concept, status, or institution (e.g. "Какая ветвь государственной власти осуществляется исключительно судами посредством правосудия? -> Судебная власть").
     2. Genus + Specific Difference (Род + Видовое отличие): Ask for the generic category and the decisive boundary distinguishing this concept from related ones (e.g. "К какому родовому институту относится виндикация и каково ее видовое отличие от негаторного иска?").
     3. Normative Defining Criteria: Test the exact constituent legal standard or threshold, never dictionary wordiness.
   * Decision Vignettes: For procedural rules, jurisdiction, and appeals, construct a situational decision point: Given factual status A and conflict B, which instance, authority, deadline, or remedy applies?
   * The back ('d') delivers the exact concept, definition core, or procedural verdict in 1 grammatically complete sentence with statutory article.
+  * ANTI-BOILERPLATE SYNTAX LAW (Strict Prohibition of Robotic Formulaic Stems):
+    Do NOT generate repetitive, formulaic decks where multiple cards begin with the exact same sentence openers (such as "Какое понятие обозначает...", "Что представляет собой...", or "Чем принципиально отличается...").
+    Formulate questions naturally and variedly across 4 universal cognitive archetypes:
+    1) Situational Cases & Problem Vignettes (e.g. "Гражданин А. обратился в суд...", "В случае если применимый отраслевой закон противоречит Конституции...").
+    2) Boundary Contrast Pairs (e.g. "По какому решающему критерию разграничиваются институты X и Y?", "В чём водораздел между...").
+    3) Causal Foundations & Doctrinal Mechanisms (e.g. "На каком базовом постулате строится концепция X?", "Почему согласно учению Y право первично по отношению к государству?").
+    4) Normative Conditions & Exceptions (e.g. "При наличии каких обязательных условий закон допускает...", "В каком единственном случае норма X имеет обратную силу?").
 - Rule 3: The Contrast-Pair Differentiation Law (Comparison Prompts):
   * The human brain understands structure strictly through boundaries and differences.
   * When encountering two related, easily confused concepts, institutions, or diagnoses (e.g. народные vs присяжные заседатели; крайняя необходимость vs необходимая оборона; ИМпST vs расслоение аорты):
@@ -77,8 +84,8 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * 2. STRICT BAN ON TRIVIAL COMMON SENSE: Never ask "Что такое диалог?", "Что такое правосудие?", "Зачем юристу логика?".
   * 3. STRICT BAN ON META-COURSE TRIVIA: Never generate cards asking about the structure of the textbook or syllabus (e.g. "На какие 3 части делится курс судоустройства? — Общая, специальная, особенная"). That tests textbook design, not the discipline.
   * 4. DISCIPLINE-AWARE SCOPE GOVERNANCE (Prevention of Out-of-Domain Noise):
-    - IN APPLIED & STATUTORY DISCIPLINES (law, medicine, STEM, code): Strictly exclude out-of-domain historical-philosophical preambles (e.g. do NOT generate cards on Montesquieu vs Locke, ancient 1920s revolutionary tribunals, or abolished 1992 draft reform concepts in a modern court organization or procedure deck). Students need the working operative legal architecture.
-    - IN HUMANITIES & PHILOSOPHY (philosophy, ethics, history of thought): Thinkers (Plato, Descartes, Kant, Locke), paradigms, and schools of thought (rationalism vs empiricism, utilitarianism vs deontology) ARE the core substantive entities! Here, eliminate empty rhetorical fluff and biographical trivialities (e.g. "в каком году родился мыслитель"), and preserve core philosophical problems, theses, contrast pairs, and thought experiments.
+    - IN APPLIED & STATUTORY DISCIPLINES (procedural law, court administration, clinical algorithms, IT DevOps): Strictly exclude out-of-domain historical-philosophical preambles (e.g. do NOT generate cards on Montesquieu vs Locke, ancient 1920s revolutionary tribunals, or abolished 1992 draft reform concepts in a modern court organization or procedure deck). Students need the working operative legal architecture.
+    - IN FOUNDATIONAL, THEORETICAL & PHILOSOPHICAL DISCIPLINES (theory of state and law, legal philosophy, ethics, history of thought, sociology): Seminal thinkers (Plato, Aristotle, Montesquieu, Locke, Hobbes, Kelsen, Savigny, Petrazycki), paradigms, and schools of thought ARE the core substantive entities! Deconstruct them through their fundamental theses, contrast pairs, and analytical mechanisms, while strictly rejecting empty biographical dates and rhetorical fluff.
   * 5. STRICT BAN ON UNBOUNDED LISTS: Avoid enumerations >2 items.
 - Rule 6: Absolute Zero-Spoiler Law for 's' (Secondary Text / Anchor):
   * THE CRITICAL UI PRINCIPLE: The secondary text field 's' is displayed on the FRONT of the card simultaneously with the question 't' BEFORE the user attempts active retrieval.
@@ -225,7 +232,7 @@ CONTRAST CASE 3 (Law - Naive Definition vs Hallmark-to-Concept Subsumption):
 
 ✅ CORRECT CONCEPT SYNTHESIS (From Hallmarks to Institution):
 {
-  "t": "Какое понятие обозначает самостоятельную и независимую ветвь государственной власти, осуществляемую исключительно судами посредством конституционного, гражданского, арбитражного, административного и уголовного судопроизводства?",
+  "t": "Какая ветвь государственной власти осуществляется исключительно независимыми судами посредством конституционного, гражданского, арбитражного, административного и уголовного судопроизводства?",
   "s": "ст. 118 Конституции РФ | Конституционные основы правосудия",
   "d": "Судебная власть.",
   "e": "Создание чрезвычайных судов и делегирование правосудия иным органам категорически запрещено.",
@@ -243,7 +250,7 @@ CONTRAST CASE 4 (Law - Binary Trivia vs Boundary Contrast Pair):
 
 ✅ CORRECT CONTRAST PAIR (Gold Standard Discriminative Criterion):
 {
-  "t": "Чем принципиально отличается процессуальная роль народных заседателей от суда присяжных заседателей?",
+  "t": "По какому решающему признаку процессуальная роль народных заседателей разграничивается с судом присяжных заседателей?",
   "s": "Судопроизводство | Составы судов",
   "d": "Народные заседатели голосуют наравне с судьёй по всем вопросам права и факта, а присяжные заседатели выносят отдельный вердикт исключительно по вопросам факта и виновности.",
   "e": "В коллегии с народными заседателями судья не может единолично преодолеть их консолидированное большинство.",
@@ -503,9 +510,17 @@ def semantic_normalize_front(text: str) -> str:
         "чем", "как", "какой", "какая", "какие", "каком", "каков", "что", "где", "куда",
         "кто", "когда", "почему", "зачем", "отличается", "отличие", "принципиально",
         "судебном", "процессе", "процесс", "суде", "деле", "случае", "согласно", "соответствии",
-        "рамках", "сферы", "точки", "зрения", "какова"
+        "рамках", "сферы", "точки", "зрения", "какова", "заключается", "ключевое", "ключевой",
+        "различие", "различия", "разграничение", "основное", "основной", "между", "суть",
+        "понятие", "обозначает", "представляет", "собой", "называют", "называется", "определяется"
     }
-    stems = sorted({w[:5] for w in words if w not in stop_words})
+    def _stem(w: str) -> str:
+        for ending in ("ами", "ями", "ого", "его", "ому", "ему", "ыми", "ими", "ях", "ах", "ом", "ем", "ой", "ей", "ый", "ий", "ая", "яя", "ое", "ее", "ые", "ие", "ов", "ев", "ам", "ям", "а", "я", "о", "е", "у", "ю", "ы", "и"):
+            if w.endswith(ending) and len(w) - len(ending) >= 3:
+                return w[:-len(ending)][:5]
+        return w[:5]
+
+    stems = sorted({_stem(w) for w in words if w not in stop_words})
     # Для коротких или шаблонных вопросов (<3 значащих лемм) не задействуем нечеткую дедупликацию
     if len(stems) < 3:
         return ""
@@ -1265,10 +1280,15 @@ async def parse_raw_text(
     ]
     if volume in ("auto", "balanced"):
         user_directives.append(
-            "CARD VOLUME: STRICT HIGH-YIELD PARETO LIMIT (Anti-Overload Directive). "
-            "Extract strictly 2 to 4 master conceptual cards from this text chunk (target: ~60–80 cards for an entire textbook). "
-            "Focus exclusively on Decision Trees (situational conflict -> statutory fork/remedy), Contrast Pairs (distinguishing confusing concepts via gold standard criteria), and High-Yield Doctrinal Taxonomy. "
-            "Absolute prohibition of clerical trivia (quorums, paperwork deadlines, internship durations), naive definitions ('Что такое X'), and binary 'Да/Нет'. "
+            "CARD VOLUME: HIGH-YIELD BALANCED EXTRACTION. "
+            "Extract 4 to 8 master conceptual cards from this section (proportionate to its substantive weight, targeting ~100–140 cards for an entire multi-chapter course). "
+            "Ensure diverse, natural phrasing across 4 universal cognitive archetypes: "
+            "1) Situational Cases / Problem Vignettes (concrete factual conflict/scenario -> statutory qualification or solution), "
+            "2) Contrast Pairs (distinguishing confusing concepts via gold standard criteria), "
+            "3) Doctrinal Principles & Causal Mechanisms (substantive tenets, arguments of thinkers, and operational mechanisms), "
+            "4) Normative Conditions & Exceptions (exact threshold, qualification, or consequence, 'если-то'). "
+            "Strictly avoid robotic boilerplate question openers (do NOT repeat 'Какое понятие обозначает...' or 'Чем принципиально отличается...'). "
+            "Absolute prohibition of clerical trivia (quorums, paperwork deadlines, routine office intervals), naive dictionary definitions ('Что такое X'), and binary 'Да/Нет'. "
             "If this chunk contains solely clerical paperwork or administrative procedures, return 0 cards."
         )
     elif volume in ("low", "low_5"):
@@ -1281,6 +1301,11 @@ async def parse_raw_text(
         user_directives.append("CARD VOLUME: Maximum 15 cards.")
     elif volume == "max":
         user_directives.append("CARD VOLUME: Exhaustive extraction (up to 20 cards). Every verifiable fact and distinction.")
+
+    user_directives.append(
+        "SYNTACTIC VARIETY DIRECTIVE: Strictly avoid monotonous boilerplate phrasing. "
+        "Do NOT start multiple cards with identical formulaic stems. Formulate questions naturally, variedly, and professionally as an expert university examiner or senior practitioner."
+    )
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")
@@ -1292,8 +1317,7 @@ async def parse_raw_text(
             "MULTI-SOURCE THEMATIC CLUSTERING & PARETO FILTER: The source contains multiple photos, pages, or separate documents. "
             "Group cards into their respective thematic clusters, assign 'h' (topic name) to each card, "
             "keep all cards in the single root 'c' array (do NOT create nested 'clusters' objects). "
-            "PARETO PRIORITY: Select strictly the 2 to 4 highest-yield conceptual nodes across the material. "
-            "If an entire page or section contains solely clerical minutiae, quorums, or paperwork intervals, GENERATE ZERO CARDS for that section."
+            "PARETO PRIORITY: Select high-yield conceptual nodes across the material, skipping clerical minutiae, quorums, or paperwork intervals."
         )
     elif source_count == 1:
         user_directives.append(
@@ -1477,11 +1501,11 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         raise first_err
 
 # --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 1M КОНТЕКСТА) ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 120000, overlap_chars: int = 2400) -> list[str]:
+def split_text_into_chunks(text: str, max_chunk_chars: int = 35000, overlap_chars: int = 1500) -> list[str]:
     """
-    Интеллектуальное разбиение длинного документа на укрупненные смысловые разделы/главы (~30-50 страниц / до 120 000 знаков).
-    Использует контекстное окно 1M токенов DeepSeek V4.1 Flash и Xiaomi MiMo, устраняя излишнее дробление текста.
-    Сохраняет границы страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).
+    Интеллектуальное разбиение длинного документа на смысловые разделы/главы (по умолчанию ~10-15 страниц / до 35 000 знаков).
+    Сохраняет естественные границы глав, разделов, страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).
+    Обеспечивает гарантированное внимание LLM к каждому разделу книги без овер-сжатия материала.
     """
     text = text.strip()
     if not text:
@@ -1489,8 +1513,8 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 120000, overlap_cha
     if len(text) <= max_chunk_chars:
         return [text]
 
-    # Паттерн ищет границы страниц, слайдов или документов
-    split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===))'
+    # Паттерн ищет границы глав, разделов, тем, страниц, слайдов или документов
+    split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===|\n\s*(?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Chapter|CHAPTER|Тема|ТЕМА|§)\s+\d+))'
     sections = re.split(split_pattern, text)
     sections = [s.strip() for s in sections if s.strip()]
 

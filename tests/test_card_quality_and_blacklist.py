@@ -1,4 +1,4 @@
-﻿# tests/test_card_quality_and_blacklist.py
+# tests/test_card_quality_and_blacklist.py
 """
 Unit tests for Card Quality Gate and Strict Blacklist Validation (R3, R4).
 Verifies:
@@ -116,6 +116,31 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertEqual(sig1, sig2, "Смысловые отпечатки перефразированных вопросов должны совпадать!")
         self.assertIn("народ", sig1)
         self.assertIn("прися", sig1)
+
+    def test_09_semantic_deduplication_cross_phrasing(self):
+        """Проверка сопоставления отпечатков для синонимичных вводных конструкций ('Чем отличается' vs 'В чем заключается различие')."""
+        q1 = "Чем принципиально отличается естественное право от позитивного права?"
+        q2 = "В чем заключается ключевое различие между естественным и позитивным правом?"
+        sig1 = semantic_normalize_front(q1)
+        sig2 = semantic_normalize_front(q2)
+        self.assertEqual(sig1, sig2, "Отпечатки вопросов с синонимичными формулировками должны совпадать!")
+        self.assertIn("естес", sig1)
+        self.assertIn("позит", sig1)
+
+    def test_10_chapter_aware_chunking(self):
+        """Проверка интеллектуального разбиения текста книги по границам глав."""
+        from app.services.ai_gateway import split_text_into_chunks
+        sample_book = (
+            "Предисловие к учебнику.\n\n"
+            "Глава 1\nПонятие и предмет теории права.\n" + ("Текст первой главы о сущности права. " * 300) + "\n\n"
+            "Глава 2\nМетодология науки.\n" + ("Текст второй главы о методах познания. " * 300) + "\n\n"
+            "Глава 3\nТеории происхождения государства.\n" + ("Текст третьей главы о происхождении. " * 300)
+        )
+        chunks = split_text_into_chunks(sample_book, max_chunk_chars=20000, overlap_chars=500)
+        self.assertGreaterEqual(len(chunks), 3)
+        self.assertTrue(any("Глава 1" in ch for ch in chunks))
+        self.assertTrue(any("Глава 2" in ch for ch in chunks))
+        self.assertTrue(any("Глава 3" in ch for ch in chunks))
 
 
 if __name__ == "__main__":

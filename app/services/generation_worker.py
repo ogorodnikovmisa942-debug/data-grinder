@@ -96,10 +96,15 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if len(clean_text_no_headers) < 15:
             raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-        # Укрупненное разбиение на разделы/главы (до 120 000 знаков) под 1M контекст DeepSeek V4.1 Flash
-        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=120000, overlap_chars=2400)
+        # Укрупненное разбиение на разделы/главы под контекст модели
+        # Для объемных материалов (>40 000 знаков) используем поглавный размер 35 000 знаков,
+        # чтобы гарантировать глубокую проработку каждой главы и исключить овер-сжатие курса
+        is_large_text = len(job_data["raw_text"]) > 40000
+        max_chars = 35000 if is_large_text else 120000
+        overlap = 1500 if is_large_text else 2400
+        chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=max_chars, overlap_chars=overlap)
         total_chunks = len(chunks)
-        print(f"[Generation Worker] Задача #{job_data['id']}: материал скомпонован в {total_chunks} макро-разделов под 1M контекст.", flush=True)
+        print(f"[Generation Worker] Задача #{job_data['id']}: материал скомпонован в {total_chunks} смысловых разделов/глав.", flush=True)
 
         # Отправляем мгновенное уведомление в Telegram о старте генерации
         if job_data.get("telegram_id"):
@@ -122,6 +127,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         all_chunk_graphs = []
         seen_card_texts = set()
         seen_semantic_keys = set()
+        seen_short_answers = set()
         extracted_theme = job_data["theme"]
         any_fallback_used = False
         any_json_repair_applied = False
@@ -131,10 +137,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if total_chunks >= 2 or char_count >= 30000:
             print(f"[Generation Worker] Задача #{job_data['id']}: Проход 1 — извлечение дерева органов и институтов...", flush=True)
             try:
+                target_skel_cards = min(max(total_chunks * 6, 60), 200) if job_data.get("volume") in ("auto", "balanced", None, "") else 80
                 curriculum_skeleton = await extract_curriculum_skeleton(
                     text=job_data["raw_text"],
                     target_subject=job_data["subject"],
-                    target_card_count=70,
+                    target_card_count=target_skel_cards,
                     user_id=job_data.get("user_id", "default_user"),
                     job_id=str(job_data["id"])
                 )
@@ -182,25 +189,40 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 any_fallback_used = True
             if parsed.get("json_repair_applied"):
                 any_json_repair_applied = True
-            if parsed.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", ""):
+            if parsed.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", "") and not (curriculum_skeleton and curriculum_skeleton.get("phrase_title")):
                 extracted_theme = parsed["phrase_title"]
             chunk_cards = parsed.get("cards", [])
             if isinstance(chunk_cards, list):
-                # Калибровка объема: в режиме auto сохраняем до 16 ключевых карточек с макро-раздела
+                # Калибровка объема: сохраняем пропорциональное количество глубоких карточек с главы/раздела
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
                 if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:16]
+                    chunk_cards = chunk_cards[:8]
+                elif job_data.get("volume") in ("low", "low_5"):
+                    chunk_cards = chunk_cards[:4]
+                elif job_data.get("volume") in ("high", "high_20", "max"):
+                    chunk_cards = chunk_cards[:15]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
                     norm_key = normalize_front(raw_c_text)
                     sem_key = semantic_normalize_front(raw_c_text)
+
+                    # Межчанковая дедупликация коротких определений (предотвращает появление 2 одинаковых карточек "Норма права.")
+                    raw_ans = (c.get("translation") or "").strip()
+                    norm_ans = normalize_front(raw_ans)
+                    is_short_ans = bool(norm_ans) and len(raw_ans.split()) <= 2
+
                     if norm_key and norm_key not in seen_card_texts and (not sem_key or sem_key not in seen_semantic_keys):
+                        if is_short_ans and norm_ans in seen_short_answers:
+                            continue
+
                         is_bl, _ = is_blacklisted_card(c, subject_domain=job_data.get("subject", "generic"))
                         if not is_bl:
                             seen_card_texts.add(norm_key)
                             if sem_key:
                                 seen_semantic_keys.add(sem_key)
+                            if is_short_ans:
+                                seen_short_answers.add(norm_ans)
                             all_collected_cards.append(c)
 
             chunk_graph = parsed.get("knowledge_graph")
