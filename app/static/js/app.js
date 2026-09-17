@@ -5203,24 +5203,24 @@ function applyLayoutForces(graphInstance, layoutType) {
         }
     });
 
-    // 1. Сила отталкивания (Charge Repulsion) с градиентом уровней
+    // 1. Сила отталкивания (Charge Repulsion) — умеренная, без разлетания узлов в космос
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
                 if (layoutType === 'tree' || layoutType === 'horizontal') {
-                    if (lvl === 0) return -1200;
-                    if (lvl === 1) return -450;
-                    return -180;
+                    if (lvl === 0) return -240;
+                    if (lvl === 1) return -90;
+                    return -35;
                 }
-                if (lvl === 0) return isLarge ? -3600 : -1800;
-                if (lvl === 1) return isLarge ? -950 : -550;
-                return isLarge ? -360 : -220;
+                if (lvl === 0) return -380;
+                if (lvl === 1) return -140;
+                return -50;
             })
-            .distanceMax(isLarge ? 3200 : 1800);
+            .distanceMax(360);
     }
 
-    // 2. Сила связей (Link Force) с эшелонированием
+    // 2. Сила связей (Link Force) — короткие, собранные связи
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
@@ -5229,29 +5229,22 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
 
-                // Связь: Корень <-> Институт
+                // Связь: Корень <-> Институт (в 3 раза ближе)
                 if (sLvl === 0 || tLvl === 0) {
-                    if (layoutType === 'tree' || layoutType === 'horizontal') return 300;
-                    if (branchCount > 20) {
-                        const branch = sLvl === 0 ? t : s;
-                        const bIdx = branches.findIndex(b => String(b.id) === String(branch.id));
-                        const baseR1 = Math.max(340, Math.round(branchCount * 8.5));
-                        const baseR2 = Math.round(baseR1 * 1.55);
-                        return (bIdx % 2 === 0) ? baseR1 : baseR2;
-                    }
-                    return Math.max(220, branchCount * 12);
+                    if (layoutType === 'tree' || layoutType === 'horizontal') return 95;
+                    return Math.max(80, Math.min(130, branchCount * 2.2));
                 }
 
-                // Связь: Институт <-> Понятия
+                // Связь: Институт <-> Понятия (аккуратный короткий отступ)
                 if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
-                    if (layoutType === 'tree' || layoutType === 'horizontal') return 95;
+                    if (layoutType === 'tree' || layoutType === 'horizontal') return 40;
                     const branch = sLvl === 1 ? s : t;
                     const leafCnt = (branchLeavesMap.get(String(branch.id)) || []).length;
-                    return Math.max(100, Math.min(220, 75 + leafCnt * 14));
+                    return Math.max(35, Math.min(55, 30 + leafCnt * 3));
                 }
 
                 // Межинститутские связи
-                return 220;
+                return 55;
             })
             .strength(link => {
                 const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
@@ -5259,18 +5252,18 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
 
-                if (sLvl === 0 || tLvl === 0) return 0.85;
+                if (sLvl === 0 || tLvl === 0) return 0.90;
 
                 // Мягкие кросс-связи (чтобы разграничения не комкали структуру веток)
                 if (s.parent_id && t.parent_id && s.parent_id !== t.parent_id) {
-                    return 0.04;
+                    return 0.03;
                 }
-                if (sLvl === 1 && tLvl === 1) return 0.08;
-                return 0.80;
+                if (sLvl === 1 && tLvl === 1) return 0.06;
+                return 0.85;
             });
     }
 
-    // 3. Сила коллизии (Collide) с запасом под габариты плашек
+    // 3. Сила коллизии (Collide) — предотвращает наложение кружков
     if (window.d3 && window.d3.forceCollide) {
         graphInstance.d3Force('collide', window.d3.forceCollide()
             .radius(node => {
@@ -5279,80 +5272,77 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const maxLineLen = Math.min(label.length, 16);
                 const approxHalfW = (maxLineLen * 6.5) / 2;
 
-                if (lvl === 0) return 85;
-                if (lvl === 1) return Math.max(68, approxHalfW + 28);
-                return Math.max(48, approxHalfW + 16);
+                if (lvl === 0) return 38;
+                if (lvl === 1) return Math.max(28, approxHalfW + 10);
+                return Math.max(20, approxHalfW + 6);
             })
-            .strength(0.92)
-            .iterations(4)
+            .strength(0.85)
+            .iterations(3)
         );
     }
 
-    // 4. Позиционные силы для идеальной гармонии
+    // 4. Позиционные силы для компактных раскладок
     const targetXMap = new Map();
     const targetYMap = new Map();
 
     if (layoutType === 'tree') {
-        // Дерево: СВЕРХУ ВНИЗ (Top-Down Hierarchy)
+        // Дерево: СВЕРХУ ВНИЗ (Компактная строгая иерархия)
         rootNodes.forEach(r => {
             r.fx = 0;
-            r.fy = -600;
+            r.fy = -190;
             targetXMap.set(String(r.id), 0);
-            targetYMap.set(String(r.id), -600);
+            targetYMap.set(String(r.id), -190);
         });
 
-        const branchSpacingX = Math.max(130, Math.min(170, 6200 / branchCount));
+        const branchSpacingX = Math.max(48, Math.min(68, 2600 / branchCount));
         branches.forEach((b, idx) => {
             const bX = (idx - (branchCount - 1) / 2) * branchSpacingX;
-            const bY = (idx % 2 === 0) ? -240 : -70; // Два эшелона институтов для свободного дыхания
+            const bY = (idx % 2 === 0) ? -80 : -20; // Компактное чередование эшелонов
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                // Понятия выстраиваются вертикальной колонкой строго под своим институтом
-                const leafX = bX + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -16 : 16) : 0);
-                const leafY = bY + 165 + (lIdx * 72);
+                const leafX = bX + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -8 : 8) : 0);
+                const leafY = bY + 42 + (lIdx * 26);
                 targetXMap.set(String(leaf.id), leafX);
                 targetYMap.set(String(leaf.id), leafY);
             });
         });
 
-        // Заполняем остальные узлы, если есть
         nodes.forEach(n => {
             const id = String(n.id);
             if (!targetXMap.has(id)) {
                 targetXMap.set(id, 0);
-                targetYMap.set(id, 200);
+                targetYMap.set(id, 80);
             }
         });
 
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.88));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.88));
         }
 
     } else if (layoutType === 'horizontal') {
-        // Горизонтально: СЛЕВА НАПРАВО (Left-to-Right Flow)
+        // Горизонтально: СЛЕВА НАПРАВО (Компактный поток)
         rootNodes.forEach(r => {
-            r.fx = -750;
+            r.fx = -250;
             r.fy = 0;
-            targetXMap.set(String(r.id), -750);
+            targetXMap.set(String(r.id), -250);
             targetYMap.set(String(r.id), 0);
         });
 
-        const branchSpacingY = Math.max(100, Math.min(140, 5200 / branchCount));
+        const branchSpacingY = Math.max(36, Math.min(52, 2200 / branchCount));
         branches.forEach((b, idx) => {
             const bY = (idx - (branchCount - 1) / 2) * branchSpacingY;
-            const bX = (idx % 2 === 0) ? -320 : -130; // Две колонки институтов
+            const bX = (idx % 2 === 0) ? -110 : -40;
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                // Понятия выстраиваются горизонтально вправо от своего института
-                const leafX = bX + 195 + (lIdx * 125);
-                const leafY = bY + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -16 : 16) : 0);
+                const leafX = bX + 50 + (lIdx * 45);
+                const leafY = bY + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -8 : 8) : 0);
                 targetXMap.set(String(leaf.id), leafX);
                 targetYMap.set(String(leaf.id), leafY);
             });
@@ -5361,18 +5351,18 @@ function applyLayoutForces(graphInstance, layoutType) {
         nodes.forEach(n => {
             const id = String(n.id);
             if (!targetXMap.has(id)) {
-                targetXMap.set(id, 200);
+                targetXMap.set(id, 80);
                 targetYMap.set(id, 0);
             }
         });
 
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.88));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.88));
         }
 
     } else if (layoutType === 'radial') {
-        // Радиальный: Звездный взрыв от центра
+        // Радиальный: Аккуратный компактный цветок
         rootNodes.forEach(r => {
             r.fx = 0;
             r.fy = 0;
@@ -5382,7 +5372,7 @@ function applyLayoutForces(graphInstance, layoutType) {
 
         branches.forEach((b, idx) => {
             const angle = (idx / branchCount) * 2 * Math.PI;
-            const radius = (idx % 2 === 0) ? 380 : 540;
+            const radius = (idx % 2 === 0) ? 120 : 175;
             const bX = Math.cos(angle) * radius;
             const bY = Math.sin(angle) * radius;
             targetXMap.set(String(b.id), bX);
@@ -5390,8 +5380,8 @@ function applyLayoutForces(graphInstance, layoutType) {
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                const leafRadius = radius + 210 + (lIdx * 70);
-                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.045) : 0;
+                const leafRadius = radius + 65 + (lIdx * 25);
+                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.04) : 0;
                 const leafX = Math.cos(angle + angleOffset) * leafRadius;
                 const leafY = Math.sin(angle + angleOffset) * leafRadius;
                 targetXMap.set(String(leaf.id), leafX);
@@ -5400,8 +5390,8 @@ function applyLayoutForces(graphInstance, layoutType) {
         });
 
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.80));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.80));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
         }
 
     } else {
@@ -5411,7 +5401,7 @@ function applyLayoutForces(graphInstance, layoutType) {
             r.fy = 0;
         });
         if (window.d3 && window.d3.forceCenter) {
-            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.08));
+            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.12));
         }
     }
 }
@@ -5733,57 +5723,36 @@ window.initForceGraph = function(graphData) {
             const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
                 if (searchBackboneLinkKeys.has(lKey)) {
-                    return '#f59e0b'; // Яркая золотая магистраль от центра к узлу!
+                    // Чистый монохромный контрастный путь (Apple / Notion)
+                    return isDark ? '#ffffff' : '#0f172a';
                 }
                 if (searchHighlightLinkKeys.has(lKey)) {
-                    return isDark ? 'rgba(96, 165, 250, 0.85)' : 'rgba(37, 99, 235, 0.85)'; // Лазурные связи ветви
+                    // Мягкий деликатный контекст ветви
+                    return isDark ? 'rgba(255, 255, 255, 0.40)' : 'rgba(15, 23, 42, 0.40)';
                 }
-                return isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)';
+                return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
             }
-            // Спокойный монохромный вид всех связей по умолчанию без пестроты
+            // Спокойный нейтральный монохром без пестроты
             return isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)';
         })
         .linkWidth(link => {
             const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinkKeys.has(lKey)) return 3.6; // Мощная магистраль
-                if (searchHighlightLinkKeys.has(lKey)) return 1.8;
+                if (searchBackboneLinkKeys.has(lKey)) return 2.2; // Четкая аккуратная магистраль
+                if (searchHighlightLinkKeys.has(lKey)) return 1.2;
                 return 0.5;
             }
-            return 1.0;
+            return 0.8;
         })
-        .linkDirectionalParticles(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
-            if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinkKeys.has(lKey)) return 4; // Поток частиц по магистрали от центра
-                if (searchHighlightLinkKeys.has(lKey)) return 1;
-                return 0;
-            }
-            return 0;
-        })
-        .linkDirectionalParticleSpeed(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
-            if (searchBackboneLinkKeys.has(lKey)) return 0.012;
-            return 0.006;
-        })
-        .linkDirectionalParticleWidth(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
-            if (searchBackboneLinkKeys.has(lKey)) return 3.6;
-            return 2.0;
-        })
-        .linkDirectionalParticleColor(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
-            if (searchBackboneLinkKeys.has(lKey)) return '#f59e0b';
-            return '#60a5fa';
-        })
-        .warmupTicks(60)
-        .cooldownTicks(250)
-        .d3VelocityDecay(0.22)
+        .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
+        .warmupTicks(80)
+        .cooldownTicks(50)
+        .d3VelocityDecay(0.68) // Высокое затухание: узлы не колышутся и мгновенно встают на место
         .onDagError(() => false)
         .onEngineStop(() => {
             if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
                 isInitialLayoutFit = false;
-                currentForceGraphInstance.zoomToFit(400, 40);
+                currentForceGraphInstance.zoomToFit(400, 35);
             }
         })
         .onNodeDrag(() => {
@@ -5798,76 +5767,59 @@ window.initForceGraph = function(graphData) {
             const isTarget = activeSearchTargetId === String(node.id);
             const isBackboneNode = searchBackboneNodes.has(String(node.id));
             const label = node.name || node.id;
-            const radius = Math.max(3.6, (node.val || 5)) * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
+            const baseR = Math.max(3.0, (node.val || 4) * 0.75);
+            const radius = baseR * (isTarget ? 1.3 : (isBackboneNode ? 1.1 : 1.0));
             const currentDark = document.documentElement.classList.contains('dark');
 
             ctx.save();
             if (hasActiveSelection && !isHighlighted) {
-                ctx.globalAlpha = 0.04; // Глубокое мягкое затемнение несвязанного фона
+                ctx.globalAlpha = 0.05; // Мягкое затемнение фона
             }
 
-            // 1. Определение монохромного цвета узла (или яркого акцента при активном поиске)
+            // 1. Спокойный монохром узлов (Apple / Notion)
             let nodeFill;
             let nodeStroke;
             let strokeWidth = 1.0;
 
             if (isTarget) {
-                // Целевой узел: яркий золотисто-янтарный маяк с пульсирующим нимбом
-                nodeFill = '#f59e0b';
-                nodeStroke = '#ffffff';
-                strokeWidth = 2.2;
+                // Целевой узел: чистый высокий контраст без неона
+                nodeFill = currentDark ? '#ffffff' : '#0f172a';
+                nodeStroke = currentDark ? '#000000' : '#ffffff';
+                strokeWidth = 2.0;
 
+                // Аккуратная тонкая окантовка без пульсаций и кислотного сияния
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 7, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = '#f59e0b';
-                ctx.lineWidth = 2.5;
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 13, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = 'rgba(245, 158, 11, 0.35)';
-                ctx.lineWidth = 1.5;
+                ctx.arc(node.x, node.y, radius + 3.5, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.35)';
+                ctx.lineWidth = 1.0;
                 ctx.stroke();
 
             } else if (isBackboneNode) {
-                // Узлы магистрали (Корень и Родительский институт): лазурно-синий акцент
-                nodeFill = '#3b82f6';
-                nodeStroke = '#ffffff';
-                strokeWidth = 1.8;
-
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = 'rgba(59, 130, 246, 0.45)';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
+                // Узлы магистрали (Корень и Родительский институт): благородный платиновый / угольный тон
+                nodeFill = currentDark ? '#e2e8f0' : '#334155';
+                nodeStroke = currentDark ? '#000000' : '#ffffff';
+                strokeWidth = 1.4;
 
             } else if (hasActiveSelection && isHighlighted) {
-                // Соседние понятия того же института: четкий контрастный графит
-                nodeFill = currentDark ? '#e2e8f0' : '#1e293b';
-                nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.2)';
-                strokeWidth = 1.2;
+                // Соседние понятия ветви
+                nodeFill = currentDark ? '#94a3b8' : '#64748b';
+                nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.15)';
+                strokeWidth = 1.0;
 
             } else {
-                // ОБЫЧНОЕ СОСТОЯНИЕ (Монохромный минимализм без пестроты):
+                // ОБЫЧНОЕ СОСТОЯНИЕ (Минимализм)
                 if (node.level === 0) {
                     nodeFill = currentDark ? '#f8fafc' : '#0f172a';
                     nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.6)' : '#ffffff';
-                    strokeWidth = 2.0;
-
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
-                    ctx.fillStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.10)';
-                    ctx.fill();
-
+                    strokeWidth = 1.8;
                 } else if (node.level === 1) {
                     nodeFill = currentDark ? '#94a3b8' : '#475569';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)';
-                    strokeWidth = 1.2;
-
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.12)';
+                    strokeWidth = 1.0;
                 } else {
                     nodeFill = currentDark ? '#475569' : '#94a3b8';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
-                    strokeWidth = 0.8;
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
+                    strokeWidth = 0.6;
                 }
             }
 
@@ -5882,8 +5834,7 @@ window.initForceGraph = function(graphData) {
             ctx.strokeStyle = nodeStroke;
             ctx.stroke();
 
-            // 4. Текстовая метка узла с прогрессивным раскрытием деталей (LOD)
-            // Показываем понятия на комфортном зуме (>= 0.40 вместо 1.35) и всегда при выделении ветви
+            // 4. Текстовая плашка-метка узла (LOD)
             const shouldShowLabel = isTarget || isBackboneNode ||
                 (hasActiveSelection && isHighlighted) ||
                 node.level === 0 ||
@@ -5891,18 +5842,18 @@ window.initForceGraph = function(graphData) {
                 (node.level >= 2 && globalScale >= 0.40);
 
             if (isHighlighted && shouldShowLabel) {
-                const targetScreenSize = isTarget ? 13.5 : (node.level === 0 ? 13 : (node.level === 1 ? 11.5 : 10));
-                const fontSize = Math.min(26, Math.max(7.5, targetScreenSize / Math.pow(globalScale, 0.85)));
+                const targetScreenSize = isTarget ? 13.0 : (node.level === 0 ? 12.5 : (node.level === 1 ? 11.0 : 9.5));
+                const fontSize = Math.min(24, Math.max(7.0, targetScreenSize / Math.pow(globalScale, 0.85)));
                 ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
                 const lines = wrapNodeText(label, node.level === 0 ? 22 : 16);
-                const lineHeight = fontSize + (3.2 / Math.pow(globalScale, 0.3));
-                const startY = node.y + radius + (5 / Math.pow(globalScale, 0.3)) + (lineHeight / 2);
+                const lineHeight = fontSize + (3.0 / Math.pow(globalScale, 0.3));
+                const startY = node.y + radius + (4.5 / Math.pow(globalScale, 0.3)) + (lineHeight / 2);
 
-                const padX = Math.max(3, 5 / Math.pow(globalScale, 0.4));
-                const padY = Math.max(2, 3 / Math.pow(globalScale, 0.4));
+                const padX = Math.max(3, 4.5 / Math.pow(globalScale, 0.4));
+                const padY = Math.max(2, 2.8 / Math.pow(globalScale, 0.4));
 
                 lines.forEach((line, i) => {
                     const lineY = startY + (i * lineHeight);
@@ -5912,15 +5863,15 @@ window.initForceGraph = function(graphData) {
 
                     // Фон плашки
                     if (isTarget) {
-                        ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.24)' : 'rgba(254, 243, 199, 0.96)';
+                        ctx.fillStyle = currentDark ? '#ffffff' : '#0f172a';
                     } else if (isBackboneNode) {
-                        ctx.fillStyle = currentDark ? 'rgba(59, 130, 246, 0.24)' : 'rgba(239, 246, 255, 0.96)';
+                        ctx.fillStyle = currentDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.14)';
                     } else {
                         ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.90)' : 'rgba(255, 255, 255, 0.94)';
                     }
 
                     ctx.beginPath();
-                    const pillRadius = Math.max(2, 3.5 / Math.pow(globalScale, 0.4));
+                    const pillRadius = Math.max(2, 3.2 / Math.pow(globalScale, 0.4));
                     if (ctx.roundRect) {
                         ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, pillRadius);
                     } else {
@@ -5930,22 +5881,22 @@ window.initForceGraph = function(graphData) {
 
                     // Рамка плашки
                     if (isTarget) {
-                        ctx.strokeStyle = '#f59e0b';
-                        ctx.lineWidth = Math.max(0.8, 1.2 / Math.pow(globalScale, 0.3));
-                    } else if (isBackboneNode) {
-                        ctx.strokeStyle = '#3b82f6';
+                        ctx.strokeStyle = currentDark ? '#e2e8f0' : '#1e293b';
                         ctx.lineWidth = Math.max(0.7, 1.0 / Math.pow(globalScale, 0.3));
+                    } else if (isBackboneNode) {
+                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.25)';
+                        ctx.lineWidth = Math.max(0.6, 0.9 / Math.pow(globalScale, 0.3));
                     } else {
-                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)';
-                        ctx.lineWidth = Math.max(0.5, 0.8 / Math.pow(globalScale, 0.3));
+                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+                        ctx.lineWidth = Math.max(0.5, 0.7 / Math.pow(globalScale, 0.3));
                     }
                     ctx.stroke();
 
-                    // Текст
+                    // Текст плашки
                     if (isTarget) {
-                        ctx.fillStyle = currentDark ? '#fbbf24' : '#b45309';
+                        ctx.fillStyle = currentDark ? '#000000' : '#ffffff';
                     } else if (isBackboneNode) {
-                        ctx.fillStyle = currentDark ? '#93c5fd' : '#1d4ed8';
+                        ctx.fillStyle = currentDark ? '#ffffff' : '#0f172a';
                     } else {
                         ctx.fillStyle = currentDark ? '#f8fafc' : '#0f172a';
                     }
