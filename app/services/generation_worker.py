@@ -335,7 +335,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                             "nodes": rec.graph_data.get("nodes", []),
                             "edges": rec.graph_data.get("edges", [])
                         }
-                        if existing_chunk.get("nodes"):
+                        # Слияние используем только для маленьких добавочных порций (< 30 карт).
+                        # Если же сгенерирован полноценный курс, новый чистый граф полностью обновляет устаревший снапшот.
+                        should_merge = bool(existing_chunk.get("nodes")) and len(all_collected_cards) < 30 and len(graph_nodes) < 20
+                        if should_merge:
                             merged = consolidate_knowledge_graphs(
                                 chunk_graphs=[existing_chunk, final_graph_data],
                                 fallback_title=extracted_theme or subj or "Каркас знаний"
