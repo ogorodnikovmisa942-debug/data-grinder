@@ -309,10 +309,15 @@ async def generate_invite_code(
     db.add(invite)
     await db.commit()
     await db.refresh(invite)
+    bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "DATAGRINDERbot"
+    bot_clean = str(bot_username).lstrip("@")
+    invite_url = f"https://t.me/{bot_clean}?start=inv_{invite.code}"
+
     return {
         "status": "success",
         "code": invite.code,
-        "created_at": invite.created_at.isoformat()
+        "invite_url": invite_url,
+        "created_at": invite.created_at.isoformat() if invite.created_at else ""
     }
 
 @router.get("/invites")
@@ -321,6 +326,9 @@ async def list_invites(
     _: None = Depends(verify_admin_token)
 ):
     """Список всех сгенерированных инвайтов с их статусом."""
+    bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "DATAGRINDERbot"
+    bot_clean = str(bot_username).lstrip("@")
+
     stmt = select(InviteCode).order_by(InviteCode.id.desc())
     res = await db.execute(stmt)
     invites = res.scalars().all()
@@ -331,6 +339,7 @@ async def list_invites(
             {
                 "id": inv.id,
                 "code": inv.code,
+                "invite_url": f"https://t.me/{bot_clean}?start=inv_{inv.code}",
                 "created_by": inv.created_by,
                 "is_used": inv.is_used,
                 "used_by_user_id": inv.used_by_user_id,

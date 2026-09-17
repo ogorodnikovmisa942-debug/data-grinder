@@ -67,9 +67,15 @@ async def cmd_start(message: types.Message):
     
     args = message.text.split(maxsplit=1)
     payload = args[1].strip() if len(args) > 1 else ""
-    invite_code_clean = payload.replace("inv_", "").strip() if payload.startswith("inv_") else payload
+    invite_code_clean = ""
+    low_payload = payload.lower()
+    if low_payload.startswith("inv_") or low_payload.startswith("inv-"):
+        remainder = payload[4:].strip().upper()
+        invite_code_clean = remainder if remainder.startswith("INV-") else f"INV-{remainder}"
+    elif low_payload.startswith("inv"):
+        invite_code_clean = payload.strip().upper()
 
-    invite_enrolled = False
+    invite_status = None # "enrolled" | "already_enrolled" | "already_used" | "not_found"
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(UserSession).filter(UserSession.telegram_id == user_id_str))
@@ -83,32 +89,40 @@ async def cmd_start(message: types.Message):
             
             # Проверка и активация инвайт-кода
             if invite_code_clean:
-                stmt_inv = select(InviteCode).filter(InviteCode.code == invite_code_clean)
-                inv = (await db.execute(stmt_inv)).scalar_one_or_none()
-                if inv and not inv.is_used:
-                    inv.is_used = True
-                    inv.used_by_user_id = user_id_str
-                    inv.used_by_username = f"@{username}" if username else user_id_str
-                    inv.used_at = datetime.utcnow()
+                if session.is_experiment_participant:
+                    invite_status = "already_enrolled"
+                else:
+                    stmt_inv = select(InviteCode).filter(InviteCode.code == invite_code_clean)
+                    inv = (await db.execute(stmt_inv)).scalar_one_or_none()
+                    if inv:
+                        if not inv.is_used:
+                            inv.is_used = True
+                            inv.used_by_user_id = user_id_str
+                            inv.used_by_username = f"@{username}" if username else user_id_str
+                            inv.used_at = datetime.utcnow()
 
-                    session.is_experiment_participant = True
-                    session.experiment_phase = 1
+                            session.is_experiment_participant = True
+                            session.experiment_phase = 1
 
-                    stmt_set = select(UserSetting).filter(UserSetting.user_id == user_id_str)
-                    user_set = (await db.execute(stmt_set)).scalar_one_or_none()
-                    if user_set:
-                        user_set.is_experiment_participant = True
-                        user_set.experiment_phase = 1
+                            stmt_set = select(UserSetting).filter(UserSetting.user_id == user_id_str)
+                            user_set = (await db.execute(stmt_set)).scalar_one_or_none()
+                            if user_set:
+                                user_set.is_experiment_participant = True
+                                user_set.experiment_phase = 1
+                            else:
+                                user_set = UserSetting(
+                                    user_id=user_id_str,
+                                    daily_limit=settings.EXPERIMENT_DAILY_LIMIT,
+                                    is_experiment_participant=True,
+                                    experiment_phase=1
+                                )
+                                db.add(user_set)
+                            invite_status = "enrolled"
+                            print(f"[Bot] Инвайт {invite_code_clean} успешно активирован для @{username} ({user_id_str})")
+                        else:
+                            invite_status = "already_used"
                     else:
-                        user_set = UserSetting(
-                            user_id=user_id_str,
-                            daily_limit=settings.EXPERIMENT_DAILY_LIMIT,
-                            is_experiment_participant=True,
-                            experiment_phase=1
-                        )
-                        db.add(user_set)
-                    invite_enrolled = True
-                    print(f"[Bot] Инвайт {invite_code_clean} успешно активирован для @{username} ({user_id_str})")
+                        invite_status = "not_found"
 
             # Проверка и подключение колоды по шеринг-ссылке (?start=deck_...)
             shared_deck_info = None
@@ -160,7 +174,7 @@ async def cmd_start(message: types.Message):
             "Все карточки бережно добавлены в вашу очередь FSRS без сброса накопленного прогресса.\n\n"
             "Нажмите кнопку ниже для старта:"
         )
-    elif invite_enrolled:
+    elif invite_status == "enrolled":
         welcome_text = (
             "🎉 <b>Добро пожаловать в научный эксперимент Data Grinder!</b>\n\n"
             f"Инвайт-код <code>{invite_code_clean}</code> успешно подтвержден.\n"
@@ -169,6 +183,24 @@ async def cmd_start(message: types.Message):
             f"• <b>Дневной режим:</b> {settings.EXPERIMENT_DAILY_LIMIT} карточек\n"
             f"• <b>Фаза:</b> 1 (Экспериментальная изоляция FSRS)\n\n"
             "Нажмите кнопку ниже для запуска персональной учебной сессии:"
+        )
+    elif invite_status == "already_enrolled":
+        welcome_text = (
+            "ℹ️ <b>Вы уже являетесь активным участником исследования!</b>\n\n"
+            "Ваш профиль и настройки FSRS сохранены в базе.\n"
+            "Нажмите кнопку ниже для продолжения учебной сессии:"
+        )
+    elif invite_status == "already_used":
+        welcome_text = (
+            "⚠️ <b>Этот инвайт-код уже был активирован ранее.</b>\n\n"
+            f"Код <code>{invite_code_clean}</code> является одноразовым и уже использован другим участником.\n"
+            "Вы можете продолжить работу в стандартном режиме:"
+        )
+    elif invite_status == "not_found":
+        welcome_text = (
+            "⚠️ <b>Инвайт-код не найден или устарел.</b>\n\n"
+            f"Код <code>{invite_code_clean}</code> не зарегистрирован в системе.\n"
+            "Нажмите кнопку ниже для старта:"
         )
     else:
         welcome_text = (

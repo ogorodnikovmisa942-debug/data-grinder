@@ -4679,6 +4679,54 @@ const KG_CATEGORY_NAMES = {
     'legal_status': 'Правовой статус'
 };
 
+const KG_RELATION_STYLES = {
+    'subject_to_jurisdiction': {
+        color: '#3b82f6',
+        label: 'входит в структуру',
+        icon: 'schema',
+        borderClass: 'border-blue-500/30 hover:border-blue-500',
+        textClass: 'text-blue-600 dark:text-blue-400',
+        bgClass: 'bg-blue-50/70 dark:bg-blue-950/40'
+    },
+    'demarcated_from': {
+        color: '#f59e0b',
+        label: 'разграничивается с',
+        icon: 'compare_arrows',
+        borderClass: 'border-amber-500/30 hover:border-amber-500',
+        textClass: 'text-amber-600 dark:text-amber-400',
+        bgClass: 'bg-amber-50/70 dark:bg-amber-950/40'
+    },
+    'appealed_to': {
+        color: '#06b6d4',
+        label: 'обжалуется в',
+        icon: 'upgrade',
+        borderClass: 'border-cyan-500/30 hover:border-cyan-500',
+        textClass: 'text-cyan-600 dark:text-cyan-400',
+        bgClass: 'bg-cyan-50/70 dark:bg-cyan-950/40'
+    },
+    'excludes_application': {
+        color: '#f43f5e',
+        label: 'исключает применение',
+        icon: 'block',
+        borderClass: 'border-rose-500/30 hover:border-rose-500',
+        textClass: 'text-rose-600 dark:text-rose-400',
+        bgClass: 'bg-rose-50/70 dark:bg-rose-950/40'
+    },
+    'default': {
+        color: '#64748b',
+        label: 'связь',
+        icon: 'arrow_forward',
+        borderClass: 'border-neutral-300 dark:border-neutral-700 hover:border-primary',
+        textClass: 'text-neutral-600 dark:text-neutral-400',
+        bgClass: 'bg-neutral-50 dark:bg-neutral-800/60'
+    }
+};
+
+function getKgRelationStyle(rel) {
+    const key = (rel || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    return KG_RELATION_STYLES[key] || KG_RELATION_STYLES['default'];
+}
+
 function getKgNodeColor(category) {
     return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
 }
@@ -5093,32 +5141,50 @@ function wrapNodeText(text, maxChars = 16) {
 }
 
 let isInitialLayoutFit = true;
+let searchHighlightNodes = new Set();
+let searchHighlightLinks = new Set();
+let activeSearchTargetId = null;
+let currentLinksFilter = 'all';
 
 function applySpiderwebForces(graphInstance) {
     if (!graphInstance) return;
 
     const cleanData = getCleanGraphData();
-    const nodeCount = (cleanData && cleanData.nodes) ? cleanData.nodes.length : 35;
-    const isLarge = nodeCount > 50;
+    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
 
-    // Fast lookup map in case link.source/target are string IDs
-    const nodeMap = new Map((cleanData && cleanData.nodes) ? cleanData.nodes.map(n => [String(n.id), n]) : []);
+    const nodes = cleanData.nodes;
+    const nodeCount = nodes.length;
+    const isLarge = nodeCount > 40;
+    const nodeMap = new Map(nodes.map(n => [String(n.id), n]));
 
-    // 1. Charge force with calibrated repulsion gradient:
-    // Root pushes major institutes outward; institutes push leaves; leaves maintain generous breathing room
+    const rootNodes = nodes.filter(n => n.level === 0);
+    const branches = nodes.filter(n => n.level === 1);
+    const branchCount = branches.length;
+
+    // Индексируем ветви для орбитального эшелонирования (Staggered Orbit Radii)
+    const branchIndexMap = new Map();
+    branches.forEach((b, idx) => branchIndexMap.set(String(b.id), idx));
+
+    // Подсчет листьев для каждого института
+    const branchLeavesCount = new Map();
+    nodes.filter(n => n.level === 2).forEach(leaf => {
+        const pId = String(leaf.parent_id || '');
+        branchLeavesCount.set(pId, (branchLeavesCount.get(pId) || 0) + 1);
+    });
+
+    // 1. Сила отталкивания (Charge Repulsion) с градиентом уровней
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (lvl === 0) return isLarge ? -1600 : -1200;
-                if (lvl === 1) return isLarge ? -650 : -480;
-                return isLarge ? -320 : -220;
+                if (lvl === 0) return isLarge ? -3400 : -1800;
+                if (lvl === 1) return isLarge ? -950 : -600;
+                return isLarge ? -380 : -240;
             })
-            .distanceMax(isLarge ? 2200 : 1400);
+            .distanceMax(isLarge ? 3400 : 1800);
     }
 
-    // 2. Link force with calibrated spoke-and-wheel spiderweb distances:
-    // Guarantees generous spacing between hierarchy levels and leaf clusters
+    // 2. Сила связей (Link Force) с орбитальным эшелонированием
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
@@ -5126,9 +5192,29 @@ function applySpiderwebForces(graphInstance) {
                 const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
-                if (sLvl === 0 || tLvl === 0) return isLarge ? 240 : 180;
-                if (sLvl === 1 && tLvl === 1) return isLarge ? 170 : 130;
-                return isLarge ? 110 : 85;
+
+                // Связь: Корень <-> Институт (Уровень 0 <-> 1)
+                if (sLvl === 0 || tLvl === 0) {
+                    const branch = sLvl === 0 ? t : s;
+                    const bIdx = branchIndexMap.get(String(branch.id)) || 0;
+                    if (branchCount > 20) {
+                        // Эшелонирование на 2 концентрических орбиты (четные ближе, нечетные дальше)
+                        const baseR1 = Math.max(340, Math.round(branchCount * 8.5));
+                        const baseR2 = Math.round(baseR1 * 1.62);
+                        return (bIdx % 2 === 0) ? baseR1 : baseR2;
+                    }
+                    return Math.max(240, branchCount * 14);
+                }
+
+                // Связь: Институт <-> Листья (Уровень 1 <-> 2)
+                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
+                    const branch = sLvl === 1 ? s : t;
+                    const leafCnt = branchLeavesCount.get(String(branch.id)) || 1;
+                    return Math.max(105, Math.min(260, 75 + leafCnt * 14));
+                }
+
+                // Межинститутские связи
+                return isLarge ? 280 : 180;
             })
             .strength(link => {
                 const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
@@ -5136,15 +5222,27 @@ function applySpiderwebForces(graphInstance) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
                 if (sLvl === 0 || tLvl === 0) return 0.85;
-                return 0.7;
+                if (sLvl === 1 && tLvl === 1) return 0.35; // Мягкие кросс-связи для сохранения формы
+                return 0.75;
             });
     }
 
-    // 3. Collision force to prevent node and text badge overlapping
+    // 3. Сила коллизии (Collide) с учетом реальных габаритов текстовых плашек
     if (window.d3 && window.d3.forceCollide) {
-        const radiusMultiplier = isLarge ? 3.5 : 2.8;
-        const extraPad = isLarge ? 24 : 18;
-        graphInstance.d3Force('collide', window.d3.forceCollide().radius(node => Math.max(34, (node.val || 5) * radiusMultiplier + extraPad)).iterations(3));
+        graphInstance.d3Force('collide', window.d3.forceCollide()
+            .radius(node => {
+                const lvl = (node.level !== undefined) ? node.level : 2;
+                const label = node.name || node.id || '';
+                const maxLineLen = Math.min(label.length, 16);
+                const approxTextHalfWidth = (maxLineLen * 6.5) / 2;
+
+                if (lvl === 0) return 80;
+                if (lvl === 1) return Math.max(65, approxTextHalfWidth + 24);
+                return Math.max(44, approxTextHalfWidth + 14);
+            })
+            .strength(0.85)
+            .iterations(4)
+        );
     }
 }
 
@@ -5173,7 +5271,7 @@ window.setGraphLayout = function(layoutType) {
     const nodeCount = cleanData.nodes ? cleanData.nodes.length : 0;
 
     if (currentKgLayout === 'radial') {
-        const radialDist = Math.min(320, Math.max(160, Math.round(nodeCount * 4.5)));
+        const radialDist = Math.min(650, Math.max(220, Math.round(nodeCount * 4.2)));
         currentForceGraphInstance
             .dagMode('radialout')
             .dagLevelDistance(radialDist)
@@ -5181,7 +5279,7 @@ window.setGraphLayout = function(layoutType) {
             .graphData(cleanData);
         applySpiderwebForces(currentForceGraphInstance);
     } else if (currentKgLayout === 'tree') {
-        const treeDist = Math.min(300, Math.max(140, Math.round(nodeCount * 4.0)));
+        const treeDist = Math.min(500, Math.max(180, Math.round(nodeCount * 3.6)));
         currentForceGraphInstance
             .dagMode('td')
             .dagLevelDistance(treeDist)
@@ -5189,7 +5287,7 @@ window.setGraphLayout = function(layoutType) {
             .graphData(cleanData);
         applySpiderwebForces(currentForceGraphInstance);
     } else if (currentKgLayout === 'horizontal') {
-        const lrDist = Math.min(340, Math.max(180, Math.round(nodeCount * 4.5)));
+        const lrDist = Math.min(550, Math.max(200, Math.round(nodeCount * 3.8)));
         currentForceGraphInstance
             .dagMode('lr')
             .dagLevelDistance(lrDist)
@@ -5213,6 +5311,151 @@ window.setGraphLayout = function(layoutType) {
             currentForceGraphInstance.zoomToFit(400, 40);
         }
     }, 450);
+};
+
+/* ==========================================================================
+   ПОИСК ПО ГРАФУ И ПОДСВЕТКА ЛИНИИ СВЯЗЕЙ (SPOTLIGHT SUBGRAPH)
+   ========================================================================== */
+
+window.onKgSearchInput = function(query) {
+    highlightConceptSearch(query);
+};
+
+window.clearKgSearch = function() {
+    const input = document.getElementById('kg-search-input');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('kg-search-clear');
+    if (clearBtn) clearBtn.classList.add('hidden');
+    const resBox = document.getElementById('kg-search-results');
+    if (resBox) resBox.classList.add('hidden');
+    highlightConceptSearch('');
+};
+
+window.highlightConceptSearch = function(searchTerm) {
+    const clearBtn = document.getElementById('kg-search-clear');
+    const resBox = document.getElementById('kg-search-results');
+
+    if (!searchTerm || !searchTerm.trim()) {
+        searchHighlightNodes.clear();
+        searchHighlightLinks.clear();
+        activeSearchTargetId = null;
+        if (clearBtn) clearBtn.classList.add('hidden');
+        if (resBox) resBox.classList.add('hidden');
+        if (currentForceGraphInstance) {
+            currentForceGraphInstance.refresh();
+        }
+        return;
+    }
+
+    if (clearBtn) clearBtn.classList.remove('hidden');
+
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes) return;
+
+    const q = searchTerm.toLowerCase().trim();
+
+    // Поиск по названию узла, описанию и смысловым совпадениям
+    const matches = cleanData.nodes.filter(n => {
+        const name = (n.name || '').toLowerCase();
+        const summary = (n.summary || '').toLowerCase();
+        return name.includes(q) || summary.includes(q);
+    });
+
+    if (matches.length === 0) {
+        if (resBox) {
+            resBox.innerHTML = '<div class="p-2 text-neutral-400 text-center">Ничего не найдено</div>';
+            resBox.classList.remove('hidden');
+        }
+        return;
+    }
+
+    // Рендер выпадающего списка быстрых совпадений
+    if (resBox) {
+        resBox.innerHTML = '';
+        matches.slice(0, 8).forEach(m => {
+            const item = document.createElement('div');
+            item.className = 'px-2.5 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer flex items-center justify-between gap-2 text-neutral-800 dark:text-neutral-200 transition-colors';
+            const catColor = KG_CATEGORY_COLORS[m.category] || '#3b82f6';
+            item.innerHTML = `
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${catColor};"></span>
+                    <span class="truncate font-medium">${escapeHTML(m.name || m.id)}</span>
+                </div>
+                <span class="text-[9px] text-neutral-400 uppercase shrink-0 font-mono">${KG_CATEGORY_NAMES[m.category] || ''}</span>
+            `;
+            item.onclick = () => {
+                selectSearchResult(m, true);
+            };
+            resBox.appendChild(item);
+        });
+        resBox.classList.remove('hidden');
+    }
+
+    // Фокусируемся на первом лучшем совпадении
+    selectSearchResult(matches[0], false);
+};
+
+window.selectSearchResult = function(targetNode, closeDropdown = true) {
+    if (!targetNode) return;
+    const resBox = document.getElementById('kg-search-results');
+    if (closeDropdown && resBox) resBox.classList.add('hidden');
+
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes) return;
+
+    activeSearchTargetId = String(targetNode.id);
+    searchHighlightNodes.clear();
+    searchHighlightLinks.clear();
+
+    searchHighlightNodes.add(activeSearchTargetId);
+
+    // Восходим по цепочке предков до корня (Лист -> Институт -> Корень)
+    let cur = targetNode;
+    while (cur && cur.parent_id) {
+        searchHighlightNodes.add(String(cur.parent_id));
+        cur = cleanData.nodes.find(n => String(n.id) === String(cur.parent_id));
+    }
+
+    // Если узел - институт/корень, добавляем его прямых потомков
+    cleanData.nodes.forEach(n => {
+        if (String(n.parent_id) === activeSearchTargetId) {
+            searchHighlightNodes.add(String(n.id));
+        }
+    });
+
+    // Собираем все ребра, связывающие выделенные узлы, а также прямые кросс-связи
+    (cleanData.edges || []).forEach(edge => {
+        const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
+        const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
+
+        if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
+            searchHighlightLinks.add(edge);
+        } else if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
+            searchHighlightNodes.add(sId);
+            searchHighlightNodes.add(tId);
+            searchHighlightLinks.add(edge);
+        }
+    });
+
+    if (currentForceGraphInstance) {
+        currentForceGraphInstance.refresh();
+        if (typeof targetNode.x === 'number' && typeof targetNode.y === 'number') {
+            currentForceGraphInstance.centerAt(targetNode.x, targetNode.y, 750);
+            currentForceGraphInstance.zoom(1.8, 750);
+        }
+    }
+
+    // Показываем карточку найденного понятия
+    showKgNodeDrawer(targetNode);
+};
+
+window.focusNodeInGraph = function(nodeId) {
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes) return;
+    const target = cleanData.nodes.find(n => String(n.id) === String(nodeId));
+    if (target) {
+        selectSearchResult(target, true);
+    }
 };
 
 window.initForceGraph = function(graphData) {
@@ -5254,16 +5497,48 @@ window.initForceGraph = function(graphData) {
         .backgroundColor(bgColor)
         .nodeId('id')
         .nodeVal('val')
-        .nodeLabel(node => `${node.name} (${node.category})`)
-        .linkColor(() => isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.18)')
-        .linkWidth(1.5)
-        .linkDirectionalParticles(2)
-        .linkDirectionalParticleSpeed(0.006)
-        .linkDirectionalParticleWidth(2)
-        .linkDirectionalParticleColor(() => isDark ? '#ffffff' : '#1a1a1a')
-        .warmupTicks(35)
-        .cooldownTicks(90)
-        .d3VelocityDecay(0.3)
+        .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
+        .linkColor(link => {
+            const rel = link.relation || 'subject_to_jurisdiction';
+            const relStyle = getKgRelationStyle(rel);
+            if (searchHighlightNodes.size > 0) {
+                if (searchHighlightLinks.has(link)) {
+                    return relStyle.color;
+                }
+                return isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)';
+            }
+            // Обычный вид с деликатным цветовым кодированием отношений
+            if (rel === 'demarcated_from') return isDark ? 'rgba(245, 158, 11, 0.60)' : 'rgba(217, 119, 6, 0.60)';
+            if (rel === 'excludes_application') return isDark ? 'rgba(244, 63, 94, 0.70)' : 'rgba(225, 29, 72, 0.70)';
+            if (rel === 'appealed_to') return isDark ? 'rgba(6, 182, 212, 0.60)' : 'rgba(8, 145, 178, 0.60)';
+            return isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.16)';
+        })
+        .linkWidth(link => {
+            if (searchHighlightNodes.size > 0) {
+                return searchHighlightLinks.has(link) ? 3.0 : 0.8;
+            }
+            return (link.relation === 'demarcated_from' || link.relation === 'excludes_application') ? 2.0 : 1.4;
+        })
+        .linkDirectionalParticles(link => {
+            if (searchHighlightNodes.size > 0) {
+                return searchHighlightLinks.has(link) ? 4 : 0;
+            }
+            return 2;
+        })
+        .linkDirectionalParticleSpeed(0.007)
+        .linkDirectionalParticleWidth(link => {
+            if (searchHighlightNodes.size > 0) {
+                return searchHighlightLinks.has(link) ? 3.2 : 0;
+            }
+            return 2;
+        })
+        .linkDirectionalParticleColor(link => {
+            const rel = link.relation || 'subject_to_jurisdiction';
+            return getKgRelationStyle(rel).color;
+        })
+        .warmupTicks(60)
+        .cooldownTicks(250)
+        .d3VelocityDecay(0.22)
         .onDagError(() => false)
         .onEngineStop(() => {
             if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
@@ -5278,27 +5553,44 @@ window.initForceGraph = function(graphData) {
             isInitialLayoutFit = false;
         })
         .nodeCanvasObject((node, ctx, globalScale) => {
+            const isHighlighted = searchHighlightNodes.size === 0 || searchHighlightNodes.has(String(node.id));
+            const isTarget = activeSearchTargetId === String(node.id);
             const label = node.name || node.id;
-            const radius = Math.max(3.5, (node.val || 5));
+            const cat = node.category || 'default';
+            const catColor = getKgNodeColor(cat);
+            const radius = Math.max(3.8, (node.val || 5)) * (isTarget ? 1.35 : 1.0);
             const currentDark = document.documentElement.classList.contains('dark');
             const bgStrokeColor = currentDark ? '#0e0e0e' : '#fbfbfb';
-            const textFillColor = currentDark ? '#f1f5f9' : '#111827';
 
-            // Node body: crisp light/dark styling
+            ctx.save();
+            if (!isHighlighted) {
+                ctx.globalAlpha = 0.12;
+            }
+
+            // Пульсирующий внешний ореол для целевого найденного узла
+            if (isTarget) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = catColor;
+                ctx.lineWidth = 2.5 / Math.max(0.5, globalScale);
+                ctx.stroke();
+            }
+
+            // Тело узла: акцентный цвет категории (Obsidian style)
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = currentDark ? '#ededed' : '#1a1a1a';
+            ctx.fillStyle = catColor;
             ctx.fill();
 
-            // Border (accent color for root)
-            ctx.lineWidth = (node.level === 0 ? 2.5 : 1.5) / Math.max(0.5, globalScale);
-            ctx.strokeStyle = node.level === 0 ? '#f59e0b' : (currentDark ? '#ffffff' : '#404040');
+            // Контрастная окантовка узла
+            ctx.lineWidth = (node.level === 0 ? 3.0 : 1.5) / Math.max(0.5, globalScale);
+            ctx.strokeStyle = node.level === 0 ? '#ffffff' : (currentDark ? '#ffffff' : '#262626');
             ctx.stroke();
 
-            // Text label with line wrapping and contrast halo
-            if (globalScale >= 0.35) {
-                const fontSize = Math.min(10.5, Math.max(6.5, 9 / Math.pow(globalScale, 0.4)));
-                ctx.font = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+            // Текстовая метка узла
+            if (isHighlighted && (globalScale >= 0.32 || isTarget || node.level <= 1)) {
+                const fontSize = Math.min(11, Math.max(7.0, (isTarget ? 11 : 9.2) / Math.pow(globalScale, 0.35)));
+                ctx.font = `${isTarget || node.level <= 1 ? '700' : '600'} ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'top';
 
@@ -5308,26 +5600,28 @@ window.initForceGraph = function(graphData) {
                 lines.forEach((line, i) => {
                     const lineY = node.y + radius + 4 + (i * lineHeight);
 
-                    // Contrast halo (stroke) behind text to prevent link lines from crossing letters
+                    // Контрастный ореол позади текста
                     ctx.lineWidth = 3.5;
                     ctx.strokeStyle = bgStrokeColor;
                     ctx.strokeText(line, node.x, lineY);
 
-                    // Crisp foreground text
-                    ctx.fillStyle = textFillColor;
+                    // Четкий основной текст
+                    ctx.fillStyle = currentDark ? '#f1f5f9' : '#111827';
                     ctx.fillText(line, node.x, lineY);
                 });
             }
+
+            ctx.restore();
         })
         .nodePointerAreaPaint((node, color, ctx) => {
-            const radius = Math.max(4, (node.val || 5)) + 4;
+            const radius = Math.max(4, (node.val || 5)) + 5;
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
             ctx.fill();
         })
         .onNodeClick(node => {
-            showKgNodeDrawer(node);
+            focusNodeInGraph(node.id);
         });
 
     setGraphLayout(currentKgLayout || 'force');
@@ -5360,6 +5654,8 @@ window.showKgNodeDrawer = function(node) {
     const summary = document.getElementById('kg-drawer-summary');
     const linksContainer = document.getElementById('kg-drawer-links');
     const linksSection = document.getElementById('kg-drawer-links-section');
+    const linksCountEl = document.getElementById('kg-drawer-links-count');
+    const linksFilterEl = document.getElementById('kg-drawer-links-filter');
 
     if (!drawer) return;
 
@@ -5371,7 +5667,7 @@ window.showKgNodeDrawer = function(node) {
     if (title) title.textContent = node.name || node.id;
     if (summary) summary.textContent = node.summary || 'Детальное описание и законодательное основание отсутствуют.';
 
-    // Populate links if graph data available
+    // Рендер связей и разграничений
     if (linksContainer && currentKgGraphData && currentKgGraphData.edges) {
         linksContainer.innerHTML = '';
         const connectedEdges = (currentKgGraphData.edges || []).filter(e => {
@@ -5379,24 +5675,87 @@ window.showKgNodeDrawer = function(node) {
             const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
             return s === String(node.id) || t === String(node.id);
         });
-        
+
+        if (linksCountEl) linksCountEl.textContent = connectedEdges.length;
+
         if (connectedEdges.length > 0) {
             if (linksSection) linksSection.classList.remove('hidden');
-            connectedEdges.forEach(e => {
+
+            // Подсчет связей по группам
+            const groups = {
+                'all': connectedEdges.length,
+                'subject_to_jurisdiction': connectedEdges.filter(e => (e.relation || 'subject_to_jurisdiction') === 'subject_to_jurisdiction').length,
+                'demarcated_from': connectedEdges.filter(e => e.relation === 'demarcated_from').length,
+                'other': connectedEdges.filter(e => e.relation !== 'subject_to_jurisdiction' && e.relation !== 'demarcated_from').length
+            };
+
+            // Если связей больше 8 (как у корня, где их 50+), отображаем табы фильтрации
+            if (linksFilterEl) {
+                if (connectedEdges.length > 8) {
+                    linksFilterEl.innerHTML = '';
+                    const tabDefs = [
+                        { key: 'all', label: `Все (${groups.all})` },
+                        { key: 'subject_to_jurisdiction', label: `Ветви (${groups.subject_to_jurisdiction})` }
+                    ];
+                    if (groups.demarcated_from > 0) tabDefs.push({ key: 'demarcated_from', label: `Разграничения (${groups.demarcated_from})` });
+                    if (groups.other > 0) tabDefs.push({ key: 'other', label: `Иные (${groups.other})` });
+
+                    tabDefs.forEach(td => {
+                        const btn = document.createElement('button');
+                        const isActive = currentLinksFilter === td.key;
+                        btn.className = `px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition-all cursor-pointer ${
+                            isActive ? 'bg-primary text-on-primary' : 'text-neutral-500 hover:text-primary bg-neutral-100 dark:bg-neutral-800'
+                        }`;
+                        btn.textContent = td.label;
+                        btn.onclick = (ev) => {
+                            ev.stopPropagation();
+                            currentLinksFilter = td.key;
+                            showKgNodeDrawer(node);
+                        };
+                        linksFilterEl.appendChild(btn);
+                    });
+                    linksFilterEl.classList.remove('hidden');
+                } else {
+                    linksFilterEl.innerHTML = '';
+                    linksFilterEl.classList.add('hidden');
+                    currentLinksFilter = 'all';
+                }
+            }
+
+            // Фильтрация связей в соответствии с выбранным табом
+            const displayedEdges = connectedEdges.filter(e => {
+                if (currentLinksFilter === 'all') return true;
+                const rel = e.relation || 'subject_to_jurisdiction';
+                if (currentLinksFilter === 'other') return rel !== 'subject_to_jurisdiction' && rel !== 'demarcated_from';
+                return rel === currentLinksFilter;
+            });
+
+            displayedEdges.forEach(e => {
                 const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
                 const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
                 const isOut = s === String(node.id);
                 const otherId = isOut ? t : s;
                 const otherNode = (currentKgGraphData.nodes || []).find(n => String(n.id) === String(otherId));
                 const otherName = otherNode ? (otherNode.name || otherNode.id) : otherId;
-                const arrowIcon = isOut ? '<span class="material-symbols-outlined text-[13px] align-middle">arrow_forward</span>' : '<span class="material-symbols-outlined text-[13px] align-middle">arrow_back</span>';
-                const relationLabel = e.label || e.relation || 'связь';
+                const otherCat = otherNode ? (otherNode.category || 'default') : 'default';
+                const otherCatColor = getKgNodeColor(otherCat);
+                const relationType = e.relation || 'subject_to_jurisdiction';
+                const relStyle = getKgRelationStyle(relationType);
+                const relationLabel = e.label || relStyle.label;
 
                 const chip = document.createElement('div');
-                chip.className = "px-2 py-1 bg-neutral-900 border border-neutral-700 rounded-lg text-[11px] font-mono text-neutral-300 flex items-center gap-1 hover:border-cyan-400 cursor-pointer transition-colors";
-                chip.innerHTML = `<span class="text-cyan-400 font-bold inline-flex items-center gap-0.5">${arrowIcon} ${escapeHTML(relationLabel)}:</span> <span>${escapeHTML(otherName)}</span>`;
+                chip.className = `px-2.5 py-1 rounded-xl border text-[11px] font-mono flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs ${relStyle.bgClass} ${relStyle.borderClass}`;
+                chip.innerHTML = `
+                    <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${otherCatColor};" title="${KG_CATEGORY_NAMES[otherCat] || otherCat}"></span>
+                    <span class="${relStyle.textClass} font-bold inline-flex items-center gap-0.5">
+                        <span class="material-symbols-outlined text-[13px]">${relStyle.icon}</span> ${escapeHTML(relationLabel)}:
+                    </span>
+                    <span class="font-medium text-neutral-900 dark:text-neutral-100">${escapeHTML(otherName)}</span>
+                `;
                 chip.onclick = () => {
-                    if (otherNode) showKgNodeDrawer(otherNode);
+                    if (otherNode) {
+                        focusNodeInGraph(otherNode.id);
+                    }
                 };
                 linksContainer.appendChild(chip);
             });
@@ -5412,6 +5771,7 @@ window.closeKgNodeDrawer = function() {
     const drawer = document.getElementById('kg-node-drawer');
     if (drawer) drawer.classList.add('hidden');
 };
+
 
 
 /* ==========================================================================

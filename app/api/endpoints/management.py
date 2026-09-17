@@ -631,7 +631,7 @@ async def share_cards_deck(
     share_file = shares_dir / f"{share_key}.json"
     share_file.write_text(json.dumps(deck_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "DataGrinderBot"
+    bot_username = getattr(settings, "TELEGRAM_BOT_USERNAME", "") or "DATAGRINDERbot"
     bot_clean = str(bot_username).lstrip("@")
     tg_link = f"https://t.me/{bot_clean}?start=deck_{share_key}"
 
