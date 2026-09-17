@@ -940,7 +940,8 @@ async def record_ai_telemetry(
 async def call_deepseek(
     user_prompt: str, 
     system_instruction: str = DEEPSEEK_CACHED_SYSTEM_PROMPT, 
-    fallback_subject: str = "generic"
+    fallback_subject: str = "generic",
+    force_chat_model: bool = False
 ) -> tuple[dict, dict]:
     """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
     api_key = (settings.DEEPSEEK_API_KEY or "").strip().strip('"\'')
@@ -955,7 +956,7 @@ async def call_deepseek(
         "Content-Type": "application/json"
     }
 
-    target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
+    target_model = "deepseek-chat" if force_chat_model else (settings.DEEPSEEK_MODEL or "deepseek-flash")
 
     payload = {
         "model": target_model,
@@ -965,11 +966,13 @@ async def call_deepseek(
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.2,
-        "max_tokens": 32768,
+        "max_tokens": 8192 if target_model == "deepseek-chat" else 32768,
         "thinking": {"type": "disabled"}
     }
+    if target_model == "deepseek-reasoner":
+        payload.pop("thinking", None)
 
-    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (1M Context / Prompt Caching enabled)...")
+    print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
     resolved_model = target_model
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(url, headers=headers, json=payload)
@@ -1073,11 +1076,12 @@ async def extract_curriculum_skeleton(
     target_subject: str = "",
     target_card_count: int = 70,
     user_id: str = "default_user",
-    job_id: str | None = None
+    job_id: str | None = None,
+    force_chat_model: bool = False
 ) -> dict:
     """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек через DeepSeek."""
     clean_sub = target_subject.strip().lower() or "generic"
-    max_sample_chars = 500000
+    max_sample_chars = 70000
     sample_text = text[:max_sample_chars] if len(text) > max_sample_chars else text
     user_prompt = (
         f"[TARGET SUBJECT]: {clean_sub}\n"
@@ -1087,12 +1091,13 @@ async def extract_curriculum_skeleton(
         f"[COURSE MATERIAL SAMPLE / OUTLINE]:\n{sample_text}"
     )
     start_ts = time.time()
-    model_requested = settings.DEEPSEEK_MODEL or "deepseek-flash"
+    model_requested = "deepseek-chat" if force_chat_model else (settings.DEEPSEEK_MODEL or "deepseek-flash")
     try:
         raw_res, meta = await call_deepseek(
             user_prompt,
             system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
-            fallback_subject=clean_sub
+            fallback_subject=clean_sub,
+            force_chat_model=force_chat_model
         )
 
         duration_ms = int((time.time() - start_ts) * 1000)
@@ -1132,7 +1137,9 @@ async def parse_raw_text(
     granularity_mode: str = "atomic",
     custom_instruction: str = "",
     user_id: str = "default_user",
-    job_id: str | None = None
+    job_id: str | None = None,
+    skip_graph: bool = False,
+    force_chat_model: bool = False
 ) -> dict:
     import re
     text = re.sub(r'[ \t]+', ' ', text)
@@ -1149,10 +1156,17 @@ async def parse_raw_text(
         f"GRANULARITY DIRECTIVE: {granularity_mode}",
         f"EXPLANATION DENSITY: {density}"
     ]
+    if skip_graph:
+        user_directives.append(
+            "INTRA-CHUNK GRAPH DIRECTIVE: Master course ontology and graph are already synthesized in Pass 1. "
+            "Return strictly empty graph: \"graph\": {\"nodes\": [], \"edges\": []}. "
+            "Do NOT waste tokens generating redundant graph nodes or edges. Direct 100% capacity exclusively to high-yield cards in 'c'."
+        )
     if volume in ("auto", "balanced"):
         user_directives.append(
             "CARD VOLUME: HIGH-YIELD BALANCED EXTRACTION. "
-            "Extract 4 to 8 master conceptual cards from this section (proportionate to its substantive weight, targeting ~100–140 cards for an entire multi-chapter course). "
+            "Extract strictly 5 to 7 master conceptual cards from this section (proportionate to its substantive weight, targeting ~60–80 cards for an entire multi-chapter course). "
+            "Do NOT exceed 7 cards. "
             "Ensure diverse, natural phrasing across 4 universal cognitive archetypes: "
             "1) Situational Cases / Problem Vignettes (concrete factual conflict/scenario -> statutory qualification or solution), "
             "2) Contrast Pairs (distinguishing confusing concepts via gold standard criteria), "
@@ -1167,12 +1181,16 @@ async def parse_raw_text(
     elif volume == "med_10":
         user_directives.append("CARD VOLUME: Strictly 5 to 7 core cards.")
     elif volume in ("medium", "med_15"):
-        user_directives.append("CARD VOLUME: Strictly 8 to 12 cards.")
+        user_directives.append("CARD VOLUME: Strictly 7 to 9 cards.")
     elif volume in ("high", "high_20"):
-        user_directives.append("CARD VOLUME: Maximum 15 cards.")
+        user_directives.append("CARD VOLUME: Maximum 10 to 12 cards.")
     elif volume == "max":
-        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 20 cards). Every verifiable fact and distinction.")
+        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 15 cards). Every verifiable fact and distinction.")
 
+    user_directives.append(
+        "EXAMPLE CONCISENESS DIRECTIVE: The 'e' field must be strictly 1 punchy, vivid sentence (maximum 15 words) "
+        "providing a concrete real-world case, thought experiment, or practical scenario. Never write verbose multi-sentence essays in 'e'."
+    )
     user_directives.append(
         "SYNTACTIC VARIETY DIRECTIVE: Strictly avoid monotonous boilerplate phrasing. "
         "Do NOT start multiple cards with identical formulaic stems. Formulate questions naturally, variedly, and professionally as an expert university examiner or senior practitioner."
@@ -1211,7 +1229,7 @@ async def parse_raw_text(
     )
 
     start_ts = time.time()
-    model_requested = settings.DEEPSEEK_MODEL or "deepseek-flash"
+    model_requested = "deepseek-chat" if force_chat_model else (settings.DEEPSEEK_MODEL or "deepseek-chat")
     fallback_used = False
     json_repair_applied = False
     res = None
@@ -1219,7 +1237,12 @@ async def parse_raw_text(
     
     print(f"[AI Gateway] Вызов DeepSeek ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
     try:
-        res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
+        res, meta = await call_deepseek(
+            user_prompt,
+            system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT,
+            fallback_subject=clean_sub,
+            force_chat_model=force_chat_model
+        )
 
         json_repair_applied = meta.get("repair_successful", False)
         duration_ms = int((time.time() - start_ts) * 1000)
@@ -1312,8 +1335,8 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         else:
             raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 
-# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 1M КОНТЕКСТА) ---
-def split_text_into_chunks(text: str, max_chunk_chars: int = 35000, overlap_chars: int = 1500) -> list[str]:
+# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 64K КОНТЕКСТА) ---
+def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_chars: int = 2000) -> list[str]:
     """
     Интеллектуальное разбиение длинного документа на смысловые разделы/главы (по умолчанию ~10-15 страниц / до 35 000 знаков).
     Сохраняет естественные границы глав, разделов, страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).

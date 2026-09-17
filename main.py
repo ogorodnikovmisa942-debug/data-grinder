@@ -244,7 +244,7 @@ async def admin_web_page():
                             {'АКТИВНА' if curr_model == 'deepseek-flash' else 'ВЫБОР'}
                         </span>
                     </div>
-                    <div class="switch-sub">Основная, 1M контекст, 32K вывод, ультра-быстро</div>
+                    <div class="switch-sub">Псевдоним deepseek-chat, ультра-быстро</div>
                 </div>
 
                 <!-- DeepSeek Chat Card -->
@@ -255,7 +255,7 @@ async def admin_web_page():
                             {'АКТИВНА' if curr_model == 'deepseek-chat' else 'ВЫБОР'}
                         </span>
                     </div>
-                    <div class="switch-sub">Стандартная модель V3, 64K контекст</div>
+                    <div class="switch-sub">DeepSeek-V3 (Рекомендуется для книг, ~$0.01/книга)</div>
                 </div>
 
                 <!-- DeepSeek Reasoner Card -->
@@ -266,7 +266,7 @@ async def admin_web_page():
                             {'АКТИВНА' if curr_model == 'deepseek-reasoner' else 'ВЫБОР'}
                         </span>
                     </div>
-                    <div class="switch-sub">Глубокие цепочки рассуждений CoT</div>
+                    <div class="switch-sub">CoT-рассуждения (для Сократа, высокий расход)</div>
                 </div>
             </div>
 

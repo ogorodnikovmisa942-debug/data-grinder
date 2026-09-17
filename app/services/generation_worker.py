@@ -96,12 +96,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if len(clean_text_no_headers) < 15:
             raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-        # Укрупненное разбиение на разделы/главы под контекст модели
-        # Для объемных материалов (>40 000 знаков) используем поглавный размер 35 000 знаков,
-        # чтобы гарантировать глубокую проработку каждой главы и исключить овер-сжатие курса
-        is_large_text = len(job_data["raw_text"]) > 40000
-        max_chars = 35000 if is_large_text else 120000
-        overlap = 1500 if is_large_text else 2400
+        # Укрупненное разбиение на смысловые макро-разделы под 64k-контекст DeepSeek-V3 (до 85 000 знаков).
+        # Сокращает число запросов и накладных расходов в 3-4 раза без потери глубины курса.
+        max_chars = 85000
+        overlap = 2000
         chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=max_chars, overlap_chars=overlap)
         total_chunks = len(chunks)
         print(f"[Generation Worker] Задача #{job_data['id']}: материал скомпонован в {total_chunks} смысловых разделов/глав.", flush=True)
@@ -137,13 +135,14 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if total_chunks >= 2 or char_count >= 30000:
             print(f"[Generation Worker] Задача #{job_data['id']}: Проход 1 — извлечение дерева органов и институтов...", flush=True)
             try:
-                target_skel_cards = min(max(total_chunks * 6, 60), 200) if job_data.get("volume") in ("auto", "balanced", None, "") else 80
+                target_skel_cards = min(max(total_chunks * 6, 60), 120) if job_data.get("volume") in ("auto", "balanced", None, "") else 80
                 curriculum_skeleton = await extract_curriculum_skeleton(
                     text=job_data["raw_text"],
                     target_subject=job_data["subject"],
                     target_card_count=target_skel_cards,
                     user_id=job_data.get("user_id", "default_user"),
-                    job_id=str(job_data["id"])
+                    job_id=str(job_data["id"]),
+                    force_chat_model=True
                 )
                 if curriculum_skeleton and curriculum_skeleton.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", ""):
                     extracted_theme = curriculum_skeleton["phrase_title"]
@@ -154,7 +153,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             except Exception as skel_err:
                 print(f"[Generation Worker WARN] Сбой Прохода 1: {skel_err}", flush=True)
 
-        # Конкурентная нарезка чанков с семафором (4 параллельных запроса благодаря concurrency 2500 у V4.1 Flash)
+        # Конкурентная нарезка чанков с семафором (4 параллельных запроса благодаря высокой пропускной способности DeepSeek-V3)
         semaphore = asyncio.Semaphore(4)
 
         async def process_chunk(chunk_idx: int, chunk_text: str):
@@ -169,7 +168,9 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                         granularity_mode=job_data["granularity_mode"],
                         custom_instruction=job_data["custom_instruction"],
                         user_id=job_data.get("user_id", "default_user"),
-                        job_id=str(job_data["id"])
+                        job_id=str(job_data["id"]),
+                        skip_graph=bool(curriculum_skeleton and total_chunks >= 2),
+                        force_chat_model=True
                     )
                     return chunk_idx, parsed
                 except Exception as chunk_err:
@@ -196,11 +197,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 # Калибровка объема: сохраняем пропорциональное количество глубоких карточек с главы/раздела
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
                 if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:8]
+                    chunk_cards = chunk_cards[:7]
                 elif job_data.get("volume") in ("low", "low_5"):
                     chunk_cards = chunk_cards[:4]
                 elif job_data.get("volume") in ("high", "high_20", "max"):
-                    chunk_cards = chunk_cards[:15]
+                    chunk_cards = chunk_cards[:12]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
@@ -227,7 +228,9 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
             chunk_graph = parsed.get("knowledge_graph")
             if chunk_graph and isinstance(chunk_graph, dict):
-                all_chunk_graphs.append(chunk_graph)
+                nodes = chunk_graph.get("nodes") or []
+                if nodes:
+                    all_chunk_graphs.append(chunk_graph)
 
         # Топологическая пересортировка и сквозное ранжирование деки ("Graph in engine, playlist in UI")
         organ_order = {}
