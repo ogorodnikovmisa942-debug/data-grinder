@@ -2496,7 +2496,7 @@ window.updateTariffBanner = async function() {
     }
 
     const prov = (cachedAiProviderInfo?.provider || 'deepseek').toUpperCase();
-    const model = (cachedAiProviderInfo?.model || 'deepseek-chat').toUpperCase();
+    const model = (cachedAiProviderInfo?.model || 'deepseek-flash').toUpperCase();
     const isOffPeak = isOffPeakWindow();
 
     const titleText = `ИИ: <span class="text-primary font-bold">${prov} (${model})</span>`;

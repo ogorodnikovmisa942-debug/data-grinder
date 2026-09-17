@@ -14,7 +14,7 @@ class Settings:
     TELEGRAM_BOT_USERNAME: str = os.getenv("TELEGRAM_BOT_USERNAME", "DATAGRINDERbot").strip().strip('"\'')
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "deepseek").strip().strip('"\'').lower()
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip().strip('"\'')
-    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip().strip('"\'')
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip().strip('"\'')
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip().strip('"\'')
     
     # Xiaomi MiMo Configuration (1M context, 128K output)

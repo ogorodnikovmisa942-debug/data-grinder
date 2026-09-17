@@ -325,7 +325,7 @@ async def admin_web_page():
             document.getElementById('card-' + prov).classList.add('active');
             const modelInput = document.getElementById('model-input');
             if (prov === 'deepseek' && modelInput.value.includes('mimo')) {{
-                modelInput.value = 'deepseek-chat';
+                modelInput.value = 'deepseek-flash';
             }} else if (prov === 'mimo' && modelInput.value.includes('deepseek')) {{
                 modelInput.value = 'mimo-v2.5';
             }}
