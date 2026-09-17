@@ -166,7 +166,9 @@ async def get_knowledge_graph(
                 is_stale = True
             elif record.updated_at.date() < now.date():
                 is_stale = True
-            elif record.graph_data.get("deck_size") and record.graph_data.get("deck_size") != len(user_cards):
+            elif record.graph_data.get("deck_size", 0) != len(user_cards):
+                is_stale = True
+            elif len(user_cards) >= 100 and node_count < 40 and clean_sub.lower() not in ("sudoustr", "sudoustroystvo"):
                 is_stale = True
 
     if is_stale and user_cards:
