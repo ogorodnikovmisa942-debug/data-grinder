@@ -5151,11 +5151,17 @@ function wrapNodeText(text, maxChars = 16) {
 
 let isInitialLayoutFit = true;
 let searchHighlightNodes = new Set();
-let searchHighlightLinks = new Set();
+let searchHighlightLinkKeys = new Set();
 let searchBackboneNodes = new Set();
-let searchBackboneLinks = new Set();
+let searchBackboneLinkKeys = new Set();
 let activeSearchTargetId = null;
 let currentLinksFilter = 'all';
+
+function getGraphLinkKey(source, target) {
+    const s = String((typeof source === 'object' && source !== null) ? source.id : source);
+    const t = String((typeof target === 'object' && target !== null) ? target.id : target);
+    return s < t ? `${s}--${t}` : `${t}--${s}`;
+}
 
 function applyLayoutForces(graphInstance, layoutType) {
     if (!graphInstance) return;
@@ -5170,29 +5176,31 @@ function applyLayoutForces(graphInstance, layoutType) {
 
     const rootNodes = nodes.filter(n => n.level === 0);
     const branches = nodes.filter(n => n.level === 1);
-    const branchCount = branches.length;
+    const branchCount = Math.max(1, branches.length);
 
-    // Индексируем ветви для орбитального эшелонирования (Staggered Orbit Radii)
-    const branchIndexMap = new Map();
-    branches.forEach((b, idx) => branchIndexMap.set(String(b.id), idx));
-
-    // Подсчет листьев для каждого института
-    const branchLeavesCount = new Map();
+    // Группировка дочерних понятий под их родительскими институтами
+    const branchLeavesMap = new Map();
+    branches.forEach(b => branchLeavesMap.set(String(b.id), []));
     nodes.filter(n => n.level === 2).forEach(leaf => {
         const pId = String(leaf.parent_id || '');
-        branchLeavesCount.set(pId, (branchLeavesCount.get(pId) || 0) + 1);
+        if (!branchLeavesMap.has(pId)) {
+            branchLeavesMap.set(pId, []);
+        }
+        branchLeavesMap.get(pId).push(leaf);
     });
 
     // Сбрасываем позиционные силы перед назначением геометрии
     graphInstance.d3Force('radial', null);
     graphInstance.d3Force('x', null);
     graphInstance.d3Force('y', null);
+    graphInstance.d3Force('center', null);
 
-    // Центрируем корень (0, 0)
-    rootNodes.forEach(r => {
-        r.fx = 0;
-        r.fy = (layoutType === 'tree') ? -520 : (layoutType === 'horizontal' ? 0 : 0);
-        if (layoutType === 'horizontal') r.fx = -520;
+    // Снимаем жесткую фиксацию с не-корневых узлов
+    nodes.forEach(n => {
+        if (n.level !== 0) {
+            n.fx = undefined;
+            n.fy = undefined;
+        }
     });
 
     // 1. Сила отталкивания (Charge Repulsion) с градиентом уровней
@@ -5200,14 +5208,19 @@ function applyLayoutForces(graphInstance, layoutType) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (lvl === 0) return isLarge ? -3800 : -2000;
-                if (lvl === 1) return isLarge ? -1100 : -650;
-                return isLarge ? -420 : -260;
+                if (layoutType === 'tree' || layoutType === 'horizontal') {
+                    if (lvl === 0) return -1200;
+                    if (lvl === 1) return -450;
+                    return -180;
+                }
+                if (lvl === 0) return isLarge ? -3600 : -1800;
+                if (lvl === 1) return isLarge ? -950 : -550;
+                return isLarge ? -360 : -220;
             })
-            .distanceMax(isLarge ? 3600 : 2000);
+            .distanceMax(isLarge ? 3200 : 1800);
     }
 
-    // 2. Сила связей (Link Force) с орбитальным эшелонированием
+    // 2. Сила связей (Link Force) с эшелонированием
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
@@ -5216,37 +5229,44 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
 
-                // Связь: Корень <-> Институт (Уровень 0 <-> 1)
+                // Связь: Корень <-> Институт
                 if (sLvl === 0 || tLvl === 0) {
-                    const branch = sLvl === 0 ? t : s;
-                    const bIdx = branchIndexMap.get(String(branch.id)) || 0;
+                    if (layoutType === 'tree' || layoutType === 'horizontal') return 300;
                     if (branchCount > 20) {
-                        // Эшелонирование на 2 концентрических орбиты (четные ближе, нечетные дальше)
+                        const branch = sLvl === 0 ? t : s;
+                        const bIdx = branches.findIndex(b => String(b.id) === String(branch.id));
                         const baseR1 = Math.max(340, Math.round(branchCount * 8.5));
-                        const baseR2 = Math.round(baseR1 * 1.62);
+                        const baseR2 = Math.round(baseR1 * 1.55);
                         return (bIdx % 2 === 0) ? baseR1 : baseR2;
                     }
-                    return Math.max(240, branchCount * 14);
+                    return Math.max(220, branchCount * 12);
                 }
 
-                // Связь: Институт <-> Листья (Уровень 1 <-> 2)
+                // Связь: Институт <-> Понятия
                 if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
+                    if (layoutType === 'tree' || layoutType === 'horizontal') return 95;
                     const branch = sLvl === 1 ? s : t;
-                    const leafCnt = branchLeavesCount.get(String(branch.id)) || 1;
-                    return Math.max(110, Math.min(260, 80 + leafCnt * 15));
+                    const leafCnt = (branchLeavesMap.get(String(branch.id)) || []).length;
+                    return Math.max(100, Math.min(220, 75 + leafCnt * 14));
                 }
 
                 // Межинститутские связи
-                return isLarge ? 280 : 180;
+                return 220;
             })
             .strength(link => {
                 const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
                 const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
+
                 if (sLvl === 0 || tLvl === 0) return 0.85;
-                if (sLvl === 1 && tLvl === 1) return 0.30; // Мягкие кросс-связи
-                return 0.75;
+
+                // Мягкие кросс-связи (чтобы разграничения не комкали структуру веток)
+                if (s.parent_id && t.parent_id && s.parent_id !== t.parent_id) {
+                    return 0.04;
+                }
+                if (sLvl === 1 && tLvl === 1) return 0.08;
+                return 0.80;
             });
     }
 
@@ -5257,58 +5277,141 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const lvl = (node.level !== undefined) ? node.level : 2;
                 const label = node.name || node.id || '';
                 const maxLineLen = Math.min(label.length, 16);
-                const approxTextHalfWidth = (maxLineLen * 6.5) / 2;
+                const approxHalfW = (maxLineLen * 6.5) / 2;
 
                 if (lvl === 0) return 85;
-                if (lvl === 1) return Math.max(68, approxTextHalfWidth + 26);
-                return Math.max(46, approxTextHalfWidth + 16);
+                if (lvl === 1) return Math.max(68, approxHalfW + 28);
+                return Math.max(48, approxHalfW + 16);
             })
-            .strength(0.90)
+            .strength(0.92)
             .iterations(4)
         );
     }
 
-    // 4. Гармоничные позиционные силы без разрушительного dagMode
-    if (layoutType === 'radial') {
-        if (window.d3 && window.d3.forceRadial) {
-            graphInstance.d3Force('radial', window.d3.forceRadial(node => {
-                const lvl = node.level !== undefined ? node.level : 2;
-                if (lvl === 0) return 0;
-                if (lvl === 1) {
-                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
-                    return (bIdx % 2 === 0) ? 380 : 620;
-                }
-                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
-                return (bIdx % 2 === 0) ? 880 : 1100;
-            }, 0, 0).strength(node => (node.level === 0 ? 1.0 : 0.85)));
-        }
-    } else if (layoutType === 'tree') {
-        if (window.d3 && window.d3.forceY && window.d3.forceX) {
-            graphInstance.d3Force('y', window.d3.forceY(node => {
-                const lvl = node.level !== undefined ? node.level : 2;
-                if (lvl === 0) return -520;
-                if (lvl === 1) {
-                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
-                    return (bIdx % 2 === 0) ? -220 : 60; // 2 эшелона институтов
-                }
-                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
-                return (bIdx % 2 === 0) ? 360 : 660; // 2 эшелона понятий
-            }).strength(0.85));
-            graphInstance.d3Force('x', window.d3.forceX(0).strength(0.018));
-        }
-    } else if (layoutType === 'horizontal') {
+    // 4. Позиционные силы для идеальной гармонии
+    const targetXMap = new Map();
+    const targetYMap = new Map();
+
+    if (layoutType === 'tree') {
+        // Дерево: СВЕРХУ ВНИЗ (Top-Down Hierarchy)
+        rootNodes.forEach(r => {
+            r.fx = 0;
+            r.fy = -600;
+            targetXMap.set(String(r.id), 0);
+            targetYMap.set(String(r.id), -600);
+        });
+
+        const branchSpacingX = Math.max(130, Math.min(170, 6200 / branchCount));
+        branches.forEach((b, idx) => {
+            const bX = (idx - (branchCount - 1) / 2) * branchSpacingX;
+            const bY = (idx % 2 === 0) ? -240 : -70; // Два эшелона институтов для свободного дыхания
+            targetXMap.set(String(b.id), bX);
+            targetYMap.set(String(b.id), bY);
+
+            const leaves = branchLeavesMap.get(String(b.id)) || [];
+            leaves.forEach((leaf, lIdx) => {
+                // Понятия выстраиваются вертикальной колонкой строго под своим институтом
+                const leafX = bX + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -16 : 16) : 0);
+                const leafY = bY + 165 + (lIdx * 72);
+                targetXMap.set(String(leaf.id), leafX);
+                targetYMap.set(String(leaf.id), leafY);
+            });
+        });
+
+        // Заполняем остальные узлы, если есть
+        nodes.forEach(n => {
+            const id = String(n.id);
+            if (!targetXMap.has(id)) {
+                targetXMap.set(id, 0);
+                targetYMap.set(id, 200);
+            }
+        });
+
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => {
-                const lvl = node.level !== undefined ? node.level : 2;
-                if (lvl === 0) return -520;
-                if (lvl === 1) {
-                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
-                    return (bIdx % 2 === 0) ? -220 : 60;
-                }
-                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
-                return (bIdx % 2 === 0) ? 360 : 660;
-            }).strength(0.85));
-            graphInstance.d3Force('y', window.d3.forceY(0).strength(0.018));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
+        }
+
+    } else if (layoutType === 'horizontal') {
+        // Горизонтально: СЛЕВА НАПРАВО (Left-to-Right Flow)
+        rootNodes.forEach(r => {
+            r.fx = -750;
+            r.fy = 0;
+            targetXMap.set(String(r.id), -750);
+            targetYMap.set(String(r.id), 0);
+        });
+
+        const branchSpacingY = Math.max(100, Math.min(140, 5200 / branchCount));
+        branches.forEach((b, idx) => {
+            const bY = (idx - (branchCount - 1) / 2) * branchSpacingY;
+            const bX = (idx % 2 === 0) ? -320 : -130; // Две колонки институтов
+            targetXMap.set(String(b.id), bX);
+            targetYMap.set(String(b.id), bY);
+
+            const leaves = branchLeavesMap.get(String(b.id)) || [];
+            leaves.forEach((leaf, lIdx) => {
+                // Понятия выстраиваются горизонтально вправо от своего института
+                const leafX = bX + 195 + (lIdx * 125);
+                const leafY = bY + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -16 : 16) : 0);
+                targetXMap.set(String(leaf.id), leafX);
+                targetYMap.set(String(leaf.id), leafY);
+            });
+        });
+
+        nodes.forEach(n => {
+            const id = String(n.id);
+            if (!targetXMap.has(id)) {
+                targetXMap.set(id, 200);
+                targetYMap.set(id, 0);
+            }
+        });
+
+        if (window.d3 && window.d3.forceX && window.d3.forceY) {
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
+        }
+
+    } else if (layoutType === 'radial') {
+        // Радиальный: Звездный взрыв от центра
+        rootNodes.forEach(r => {
+            r.fx = 0;
+            r.fy = 0;
+            targetXMap.set(String(r.id), 0);
+            targetYMap.set(String(r.id), 0);
+        });
+
+        branches.forEach((b, idx) => {
+            const angle = (idx / branchCount) * 2 * Math.PI;
+            const radius = (idx % 2 === 0) ? 380 : 540;
+            const bX = Math.cos(angle) * radius;
+            const bY = Math.sin(angle) * radius;
+            targetXMap.set(String(b.id), bX);
+            targetYMap.set(String(b.id), bY);
+
+            const leaves = branchLeavesMap.get(String(b.id)) || [];
+            leaves.forEach((leaf, lIdx) => {
+                const leafRadius = radius + 210 + (lIdx * 70);
+                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.045) : 0;
+                const leafX = Math.cos(angle + angleOffset) * leafRadius;
+                const leafY = Math.sin(angle + angleOffset) * leafRadius;
+                targetXMap.set(String(leaf.id), leafX);
+                targetYMap.set(String(leaf.id), leafY);
+            });
+        });
+
+        if (window.d3 && window.d3.forceX && window.d3.forceY) {
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.80));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.80));
+        }
+
+    } else {
+        // Органический (Force)
+        rootNodes.forEach(r => {
+            r.fx = 0;
+            r.fy = 0;
+        });
+        if (window.d3 && window.d3.forceCenter) {
+            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.08));
         }
     }
 }
@@ -5335,7 +5438,14 @@ window.setGraphLayout = function(layoutType) {
     const cleanData = getCleanGraphData();
     if (!cleanData) return;
 
-    // Снимаем dagMode во всех режимах, чтобы D3 физика свободно устраняла наложения и коллизии
+    // Снимаем фиксацию со всех не-корневых узлов
+    (cleanData.nodes || []).forEach(n => {
+        if (n.level !== 0) {
+            n.fx = undefined;
+            n.fy = undefined;
+        }
+    });
+
     currentForceGraphInstance
         .dagMode(null)
         .onDagError(() => false)
@@ -5349,7 +5459,7 @@ window.setGraphLayout = function(layoutType) {
     setTimeout(() => {
         if (currentForceGraphInstance && isInitialLayoutFit) {
             isInitialLayoutFit = false;
-            currentForceGraphInstance.zoomToFit(400, 40);
+            currentForceGraphInstance.zoomToFit(500, 45);
         }
     }, 450);
 };
@@ -5416,9 +5526,9 @@ window.clearKgSearch = function() {
     if (resBox) resBox.classList.add('hidden');
 
     searchHighlightNodes.clear();
-    searchHighlightLinks.clear();
+    searchHighlightLinkKeys.clear();
     searchBackboneNodes.clear();
-    searchBackboneLinks.clear();
+    searchBackboneLinkKeys.clear();
     activeSearchTargetId = null;
 
     closeKgNodeDrawer();
@@ -5494,9 +5604,9 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
 
     activeSearchTargetId = String(targetNode.id);
     searchHighlightNodes.clear();
-    searchHighlightLinks.clear();
+    searchHighlightLinkKeys.clear();
     searchBackboneNodes.clear();
-    searchBackboneLinks.clear();
+    searchBackboneLinkKeys.clear();
 
     const rootNode = cleanData.nodes.find(n => n.level === 0);
     const rootId = rootNode ? String(rootNode.id) : null;
@@ -5529,10 +5639,15 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
         searchHighlightNodes.add(rootId);
     }
 
-    // 2. Классификация ребер: Магистраль (Backbone), Контекст ветви, Прямые кросс-связи
-    (cleanData.edges || []).forEach(edge => {
+    // 2. Классификация ребер по строковым ключам
+    const allLinks = (cleanData.links && cleanData.links.length > 0)
+        ? cleanData.links
+        : ((currentKgGraphData && currentKgGraphData.edges) ? currentKgGraphData.edges : []);
+
+    allLinks.forEach(edge => {
         const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
         const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
+        const lKey = getGraphLinkKey(sId, tId);
 
         // Ребро магистрали (Корень <-> Институт или Институт <-> Целевой узел)
         const isBackbone = 
@@ -5540,16 +5655,16 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
             ((sId === rootId || tId === rootId) || (sId === activeSearchTargetId || tId === activeSearchTargetId));
 
         if (isBackbone) {
-            searchBackboneLinks.add(edge);
-            searchHighlightLinks.add(edge);
+            searchBackboneLinkKeys.add(lKey);
+            searchHighlightLinkKeys.add(lKey);
         } else if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
             // Ребро внутри ветви института
-            searchHighlightLinks.add(edge);
+            searchHighlightLinkKeys.add(lKey);
         } else if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
             // Прямое ребро связи целевого узла (например, разграничение)
             searchHighlightNodes.add(sId);
             searchHighlightNodes.add(tId);
-            searchHighlightLinks.add(edge);
+            searchHighlightLinkKeys.add(lKey);
         }
     });
 
@@ -5615,45 +5730,51 @@ window.initForceGraph = function(graphData) {
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
         .linkColor(link => {
+            const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinks.has(link)) {
+                if (searchBackboneLinkKeys.has(lKey)) {
                     return '#f59e0b'; // Яркая золотая магистраль от центра к узлу!
                 }
-                if (searchHighlightLinks.has(link)) {
-                    return isDark ? 'rgba(59, 130, 246, 0.65)' : 'rgba(37, 99, 235, 0.65)'; // Лазурные связи ветви
+                if (searchHighlightLinkKeys.has(lKey)) {
+                    return isDark ? 'rgba(96, 165, 250, 0.85)' : 'rgba(37, 99, 235, 0.85)'; // Лазурные связи ветви
                 }
-                return isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)';
+                return isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)';
             }
             // Спокойный монохромный вид всех связей по умолчанию без пестроты
-            return isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)';
+            return isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)';
         })
         .linkWidth(link => {
+            const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinks.has(link)) return 3.8; // Мощная магистраль
-                if (searchHighlightLinks.has(link)) return 1.8;
+                if (searchBackboneLinkKeys.has(lKey)) return 3.6; // Мощная магистраль
+                if (searchHighlightLinkKeys.has(lKey)) return 1.8;
                 return 0.5;
             }
-            return 1.1;
+            return 1.0;
         })
         .linkDirectionalParticles(link => {
+            const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinks.has(link)) return 5; // Поток частиц по магистрали от центра
-                if (searchHighlightLinks.has(link)) return 2;
+                if (searchBackboneLinkKeys.has(lKey)) return 4; // Поток частиц по магистрали от центра
+                if (searchHighlightLinkKeys.has(lKey)) return 1;
                 return 0;
             }
             return 0;
         })
         .linkDirectionalParticleSpeed(link => {
-            if (searchBackboneLinks.has(link)) return 0.012;
+            const lKey = getGraphLinkKey(link.source, link.target);
+            if (searchBackboneLinkKeys.has(lKey)) return 0.012;
             return 0.006;
         })
         .linkDirectionalParticleWidth(link => {
-            if (searchBackboneLinks.has(link)) return 3.6;
+            const lKey = getGraphLinkKey(link.source, link.target);
+            if (searchBackboneLinkKeys.has(lKey)) return 3.6;
             return 2.0;
         })
         .linkDirectionalParticleColor(link => {
-            if (searchBackboneLinks.has(link)) return '#f59e0b';
-            return '#3b82f6';
+            const lKey = getGraphLinkKey(link.source, link.target);
+            if (searchBackboneLinkKeys.has(lKey)) return '#f59e0b';
+            return '#60a5fa';
         })
         .warmupTicks(60)
         .cooldownTicks(250)
@@ -5682,7 +5803,7 @@ window.initForceGraph = function(graphData) {
 
             ctx.save();
             if (hasActiveSelection && !isHighlighted) {
-                ctx.globalAlpha = 0.05; // Глубокое мягкое затемнение несвязанного фона
+                ctx.globalAlpha = 0.04; // Глубокое мягкое затемнение несвязанного фона
             }
 
             // 1. Определение монохромного цвета узла (или яркого акцента при активном поиске)
@@ -5762,40 +5883,46 @@ window.initForceGraph = function(graphData) {
             ctx.stroke();
 
             // 4. Текстовая метка узла с прогрессивным раскрытием деталей (LOD)
+            // Показываем понятия на комфортном зуме (>= 0.40 вместо 1.35) и всегда при выделении ветви
             const shouldShowLabel = isTarget || isBackboneNode ||
-                (hasActiveSelection && isHighlighted && globalScale >= 0.4) ||
+                (hasActiveSelection && isHighlighted) ||
                 node.level === 0 ||
-                (node.level === 1 && globalScale >= 0.32) ||
-                (node.level >= 2 && globalScale >= 1.35);
+                (node.level === 1 && globalScale >= 0.16) ||
+                (node.level >= 2 && globalScale >= 0.40);
 
             if (isHighlighted && shouldShowLabel) {
-                const fontSize = Math.min(11, Math.max(7.5, (isTarget ? 11 : (node.level <= 1 ? 9.5 : 8.5)) / Math.pow(globalScale, 0.28)));
+                const targetScreenSize = isTarget ? 13.5 : (node.level === 0 ? 13 : (node.level === 1 ? 11.5 : 10));
+                const fontSize = Math.min(26, Math.max(7.5, targetScreenSize / Math.pow(globalScale, 0.85)));
                 ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                const lines = wrapNodeText(label, node.level === 0 ? 20 : 15);
-                const lineHeight = fontSize + 3.2;
-                const startY = node.y + radius + 5 + (lineHeight / 2);
+                const lines = wrapNodeText(label, node.level === 0 ? 22 : 16);
+                const lineHeight = fontSize + (3.2 / Math.pow(globalScale, 0.3));
+                const startY = node.y + radius + (5 / Math.pow(globalScale, 0.3)) + (lineHeight / 2);
+
+                const padX = Math.max(3, 5 / Math.pow(globalScale, 0.4));
+                const padY = Math.max(2, 3 / Math.pow(globalScale, 0.4));
 
                 lines.forEach((line, i) => {
                     const lineY = startY + (i * lineHeight);
                     const textW = ctx.measureText(line).width;
-                    const pillW = textW + 8;
-                    const pillH = fontSize + 3;
+                    const pillW = textW + (padX * 2);
+                    const pillH = fontSize + (padY * 2);
 
                     // Фон плашки
                     if (isTarget) {
-                        ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(254, 243, 199, 0.95)';
+                        ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.24)' : 'rgba(254, 243, 199, 0.96)';
                     } else if (isBackboneNode) {
-                        ctx.fillStyle = currentDark ? 'rgba(59, 130, 246, 0.22)' : 'rgba(239, 246, 255, 0.95)';
+                        ctx.fillStyle = currentDark ? 'rgba(59, 130, 246, 0.24)' : 'rgba(239, 246, 255, 0.96)';
                     } else {
-                        ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.88)' : 'rgba(255, 255, 255, 0.92)';
+                        ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.90)' : 'rgba(255, 255, 255, 0.94)';
                     }
 
                     ctx.beginPath();
+                    const pillRadius = Math.max(2, 3.5 / Math.pow(globalScale, 0.4));
                     if (ctx.roundRect) {
-                        ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, 3.5);
+                        ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, pillRadius);
                     } else {
                         ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
                     }
@@ -5804,13 +5931,13 @@ window.initForceGraph = function(graphData) {
                     // Рамка плашки
                     if (isTarget) {
                         ctx.strokeStyle = '#f59e0b';
-                        ctx.lineWidth = 1.2;
+                        ctx.lineWidth = Math.max(0.8, 1.2 / Math.pow(globalScale, 0.3));
                     } else if (isBackboneNode) {
                         ctx.strokeStyle = '#3b82f6';
-                        ctx.lineWidth = 1.0;
+                        ctx.lineWidth = Math.max(0.7, 1.0 / Math.pow(globalScale, 0.3));
                     } else {
-                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
-                        ctx.lineWidth = 0.8;
+                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)';
+                        ctx.lineWidth = Math.max(0.5, 0.8 / Math.pow(globalScale, 0.3));
                     }
                     ctx.stroke();
 
