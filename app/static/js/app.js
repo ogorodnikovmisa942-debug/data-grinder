@@ -5152,6 +5152,8 @@ function wrapNodeText(text, maxChars = 16) {
 let isInitialLayoutFit = true;
 let searchHighlightNodes = new Set();
 let searchHighlightLinks = new Set();
+let searchBackboneNodes = new Set();
+let searchBackboneLinks = new Set();
 let activeSearchTargetId = null;
 let currentLinksFilter = 'all';
 
@@ -5412,7 +5414,18 @@ window.clearKgSearch = function() {
     if (clearBtn) clearBtn.classList.add('hidden');
     const resBox = document.getElementById('kg-search-results');
     if (resBox) resBox.classList.add('hidden');
-    highlightConceptSearch('');
+
+    searchHighlightNodes.clear();
+    searchHighlightLinks.clear();
+    searchBackboneNodes.clear();
+    searchBackboneLinks.clear();
+    activeSearchTargetId = null;
+
+    closeKgNodeDrawer();
+
+    if (currentForceGraphInstance) {
+        currentForceGraphInstance.refresh();
+    }
 };
 
 window.highlightConceptSearch = function(searchTerm) {
@@ -5420,14 +5433,7 @@ window.highlightConceptSearch = function(searchTerm) {
     const resBox = document.getElementById('kg-search-results');
 
     if (!searchTerm || !searchTerm.trim()) {
-        searchHighlightNodes.clear();
-        searchHighlightLinks.clear();
-        activeSearchTargetId = null;
-        if (clearBtn) clearBtn.classList.add('hidden');
-        if (resBox) resBox.classList.add('hidden');
-        if (currentForceGraphInstance) {
-            currentForceGraphInstance.refresh();
-        }
+        window.clearKgSearch();
         return;
     }
 
@@ -5459,13 +5465,12 @@ window.highlightConceptSearch = function(searchTerm) {
         matches.slice(0, 8).forEach(m => {
             const item = document.createElement('div');
             item.className = 'px-2.5 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg cursor-pointer flex items-center justify-between gap-2 text-neutral-800 dark:text-neutral-200 transition-colors';
-            const catColor = KG_CATEGORY_COLORS[m.category] || '#3b82f6';
             item.innerHTML = `
                 <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${catColor};"></span>
+                    <span class="w-2 h-2 rounded-full shrink-0 bg-neutral-400"></span>
                     <span class="truncate font-medium">${escapeHTML(m.name || m.id)}</span>
                 </div>
-                <span class="text-[9px] text-neutral-400 uppercase shrink-0 font-mono">${KG_CATEGORY_NAMES[m.category] || ''}</span>
+                <span class="text-[9px] text-neutral-400 uppercase shrink-0 font-mono">${m.level === 0 ? 'КУРС' : (m.level === 1 ? 'ИНСТИТУТ' : 'ПОНЯТИЕ')}</span>
             `;
             item.onclick = () => {
                 selectSearchResult(m, true);
@@ -5490,31 +5495,58 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     activeSearchTargetId = String(targetNode.id);
     searchHighlightNodes.clear();
     searchHighlightLinks.clear();
+    searchBackboneNodes.clear();
+    searchBackboneLinks.clear();
 
+    const rootNode = cleanData.nodes.find(n => n.level === 0);
+    const rootId = rootNode ? String(rootNode.id) : null;
+
+    // 1. Построение магистрали от центра: Корень -> Институт -> Искомый узел
+    searchBackboneNodes.add(activeSearchTargetId);
     searchHighlightNodes.add(activeSearchTargetId);
 
-    // Восходим по цепочке предков до корня (Лист -> Институт -> Корень)
-    let cur = targetNode;
-    while (cur && cur.parent_id) {
-        searchHighlightNodes.add(String(cur.parent_id));
-        cur = cleanData.nodes.find(n => String(n.id) === String(cur.parent_id));
+    let parentInstituteId = null;
+    if (targetNode.level === 2 && targetNode.parent_id) {
+        parentInstituteId = String(targetNode.parent_id);
+    } else if (targetNode.level === 1) {
+        parentInstituteId = activeSearchTargetId;
     }
 
-    // Если узел - институт/корень, добавляем его прямых потомков
-    cleanData.nodes.forEach(n => {
-        if (String(n.parent_id) === activeSearchTargetId) {
-            searchHighlightNodes.add(String(n.id));
-        }
-    });
+    if (parentInstituteId) {
+        searchBackboneNodes.add(parentInstituteId);
+        searchHighlightNodes.add(parentInstituteId);
 
-    // Собираем все ребра, связывающие выделенные узлы, а также прямые кросс-связи
+        // Все соседние понятия этого института для сохранения контекста ветви
+        cleanData.nodes.forEach(n => {
+            if (String(n.parent_id) === parentInstituteId) {
+                searchHighlightNodes.add(String(n.id));
+            }
+        });
+    }
+
+    if (rootId) {
+        searchBackboneNodes.add(rootId);
+        searchHighlightNodes.add(rootId);
+    }
+
+    // 2. Классификация ребер: Магистраль (Backbone), Контекст ветви, Прямые кросс-связи
     (cleanData.edges || []).forEach(edge => {
         const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
         const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
 
-        if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
+        // Ребро магистрали (Корень <-> Институт или Институт <-> Целевой узел)
+        const isBackbone = 
+            (searchBackboneNodes.has(sId) && searchBackboneNodes.has(tId)) &&
+            ((sId === rootId || tId === rootId) || (sId === activeSearchTargetId || tId === activeSearchTargetId));
+
+        if (isBackbone) {
+            searchBackboneLinks.add(edge);
+            searchHighlightLinks.add(edge);
+        } else if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
+            // Ребро внутри ветви института
             searchHighlightLinks.add(edge);
         } else if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
+            // Прямое ребро связи целевого узла (например, разграничение)
             searchHighlightNodes.add(sId);
             searchHighlightNodes.add(tId);
             searchHighlightLinks.add(edge);
@@ -5583,42 +5615,45 @@ window.initForceGraph = function(graphData) {
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
         .linkColor(link => {
-            const rel = link.relation || 'subject_to_jurisdiction';
-            const relStyle = getKgRelationStyle(rel);
             if (searchHighlightNodes.size > 0) {
-                if (searchHighlightLinks.has(link)) {
-                    return relStyle.color;
+                if (searchBackboneLinks.has(link)) {
+                    return '#f59e0b'; // Яркая золотая магистраль от центра к узлу!
                 }
-                return isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)';
+                if (searchHighlightLinks.has(link)) {
+                    return isDark ? 'rgba(59, 130, 246, 0.65)' : 'rgba(37, 99, 235, 0.65)'; // Лазурные связи ветви
+                }
+                return isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)';
             }
-            // Обычный вид с деликатным цветовым кодированием отношений
-            if (rel === 'demarcated_from') return isDark ? 'rgba(245, 158, 11, 0.60)' : 'rgba(217, 119, 6, 0.60)';
-            if (rel === 'excludes_application') return isDark ? 'rgba(244, 63, 94, 0.70)' : 'rgba(225, 29, 72, 0.70)';
-            if (rel === 'appealed_to') return isDark ? 'rgba(6, 182, 212, 0.60)' : 'rgba(8, 145, 178, 0.60)';
-            return isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.16)';
+            // Спокойный монохромный вид всех связей по умолчанию без пестроты
+            return isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)';
         })
         .linkWidth(link => {
             if (searchHighlightNodes.size > 0) {
-                return searchHighlightLinks.has(link) ? 3.0 : 0.8;
+                if (searchBackboneLinks.has(link)) return 3.8; // Мощная магистраль
+                if (searchHighlightLinks.has(link)) return 1.8;
+                return 0.5;
             }
-            return (link.relation === 'demarcated_from' || link.relation === 'excludes_application') ? 2.0 : 1.4;
+            return 1.1;
         })
         .linkDirectionalParticles(link => {
             if (searchHighlightNodes.size > 0) {
-                return searchHighlightLinks.has(link) ? 4 : 0;
+                if (searchBackboneLinks.has(link)) return 5; // Поток частиц по магистрали от центра
+                if (searchHighlightLinks.has(link)) return 2;
+                return 0;
             }
-            return 2;
+            return 0;
         })
-        .linkDirectionalParticleSpeed(0.007)
+        .linkDirectionalParticleSpeed(link => {
+            if (searchBackboneLinks.has(link)) return 0.012;
+            return 0.006;
+        })
         .linkDirectionalParticleWidth(link => {
-            if (searchHighlightNodes.size > 0) {
-                return searchHighlightLinks.has(link) ? 3.2 : 0;
-            }
-            return 2;
+            if (searchBackboneLinks.has(link)) return 3.6;
+            return 2.0;
         })
         .linkDirectionalParticleColor(link => {
-            const rel = link.relation || 'subject_to_jurisdiction';
-            return getKgRelationStyle(rel).color;
+            if (searchBackboneLinks.has(link)) return '#f59e0b';
+            return '#3b82f6';
         })
         .warmupTicks(60)
         .cooldownTicks(250)
@@ -5637,65 +5672,105 @@ window.initForceGraph = function(graphData) {
             isInitialLayoutFit = false;
         })
         .nodeCanvasObject((node, ctx, globalScale) => {
-            const isHighlighted = searchHighlightNodes.size === 0 || searchHighlightNodes.has(String(node.id));
+            const hasActiveSelection = searchHighlightNodes.size > 0;
+            const isHighlighted = !hasActiveSelection || searchHighlightNodes.has(String(node.id));
             const isTarget = activeSearchTargetId === String(node.id);
+            const isBackboneNode = searchBackboneNodes.has(String(node.id));
             const label = node.name || node.id;
-            const cat = node.category || 'default';
-            const catColor = getKgNodeColor(cat);
-            const radius = Math.max(3.6, (node.val || 5)) * (isTarget ? 1.35 : 1.0);
+            const radius = Math.max(3.6, (node.val || 5)) * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
             const currentDark = document.documentElement.classList.contains('dark');
 
             ctx.save();
-            if (!isHighlighted) {
-                ctx.globalAlpha = 0.12;
+            if (hasActiveSelection && !isHighlighted) {
+                ctx.globalAlpha = 0.05; // Глубокое мягкое затемнение несвязанного фона
             }
 
-            // 1. Пульсирующий внешний ореол для целевого найденного узла или мягкий нимб для корня
+            // 1. Определение монохромного цвета узла (или яркого акцента при активном поиске)
+            let nodeFill;
+            let nodeStroke;
+            let strokeWidth = 1.0;
+
             if (isTarget) {
+                // Целевой узел: яркий золотисто-янтарный маяк с пульсирующим нимбом
+                nodeFill = '#f59e0b';
+                nodeStroke = '#ffffff';
+                strokeWidth = 2.2;
+
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 6, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = catColor;
+                ctx.arc(node.x, node.y, radius + 7, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2.5;
                 ctx.stroke();
-            } else if (node.level === 0) {
+
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 6, 0, 2 * Math.PI, false);
-                ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.18)';
-                ctx.fill();
+                ctx.arc(node.x, node.y, radius + 13, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = 'rgba(245, 158, 11, 0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+            } else if (isBackboneNode) {
+                // Узлы магистрали (Корень и Родительский институт): лазурно-синий акцент
+                nodeFill = '#3b82f6';
+                nodeStroke = '#ffffff';
+                strokeWidth = 1.8;
+
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.45)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+            } else if (hasActiveSelection && isHighlighted) {
+                // Соседние понятия того же института: четкий контрастный графит
+                nodeFill = currentDark ? '#e2e8f0' : '#1e293b';
+                nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.2)';
+                strokeWidth = 1.2;
+
+            } else {
+                // ОБЫЧНОЕ СОСТОЯНИЕ (Монохромный минимализм без пестроты):
+                if (node.level === 0) {
+                    nodeFill = currentDark ? '#f8fafc' : '#0f172a';
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.6)' : '#ffffff';
+                    strokeWidth = 2.0;
+
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
+                    ctx.fillStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.10)';
+                    ctx.fill();
+
+                } else if (node.level === 1) {
+                    nodeFill = currentDark ? '#94a3b8' : '#475569';
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.15)';
+                    strokeWidth = 1.2;
+
+                } else {
+                    nodeFill = currentDark ? '#475569' : '#94a3b8';
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+                    strokeWidth = 0.8;
+                }
             }
 
-            // 2. Тело узла: акцентный цвет категории (Obsidian style)
+            // 2. Тело узла
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = catColor;
+            ctx.fillStyle = nodeFill;
             ctx.fill();
 
-            // 3. Деликатная тонкая окантовка узла (без грубой толстой черной обводки)
-            if (node.level === 0) {
-                ctx.lineWidth = 2.2;
-                ctx.strokeStyle = '#ffffff';
-                ctx.stroke();
-            } else if (node.level === 1) {
-                ctx.lineWidth = 1.2;
-                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.12)';
-                ctx.stroke();
-            } else {
-                ctx.lineWidth = 0.8;
-                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
-                ctx.stroke();
-            }
+            // 3. Окантовка узла
+            ctx.lineWidth = strokeWidth;
+            ctx.strokeStyle = nodeStroke;
+            ctx.stroke();
 
             // 4. Текстовая метка узла с прогрессивным раскрытием деталей (LOD)
-            // Корень: виден всегда. Институты (ур.1): видны с масштаба 0.3. Листья (ур.2): только при зуме >= 1.35 или при поиске/выделении
-            const shouldShowLabel = isTarget || 
-                (searchHighlightNodes.size > 0 && searchHighlightNodes.has(String(node.id))) ||
+            const shouldShowLabel = isTarget || isBackboneNode ||
+                (hasActiveSelection && isHighlighted && globalScale >= 0.4) ||
                 node.level === 0 ||
-                (node.level === 1 && globalScale >= 0.30) ||
+                (node.level === 1 && globalScale >= 0.32) ||
                 (node.level >= 2 && globalScale >= 1.35);
 
             if (isHighlighted && shouldShowLabel) {
                 const fontSize = Math.min(11, Math.max(7.5, (isTarget ? 11 : (node.level <= 1 ? 9.5 : 8.5)) / Math.pow(globalScale, 0.28)));
-                ctx.font = `${isTarget || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
@@ -5709,8 +5784,15 @@ window.initForceGraph = function(graphData) {
                     const pillW = textW + 8;
                     const pillH = fontSize + 3;
 
-                    // Аккуратная плашка с мягким фоном под текстом (без искажающей обводки букв!)
-                    ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.85)' : 'rgba(255, 255, 255, 0.90)';
+                    // Фон плашки
+                    if (isTarget) {
+                        ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(254, 243, 199, 0.95)';
+                    } else if (isBackboneNode) {
+                        ctx.fillStyle = currentDark ? 'rgba(59, 130, 246, 0.22)' : 'rgba(239, 246, 255, 0.95)';
+                    } else {
+                        ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.88)' : 'rgba(255, 255, 255, 0.92)';
+                    }
+
                     ctx.beginPath();
                     if (ctx.roundRect) {
                         ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, 3.5);
@@ -5719,13 +5801,27 @@ window.initForceGraph = function(graphData) {
                     }
                     ctx.fill();
 
-                    // Тонкая рамка плашки
-                    ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
-                    ctx.lineWidth = 0.8;
+                    // Рамка плашки
+                    if (isTarget) {
+                        ctx.strokeStyle = '#f59e0b';
+                        ctx.lineWidth = 1.2;
+                    } else if (isBackboneNode) {
+                        ctx.strokeStyle = '#3b82f6';
+                        ctx.lineWidth = 1.0;
+                    } else {
+                        ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+                        ctx.lineWidth = 0.8;
+                    }
                     ctx.stroke();
 
-                    // Чистый четкий шрифт текста
-                    ctx.fillStyle = currentDark ? '#f8fafc' : '#0f172a';
+                    // Текст
+                    if (isTarget) {
+                        ctx.fillStyle = currentDark ? '#fbbf24' : '#b45309';
+                    } else if (isBackboneNode) {
+                        ctx.fillStyle = currentDark ? '#93c5fd' : '#1d4ed8';
+                    } else {
+                        ctx.fillStyle = currentDark ? '#f8fafc' : '#0f172a';
+                    }
                     ctx.fillText(line, node.x, lineY);
                 });
             }
@@ -5740,7 +5836,16 @@ window.initForceGraph = function(graphData) {
             ctx.fill();
         })
         .onNodeClick(node => {
+            // Повторный клик по активному узлу сбрасывает выделение
+            if (activeSearchTargetId === String(node.id)) {
+                window.clearKgSearch();
+                return;
+            }
             focusNodeInGraph(node.id);
+        })
+        .onBackgroundClick(() => {
+            // Клик по пустому пространству мгновенно сбрасывает выделение
+            window.clearKgSearch();
         });
 
     setGraphLayout(currentKgLayout || 'force');
