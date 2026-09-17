@@ -4745,7 +4745,7 @@ function getCleanGraphData() {
         return null;
     }
 
-    // 1. Clean nodes: unpin any fx/fy so layout algorithms can freely position or pin them anew
+    // 1. Clean nodes: preserve parent_id and hierarchy levels
     const nodes = currentKgGraphData.nodes.map(n => {
         const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
         return {
@@ -4754,15 +4754,18 @@ function getCleanGraphData() {
             category: n.category || 'authority',
             summary: n.summary || '',
             level: lvl,
+            parent_id: n.parent_id ? String(n.parent_id) : undefined,
             val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5)
         };
     });
 
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const nodeIds = new Set(nodes.map(n => n.id));
 
     // 2. Clean links: D3 converts source/target to node object references.
     // We always extract the underlying ID string to prevent object-in-Set lookup failures.
-    const links = (currentKgGraphData.edges || [])
+    const rawEdges = (currentKgGraphData.edges || currentKgGraphData.links || []);
+    const links = rawEdges
         .map(e => {
             const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
             const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
@@ -4774,6 +4777,19 @@ function getCleanGraphData() {
             };
         })
         .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target) && e.source !== e.target);
+
+    // 3. Fallback: If any level 2 concept lacks parent_id, infer it from connecting edge to a level 1 institute
+    links.forEach(l => {
+        const sNode = nodeMap.get(l.source);
+        const tNode = nodeMap.get(l.target);
+        if (sNode && tNode) {
+            if (sNode.level === 1 && tNode.level === 2 && !tNode.parent_id) {
+                tNode.parent_id = sNode.id;
+            } else if (tNode.level === 1 && sNode.level === 2 && !sNode.parent_id) {
+                sNode.parent_id = tNode.id;
+            }
+        }
+    });
 
     return { nodes, links };
 }
@@ -5203,24 +5219,23 @@ function applyLayoutForces(graphInstance, layoutType) {
         }
     });
 
-    // 1. Сила отталкивания (Charge Repulsion) — умеренная, без разлетания узлов в космос
+    // 1. Сила отталкивания (Charge Repulsion)
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (layoutType === 'tree' || layoutType === 'horizontal') {
-                    if (lvl === 0) return -240;
-                    if (lvl === 1) return -90;
-                    return -35;
+                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
+                    return -25; // Деликатное отталкивание в геометрических режимах
                 }
-                if (lvl === 0) return -380;
-                if (lvl === 1) return -140;
-                return -50;
+                // Органический режим: мощное распределение веток от центра
+                if (lvl === 0) return -2500;
+                if (lvl === 1) return -600;
+                return -150;
             })
-            .distanceMax(360);
+            .distanceMax(2200);
     }
 
-    // 2. Сила связей (Link Force) — короткие, собранные связи
+    // 2. Сила связей (Link Force)
     if (graphInstance.d3Force('link')) {
         graphInstance.d3Force('link')
             .distance(link => {
@@ -5229,22 +5244,19 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
 
-                // Связь: Корень <-> Институт (в 3 раза ближе)
+                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
+                    if (sLvl === 0 || tLvl === 0) return 200;
+                    return 50;
+                }
+
+                // Органический режим (Force)
                 if (sLvl === 0 || tLvl === 0) {
-                    if (layoutType === 'tree' || layoutType === 'horizontal') return 95;
-                    return Math.max(80, Math.min(130, branchCount * 2.2));
+                    return Math.max(300, Math.min(480, 220 + branchCount * 3.5));
                 }
-
-                // Связь: Институт <-> Понятия (аккуратный короткий отступ)
                 if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
-                    if (layoutType === 'tree' || layoutType === 'horizontal') return 40;
-                    const branch = sLvl === 1 ? s : t;
-                    const leafCnt = (branchLeavesMap.get(String(branch.id)) || []).length;
-                    return Math.max(35, Math.min(55, 30 + leafCnt * 3));
+                    return 75;
                 }
-
-                // Межинститутские связи
-                return 55;
+                return 120;
             })
             .strength(link => {
                 const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
@@ -5252,59 +5264,54 @@ function applyLayoutForces(graphInstance, layoutType) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
 
-                if (sLvl === 0 || tLvl === 0) return 0.90;
-
-                // Мягкие кросс-связи (чтобы разграничения не комкали структуру веток)
-                if (s.parent_id && t.parent_id && s.parent_id !== t.parent_id) {
-                    return 0.03;
+                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
+                    return 0.12; // Мягкая связность, геометрия управляется целевыми позициями
                 }
-                if (sLvl === 1 && tLvl === 1) return 0.06;
-                return 0.85;
+
+                if (sLvl === 0 || tLvl === 0) return 0.90;
+                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) return 0.85;
+                return 0.04; // Деликатные кросс-связи
             });
     }
 
-    // 3. Сила коллизии (Collide) — предотвращает наложение кружков
+    // 3. Сила коллизии (Collide) — полное исключение наложения кружков
     if (window.d3 && window.d3.forceCollide) {
         graphInstance.d3Force('collide', window.d3.forceCollide()
             .radius(node => {
                 const lvl = (node.level !== undefined) ? node.level : 2;
-                const label = node.name || node.id || '';
-                const maxLineLen = Math.min(label.length, 16);
-                const approxHalfW = (maxLineLen * 6.5) / 2;
-
-                if (lvl === 0) return 38;
-                if (lvl === 1) return Math.max(28, approxHalfW + 10);
-                return Math.max(20, approxHalfW + 6);
+                if (lvl === 0) return 42;
+                if (lvl === 1) return 26;
+                return 16;
             })
             .strength(0.85)
-            .iterations(3)
+            .iterations(2)
         );
     }
 
-    // 4. Позиционные силы для компактных раскладок
+    // 4. Позиционные силы для чистых упорядоченных раскладок
     const targetXMap = new Map();
     const targetYMap = new Map();
 
     if (layoutType === 'tree') {
-        // Дерево: СВЕРХУ ВНИЗ (Компактная строгая иерархия)
+        // Дерево: СВЕРХУ ВНИЗ (Четкие параллельные вертикальные колонки, без пересечений)
         rootNodes.forEach(r => {
             r.fx = 0;
-            r.fy = -190;
+            r.fy = -480;
             targetXMap.set(String(r.id), 0);
-            targetYMap.set(String(r.id), -190);
+            targetYMap.set(String(r.id), -480);
         });
 
-        const branchSpacingX = Math.max(48, Math.min(68, 2600 / branchCount));
+        const branchSpacingX = 85; // Просторное горизонтальное расстояние между ветками
         branches.forEach((b, idx) => {
             const bX = (idx - (branchCount - 1) / 2) * branchSpacingX;
-            const bY = (idx % 2 === 0) ? -80 : -20; // Компактное чередование эшелонов
+            const bY = (idx % 2 === 0) ? -220 : -100; // Чередование эшелонов по высоте
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                const leafX = bX + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -8 : 8) : 0);
-                const leafY = bY + 42 + (lIdx * 26);
+                const leafX = bX; // Строго в вертикальной колонке родительского института
+                const leafY = bY + 120 + (lIdx * 48);
                 targetXMap.set(String(leaf.id), leafX);
                 targetYMap.set(String(leaf.id), leafY);
             });
@@ -5314,35 +5321,35 @@ function applyLayoutForces(graphInstance, layoutType) {
             const id = String(n.id);
             if (!targetXMap.has(id)) {
                 targetXMap.set(id, 0);
-                targetYMap.set(id, 80);
+                targetYMap.set(id, 100);
             }
         });
 
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.88));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.88));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
         }
 
     } else if (layoutType === 'horizontal') {
-        // Горизонтально: СЛЕВА НАПРАВО (Компактный поток)
+        // Горизонтально: СЛЕВА НАПРАВО (Четкие параллельные горизонтальные линии)
         rootNodes.forEach(r => {
-            r.fx = -250;
+            r.fx = -480;
             r.fy = 0;
-            targetXMap.set(String(r.id), -250);
+            targetXMap.set(String(r.id), -480);
             targetYMap.set(String(r.id), 0);
         });
 
-        const branchSpacingY = Math.max(36, Math.min(52, 2200 / branchCount));
+        const branchSpacingY = 70;
         branches.forEach((b, idx) => {
             const bY = (idx - (branchCount - 1) / 2) * branchSpacingY;
-            const bX = (idx % 2 === 0) ? -110 : -40;
+            const bX = (idx % 2 === 0) ? -220 : -100;
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                const leafX = bX + 50 + (lIdx * 45);
-                const leafY = bY + (leaves.length > 1 ? ((lIdx % 2 === 0) ? -8 : 8) : 0);
+                const leafX = bX + 120 + (lIdx * 48);
+                const leafY = bY; // Строго на горизонтальной линии родителя
                 targetXMap.set(String(leaf.id), leafX);
                 targetYMap.set(String(leaf.id), leafY);
             });
@@ -5351,18 +5358,18 @@ function applyLayoutForces(graphInstance, layoutType) {
         nodes.forEach(n => {
             const id = String(n.id);
             if (!targetXMap.has(id)) {
-                targetXMap.set(id, 80);
+                targetXMap.set(id, 100);
                 targetYMap.set(id, 0);
             }
         });
 
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.88));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.88));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
         }
 
     } else if (layoutType === 'radial') {
-        // Радиальный: Аккуратный компактный цветок
+        // Радиальный: Аккуратный просторный цветок с расходящимися лучами (STARBURST)
         rootNodes.forEach(r => {
             r.fx = 0;
             r.fy = 0;
@@ -5370,9 +5377,10 @@ function applyLayoutForces(graphInstance, layoutType) {
             targetYMap.set(String(r.id), 0);
         });
 
+        // 71 институт на двух ступенях радиуса: четные 340px, нечетные 520px
         branches.forEach((b, idx) => {
             const angle = (idx / branchCount) * 2 * Math.PI;
-            const radius = (idx % 2 === 0) ? 120 : 175;
+            const radius = (idx % 2 === 0) ? 340 : 520;
             const bX = Math.cos(angle) * radius;
             const bY = Math.sin(angle) * radius;
             targetXMap.set(String(b.id), bX);
@@ -5380,8 +5388,8 @@ function applyLayoutForces(graphInstance, layoutType) {
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
             leaves.forEach((leaf, lIdx) => {
-                const leafRadius = radius + 65 + (lIdx * 25);
-                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.04) : 0;
+                const leafRadius = radius + 130 + (lIdx * 45);
+                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.015) : 0;
                 const leafX = Math.cos(angle + angleOffset) * leafRadius;
                 const leafY = Math.sin(angle + angleOffset) * leafRadius;
                 targetXMap.set(String(leaf.id), leafX);
@@ -5389,9 +5397,17 @@ function applyLayoutForces(graphInstance, layoutType) {
             });
         });
 
+        nodes.forEach(n => {
+            const id = String(n.id);
+            if (!targetXMap.has(id)) {
+                targetXMap.set(id, 0);
+                targetYMap.set(id, 0);
+            }
+        });
+
         if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.85));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.85));
+            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
+            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
         }
 
     } else {
@@ -5401,7 +5417,7 @@ function applyLayoutForces(graphInstance, layoutType) {
             r.fy = 0;
         });
         if (window.d3 && window.d3.forceCenter) {
-            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.12));
+            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.08));
         }
     }
 }
@@ -5745,9 +5761,9 @@ window.initForceGraph = function(graphData) {
             return 0.8;
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
-        .warmupTicks(80)
-        .cooldownTicks(50)
-        .d3VelocityDecay(0.68) // Высокое затухание: узлы не колышутся и мгновенно встают на место
+        .warmupTicks(100)
+        .cooldownTicks(180)
+        .d3VelocityDecay(0.32) // Плавное расслабление физики: узлы успевают разойтись и распутаться
         .onDagError(() => false)
         .onEngineStop(() => {
             if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
@@ -5768,7 +5784,7 @@ window.initForceGraph = function(graphData) {
             const isBackboneNode = searchBackboneNodes.has(String(node.id));
             const label = node.name || node.id;
             const baseR = Math.max(3.0, (node.val || 4) * 0.75);
-            const radius = baseR * (isTarget ? 1.3 : (isBackboneNode ? 1.1 : 1.0));
+            const radius = baseR * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
             const currentDark = document.documentElement.classList.contains('dark');
 
             ctx.save();
@@ -5834,44 +5850,56 @@ window.initForceGraph = function(graphData) {
             ctx.strokeStyle = nodeStroke;
             ctx.stroke();
 
-            // 4. Текстовая плашка-метка узла (LOD)
-            const shouldShowLabel = isTarget || isBackboneNode ||
-                (hasActiveSelection && isHighlighted) ||
-                node.level === 0 ||
-                (node.level === 1 && globalScale >= 0.16) ||
-                (node.level >= 2 && globalScale >= 0.40);
+            // 4. Текстовая плашка-метка узла (Obsidian-Style Semantic Zoom LOD)
+            let shouldShowLabel = false;
+            if (isTarget || isBackboneNode) {
+                // Выделенный узел и его опорная магистраль (родитель и корень) видны всегда
+                shouldShowLabel = true;
+            } else if (hasActiveSelection && isHighlighted) {
+                // Соседние понятия активной ветки показываются при комфортном масштабе
+                shouldShowLabel = globalScale >= 0.70;
+            } else if (node.level === 0) {
+                // Заголовок курса (корень) виден всегда
+                shouldShowLabel = true;
+            } else if (node.level === 1) {
+                // Институты появляются при приближении (когда в кадре несколько институтов)
+                shouldShowLabel = globalScale >= 0.85;
+            } else {
+                // Понятия появляются при глубоком приближении
+                shouldShowLabel = globalScale >= 1.35;
+            }
 
             if (isHighlighted && shouldShowLabel) {
-                const targetScreenSize = isTarget ? 13.0 : (node.level === 0 ? 12.5 : (node.level === 1 ? 11.0 : 9.5));
-                const fontSize = Math.min(24, Math.max(7.0, targetScreenSize / Math.pow(globalScale, 0.85)));
-                ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
+                // Фиксированный размер шрифта в мировых координатах (без раздувания при отдалении!)
+                const baseFontSize = isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8));
+                ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${baseFontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
                 const lines = wrapNodeText(label, node.level === 0 ? 22 : 16);
-                const lineHeight = fontSize + (3.0 / Math.pow(globalScale, 0.3));
-                const startY = node.y + radius + (4.5 / Math.pow(globalScale, 0.3)) + (lineHeight / 2);
+                const lineHeight = baseFontSize + 3.0;
+                const startY = node.y + radius + 4.5 + (lineHeight / 2);
 
-                const padX = Math.max(3, 4.5 / Math.pow(globalScale, 0.4));
-                const padY = Math.max(2, 2.8 / Math.pow(globalScale, 0.4));
+                const padX = 4.0;
+                const padY = 2.5;
 
                 lines.forEach((line, i) => {
                     const lineY = startY + (i * lineHeight);
                     const textW = ctx.measureText(line).width;
                     const pillW = textW + (padX * 2);
-                    const pillH = fontSize + (padY * 2);
+                    const pillH = baseFontSize + (padY * 2);
 
                     // Фон плашки
                     if (isTarget) {
                         ctx.fillStyle = currentDark ? '#ffffff' : '#0f172a';
                     } else if (isBackboneNode) {
-                        ctx.fillStyle = currentDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.14)';
+                        ctx.fillStyle = currentDark ? 'rgba(255, 255, 255, 0.20)' : 'rgba(15, 23, 42, 0.16)';
                     } else {
-                        ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.90)' : 'rgba(255, 255, 255, 0.94)';
+                        ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.88)' : 'rgba(255, 255, 255, 0.94)';
                     }
 
                     ctx.beginPath();
-                    const pillRadius = Math.max(2, 3.2 / Math.pow(globalScale, 0.4));
+                    const pillRadius = 3.0;
                     if (ctx.roundRect) {
                         ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, pillRadius);
                     } else {
@@ -5882,13 +5910,13 @@ window.initForceGraph = function(graphData) {
                     // Рамка плашки
                     if (isTarget) {
                         ctx.strokeStyle = currentDark ? '#e2e8f0' : '#1e293b';
-                        ctx.lineWidth = Math.max(0.7, 1.0 / Math.pow(globalScale, 0.3));
+                        ctx.lineWidth = 1.0;
                     } else if (isBackboneNode) {
                         ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.25)';
-                        ctx.lineWidth = Math.max(0.6, 0.9 / Math.pow(globalScale, 0.3));
+                        ctx.lineWidth = 0.8;
                     } else {
                         ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
-                        ctx.lineWidth = Math.max(0.5, 0.7 / Math.pow(globalScale, 0.3));
+                        ctx.lineWidth = 0.6;
                     }
                     ctx.stroke();
 
