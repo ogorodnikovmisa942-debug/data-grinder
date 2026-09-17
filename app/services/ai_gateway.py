@@ -754,12 +754,15 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
         "phrase_title": title,
         "cards": cards
     }
+    if "modules" in raw_data and isinstance(raw_data["modules"], list):
+        result["modules"] = raw_data["modules"]
     if clean_nodes:
         result["knowledge_graph"] = {
             "nodes": clean_nodes,
             "edges": clean_edges,
             "tree_data": tree_data
         }
+        result["graph"] = result["knowledge_graph"]
     return result
 
 def build_granularity_prompt(granularity_mode: str, custom_instruction: str, density: str, volume: str) -> str:
@@ -1165,8 +1168,8 @@ async def parse_raw_text(
     if volume in ("auto", "balanced"):
         user_directives.append(
             "CARD VOLUME: HIGH-YIELD BALANCED EXTRACTION. "
-            "Extract strictly 5 to 7 master conceptual cards from this section (proportionate to its substantive weight, targeting ~60–80 cards for an entire multi-chapter course). "
-            "Do NOT exceed 7 cards. "
+            "Extract 10 to 14 master conceptual cards from this section (proportionate to its substantive weight, targeting ~140–180 cards for an entire multi-chapter course). "
+            "Do NOT exceed 15 cards. "
             "Ensure diverse, natural phrasing across 4 universal cognitive archetypes: "
             "1) Situational Cases / Problem Vignettes (concrete factual conflict/scenario -> statutory qualification or solution), "
             "2) Contrast Pairs (distinguishing confusing concepts via gold standard criteria), "
@@ -1177,15 +1180,15 @@ async def parse_raw_text(
             "If this chunk contains solely clerical paperwork or administrative procedures, return 0 cards."
         )
     elif volume in ("low", "low_5"):
-        user_directives.append("CARD VOLUME: Strictly 2 to 4 core cards. Absolute highest-yield master concepts only.")
+        user_directives.append("CARD VOLUME: Strictly 4 to 6 core cards. Absolute highest-yield master concepts only.")
     elif volume == "med_10":
-        user_directives.append("CARD VOLUME: Strictly 5 to 7 core cards.")
+        user_directives.append("CARD VOLUME: Strictly 8 to 10 core cards.")
     elif volume in ("medium", "med_15"):
-        user_directives.append("CARD VOLUME: Strictly 7 to 9 cards.")
+        user_directives.append("CARD VOLUME: Strictly 10 to 14 cards.")
     elif volume in ("high", "high_20"):
-        user_directives.append("CARD VOLUME: Maximum 10 to 12 cards.")
+        user_directives.append("CARD VOLUME: Maximum 16 to 18 cards.")
     elif volume == "max":
-        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 15 cards). Every verifiable fact and distinction.")
+        user_directives.append("CARD VOLUME: Exhaustive extraction (up to 20 cards). Every verifiable fact and distinction.")
 
     user_directives.append(
         "EXAMPLE CONCISENESS DIRECTIVE: The 'e' field must be strictly 1 punchy, vivid sentence (maximum 15 words) "

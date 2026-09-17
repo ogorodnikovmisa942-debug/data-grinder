@@ -146,10 +146,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 )
                 if curriculum_skeleton and curriculum_skeleton.get("phrase_title") and extracted_theme in ("Новый блок знаний", "Материал", ""):
                     extracted_theme = curriculum_skeleton["phrase_title"]
-                if curriculum_skeleton and curriculum_skeleton.get("graph") and isinstance(curriculum_skeleton["graph"], dict):
-                    skel_nodes = curriculum_skeleton["graph"].get("nodes") or []
+                skel_graph = curriculum_skeleton.get("graph") or curriculum_skeleton.get("knowledge_graph") if curriculum_skeleton else None
+                if skel_graph and isinstance(skel_graph, dict):
+                    skel_nodes = skel_graph.get("nodes") or []
                     if skel_nodes:
-                        all_chunk_graphs.append(curriculum_skeleton["graph"])
+                        all_chunk_graphs.append(skel_graph)
             except Exception as skel_err:
                 print(f"[Generation Worker WARN] Сбой Прохода 1: {skel_err}", flush=True)
 
@@ -197,11 +198,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 # Калибровка объема: сохраняем пропорциональное количество глубоких карточек с главы/раздела
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
                 if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:7]
+                    chunk_cards = chunk_cards[:14]
                 elif job_data.get("volume") in ("low", "low_5"):
-                    chunk_cards = chunk_cards[:4]
+                    chunk_cards = chunk_cards[:6]
                 elif job_data.get("volume") in ("high", "high_20", "max"):
-                    chunk_cards = chunk_cards[:12]
+                    chunk_cards = chunk_cards[:18]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
