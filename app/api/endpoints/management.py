@@ -2115,11 +2115,9 @@ async def log_daily_session(
 @router.get("/config/ai-provider")
 async def get_public_ai_provider():
     """Публичный статус активного ИИ-провайдера и модели для отображения в MiniApp."""
-    curr_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    curr_model = settings.MIMO_MODEL if curr_provider == "mimo" else settings.DEEPSEEK_MODEL
     return {
         "status": "success",
-        "provider": curr_provider,
-        "model": curr_model,
+        "provider": "deepseek",
+        "model": settings.DEEPSEEK_MODEL,
         "is_offpeak": is_deepseek_offpeak()
     }

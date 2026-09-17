@@ -169,11 +169,9 @@ async def read_index():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_web_page():
-    curr_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    curr_model = settings.MIMO_MODEL if curr_provider == "mimo" else settings.DEEPSEEK_MODEL
+    curr_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
     admin_token = settings.ADMIN_TOKEN or "secret-admin-token"
-    ds_key_badge = '<span style="color:#4ade80;">🔑 Ключ OK</span>' if settings.DEEPSEEK_API_KEY else '<span style="color:#f59e0b;">⚠️ Ключ не задан</span>'
-    mimo_key_badge = '<span style="color:#4ade80;">🔑 Ключ OK</span>' if settings.MIMO_API_KEY else '<span style="color:#f59e0b;">⚠️ Ключ не задан</span>'
+    ds_key_badge = '<span style="color:#4ade80;">🔑 Ключ OK</span>' if settings.DEEPSEEK_API_KEY else '<span style="color:#f59e0b;">⚠️ Ключ не задан (.env)</span>'
     
     return HTMLResponse(
         f"""<!DOCTYPE html>
@@ -186,7 +184,7 @@ async def admin_web_page():
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
     <style>
         body {{ margin: 0; padding: 24px; font-family: 'Inter', sans-serif; background: #0a0a0a; color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }}
-        .card {{ max-width: 580px; width: 100%; background: #141414; border: 1px solid #262626; border-radius: 20px; padding: 28px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }}
+        .card {{ max-width: 620px; width: 100%; background: #141414; border: 1px solid #262626; border-radius: 20px; padding: 28px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }}
         h1 {{ font-family: 'Space Grotesk', sans-serif; font-size: 20px; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }}
         p {{ font-size: 13px; color: #94a3b8; line-height: 1.6; margin: 0 0 16px; }}
         .code-box {{ background: #0a0a0a; border: 1px solid #262626; padding: 12px 16px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #38bdf8; margin-bottom: 20px; word-break: break-all; }}
@@ -195,17 +193,16 @@ async def admin_web_page():
         .badge {{ display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #1e293b; border-radius: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #94a3b8; }}
         .ai-panel {{ background: #1a1a1a; border: 1px solid #2e2e2e; border-radius: 16px; padding: 20px; margin-bottom: 20px; }}
         .ai-title {{ font-size: 14px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-        .switcher-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }}
-        .switch-card {{ padding: 14px; border-radius: 12px; border: 2px solid #2e2e2e; background: #121212; cursor: pointer; transition: all 0.2s; text-align: left; }}
+        .switcher-grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }}
+        .switch-card {{ padding: 12px; border-radius: 12px; border: 2px solid #2e2e2e; background: #121212; cursor: pointer; transition: all 0.2s; text-align: left; }}
         .switch-card.active {{ border-color: #38bdf8; background: rgba(56, 189, 248, 0.08); }}
         .switch-card:hover:not(.active) {{ border-color: #475569; }}
-        .switch-name {{ font-weight: 700; font-size: 14px; color: #f8fafc; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }}
-        .switch-sub {{ font-size: 11px; color: #94a3b8; line-height: 1.4; }}
-        .switch-specs {{ margin-top: 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: #38bdf8; }}
-        .status-pill {{ font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: 600; text-transform: uppercase; }}
+        .switch-name {{ font-weight: 700; font-size: 12px; color: #f8fafc; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }}
+        .switch-sub {{ font-size: 10px; color: #94a3b8; line-height: 1.4; }}
+        .status-pill {{ font-size: 9px; padding: 2px 5px; border-radius: 6px; font-weight: 600; text-transform: uppercase; }}
         .status-pill.active {{ background: #0369a1; color: #e0f2fe; }}
         .status-pill.inactive {{ background: #262626; color: #64748b; }}
-        .pricing-table {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }}
+        .pricing-table {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 14px; }}
         .pricing-table th, .pricing-table td {{ padding: 6px 8px; text-align: left; border-bottom: 1px solid #262626; }}
         .pricing-table th {{ color: #94a3b8; font-weight: 600; }}
         .toast {{ display: none; padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-top: 10px; text-align: center; }}
@@ -217,57 +214,65 @@ async def admin_web_page():
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
             <span class="badge"><span class="material-symbols-outlined" style="font-size:14px;">terminal</span> DATA GRINDER ADMIN</span>
-            <span class="badge" id="ai-active-badge" style="color:#38bdf8; font-weight:bold;">ИИ: {curr_provider.upper()}</span>
+            <span class="badge" id="ai-active-badge" style="color:#38bdf8; font-weight:bold;">DEEPSEEK</span>
         </div>
         <h1><span class="material-symbols-outlined" style="color:#38bdf8;">admin_panel_settings</span> Панель администратора</h1>
         
-        <!-- СЕКЦИЯ ПЕРЕКЛЮЧЕНИЯ ИИ-ПРОВАЙДЕРА -->
+        <!-- СЕКЦИЯ КОНФИГУРАЦИИ DEEPSEEK -->
         <div class="ai-panel">
             <div class="ai-title">
                 <span style="display:flex; align-items:center; gap:6px;">
                     <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">psychology</span>
-                    Переключатель ИИ-провайдера
+                    Модель DeepSeek
                 </span>
-                <span id="current-model-tag" style="font-size:11px; font-family:'JetBrains Mono', monospace; color:#94a3b8;">
+                <span id="current-model-tag" style="font-size:11px; font-family:'JetBrains Mono', monospace; color:#38bdf8; font-weight:600;">
                     {curr_model}
                 </span>
             </div>
 
+            <div style="margin-bottom: 10px; font-size: 11px; color: #94a3b8; display:flex; justify-content:space-between;">
+                <span>Статус ключа: {ds_key_badge}</span>
+                <span style="font-family:'JetBrains Mono', monospace;">Базовый URL: {settings.DEEPSEEK_BASE_URL}</span>
+            </div>
+
             <div class="switcher-grid">
-                <!-- DeepSeek Card -->
-                <div class="switch-card {'active' if curr_provider == 'deepseek' else ''}" id="card-deepseek" onclick="selectProvider('deepseek')">
+                <!-- DeepSeek Flash Card -->
+                <div class="switch-card {'active' if curr_model == 'deepseek-flash' else ''}" id="card-deepseek-flash" onclick="selectModel('deepseek-flash')">
                     <div class="switch-name">
-                        DeepSeek
-                        <span class="status-pill {'active' if curr_provider == 'deepseek' else 'inactive'}" id="pill-deepseek">
-                            {'АКТИВЕН' if curr_provider == 'deepseek' else 'ВЫБРАТЬ'}
+                        V4.1 Flash
+                        <span class="status-pill {'active' if curr_model == 'deepseek-flash' else 'inactive'}" id="pill-deepseek-flash">
+                            {'АКТИВНА' if curr_model == 'deepseek-flash' else 'ВЫБОР'}
                         </span>
                     </div>
-                    <div class="switch-sub">deepseek-flash (V4.1 Flash)<br>1M Контекст / 384K Вывод</div>
-                    <div class="switch-specs">
-                        Контекст: 1M | Вывод: 384K<br>
-                        {ds_key_badge}
-                    </div>
+                    <div class="switch-sub">Основная, 1M контекст, 32K вывод, ультра-быстро</div>
                 </div>
 
-                <!-- Xiaomi MiMo Card -->
-                <div class="switch-card {'active' if curr_provider == 'mimo' else ''}" id="card-mimo" onclick="selectProvider('mimo')">
+                <!-- DeepSeek Chat Card -->
+                <div class="switch-card {'active' if curr_model == 'deepseek-chat' else ''}" id="card-deepseek-chat" onclick="selectModel('deepseek-chat')">
                     <div class="switch-name">
-                        Xiaomi MiMo
-                        <span class="status-pill {'active' if curr_provider == 'mimo' else 'inactive'}" id="pill-mimo">
-                            {'АКТИВЕН' if curr_provider == 'mimo' else 'ВЫБРАТЬ'}
+                        DeepSeek Chat
+                        <span class="status-pill {'active' if curr_model == 'deepseek-chat' else 'inactive'}" id="pill-deepseek-chat">
+                            {'АКТИВНА' if curr_model == 'deepseek-chat' else 'ВЫБОР'}
                         </span>
                     </div>
-                    <div class="switch-sub">mimo-v2.5 / pro<br>Сверхдлинный контекст</div>
-                    <div class="switch-specs">
-                        Контекст: 1M | Вывод: 128K<br>
-                        {mimo_key_badge}
+                    <div class="switch-sub">Стандартная модель V3, 64K контекст</div>
+                </div>
+
+                <!-- DeepSeek Reasoner Card -->
+                <div class="switch-card {'active' if curr_model == 'deepseek-reasoner' else ''}" id="card-deepseek-reasoner" onclick="selectModel('deepseek-reasoner')">
+                    <div class="switch-name">
+                        Reasoner (R1)
+                        <span class="status-pill {'active' if curr_model == 'deepseek-reasoner' else 'inactive'}" id="pill-deepseek-reasoner">
+                            {'АКТИВНА' if curr_model == 'deepseek-reasoner' else 'ВЫБОР'}
+                        </span>
                     </div>
+                    <div class="switch-sub">Глубокие цепочки рассуждений CoT</div>
                 </div>
             </div>
 
             <div style="margin-bottom: 12px; display:flex; align-items:center; gap:8px;">
-                <label style="font-size:12px; color:#94a3b8; font-weight:600;">Модель:</label>
-                <input type="text" id="model-input" value="{curr_model}" placeholder="Например: deepseek-chat, deepseek-reasoner, mimo-v2.5" style="flex:1; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#38bdf8; font-size:12px; font-family:'JetBrains Mono', monospace;">
+                <label style="font-size:12px; color:#94a3b8; font-weight:600;">Пользовательская:</label>
+                <input type="text" id="model-input" value="{curr_model}" placeholder="Например: deepseek-flash" style="flex:1; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#38bdf8; font-size:12px; font-family:'JetBrains Mono', monospace;">
             </div>
 
             <div style="display:flex; gap:8px; align-items:center;">
@@ -279,7 +284,7 @@ async def admin_web_page():
             <table class="pricing-table">
                 <thead>
                     <tr>
-                        <th>Провайдер</th>
+                        <th>Модель</th>
                         <th>Контекст</th>
                         <th>Кэш-хит ($/1M)</th>
                         <th>Кэш-мисс ($/1M)</th>
@@ -288,18 +293,25 @@ async def admin_web_page():
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="color:#38bdf8; font-weight:600;">DeepSeek V4.1 Flash</td>
+                        <td style="color:#38bdf8; font-weight:600;">deepseek-flash</td>
                         <td>1,000,000</td>
                         <td>$0.003 / $0.006 <span style="color:#4ade80;">(-98%)</span></td>
                         <td>$0.15 / $0.30</td>
                         <td>$0.60 / $1.20</td>
                     </tr>
                     <tr>
-                        <td style="color:#a855f7; font-weight:600;">Xiaomi MiMo</td>
-                        <td>1,000,000</td>
-                        <td>$0.0035 <span style="color:#4ade80;">(-99%)</span></td>
-                        <td>$0.42</td>
-                        <td>$0.84</td>
+                        <td style="color:#94a3b8; font-weight:600;">deepseek-chat</td>
+                        <td>64,000</td>
+                        <td>$0.014 / $0.028</td>
+                        <td>$0.14 / $0.28</td>
+                        <td>$0.55 / $1.10</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#a855f7; font-weight:600;">deepseek-reasoner</td>
+                        <td>64,000</td>
+                        <td>$0.014 / $0.028</td>
+                        <td>$0.14 / $0.28</td>
+                        <td>$0.55 / $1.10</td>
                     </tr>
                 </tbody>
             </table>
@@ -317,31 +329,24 @@ async def admin_web_page():
     </div>
 
     <script>
-        let selectedProvider = "{curr_provider}";
+        let selectedModel = "{curr_model}";
 
-        function selectProvider(prov) {{
-            selectedProvider = prov;
+        function selectModel(modelName) {{
+            selectedModel = modelName;
             document.querySelectorAll('.switch-card').forEach(c => c.classList.remove('active'));
-            document.getElementById('card-' + prov).classList.add('active');
-            const modelInput = document.getElementById('model-input');
-            if (prov === 'deepseek' && modelInput.value.includes('mimo')) {{
-                modelInput.value = 'deepseek-flash';
-            }} else if (prov === 'mimo' && modelInput.value.includes('deepseek')) {{
-                modelInput.value = 'mimo-v2.5';
-            }}
+            const card = document.getElementById('card-' + modelName);
+            if (card) card.classList.add('active');
+            document.getElementById('model-input').value = modelName;
         }}
 
         async function applySwitch() {{
             const token = document.getElementById('admin-token-input').value.trim();
-            const modelVal = document.getElementById('model-input').value.trim();
+            const modelVal = document.getElementById('model-input').value.trim() || selectedModel;
             const toast = document.getElementById('switch-toast');
             toast.className = 'toast';
             toast.style.display = 'none';
 
-            const payload = {{ provider: selectedProvider }};
-            if (modelVal) {{
-                payload.model = modelVal;
-            }}
+            const payload = {{ provider: 'deepseek', model: modelVal }};
 
             try {{
                 const res = await fetch('/api/admin/switch-ai-provider', {{
@@ -356,19 +361,27 @@ async def admin_web_page():
                 if (res.ok) {{
                     if (data.warning) {{
                         toast.className = 'toast error';
-                        toast.innerText = data.message || ('ИИ переключен. ' + data.warning);
+                        toast.innerText = data.message || ('Модель переключена. ' + data.warning);
                     }} else {{
                         toast.className = 'toast success';
-                        toast.innerText = 'Успешно: ' + (data.message || 'ИИ переключен на ' + selectedProvider.toUpperCase());
+                        toast.innerText = 'Успешно: ' + (data.message || 'Модель переключена на ' + (data.model || modelVal));
                     }}
-                    document.getElementById('ai-active-badge').innerText = 'ИИ: ' + selectedProvider.toUpperCase();
-                    document.getElementById('current-model-tag').innerText = data.model || selectedProvider;
-                    if (data.model) document.getElementById('model-input').value = data.model;
+                    selectedModel = data.model || modelVal;
+                    document.getElementById('current-model-tag').innerText = selectedModel;
+                    document.getElementById('model-input').value = selectedModel;
                     
-                    document.getElementById('pill-deepseek').className = selectedProvider === 'deepseek' ? 'status-pill active' : 'status-pill inactive';
-                    document.getElementById('pill-deepseek').innerText = selectedProvider === 'deepseek' ? 'АКТИВЕН' : 'ВЫБРАТЬ';
-                    document.getElementById('pill-mimo').className = selectedProvider === 'mimo' ? 'status-pill active' : 'status-pill inactive';
-                    document.getElementById('pill-mimo').innerText = selectedProvider === 'mimo' ? 'АКТИВЕН' : 'ВЫБРАТЬ';
+                    ['deepseek-flash', 'deepseek-chat', 'deepseek-reasoner'].forEach(m => {{
+                        const pill = document.getElementById('pill-' + m);
+                        const card = document.getElementById('card-' + m);
+                        if (pill) {{
+                            pill.className = selectedModel === m ? 'status-pill active' : 'status-pill inactive';
+                            pill.innerText = selectedModel === m ? 'АКТИВНА' : 'ВЫБОР';
+                        }}
+                        if (card) {{
+                            if (selectedModel === m) card.classList.add('active');
+                            else card.classList.remove('active');
+                        }}
+                    }});
                 }} else {{
                     toast.className = 'toast error';
                     toast.innerText = 'Ошибка (' + res.status + '): ' + (data.detail || JSON.stringify(data));

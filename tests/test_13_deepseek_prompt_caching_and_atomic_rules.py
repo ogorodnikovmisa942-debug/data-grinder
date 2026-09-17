@@ -1,12 +1,12 @@
 # tests/test_13_deepseek_prompt_caching_and_atomic_rules.py
 """
-Test Suite for Prompt Caching, Atomic Rules, Xiaomi MiMo Integration, and Admin Switcher.
+Test Suite for Prompt Caching, Atomic Rules, DeepSeek V4.1 Flash Integration, and Admin Switcher.
 Validates:
 1. Integrity of DEEPSEEK_CACHED_SYSTEM_PROMPT and CURRICULUM_SKELETON_SYSTEM_PROMPT (static, >1024 tokens, atomic rules).
-2. Xiaomi MiMo client call_mimo with mocked OpenAI-compatible endpoint, URL normalizer, and usage telemetry.
-3. Admin AI provider switcher (GET /api/admin/ai-provider, POST /api/admin/switch-ai-provider, set_active_ai_provider).
-4. Bot admin panel keyboard and dashboard rendering with AI provider indicators.
-5. Routing of parse_raw_text and extract_curriculum_skeleton based on active provider.
+2. DeepSeek client call_deepseek with mocked OpenAI-compatible endpoint and usage telemetry.
+3. Admin AI provider and model switcher (GET /api/admin/ai-provider, POST /api/admin/switch-ai-provider, set_active_ai_provider).
+4. Bot admin panel keyboard and dashboard rendering with DeepSeek model indicators.
+5. Routing of parse_raw_text and extract_curriculum_skeleton through DeepSeek.
 """
 
 import unittest
@@ -19,8 +19,6 @@ from app.core.config import settings
 from app.services.ai_gateway import (
     DEEPSEEK_CACHED_SYSTEM_PROMPT,
     CURRICULUM_SKELETON_SYSTEM_PROMPT,
-    get_mimo_chat_url,
-    call_mimo,
     call_deepseek,
     parse_raw_text,
     extract_curriculum_skeleton,
@@ -39,10 +37,12 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         cls.client_cm = TestClient(app)
         cls.client = cls.client_cm.__enter__()
         cls.orig_provider = getattr(settings, "AI_PROVIDER", "deepseek")
+        cls.orig_model = getattr(settings, "DEEPSEEK_MODEL", "deepseek-flash")
 
     @classmethod
     def tearDownClass(cls):
         settings.AI_PROVIDER = cls.orig_provider
+        settings.DEEPSEEK_MODEL = cls.orig_model
         cls.client_cm.__exit__(None, None, None)
         cls.worker_patcher.stop()
 
@@ -72,39 +72,21 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         self.assertIn("quota", CURRICULUM_SKELETON_SYSTEM_PROMPT)
         self.assertIn("modules", CURRICULUM_SKELETON_SYSTEM_PROMPT)
 
-    def test_02_mimo_url_normalization(self):
-        """Проверка корректной нормализации URL для endpoint chat/completions Xiaomi MiMo."""
-        orig_base = settings.MIMO_BASE_URL
-        try:
-            settings.MIMO_BASE_URL = "https://api.xiaomimimo.com"
-            self.assertEqual(get_mimo_chat_url(), "https://api.xiaomimimo.com/v1/chat/completions")
-
-            settings.MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
-            self.assertEqual(get_mimo_chat_url(), "https://api.xiaomimimo.com/v1/chat/completions")
-
-            settings.MIMO_BASE_URL = "https://api.xiaomimimo.com/v1/"
-            self.assertEqual(get_mimo_chat_url(), "https://api.xiaomimimo.com/v1/chat/completions")
-
-            settings.MIMO_BASE_URL = "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions"
-            self.assertEqual(get_mimo_chat_url(), "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions")
-        finally:
-            settings.MIMO_BASE_URL = orig_base
-
-    def test_03_call_mimo_mocked_success(self):
-        """Проверка вызова call_mimo с эмуляцией OpenAI-совместимого ответа Xiaomi MiMo."""
-        orig_key = settings.MIMO_API_KEY
-        settings.MIMO_API_KEY = "tp-test-mimo-key-12345"
+    def test_02_call_deepseek_mocked_success(self):
+        """Проверка вызова call_deepseek с эмуляцией ответа DeepSeek API."""
+        orig_key = settings.DEEPSEEK_API_KEY
+        settings.DEEPSEEK_API_KEY = "sk-test-deepseek-key-12345"
         try:
             mock_response_json = {
-                "id": "chatcmpl-mimo-test-01",
+                "id": "chatcmpl-ds-test-01",
                 "object": "chat.completion",
-                "model": "mimo-v2.5",
+                "model": "deepseek-flash",
                 "choices": [
                     {
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": '{"domain":"law","slug":"test_sub","title":"Тестовый блок","c":[{"t":"Что проверяет суд кассационной инстанции?","s":"ГПК РФ | Полномочия кассации","d":"Законность вступивших в силу судебных актов.","e":"Кассация не переоценивает доказательства, а проверяет соблюдение норм права.","l":"easy","h":"Кассация"}]}'
+                            "content": '{"domain":"law","slug":"test_sub","title":"Тестовый блок","c":[{"t":"Что проверяет суд кассационной инстанции?","s":"ГПК РФ | Полномочия кассации","d":"Законность вступивших в силу судебных актов.","e":"Кассация проверяет правильность применения норм права.","l":"easy","h":"Кассация"}]}'
                         },
                         "finish_reason": "stop"
                     }
@@ -112,9 +94,6 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 "usage": {
                     "prompt_tokens": 1250,
                     "completion_tokens": 180,
-                    "prompt_tokens_details": {
-                        "cached_tokens": 1024
-                    },
                     "prompt_cache_hit_tokens": 1024,
                     "prompt_cache_miss_tokens": 226
                 }
@@ -125,12 +104,11 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             mock_resp.json.return_value = mock_response_json
 
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
-                unpacked, meta = self.run_async(call_mimo(
+                unpacked, meta = self.run_async(call_deepseek(
                     user_prompt="Тестовый вопрос",
                     fallback_subject="test_sub"
                 ))
 
-                # Проверяем вызов httpx
                 mock_post.assert_called_once()
                 call_args = mock_post.call_args
                 url = call_args[0][0]
@@ -138,29 +116,26 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 json_payload = call_args[1]["json"]
 
                 self.assertIn("/chat/completions", url)
-                self.assertEqual(headers["Authorization"], "Bearer tp-test-mimo-key-12345")
-                self.assertEqual(headers["api-key"], "tp-test-mimo-key-12345")
-                self.assertEqual(json_payload["model"], "mimo-v2.5")
+                self.assertEqual(headers["Authorization"], "Bearer sk-test-deepseek-key-12345")
+                self.assertEqual(json_payload["model"], "deepseek-flash")
                 self.assertEqual(json_payload["response_format"], {"type": "json_object"})
 
-                # Проверяем распаковку карточек
                 self.assertEqual(len(unpacked["cards"]), 1)
                 self.assertEqual(unpacked["cards"][0]["text"], "Что проверяет суд кассационной инстанции?")
                 self.assertEqual(unpacked["cards"][0]["translation"], "Законность вступивших в силу судебных актов.")
 
-                # Проверяем метаданные кэширования
                 self.assertTrue(meta["cache_hit"])
                 self.assertEqual(meta["prompt_tokens"], 1250)
                 self.assertEqual(meta["completion_tokens"], 180)
         finally:
-            settings.MIMO_API_KEY = orig_key
+            settings.DEEPSEEK_API_KEY = orig_key
 
-    def test_04_call_mimo_fallback_on_404(self):
-        """Проверка автоматического fallback на базовую модель 'mimo-v2.5' при коде 404/400."""
-        orig_key = settings.MIMO_API_KEY
-        orig_model = settings.MIMO_MODEL
-        settings.MIMO_API_KEY = "tp-test-key"
-        settings.MIMO_MODEL = "mimo-v2.5-pro-experimental"
+    def test_03_call_deepseek_fallback_on_404(self):
+        """Проверка автоматического fallback на 'deepseek-chat' при ошибке 404/400 неизвестной модели."""
+        orig_key = settings.DEEPSEEK_API_KEY
+        orig_model = settings.DEEPSEEK_MODEL
+        settings.DEEPSEEK_API_KEY = "sk-test-key"
+        settings.DEEPSEEK_MODEL = "deepseek-experimental-custom"
         try:
             resp_404 = MagicMock()
             resp_404.status_code = 404
@@ -173,18 +148,28 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             }
 
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=[resp_404, resp_200]) as mock_post:
-                unpacked, meta = self.run_async(call_mimo("Запрос"))
+                unpacked, meta = self.run_async(call_deepseek("Запрос"))
                 self.assertEqual(mock_post.call_count, 2)
-                # Второй вызов должен использовать fallback модель "mimo-v2.5"
                 second_call_model = mock_post.call_args_list[1][1]["json"]["model"]
-                self.assertEqual(second_call_model, "mimo-v2.5")
-                self.assertEqual(meta["model_resolved"], "mimo-v2.5")
+                self.assertEqual(second_call_model, "deepseek-chat")
+                self.assertEqual(meta["model_resolved"], "deepseek-chat")
         finally:
-            settings.MIMO_API_KEY = orig_key
-            settings.MIMO_MODEL = orig_model
+            settings.DEEPSEEK_API_KEY = orig_key
+            settings.DEEPSEEK_MODEL = orig_model
+
+    def test_04_call_deepseek_missing_api_key(self):
+        """Проверка генерации ValueError при отсутствующем DEEPSEEK_API_KEY."""
+        orig_key = settings.DEEPSEEK_API_KEY
+        settings.DEEPSEEK_API_KEY = ""
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                self.run_async(call_deepseek("тест"))
+            self.assertIn("DEEPSEEK_API_KEY", str(ctx.exception))
+        finally:
+            settings.DEEPSEEK_API_KEY = orig_key
 
     def test_05_admin_switch_ai_provider_api(self):
-        """Проверка REST эндпоинтов администратора для получения статуса и переключения ИИ-провайдера."""
+        """Проверка REST эндпоинтов администратора для получения статуса и переключения модели DeepSeek."""
         headers = {"X-Admin-Token": settings.ADMIN_TOKEN}
 
         # 1. Проверка GET /api/admin/ai-provider без токена -> 403
@@ -196,136 +181,77 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         self.assertEqual(r_status.status_code, 200)
         data = r_status.json()
         self.assertEqual(data["status"], "success")
-        self.assertIn("provider", data)
-        self.assertIn("available_providers", data)
+        self.assertEqual(data["provider"], "deepseek")
         self.assertIn("deepseek", data)
-        self.assertIn("mimo", data)
 
-        # 3. Переключение на mimo через POST /api/admin/switch-ai-provider
-        r_switch_mimo = self.client.post(
+        # 3. Переключение модели на deepseek-chat через POST /api/admin/switch-ai-provider
+        r_switch = self.client.post(
             "/api/admin/switch-ai-provider",
             headers=headers,
-            json={"provider": "mimo"}
+            json={"provider": "deepseek", "model": "deepseek-chat"}
         )
-        self.assertEqual(r_switch_mimo.status_code, 200)
-        resp_mimo = r_switch_mimo.json()
-        self.assertEqual(resp_mimo["provider"], "mimo")
-        self.assertEqual(settings.AI_PROVIDER, "mimo")
+        self.assertEqual(r_switch.status_code, 200)
+        resp_data = r_switch.json()
+        self.assertEqual(resp_data["model"], "deepseek-chat")
+        self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-chat")
 
-        # 4. Проверка GET статуса после переключения
-        r_status_after = self.client.get("/api/admin/ai-provider", headers=headers)
-        self.assertEqual(r_status_after.json()["provider"], "mimo")
-
-        # 5. Переключение обратно на deepseek
-        r_switch_ds = self.client.post(
+        # 4. Переключение обратно на deepseek-flash
+        r_switch_flash = self.client.post(
             "/api/admin/switch-ai-provider",
             headers=headers,
-            json={"provider": "deepseek"}
+            json={"provider": "deepseek", "model": "deepseek-flash"}
         )
-        self.assertEqual(r_switch_ds.status_code, 200)
-        self.assertEqual(settings.AI_PROVIDER, "deepseek")
+        self.assertEqual(r_switch_flash.status_code, 200)
+        self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-flash")
 
-        # 6. Ошибка при передаче невалидного провайдера
+        # 5. Ошибка при передаче невалидного провайдера
         r_invalid = self.client.post(
             "/api/admin/switch-ai-provider",
             headers=headers,
-            json={"provider": "unknown_ai_provider"}
+            json={"provider": "unknown_provider"}
         )
         self.assertEqual(r_invalid.status_code, 400)
 
-    def test_06_parse_raw_text_routes_to_active_provider(self):
-        """Проверка динамической маршрутизации parse_raw_text в зависимости от active provider."""
-        # 1. При settings.AI_PROVIDER == "deepseek"
-        settings.AI_PROVIDER = "deepseek"
+    def test_06_parse_raw_text_calls_deepseek(self):
+        """Проверка вызова parse_raw_text через call_deepseek."""
         mock_unpacked = {"cards": [{"text": "Тест DeepSeek", "translation": "Ответ DS"}]}
         mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 100, "completion_tokens": 50}
 
-        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds, \
-             patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock) as mock_mimo:
+        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds:
             res = self.run_async(parse_raw_text("Какой-то исходный учебный текст", target_subject="law"))
             mock_ds.assert_called_once()
-            mock_mimo.assert_not_called()
+            self.assertEqual(len(res["cards"]), 1)
+            self.assertEqual(res["cards"][0]["text"], "Тест DeepSeek")
 
-        # 2. При settings.AI_PROVIDER == "mimo"
-        settings.AI_PROVIDER = "mimo"
-        mock_unpacked_mimo = {"cards": [{"text": "Тест MiMo", "translation": "Ответ MiMo"}]}
-        mock_meta_mimo = {"model_resolved": "mimo-v2.5", "prompt_tokens": 200, "completion_tokens": 80}
+    def test_07_extract_curriculum_skeleton_calls_deepseek(self):
+        """Проверка выполнения Прохода 1 (Curriculum Skeleton) через call_deepseek."""
+        mock_res = {"modules": [{"slug": "mod_1", "name": "Введение", "quota": 10}], "phrase_title": "Каркас"}
+        mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 300, "completion_tokens": 50}
 
-        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock) as mock_ds, \
-             patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, return_value=(mock_unpacked_mimo, mock_meta_mimo)) as mock_mimo:
-            res_mimo = self.run_async(parse_raw_text("Какой-то исходный учебный текст", target_subject="law"))
-            mock_mimo.assert_called_once()
-            mock_ds.assert_not_called()
-
-        # Возвращаем deepseek
-        settings.AI_PROVIDER = "deepseek"
-
-    def test_07_extract_curriculum_skeleton_routes_to_active_provider(self):
-        """Проверка динамической маршрутизации Прохода 1 (Curriculum Skeleton) на активного провайдера."""
-        mock_res = {"modules": [], "phrase_title": "Каркас"}
-        mock_meta = {"model_resolved": "mimo-v2.5", "prompt_tokens": 300, "completion_tokens": 50}
-
-        # Проверяем вызов MiMo
-        settings.AI_PROVIDER = "mimo"
-        with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, return_value=(mock_res, mock_meta)) as mock_mimo, \
-             patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock) as mock_ds:
+        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_res, mock_meta)) as mock_ds:
             skeleton = self.run_async(extract_curriculum_skeleton("Оглавление учебника...", target_subject="law"))
-            mock_mimo.assert_called_once()
-            mock_ds.assert_not_called()
-
-        # Возвращаем deepseek
-        settings.AI_PROVIDER = "deepseek"
+            mock_ds.assert_called_once()
+            self.assertEqual(len(skeleton["modules"]), 1)
 
     def test_08_telegram_bot_admin_keyboard_and_dashboard(self):
-        """Проверка отображения кнопки переключения ИИ в клавиатуре бота и текста в дашборде."""
-        # 1. При deepseek
-        kb_ds = build_admin_keyboard(phase=1, ai_provider="deepseek")
+        """Проверка отображения кнопки смены модели в клавиатуре бота и текста в дашборде."""
+        kb_ds = build_admin_keyboard(phase=1, ai_model="deepseek-flash")
         kb_texts_ds = [btn.text for row in kb_ds.inline_keyboard for btn in row]
-        self.assertTrue(any("Xiaomi MiMo" in t for t in kb_texts_ds), "Должна быть кнопка переключения на MiMo")
+        self.assertTrue(any("deepseek-flash" in t for t in kb_texts_ds), "Должна быть кнопка с текущей моделью")
 
         dash_ds = render_admin_dashboard_text({
             "phase": 1, "participants": 5, "invites_active": 3, "cards": 120,
             "reviews": 340, "outliers": 2, "pending_jobs": 0,
-            "ai_provider": "deepseek", "ai_model": "deepseek-flash"
+            "ai_provider": "deepseek", "ai_model": "deepseek-flash", "has_key": True
         })
-        self.assertIn("DeepSeek V4.1 Flash", dash_ds)
+        self.assertIn("DeepSeek", dash_ds)
+        self.assertIn("deepseek-flash", dash_ds)
+        self.assertIn("🔑 Ключ: OK", dash_ds)
 
-        # 2. При mimo
-        kb_mimo = build_admin_keyboard(phase=2, ai_provider="mimo")
-        kb_texts_mimo = [btn.text for row in kb_mimo.inline_keyboard for btn in row]
-        self.assertTrue(any("DeepSeek" in t for t in kb_texts_mimo), "Должна быть кнопка переключения на DeepSeek")
-
-        dash_mimo = render_admin_dashboard_text({
-            "phase": 2, "participants": 5, "invites_active": 3, "cards": 120,
-            "reviews": 340, "outliers": 2, "pending_jobs": 0,
-            "ai_provider": "mimo", "ai_model": "mimo-v2.5"
-        })
-        self.assertIn("Xiaomi MiMo", dash_mimo)
-
-    def test_09_mimo_url_normalization_anthropic_alias(self):
-        """Проверка нормализации URL если задан Anthropic alias endpoint."""
-        orig_base = settings.MIMO_BASE_URL
-        try:
-            settings.MIMO_BASE_URL = "https://token-plan-sgp.xiaomimimo.com/anthropic"
-            self.assertEqual(get_mimo_chat_url(), "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions")
-        finally:
-            settings.MIMO_BASE_URL = orig_base
-
-    def test_10_call_mimo_missing_api_key(self):
-        """Проверка генерации ValueError при отсутствующем ключе MIMO_API_KEY."""
-        orig_key = settings.MIMO_API_KEY
-        settings.MIMO_API_KEY = ""
-        try:
-            with self.assertRaises(ValueError) as ctx:
-                self.run_async(call_mimo("тест"))
-            self.assertIn("MIMO_API_KEY", str(ctx.exception))
-        finally:
-            settings.MIMO_API_KEY = orig_key
-
-    def test_11_call_mimo_safe_usage_none_and_empty_choices(self):
-        """Проверка call_mimo на устойчивость к usage=None и пустому списку choices."""
-        orig_key = settings.MIMO_API_KEY
-        settings.MIMO_API_KEY = "tp-test-key"
+    def test_09_call_deepseek_safe_usage_none_and_empty_choices(self):
+        """Проверка call_deepseek на устойчивость к usage=None и пустому списку choices."""
+        orig_key = settings.DEEPSEEK_API_KEY
+        settings.DEEPSEEK_API_KEY = "sk-test-key"
         try:
             # 1. usage=None не должен вызывать AttributeError
             mock_resp = MagicMock()
@@ -335,7 +261,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 "usage": None
             }
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
-                unpacked, meta = self.run_async(call_mimo("тест"))
+                unpacked, meta = self.run_async(call_deepseek("тест"))
                 self.assertEqual(len(unpacked["cards"]), 1)
                 self.assertEqual(meta["prompt_tokens"], 0)
 
@@ -345,61 +271,43 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             mock_empty_choices.json.return_value = {"choices": []}
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_empty_choices):
                 with self.assertRaises(ValueError):
-                    self.run_async(call_mimo("тест"))
+                    self.run_async(call_deepseek("тест"))
         finally:
-            settings.MIMO_API_KEY = orig_key
+            settings.DEEPSEEK_API_KEY = orig_key
 
-    def test_12_set_active_ai_provider_syncs_os_environ(self):
-        """Проверка синхронизации settings.AI_PROVIDER и os.environ при переключении."""
+    def test_10_set_active_ai_provider_syncs_os_environ(self):
+        """Проверка синхронизации settings.DEEPSEEK_MODEL и os.environ при смене модели."""
         import os
-        orig = settings.AI_PROVIDER
+        orig_model = settings.DEEPSEEK_MODEL
         try:
-            set_active_ai_provider("mimo")
-            self.assertEqual(settings.AI_PROVIDER, "mimo")
-            self.assertEqual(os.environ.get("AI_PROVIDER"), "mimo")
+            set_active_ai_provider("deepseek", "deepseek-chat")
+            self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-chat")
+            self.assertEqual(os.environ.get("DEEPSEEK_MODEL"), "deepseek-chat")
 
-            set_active_ai_provider("deepseek")
-            self.assertEqual(settings.AI_PROVIDER, "deepseek")
-            self.assertEqual(os.environ.get("AI_PROVIDER"), "deepseek")
+            set_active_ai_provider("deepseek", "deepseek-flash")
+            self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-flash")
+            self.assertEqual(os.environ.get("DEEPSEEK_MODEL"), "deepseek-flash")
         finally:
-            set_active_ai_provider(orig)
+            set_active_ai_provider("deepseek", orig_model)
 
-    def test_13_build_admin_keyboard_defaults_to_active_settings(self):
-        """Проверка автоматического сохранения провайдера при вызове build_admin_keyboard без явного указания."""
-        orig = settings.AI_PROVIDER
+    def test_11_build_admin_keyboard_defaults_to_active_settings(self):
+        """Проверка автоматического подтягивания модели при вызове build_admin_keyboard."""
+        orig_model = settings.DEEPSEEK_MODEL
         try:
-            settings.AI_PROVIDER = "mimo"
+            settings.DEEPSEEK_MODEL = "deepseek-chat"
             kb = build_admin_keyboard(1)
             kb_texts = [btn.text for row in kb.inline_keyboard for btn in row]
-            self.assertTrue(any("MiMo ➔ DeepSeek" in t for t in kb_texts))
+            self.assertTrue(any("deepseek-chat" in t for t in kb_texts))
 
-            settings.AI_PROVIDER = "deepseek"
-            kb_ds = build_admin_keyboard(1)
-            kb_texts_ds = [btn.text for row in kb_ds.inline_keyboard for btn in row]
-            self.assertTrue(any("DeepSeek ➔ Xiaomi MiMo" in t for t in kb_texts_ds))
+            settings.DEEPSEEK_MODEL = "deepseek-flash"
+            kb_flash = build_admin_keyboard(1)
+            kb_flash_texts = [btn.text for row in kb_flash.inline_keyboard for btn in row]
+            self.assertTrue(any("deepseek-flash" in t for t in kb_flash_texts))
         finally:
-            settings.AI_PROVIDER = orig
+            settings.DEEPSEEK_MODEL = orig_model
 
-    def test_14_extract_curriculum_skeleton_mimo_large_context(self):
-        """Проверка расширенного контекста (>60k символов) для Xiaomi MiMo в extract_curriculum_skeleton."""
-        settings.AI_PROVIDER = "mimo"
-        large_text = "Глава " * 15000  # ~90 000 символов
-        mock_res = {"modules": [], "phrase_title": "Большая книга"}
-        mock_meta = {"model_resolved": "mimo-v2.5", "prompt_tokens": 500, "completion_tokens": 50}
-
-        try:
-            with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, return_value=(mock_res, mock_meta)) as mock_call:
-                self.run_async(extract_curriculum_skeleton(large_text, target_subject="law"))
-                mock_call.assert_called_once()
-                user_prompt_passed = mock_call.call_args[0][0]
-                # Для MiMo длина переданного текста должна превышать 60 000 знаков
-                self.assertGreater(len(user_prompt_passed), 60000)
-        finally:
-            settings.AI_PROVIDER = "deepseek"
-
-    def test_15_call_deepseek_flash_payload_and_large_context(self):
+    def test_12_call_deepseek_flash_payload_and_large_context(self):
         """Проверка отправки параметров V4.1 Flash (32k tokens, disabled thinking, large context) в call_deepseek."""
-        settings.AI_PROVIDER = "deepseek"
         settings.DEEPSEEK_MODEL = "deepseek-flash"
         orig_key = settings.DEEPSEEK_API_KEY
         settings.DEEPSEEK_API_KEY = "sk-test-deepseek-flash-key"
@@ -448,46 +356,6 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 self.assertGreater(len(prompt_sent), 60000)
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
-
-    def test_16_cross_provider_failover_mimo_402_to_deepseek(self):
-        """Проверка автоматического failover с Xiaomi MiMo на DeepSeek при ошибке 402 (Insufficient balance)."""
-        orig_provider = settings.AI_PROVIDER
-        orig_ds_key = settings.DEEPSEEK_API_KEY
-        settings.AI_PROVIDER = "mimo"
-        settings.DEEPSEEK_API_KEY = "sk-deepseek-failover-test"
-
-        try:
-            # 1. Тест failover в parse_raw_text
-            mimo_error = RuntimeError("Xiaomi MiMo API error (402): {\"error\": {\"code\": \"402\", \"message\": \"Insufficient account balance\"}}")
-            mock_unpacked = {"cards": [{"text": "Тест после failover", "translation": "Ответ DeepSeek"}]}
-            mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 120, "completion_tokens": 40, "repair_successful": False}
-
-            with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, side_effect=mimo_error) as mock_mimo, \
-                 patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds:
-                res = self.run_async(parse_raw_text("Учебный текст для проверки failover", target_subject="law"))
-                mock_mimo.assert_called_once()
-                mock_ds.assert_called_once()
-                self.assertTrue(res.get("fallback_used"))
-                self.assertEqual(len(res.get("cards", [])), 1)
-                # Провайдер должен автоматически переключиться на deepseek
-                self.assertEqual(settings.AI_PROVIDER, "deepseek")
-
-            # 2. Тест failover в extract_curriculum_skeleton
-            settings.AI_PROVIDER = "mimo"
-            mock_skel_res = {"modules": [{"slug": "mod_1", "name": "Введение", "quota": 10}], "phrase_title": "Скелет курса"}
-            mock_skel_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 200, "completion_tokens": 50}
-
-            with patch("app.services.ai_gateway.call_mimo", new_callable=AsyncMock, side_effect=mimo_error) as mock_mimo_skel, \
-                 patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_skel_res, mock_skel_meta)) as mock_ds_skel:
-                skel = self.run_async(extract_curriculum_skeleton("Учебный план для failover", target_subject="law"))
-                mock_mimo_skel.assert_called_once()
-                mock_ds_skel.assert_called_once()
-                self.assertEqual(len(skel.get("modules", [])), 1)
-                self.assertEqual(settings.AI_PROVIDER, "deepseek")
-
-        finally:
-            settings.AI_PROVIDER = orig_provider
-            settings.DEEPSEEK_API_KEY = orig_ds_key
 
 
 if __name__ == "__main__":

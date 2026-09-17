@@ -17,11 +17,6 @@ class Settings:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip().strip('"\'')
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip().strip('"\'')
     
-    # Xiaomi MiMo Configuration (1M context, 128K output)
-    MIMO_API_KEY: str = os.getenv("MIMO_API_KEY", "").strip().strip('"\'')
-    MIMO_MODEL: str = os.getenv("MIMO_MODEL", "mimo-v2.5").strip().strip('"\'')
-    MIMO_BASE_URL: str = os.getenv("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1").strip().strip('"\'')
-    
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site").strip().strip('"\'')
     ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "secret-admin-token").strip().strip('"\'')
     ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")

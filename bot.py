@@ -243,9 +243,9 @@ async def get_admin_dashboard_data():
             select(func.count(InviteCode.id)).filter(InviteCode.is_used == False)
         )).scalar() or 0
         
-        ai_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-        ai_model = settings.MIMO_MODEL if ai_provider == "mimo" else settings.DEEPSEEK_MODEL
-        has_key = bool(settings.MIMO_API_KEY) if ai_provider == "mimo" else bool(settings.DEEPSEEK_API_KEY)
+        ai_provider = "deepseek"
+        ai_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
+        has_key = bool(settings.DEEPSEEK_API_KEY)
         
         return {
             "phase": current_phase,
@@ -260,19 +260,15 @@ async def get_admin_dashboard_data():
             "has_key": has_key
         }
 
-def build_admin_keyboard(phase: int, ai_provider: str | None = None) -> InlineKeyboardMarkup:
-    if not ai_provider:
-        ai_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
+def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: str | None = None) -> InlineKeyboardMarkup:
+    model = ai_model or (ai_provider if ai_provider in ("deepseek-flash", "deepseek-chat", "deepseek-reasoner") else settings.DEEPSEEK_MODEL) or "deepseek-flash"
     phase_toggle = (
         InlineKeyboardButton(text="🔓 Переключить на Фазу 2", callback_data="admin_phase_2")
         if phase == 1 else
         InlineKeyboardButton(text="🔒 Переключить на Фазу 1", callback_data="admin_phase_1")
     )
-    ai_toggle = (
-        InlineKeyboardButton(text="🤖 ИИ: DeepSeek ➔ Xiaomi MiMo", callback_data="admin_ai_mimo")
-        if ai_provider == "deepseek" else
-        InlineKeyboardButton(text="🤖 ИИ: MiMo ➔ DeepSeek", callback_data="admin_ai_deepseek")
-    )
+    next_model = "deepseek-chat" if model == "deepseek-flash" else ("deepseek-reasoner" if model == "deepseek-chat" else "deepseek-flash")
+    ai_toggle = InlineKeyboardButton(text=f"🤖 Модель: {model} ➔ {next_model}", callback_data="admin_ai_model_cycle")
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👥 Участники (@)", callback_data="admin_participants"),
@@ -297,12 +293,12 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None) -> InlineKe
 
 def render_admin_dashboard_text(d: dict) -> str:
     phase_str = "Фаза 1 (Изоляция колод, лимит 20 карт)" if d['phase'] == 1 else "Фаза 2 (Свободный режим, ночная нарезка)"
-    provider_name = "Xiaomi MiMo (1M Context)" if d.get('ai_provider') == "mimo" else "DeepSeek V4.1 Flash (1M Context)"
+    model_name = d.get('ai_model') or settings.DEEPSEEK_MODEL or "deepseek-flash"
     key_badge = "🔑 Ключ: OK" if d.get('has_key') else "⚠️ Ключ: НЕ ЗАДАН (.env)"
     return (
         "🛠 <b>ПАНЕЛЬ УПРАВЛЕНИЯ ЭКСПЕРИМЕНТОМ</b>\n\n"
         f"🔬 <b>Текущий режим:</b> {phase_str}\n"
-        f"🤖 <b>Активный ИИ:</b> <code>{provider_name}</code> ({d.get('ai_model', '')}) [{key_badge}]\n"
+        f"🤖 <b>Активный ИИ:</b> <code>DeepSeek</code> ({model_name}) [{key_badge}]\n"
         f"👥 <b>Участников:</b> <code>{d['participants']}</code>\n"
         f"🎟 <b>Активных инвайтов:</b> <code>{d['invites_active']}</code>\n"
         f"🗂 <b>Карточек (судоустройство):</b> <code>{d['cards']}</code>\n"
@@ -881,35 +877,36 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             parse_mode="HTML"
         )
 
-    elif action == "admin_ai_mimo":
+    elif action == "admin_ai_model_cycle":
         from app.api.endpoints.admin import set_active_ai_provider
-        set_active_ai_provider("mimo")
+        curr = settings.DEEPSEEK_MODEL or "deepseek-flash"
+        next_model = "deepseek-chat" if curr == "deepseek-flash" else ("deepseek-reasoner" if curr == "deepseek-chat" else "deepseek-flash")
+        set_active_ai_provider("deepseek", next_model)
         data = await get_admin_dashboard_data()
         try:
             await callback.message.edit_text(
                 render_admin_dashboard_text(data),
-                reply_markup=build_admin_keyboard(data["phase"], data["ai_provider"]),
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-        key_warn = "" if bool(settings.MIMO_API_KEY) else "\n⚠️ Внимание: MIMO_API_KEY не задан в .env!"
-        await callback.answer(f"🤖 ИИ переключен на Xiaomi MiMo ({settings.MIMO_MODEL})!{key_warn}", show_alert=True)
-
-    elif action == "admin_ai_deepseek":
-        from app.api.endpoints.admin import set_active_ai_provider
-        set_active_ai_provider("deepseek")
-        data = await get_admin_dashboard_data()
-        try:
-            await callback.message.edit_text(
-                render_admin_dashboard_text(data),
-                reply_markup=build_admin_keyboard(data["phase"], data["ai_provider"]),
+                reply_markup=build_admin_keyboard(data["phase"], ai_model=data["ai_model"]),
                 parse_mode="HTML"
             )
         except Exception:
             pass
         key_warn = "" if bool(settings.DEEPSEEK_API_KEY) else "\n⚠️ Внимание: DEEPSEEK_API_KEY не задан в .env!"
-        await callback.answer(f"🤖 ИИ переключен на DeepSeek ({settings.DEEPSEEK_MODEL})!{key_warn}", show_alert=True)
+        await callback.answer(f"🤖 Модель DeepSeek переключена на {next_model}!{key_warn}", show_alert=True)
+
+    elif action in ("admin_ai_mimo", "admin_ai_deepseek"):
+        from app.api.endpoints.admin import set_active_ai_provider
+        set_active_ai_provider("deepseek", "deepseek-flash")
+        data = await get_admin_dashboard_data()
+        try:
+            await callback.message.edit_text(
+                render_admin_dashboard_text(data),
+                reply_markup=build_admin_keyboard(data["phase"], ai_model=data["ai_model"]),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await callback.answer(f"🤖 Активная модель: DeepSeek ({settings.DEEPSEEK_MODEL})", show_alert=True)
 
 
 @dp.message(F.document)

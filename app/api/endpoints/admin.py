@@ -512,31 +512,27 @@ async def distribute_deck(
     }
 
 
-# --- 7. ПЕРЕКЛЮЧЕНИЕ ИИ-ПРОВАЙДЕРА (DEEPSEEK <-> XIAOMI MIMO) ---
+# --- 7. УПРАВЛЕНИЕ ИИ-МОДЕЛЯМИ DEEPSEEK ---
 
 class SwitchAiProviderIn(BaseModel):
-    provider: str  # "deepseek" или "mimo"
+    provider: str = "deepseek"
     model: Optional[str] = None
 
 def set_active_ai_provider(provider: str, model: Optional[str] = None) -> str:
-    """Устанавливает активного ИИ-провайдера (и опционально модель) и сохраняет выбор в .env для персистентности."""
+    """Устанавливает активную модель DeepSeek и сохраняет выбор в .env для персистентности."""
     import os
     import re
     norm = provider.strip().lower()
-    if norm not in ("deepseek", "mimo"):
-        raise ValueError(f"Недопустимый ИИ-провайдер: '{provider}'. Поддерживаются: 'deepseek', 'mimo'")
+    if norm not in ("deepseek",):
+        raise ValueError(f"Недопустимый ИИ-провайдер: '{provider}'. Поддерживается: 'deepseek'")
     
     settings.AI_PROVIDER = norm
     os.environ["AI_PROVIDER"] = norm
 
     clean_model = model.strip() if model and model.strip() else None
     if clean_model:
-        if norm == "mimo":
-            settings.MIMO_MODEL = clean_model
-            os.environ["MIMO_MODEL"] = clean_model
-        else:
-            settings.DEEPSEEK_MODEL = clean_model
-            os.environ["DEEPSEEK_MODEL"] = clean_model
+        settings.DEEPSEEK_MODEL = clean_model
+        os.environ["DEEPSEEK_MODEL"] = clean_model
 
     env_path = Path(".env")
     try:
@@ -548,20 +544,18 @@ def set_active_ai_provider(provider: str, model: Optional[str] = None) -> str:
                 new_content = content.rstrip() + f"\nAI_PROVIDER={norm}\n"
             
             if clean_model:
-                model_var = "MIMO_MODEL" if norm == "mimo" else "DEEPSEEK_MODEL"
-                if re.search(rf"^{model_var}=.*", new_content, flags=re.MULTILINE):
-                    new_content = re.sub(rf"^{model_var}=.*", f"{model_var}={clean_model}", new_content, flags=re.MULTILINE)
+                if re.search(r"^DEEPSEEK_MODEL=.*", new_content, flags=re.MULTILINE):
+                    new_content = re.sub(r"^DEEPSEEK_MODEL=.*", f"DEEPSEEK_MODEL={clean_model}", new_content, flags=re.MULTILINE)
                 else:
-                    new_content = new_content.rstrip() + f"\n{model_var}={clean_model}\n"
+                    new_content = new_content.rstrip() + f"\nDEEPSEEK_MODEL={clean_model}\n"
 
             env_path.write_text(new_content, encoding="utf-8")
         else:
             txt = f"AI_PROVIDER={norm}\n"
             if clean_model:
-                model_var = "MIMO_MODEL" if norm == "mimo" else "DEEPSEEK_MODEL"
-                txt += f"{model_var}={clean_model}\n"
+                txt += f"DEEPSEEK_MODEL={clean_model}\n"
             env_path.write_text(txt, encoding="utf-8")
-        print(f"[Admin] AI_PROVIDER успешно обновлен на '{norm}' (модель: {clean_model or 'default'}) в .env")
+        print(f"[Admin] ИИ успешно обновлен на '{norm}' (модель: {clean_model or settings.DEEPSEEK_MODEL}) в .env")
     except Exception as env_err:
         print(f"[Admin WARN] Ошибка записи настроек ИИ в .env: {env_err}")
     return norm
@@ -570,10 +564,9 @@ def set_active_ai_provider(provider: str, model: Optional[str] = None) -> str:
 async def get_ai_provider_status(
     token: str = Depends(verify_admin_token)
 ):
-    """Возвращает статус текущего активного ИИ-провайдера и конфигурацию моделей."""
-    current_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    current_model = settings.MIMO_MODEL if current_provider == "mimo" else settings.DEEPSEEK_MODEL
-    active_has_key = bool(settings.MIMO_API_KEY) if current_provider == "mimo" else bool(settings.DEEPSEEK_API_KEY)
+    """Возвращает статус текущей конфигурации DeepSeek."""
+    current_model = settings.DEEPSEEK_MODEL
+    active_has_key = bool(settings.DEEPSEEK_API_KEY)
 
     def mask_key(k: str) -> str:
         if not k:
@@ -584,21 +577,16 @@ async def get_ai_provider_status(
 
     return {
         "status": "success",
-        "provider": current_provider,
+        "provider": "deepseek",
         "model": current_model,
         "active_has_key": active_has_key,
-        "available_providers": ["deepseek", "mimo"],
+        "available_providers": ["deepseek"],
+        "available_models": ["deepseek-flash", "deepseek-chat", "deepseek-reasoner"],
         "deepseek": {
             "model": settings.DEEPSEEK_MODEL,
             "base_url": settings.DEEPSEEK_BASE_URL,
-            "has_key": bool(settings.DEEPSEEK_API_KEY),
+            "has_key": active_has_key,
             "key_masked": mask_key(settings.DEEPSEEK_API_KEY)
-        },
-        "mimo": {
-            "model": settings.MIMO_MODEL,
-            "base_url": settings.MIMO_BASE_URL,
-            "has_key": bool(settings.MIMO_API_KEY),
-            "key_masked": mask_key(settings.MIMO_API_KEY)
         }
     }
 
@@ -608,24 +596,23 @@ async def switch_ai_provider(
     token: str = Depends(verify_admin_token)
 ):
     """
-    Переключает активного ИИ-провайдера системы между DeepSeek и Xiaomi MiMo.
+    Переключает конфигурацию модели DeepSeek (deepseek-flash, deepseek-chat, deepseek-reasoner).
     Обновляет глобальные настройки приложения в памяти и файл .env.
     """
     try:
-        active = set_active_ai_provider(payload.provider, payload.model)
+        active = set_active_ai_provider(payload.provider or "deepseek", payload.model)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 
-    active_model = settings.MIMO_MODEL if active == "mimo" else settings.DEEPSEEK_MODEL
-    provider_name = "Xiaomi MiMo" if active == "mimo" else "DeepSeek"
-    has_key = bool(settings.MIMO_API_KEY) if active == "mimo" else bool(settings.DEEPSEEK_API_KEY)
+    active_model = settings.DEEPSEEK_MODEL
+    has_key = bool(settings.DEEPSEEK_API_KEY)
     
     warning = None
     if not has_key:
-        warning = f"Ключ {active.upper()}_API_KEY еще не настроен в файле .env"
-        msg = f"ИИ переключен на {provider_name} ({active_model}). ⚠️ Внимание: {warning}!"
+        warning = "Ключ DEEPSEEK_API_KEY еще не настроен в файле .env"
+        msg = f"ИИ настроен на DeepSeek ({active_model}). ⚠️ Внимание: {warning}!"
     else:
-        msg = f"ИИ-провайдер успешно переключен на {provider_name} ({active_model})."
+        msg = f"ИИ успешно переключен на DeepSeek ({active_model})."
 
     return {
         "status": "success",

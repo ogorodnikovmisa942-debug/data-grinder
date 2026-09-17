@@ -987,7 +987,11 @@ async def call_deepseek(
             data = response.json()
             
             # Логируем метрики эффективности кэширования DeepSeek
-            usage = data.get("usage", {})
+            usage = data.get("usage") or {}
+            choices = data.get("choices") or []
+            if not choices:
+                raise ValueError("Ответ от DeepSeek API не содержит choices.")
+
             cache_hit_tokens = usage.get("prompt_cache_hit_tokens", 0)
             cache_miss_tokens = usage.get("prompt_cache_miss_tokens", 0)
             prompt_tokens = usage.get("prompt_tokens", cache_hit_tokens + cache_miss_tokens)
@@ -995,7 +999,7 @@ async def call_deepseek(
             cache_hit = cache_hit_tokens > 0
             print(f"[DeepSeek Metrics] Кэш-хит: {cache_hit_tokens} токенов (~$0.003-0.006/1M) | Мисс: {cache_miss_tokens} токенов | Вывод: {output_tokens} токенов | Модель: {resolved_model}")
 
-            content = data["choices"][0]["message"]["content"]
+            content = choices[0]["message"]["content"]
             raw_payload, is_truncated, repair_successful = extract_json_payload_with_telemetry(content)
             unpacked = unpack_minified_cards(raw_payload, fallback_subject=fallback_subject)
             meta = {
@@ -1011,97 +1015,6 @@ async def call_deepseek(
         else:
             print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
-
-# --- ВСПОМОГАТЕЛЬНЫЙ URL-НОРМАЛИЗАТОР ДЛЯ XIAOMI MIMO ---
-def get_mimo_chat_url() -> str:
-    """Возвращает корректный endpoint chat/completions для Xiaomi MiMo API."""
-    base = (settings.MIMO_BASE_URL or "https://api.xiaomimimo.com/v1").strip().rstrip('/')
-    if base.endswith("/anthropic"):
-        base = base[:-len("/anthropic")].rstrip('/')
-    if base.endswith("/chat/completions"):
-        return base
-    if not base.endswith("/v1"):
-        base = f"{base}/v1"
-    return f"{base}/chat/completions"
-
-# --- XIAOMI MIMO ВЫЗОВ (OPENAI-СОВМЕСТИМЫЙ REST API С 1M КОНТЕКСТОМ И CONTEXT CACHING) ---
-async def call_mimo(
-    user_prompt: str, 
-    system_instruction: str = DEEPSEEK_CACHED_SYSTEM_PROMPT, 
-    fallback_subject: str = "generic"
-) -> tuple[dict, dict]:
-    """Вызывает Xiaomi MiMo API напрямую через стандартный OpenAI-совместимый REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
-    api_key = (settings.MIMO_API_KEY or "").strip().strip('"\'')
-    if not api_key:
-        raise ValueError("MIMO_API_KEY не установлен в .env")
-
-    url = get_mimo_chat_url()
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "api-key": api_key,
-        "Content-Type": "application/json"
-    }
-
-    target_model = settings.MIMO_MODEL or "mimo-v2.5"
-
-    payload = {
-        "model": target_model,
-        "messages": [
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": user_prompt}
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.2,
-        "max_tokens": 8192
-    }
-
-    print(f"[AI Gateway / Xiaomi MiMo] Вызов модели: {target_model} (1M Context / Context Caching enabled)...")
-    resolved_model = target_model
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        
-        # Автоматический fallback: если запрошенная модель недоступна/не найдена, пробуем базовую mimo-v2.5
-        if response.status_code in (400, 404) and target_model != "mimo-v2.5":
-            print(f"[AI Gateway / Xiaomi MiMo WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем базовую 'mimo-v2.5'...")
-            payload["model"] = "mimo-v2.5"
-            resolved_model = "mimo-v2.5"
-            response = await client.post(url, headers=headers, json=payload)
-
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Логируем метрики токенов и кэширования MiMo
-            usage = data.get("usage") or {}
-            prompt_details = usage.get("prompt_tokens_details") or {}
-            cache_hit_tokens = usage.get("prompt_cache_hit_tokens", 0) or prompt_details.get("cached_tokens", 0)
-            cache_miss_tokens = usage.get("prompt_cache_miss_tokens", 0)
-            prompt_tokens = usage.get("prompt_tokens", cache_hit_tokens + cache_miss_tokens)
-            output_tokens = usage.get("completion_tokens", 0)
-            cache_hit = cache_hit_tokens > 0
-            print(f"[Xiaomi MiMo Metrics] Кэш-хит: {cache_hit_tokens} токенов (~$0.0035/1M) | Вывод: {output_tokens} токенов | Модель: {resolved_model}")
-
-            choices = data.get("choices") or []
-            if not choices:
-                raise ValueError(f"Xiaomi MiMo API вернул пустой список choices: {data}")
-            content = choices[0]["message"]["content"]
-            raw_payload, is_truncated, repair_successful = extract_json_payload_with_telemetry(content)
-            unpacked = unpack_minified_cards(raw_payload, fallback_subject=fallback_subject)
-            meta = {
-                "model_requested": target_model,
-                "model_resolved": resolved_model,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": output_tokens,
-                "cache_hit": cache_hit,
-                "is_truncated": is_truncated,
-                "repair_successful": repair_successful
-            }
-            return unpacked, meta
-        else:
-            print(f"[AI Gateway / Xiaomi MiMo ERROR] Код {response.status_code}: {response.text}")
-            raise RuntimeError(f"Xiaomi MiMo API error ({response.status_code}): {response.text}")
-
-
 
 # --- ПРОХОД 1 (TWO-PASS ARCHITECTURE): ИЗВЛЕЧЕНИЕ АРХИТЕКТУРНОГО ДЕРЕВА ОРГАНОВ/МОДУЛЕЙ ---
 CURRICULUM_SKELETON_SYSTEM_PROMPT = """ROLE: Chief Educational Architect and Knowledge Graph Ontologist.
@@ -1146,9 +1059,9 @@ STRICT MINIFIED JSON SCHEMA:
 Return STRICTLY raw JSON without markdown or commentary.
 """
 
-# --- ФУНКЦИЯ ОПРЕДЕЛЕНИЯ КРИТИЧЕСКИХ ОШИБОК ДЛЯ FAILOVER ---
+# --- ФУНКЦИЯ ОПРЕДЕЛЕНИЯ КРИТИЧЕСКИХ ОШИБОК ---
 def is_failover_error(err: Exception) -> bool:
-    """Определяет, относится ли ошибка провайдера к сбоям баланса, авторизации, лимитов или сети, требующим failover."""
+    """Определяет, относится ли ошибка провайдера к сбоям баланса, авторизации, лимитов или сети."""
     err_str = str(err).lower()
     return (
         any(s in err_str for s in ("402", "insufficient", "balance", "401", "unauthorized", "api_key не установлен", "not set", "429", "quota", "timeout", "connect"))
@@ -1162,9 +1075,8 @@ async def extract_curriculum_skeleton(
     user_id: str = "default_user",
     job_id: str | None = None
 ) -> dict:
-    """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек с поддержкой failover."""
+    """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек через DeepSeek."""
     clean_sub = target_subject.strip().lower() or "generic"
-    active_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
     max_sample_chars = 500000
     sample_text = text[:max_sample_chars] if len(text) > max_sample_chars else text
     user_prompt = (
@@ -1175,46 +1087,13 @@ async def extract_curriculum_skeleton(
         f"[COURSE MATERIAL SAMPLE / OUTLINE]:\n{sample_text}"
     )
     start_ts = time.time()
-    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-flash")
+    model_requested = settings.DEEPSEEK_MODEL or "deepseek-flash"
     try:
-        if active_provider == "mimo":
-            try:
-                raw_res, meta = await call_mimo(
-                    user_prompt,
-                    system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
-                    fallback_subject=clean_sub
-                )
-            except Exception as mimo_err:
-                if is_failover_error(mimo_err) and settings.DEEPSEEK_API_KEY:
-                    print(f"[AI Gateway FAILOVER] Pass 1 (Skeleton): сбой Xiaomi MiMo ({str(mimo_err)[:100]}). Автоматический переход на DeepSeek ({settings.DEEPSEEK_MODEL})...")
-                    raw_res, meta = await call_deepseek(
-                        user_prompt,
-                        system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
-                        fallback_subject=clean_sub
-                    )
-                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient")):
-                        settings.AI_PROVIDER = "deepseek"
-                else:
-                    raise mimo_err
-        else:
-            try:
-                raw_res, meta = await call_deepseek(
-                    user_prompt,
-                    system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
-                    fallback_subject=clean_sub
-                )
-            except Exception as ds_err:
-                if is_failover_error(ds_err) and settings.MIMO_API_KEY:
-                    print(f"[AI Gateway FAILOVER] Pass 1 (Skeleton): сбой DeepSeek ({str(ds_err)[:100]}). Автоматический переход на Xiaomi MiMo ({settings.MIMO_MODEL})...")
-                    raw_res, meta = await call_mimo(
-                        user_prompt,
-                        system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
-                        fallback_subject=clean_sub
-                    )
-                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient")):
-                        settings.AI_PROVIDER = "mimo"
-                else:
-                    raise ds_err
+        raw_res, meta = await call_deepseek(
+            user_prompt,
+            system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
+            fallback_subject=clean_sub
+        )
 
         duration_ms = int((time.time() - start_ts) * 1000)
         await record_ai_telemetry(
@@ -1332,40 +1211,15 @@ async def parse_raw_text(
     )
 
     start_ts = time.time()
-    active_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    model_requested = (settings.MIMO_MODEL or "mimo-v2.5") if active_provider == "mimo" else (settings.DEEPSEEK_MODEL or "deepseek-flash")
+    model_requested = settings.DEEPSEEK_MODEL or "deepseek-flash"
     fallback_used = False
     json_repair_applied = False
     res = None
     meta = {}
     
-    provider_name = "Xiaomi MiMo" if active_provider == "mimo" else "DeepSeek"
-    print(f"[AI Gateway] Вызов {provider_name} ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
+    print(f"[AI Gateway] Вызов DeepSeek ({model_requested}) в режиме '{granularity_mode}' с Prompt Caching...")
     try:
-        if active_provider == "mimo":
-            try:
-                res, meta = await call_mimo(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
-            except Exception as mimo_err:
-                if is_failover_error(mimo_err) and settings.DEEPSEEK_API_KEY:
-                    print(f"[AI Gateway FAILOVER] Xiaomi MiMo вернул ошибку ({str(mimo_err)[:100]}). Автоматическое переключение на DeepSeek ({settings.DEEPSEEK_MODEL})...")
-                    res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
-                    fallback_used = True
-                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient")):
-                        settings.AI_PROVIDER = "deepseek"
-                else:
-                    raise mimo_err
-        else:
-            try:
-                res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
-            except Exception as ds_err:
-                if is_failover_error(ds_err) and settings.MIMO_API_KEY:
-                    print(f"[AI Gateway FAILOVER] DeepSeek вернул ошибку ({str(ds_err)[:100]}). Автоматическое переключение на Xiaomi MiMo ({settings.MIMO_MODEL})...")
-                    res, meta = await call_mimo(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
-                    fallback_used = True
-                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient")):
-                        settings.AI_PROVIDER = "mimo"
-                else:
-                    raise ds_err
+        res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
 
         json_repair_applied = meta.get("repair_successful", False)
         duration_ms = int((time.time() - start_ts) * 1000)
@@ -1396,7 +1250,7 @@ async def parse_raw_text(
             input_chars=len(user_prompt),
             duration_ms=duration_ms,
             status=status_label,
-            error_message=f"{provider_name}: {err_str[:400]}"
+            error_message=f"DeepSeek: {err_str[:400]}"
         )
         raise llm_err
 
@@ -1424,65 +1278,39 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
 
     system_instruction = "You are an expert mnemonic generator. Return strictly a raw JSON object with 'keyword' and 'verbal_cue'. No markdown."
 
-    async def _send_mnemonic_request(provider: str) -> dict:
-        if provider == "mimo":
-            api_key = settings.MIMO_API_KEY
-            if not api_key:
-                raise ValueError("MIMO_API_KEY не установлен в .env")
-            url = get_mimo_chat_url()
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "api-key": api_key,
-                "Content-Type": "application/json"
-            }
-            target_model = settings.MIMO_MODEL or "mimo-v2.5"
-            fallback_model = "mimo-v2.5"
-        else:
-            api_key = settings.DEEPSEEK_API_KEY
-            if not api_key:
-                raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
-            url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
-            fallback_model = "deepseek-chat"
+    api_key = settings.DEEPSEEK_API_KEY
+    if not api_key:
+        raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
+    url = f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
+    fallback_model = "deepseek-chat"
 
-        payload = {
-            "model": target_model,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.3
-        }
-        async with httpx.AsyncClient(timeout=30.0) as client:
+    payload = {
+        "model": target_model,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.3
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(url, headers=headers, json=payload)
+        if res.status_code in (400, 404) and payload["model"] != fallback_model:
+            payload["model"] = fallback_model
             res = await client.post(url, headers=headers, json=payload)
-            if res.status_code in (400, 404) and payload["model"] != fallback_model:
-                payload["model"] = fallback_model
-                res = await client.post(url, headers=headers, json=payload)
-            if res.status_code == 200:
-                choices = res.json().get("choices") or []
-                if not choices:
-                    raise ValueError("Ответ от модели не содержит choices.")
-                content = choices[0]["message"]["content"]
-                return extract_json_payload(content)
-            else:
-                provider_label = "Xiaomi MiMo" if provider == "mimo" else "DeepSeek"
-                raise RuntimeError(f"{provider_label} mnemonic error ({res.status_code}): {res.text}")
-
-    active_provider = getattr(settings, "AI_PROVIDER", "deepseek").lower()
-    try:
-        return await _send_mnemonic_request(active_provider)
-    except Exception as first_err:
-        alt_provider = "deepseek" if active_provider == "mimo" else "mimo"
-        has_alt_key = bool(settings.DEEPSEEK_API_KEY) if alt_provider == "deepseek" else bool(settings.MIMO_API_KEY)
-        if is_failover_error(first_err) and has_alt_key:
-            print(f"[AI Gateway FAILOVER] Mnemonic: сбой {active_provider} ({str(first_err)[:80]}). Автоматическое переключение на {alt_provider}...")
-            return await _send_mnemonic_request(alt_provider)
-        raise first_err
+        if res.status_code == 200:
+            choices = res.json().get("choices") or []
+            if not choices:
+                raise ValueError("Ответ от модели не содержит choices.")
+            content = choices[0]["message"]["content"]
+            return extract_json_payload(content)
+        else:
+            raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 
 # --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 1M КОНТЕКСТА) ---
 def split_text_into_chunks(text: str, max_chunk_chars: int = 35000, overlap_chars: int = 1500) -> list[str]:
