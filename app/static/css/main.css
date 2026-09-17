@@ -231,6 +231,158 @@ html, body {
 .dark .badge-exception { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
 .dark .badge-legal_status { background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
 
+/* Связи в дровере узла: Гармоничный адаптивный дизайн (Светлая / Темная тема) */
+.chip-relation {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    user-select: none;
+}
+.chip-relation:hover {
+    transform: translateY(-1px);
+}
+.chip-relation:active {
+    transform: scale(0.98);
+}
+
+/* Светлая тема (мягкие фоны, деликатные рамки, темный текст) */
+.chip-relation-jurisdiction {
+    background: #f0f7ff;
+    border: 1px solid #bfdbfe;
+    color: #1e3a8a;
+}
+.chip-relation-jurisdiction:hover {
+    border-color: #3b82f6;
+    background: #e0effe;
+}
+.chip-relation-jurisdiction .rel-label {
+    color: #2563eb;
+}
+
+.chip-relation-demarcated {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #78350f;
+}
+.chip-relation-demarcated:hover {
+    border-color: #f59e0b;
+    background: #fef3c7;
+}
+.chip-relation-demarcated .rel-label {
+    color: #d97706;
+}
+
+.chip-relation-appealed {
+    background: #ecfeff;
+    border: 1px solid #a5f3fc;
+    color: #164e63;
+}
+.chip-relation-appealed:hover {
+    border-color: #06b6d4;
+    background: #cffafe;
+}
+.chip-relation-appealed .rel-label {
+    color: #0891b2;
+}
+
+.chip-relation-excluded {
+    background: #fff1f2;
+    border: 1px solid #fecdd3;
+    color: #881337;
+}
+.chip-relation-excluded:hover {
+    border-color: #f43f5e;
+    background: #ffe4e6;
+}
+.chip-relation-excluded .rel-label {
+    color: #e11d48;
+}
+
+.chip-relation-default {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
+}
+.chip-relation-default:hover {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+}
+.chip-relation-default .rel-label {
+    color: #64748b;
+}
+
+/* Темная тема */
+.dark .chip-relation-jurisdiction {
+    background: rgba(37, 99, 235, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #e0e7ff;
+}
+.dark .chip-relation-jurisdiction:hover {
+    border-color: #60a5fa;
+    background: rgba(37, 99, 235, 0.22);
+}
+.dark .chip-relation-jurisdiction .rel-label {
+    color: #93c5fd;
+}
+
+.dark .chip-relation-demarcated {
+    background: rgba(217, 119, 6, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fef3c7;
+}
+.dark .chip-relation-demarcated:hover {
+    border-color: #fbbf24;
+    background: rgba(217, 119, 6, 0.22);
+}
+.dark .chip-relation-demarcated .rel-label {
+    color: #fcd34d;
+}
+
+.dark .chip-relation-appealed {
+    background: rgba(8, 145, 178, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    color: #cffafe;
+}
+.dark .chip-relation-appealed:hover {
+    border-color: #22d3ee;
+    background: rgba(8, 145, 178, 0.22);
+}
+.dark .chip-relation-appealed .rel-label {
+    color: #67e8f9;
+}
+
+.dark .chip-relation-excluded {
+    background: rgba(225, 29, 72, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    color: #ffe4e6;
+}
+.dark .chip-relation-excluded:hover {
+    border-color: #fb7185;
+    background: rgba(225, 29, 72, 0.22);
+}
+.dark .chip-relation-excluded .rel-label {
+    color: #fda4af;
+}
+
+.dark .chip-relation-default {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+}
+.dark .chip-relation-default:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.09);
+}
+.dark .chip-relation-default .rel-label {
+    color: #94a3b8;
+}
+
 .tree-node-card {
     transition: all 0.15s ease-out;
 }

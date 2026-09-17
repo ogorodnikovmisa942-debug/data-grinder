@@ -1219,14 +1219,23 @@
                         </div>
 
                         <!-- Поиск по графу и вопросам с подсветкой связей -->
-                        <div class="relative flex items-center">
+                        <form id="kg-search-form" action="#" onsubmit="event.preventDefault(); window.submitKgSearch(); return false;" class="relative flex items-center">
                             <span class="material-symbols-outlined text-neutral-400 text-[15px] pl-1 pointer-events-none">search</span>
-                            <input id="kg-search-input" type="text" placeholder="Поиск по понятиям и связям..." oninput="onKgSearchInput(this.value)"
-                                   class="bg-transparent text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 text-[11px] font-mono pl-1.5 pr-6 py-0.5 outline-none w-36 sm:w-56 focus:w-48 sm:focus:w-72 transition-all" />
-                            <button id="kg-search-clear" onclick="clearKgSearch()" class="hidden absolute right-1 text-neutral-400 hover:text-primary cursor-pointer p-0.5 flex items-center justify-center">
+                            <input id="kg-search-input" 
+                                   type="search" 
+                                   inputmode="search" 
+                                   enterkeyhint="search" 
+                                   placeholder="Поиск по понятиям..." 
+                                   autocomplete="off" 
+                                   autocapitalize="off" 
+                                   spellcheck="false"
+                                   oninput="onKgSearchInput(this.value)"
+                                   onkeydown="onKgSearchKeyDown(event)"
+                                   class="bg-transparent text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 text-[11px] font-mono pl-1.5 pr-6 py-0.5 outline-none w-32 sm:w-56 focus:w-44 sm:focus:w-72 transition-all" />
+                            <button type="button" id="kg-search-clear" onclick="clearKgSearch()" class="hidden absolute right-1 text-neutral-400 hover:text-primary cursor-pointer p-0.5 flex items-center justify-center" aria-label="Очистить поиск">
                                 <span class="material-symbols-outlined text-[13px]">close</span>
                             </button>
-                        </div>
+                        </form>
                     </div>
 
                     <!-- Выпадающий список результатов поиска -->
@@ -1390,6 +1399,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=62"></script>
+    <script src="/js/app.js?v=65"></script>
 </body>
 </html>

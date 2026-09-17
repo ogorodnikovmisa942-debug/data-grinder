@@ -4727,6 +4727,15 @@ function getKgRelationStyle(rel) {
     return KG_RELATION_STYLES[key] || KG_RELATION_STYLES['default'];
 }
 
+function getKgRelationChipClass(rel) {
+    const key = (rel || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    if (key === 'subject_to_jurisdiction') return 'chip-relation chip-relation-jurisdiction';
+    if (key === 'demarcated_from') return 'chip-relation chip-relation-demarcated';
+    if (key === 'appealed_to') return 'chip-relation chip-relation-appealed';
+    if (key === 'excludes_application') return 'chip-relation chip-relation-excluded';
+    return 'chip-relation chip-relation-default';
+}
+
 function getKgNodeColor(category) {
     return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
 }
@@ -5146,7 +5155,7 @@ let searchHighlightLinks = new Set();
 let activeSearchTargetId = null;
 let currentLinksFilter = 'all';
 
-function applySpiderwebForces(graphInstance) {
+function applyLayoutForces(graphInstance, layoutType) {
     if (!graphInstance) return;
 
     const cleanData = getCleanGraphData();
@@ -5172,16 +5181,28 @@ function applySpiderwebForces(graphInstance) {
         branchLeavesCount.set(pId, (branchLeavesCount.get(pId) || 0) + 1);
     });
 
+    // Сбрасываем позиционные силы перед назначением геометрии
+    graphInstance.d3Force('radial', null);
+    graphInstance.d3Force('x', null);
+    graphInstance.d3Force('y', null);
+
+    // Центрируем корень (0, 0)
+    rootNodes.forEach(r => {
+        r.fx = 0;
+        r.fy = (layoutType === 'tree') ? -520 : (layoutType === 'horizontal' ? 0 : 0);
+        if (layoutType === 'horizontal') r.fx = -520;
+    });
+
     // 1. Сила отталкивания (Charge Repulsion) с градиентом уровней
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
                 const lvl = (node.level !== undefined) ? node.level : 1;
-                if (lvl === 0) return isLarge ? -3400 : -1800;
-                if (lvl === 1) return isLarge ? -950 : -600;
-                return isLarge ? -380 : -240;
+                if (lvl === 0) return isLarge ? -3800 : -2000;
+                if (lvl === 1) return isLarge ? -1100 : -650;
+                return isLarge ? -420 : -260;
             })
-            .distanceMax(isLarge ? 3400 : 1800);
+            .distanceMax(isLarge ? 3600 : 2000);
     }
 
     // 2. Сила связей (Link Force) с орбитальным эшелонированием
@@ -5210,7 +5231,7 @@ function applySpiderwebForces(graphInstance) {
                 if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
                     const branch = sLvl === 1 ? s : t;
                     const leafCnt = branchLeavesCount.get(String(branch.id)) || 1;
-                    return Math.max(105, Math.min(260, 75 + leafCnt * 14));
+                    return Math.max(110, Math.min(260, 80 + leafCnt * 15));
                 }
 
                 // Межинститутские связи
@@ -5222,12 +5243,12 @@ function applySpiderwebForces(graphInstance) {
                 const sLvl = (s.level !== undefined) ? s.level : 1;
                 const tLvl = (t.level !== undefined) ? t.level : 1;
                 if (sLvl === 0 || tLvl === 0) return 0.85;
-                if (sLvl === 1 && tLvl === 1) return 0.35; // Мягкие кросс-связи для сохранения формы
+                if (sLvl === 1 && tLvl === 1) return 0.30; // Мягкие кросс-связи
                 return 0.75;
             });
     }
 
-    // 3. Сила коллизии (Collide) с учетом реальных габаритов текстовых плашек
+    // 3. Сила коллизии (Collide) с запасом под габариты плашек
     if (window.d3 && window.d3.forceCollide) {
         graphInstance.d3Force('collide', window.d3.forceCollide()
             .radius(node => {
@@ -5236,13 +5257,57 @@ function applySpiderwebForces(graphInstance) {
                 const maxLineLen = Math.min(label.length, 16);
                 const approxTextHalfWidth = (maxLineLen * 6.5) / 2;
 
-                if (lvl === 0) return 80;
-                if (lvl === 1) return Math.max(65, approxTextHalfWidth + 24);
-                return Math.max(44, approxTextHalfWidth + 14);
+                if (lvl === 0) return 85;
+                if (lvl === 1) return Math.max(68, approxTextHalfWidth + 26);
+                return Math.max(46, approxTextHalfWidth + 16);
             })
-            .strength(0.85)
+            .strength(0.90)
             .iterations(4)
         );
+    }
+
+    // 4. Гармоничные позиционные силы без разрушительного dagMode
+    if (layoutType === 'radial') {
+        if (window.d3 && window.d3.forceRadial) {
+            graphInstance.d3Force('radial', window.d3.forceRadial(node => {
+                const lvl = node.level !== undefined ? node.level : 2;
+                if (lvl === 0) return 0;
+                if (lvl === 1) {
+                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
+                    return (bIdx % 2 === 0) ? 380 : 620;
+                }
+                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
+                return (bIdx % 2 === 0) ? 880 : 1100;
+            }, 0, 0).strength(node => (node.level === 0 ? 1.0 : 0.85)));
+        }
+    } else if (layoutType === 'tree') {
+        if (window.d3 && window.d3.forceY && window.d3.forceX) {
+            graphInstance.d3Force('y', window.d3.forceY(node => {
+                const lvl = node.level !== undefined ? node.level : 2;
+                if (lvl === 0) return -520;
+                if (lvl === 1) {
+                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
+                    return (bIdx % 2 === 0) ? -220 : 60; // 2 эшелона институтов
+                }
+                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
+                return (bIdx % 2 === 0) ? 360 : 660; // 2 эшелона понятий
+            }).strength(0.85));
+            graphInstance.d3Force('x', window.d3.forceX(0).strength(0.018));
+        }
+    } else if (layoutType === 'horizontal') {
+        if (window.d3 && window.d3.forceX && window.d3.forceY) {
+            graphInstance.d3Force('x', window.d3.forceX(node => {
+                const lvl = node.level !== undefined ? node.level : 2;
+                if (lvl === 0) return -520;
+                if (lvl === 1) {
+                    const bIdx = branchIndexMap.get(String(node.id)) || 0;
+                    return (bIdx % 2 === 0) ? -220 : 60;
+                }
+                const bIdx = branchIndexMap.get(String(node.parent_id)) || 0;
+                return (bIdx % 2 === 0) ? 360 : 660;
+            }).strength(0.85));
+            graphInstance.d3Force('y', window.d3.forceY(0).strength(0.018));
+        }
     }
 }
 
@@ -5268,39 +5333,13 @@ window.setGraphLayout = function(layoutType) {
     const cleanData = getCleanGraphData();
     if (!cleanData) return;
 
-    const nodeCount = cleanData.nodes ? cleanData.nodes.length : 0;
+    // Снимаем dagMode во всех режимах, чтобы D3 физика свободно устраняла наложения и коллизии
+    currentForceGraphInstance
+        .dagMode(null)
+        .onDagError(() => false)
+        .graphData(cleanData);
 
-    if (currentKgLayout === 'radial') {
-        const radialDist = Math.min(650, Math.max(220, Math.round(nodeCount * 4.2)));
-        currentForceGraphInstance
-            .dagMode('radialout')
-            .dagLevelDistance(radialDist)
-            .onDagError(() => false)
-            .graphData(cleanData);
-        applySpiderwebForces(currentForceGraphInstance);
-    } else if (currentKgLayout === 'tree') {
-        const treeDist = Math.min(500, Math.max(180, Math.round(nodeCount * 3.6)));
-        currentForceGraphInstance
-            .dagMode('td')
-            .dagLevelDistance(treeDist)
-            .onDagError(() => false)
-            .graphData(cleanData);
-        applySpiderwebForces(currentForceGraphInstance);
-    } else if (currentKgLayout === 'horizontal') {
-        const lrDist = Math.min(550, Math.max(200, Math.round(nodeCount * 3.8)));
-        currentForceGraphInstance
-            .dagMode('lr')
-            .dagLevelDistance(lrDist)
-            .onDagError(() => false)
-            .graphData(cleanData);
-        applySpiderwebForces(currentForceGraphInstance);
-    } else {
-        currentForceGraphInstance
-            .dagMode(null)
-            .onDagError(() => false)
-            .graphData(cleanData);
-        applySpiderwebForces(currentForceGraphInstance);
-    }
+    applyLayoutForces(currentForceGraphInstance, currentKgLayout);
 
     if (currentForceGraphInstance.d3ReheatSimulation) {
         currentForceGraphInstance.d3ReheatSimulation();
@@ -5316,6 +5355,51 @@ window.setGraphLayout = function(layoutType) {
 /* ==========================================================================
    ПОИСК ПО ГРАФУ И ПОДСВЕТКА ЛИНИИ СВЯЗЕЙ (SPOTLIGHT SUBGRAPH)
    ========================================================================== */
+
+window.onKgSearchKeyDown = function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        window.submitKgSearch();
+    }
+};
+
+window.submitKgSearch = function() {
+    const input = document.getElementById('kg-search-input');
+    if (!input) return;
+    const q = (input.value || '').trim().toLowerCase();
+    input.blur(); // Скрываем виртуальную клавиатуру на мобильных телефонах
+
+    const resBox = document.getElementById('kg-search-results');
+    if (resBox) resBox.classList.add('hidden');
+
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
+
+    if (!q) {
+        clearKgSearch();
+        return;
+    }
+
+    // Ищем лучшее совпадение: точное имя, затем префикс, затем вхождение в имя, затем вхождение в описание
+    let match = cleanData.nodes.find(n => (n.name || '').toLowerCase() === q);
+    if (!match) {
+        match = cleanData.nodes.find(n => (n.name || '').toLowerCase().startsWith(q));
+    }
+    if (!match) {
+        match = cleanData.nodes.find(n => (n.name || '').toLowerCase().includes(q));
+    }
+    if (!match) {
+        match = cleanData.nodes.find(n => (n.summary || '').toLowerCase().includes(q));
+    }
+
+    if (match) {
+        selectSearchResult(match, true);
+    } else {
+        if (typeof window.showNotification === 'function') {
+            window.showNotification("Понятие не найдено в графе", "info");
+        }
+    }
+};
 
 window.onKgSearchInput = function(query) {
     highlightConceptSearch(query);
@@ -5558,55 +5642,90 @@ window.initForceGraph = function(graphData) {
             const label = node.name || node.id;
             const cat = node.category || 'default';
             const catColor = getKgNodeColor(cat);
-            const radius = Math.max(3.8, (node.val || 5)) * (isTarget ? 1.35 : 1.0);
+            const radius = Math.max(3.6, (node.val || 5)) * (isTarget ? 1.35 : 1.0);
             const currentDark = document.documentElement.classList.contains('dark');
-            const bgStrokeColor = currentDark ? '#0e0e0e' : '#fbfbfb';
 
             ctx.save();
             if (!isHighlighted) {
                 ctx.globalAlpha = 0.12;
             }
 
-            // Пульсирующий внешний ореол для целевого найденного узла
+            // 1. Пульсирующий внешний ореол для целевого найденного узла или мягкий нимб для корня
             if (isTarget) {
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI, false);
+                ctx.arc(node.x, node.y, radius + 6, 0, 2 * Math.PI, false);
                 ctx.strokeStyle = catColor;
-                ctx.lineWidth = 2.5 / Math.max(0.5, globalScale);
+                ctx.lineWidth = 2.5;
                 ctx.stroke();
+            } else if (node.level === 0) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 6, 0, 2 * Math.PI, false);
+                ctx.fillStyle = currentDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.18)';
+                ctx.fill();
             }
 
-            // Тело узла: акцентный цвет категории (Obsidian style)
+            // 2. Тело узла: акцентный цвет категории (Obsidian style)
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
             ctx.fillStyle = catColor;
             ctx.fill();
 
-            // Контрастная окантовка узла
-            ctx.lineWidth = (node.level === 0 ? 3.0 : 1.5) / Math.max(0.5, globalScale);
-            ctx.strokeStyle = node.level === 0 ? '#ffffff' : (currentDark ? '#ffffff' : '#262626');
-            ctx.stroke();
+            // 3. Деликатная тонкая окантовка узла (без грубой толстой черной обводки)
+            if (node.level === 0) {
+                ctx.lineWidth = 2.2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+            } else if (node.level === 1) {
+                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.12)';
+                ctx.stroke();
+            } else {
+                ctx.lineWidth = 0.8;
+                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
+                ctx.stroke();
+            }
 
-            // Текстовая метка узла
-            if (isHighlighted && (globalScale >= 0.32 || isTarget || node.level <= 1)) {
-                const fontSize = Math.min(11, Math.max(7.0, (isTarget ? 11 : 9.2) / Math.pow(globalScale, 0.35)));
-                ctx.font = `${isTarget || node.level <= 1 ? '700' : '600'} ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, sans-serif`;
+            // 4. Текстовая метка узла с прогрессивным раскрытием деталей (LOD)
+            // Корень: виден всегда. Институты (ур.1): видны с масштаба 0.3. Листья (ур.2): только при зуме >= 1.35 или при поиске/выделении
+            const shouldShowLabel = isTarget || 
+                (searchHighlightNodes.size > 0 && searchHighlightNodes.has(String(node.id))) ||
+                node.level === 0 ||
+                (node.level === 1 && globalScale >= 0.30) ||
+                (node.level >= 2 && globalScale >= 1.35);
+
+            if (isHighlighted && shouldShowLabel) {
+                const fontSize = Math.min(11, Math.max(7.5, (isTarget ? 11 : (node.level <= 1 ? 9.5 : 8.5)) / Math.pow(globalScale, 0.28)));
+                ctx.font = `${isTarget || node.level <= 1 ? '700' : '500'} ${fontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
+                ctx.textBaseline = 'middle';
 
-                const lines = wrapNodeText(label, 15);
-                const lineHeight = fontSize + 2.5;
+                const lines = wrapNodeText(label, node.level === 0 ? 20 : 15);
+                const lineHeight = fontSize + 3.2;
+                const startY = node.y + radius + 5 + (lineHeight / 2);
 
                 lines.forEach((line, i) => {
-                    const lineY = node.y + radius + 4 + (i * lineHeight);
+                    const lineY = startY + (i * lineHeight);
+                    const textW = ctx.measureText(line).width;
+                    const pillW = textW + 8;
+                    const pillH = fontSize + 3;
 
-                    // Контрастный ореол позади текста
-                    ctx.lineWidth = 3.5;
-                    ctx.strokeStyle = bgStrokeColor;
-                    ctx.strokeText(line, node.x, lineY);
+                    // Аккуратная плашка с мягким фоном под текстом (без искажающей обводки букв!)
+                    ctx.fillStyle = currentDark ? 'rgba(18, 18, 18, 0.85)' : 'rgba(255, 255, 255, 0.90)';
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                        ctx.roundRect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH, 3.5);
+                    } else {
+                        ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
+                    }
+                    ctx.fill();
 
-                    // Четкий основной текст
-                    ctx.fillStyle = currentDark ? '#f1f5f9' : '#111827';
+                    // Тонкая рамка плашки
+                    ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+                    ctx.lineWidth = 0.8;
+                    ctx.stroke();
+
+                    // Чистый четкий шрифт текста
+                    ctx.fillStyle = currentDark ? '#f8fafc' : '#0f172a';
                     ctx.fillText(line, node.x, lineY);
                 });
             }
@@ -5744,13 +5863,13 @@ window.showKgNodeDrawer = function(node) {
                 const relationLabel = e.label || relStyle.label;
 
                 const chip = document.createElement('div');
-                chip.className = `px-2.5 py-1 rounded-xl border text-[11px] font-mono flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs ${relStyle.bgClass} ${relStyle.borderClass}`;
+                chip.className = getKgRelationChipClass(relationType);
                 chip.innerHTML = `
                     <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${otherCatColor};" title="${KG_CATEGORY_NAMES[otherCat] || otherCat}"></span>
-                    <span class="${relStyle.textClass} font-bold inline-flex items-center gap-0.5">
+                    <span class="rel-label font-bold inline-flex items-center gap-0.5">
                         <span class="material-symbols-outlined text-[13px]">${relStyle.icon}</span> ${escapeHTML(relationLabel)}:
                     </span>
-                    <span class="font-medium text-neutral-900 dark:text-neutral-100">${escapeHTML(otherName)}</span>
+                    <span class="font-medium text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">${escapeHTML(otherName)}</span>
                 `;
                 chip.onclick = () => {
                     if (otherNode) {

@@ -138,6 +138,16 @@ async def lifespan(app: FastAPI):
 # 2. Инициализация FastAPI
 app = FastAPI(title="Data Grinder Движок", lifespan=lifespan)
 
+@app.middleware("http")
+async def add_cache_control_header(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith(".html") or path.endswith(".js") or path.endswith(".css") or path == "/":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # 3. Подключаем роутеры API (префикс /api)
 app.include_router(train.router, prefix="/api", tags=["Training"])
 app.include_router(management.router, prefix="/api", tags=["Management"])
