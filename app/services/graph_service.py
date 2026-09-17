@@ -813,26 +813,19 @@ def generate_sudoustroystvo_seed_graph() -> dict:
 
 
 def resolve_subject_alias(subject_slug: str) -> str:
-    """Нормализует альтернативные и сокращенные названия предметов."""
-    s = (subject_slug or "").strip().lower()
-    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
-        return "sudoustroystvo"
-    if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
-        return "civil_law"
-    if s in ("onshteorpravo", "teoriya_prava", "общая_теория_права", "тгп", "tgp"):
-        return "onshteorpravo"
-    return s
+    """Нормализует предмет без принудительной подмены на другие имена."""
+    return (subject_slug or "").strip().lower()
 
 
 def get_all_subject_aliases(subject_slug: str) -> list[str]:
     """Возвращает все известные синонимы и сокращения предмета для полноты выборки."""
     s = (subject_slug or "").strip().lower()
-    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
-        aliases = ["sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"]
-        if s in aliases:
-            aliases.remove(s)
-            aliases.insert(0, s)
-        return aliases
+    if not s:
+        return []
+    if s == "sudoustr":
+        return ["sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"]
+    if s == "sudoustroystvo":
+        return ["sudoustroystvo", "sudoustr", "court_system", "судоустройство", "sud", "суд"]
     if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
         aliases = ["civil_law", "гражданское", "гк_рф", "гражданское_право"]
         if s in aliases:
@@ -845,8 +838,7 @@ def get_all_subject_aliases(subject_slug: str) -> list[str]:
             aliases.remove(s)
             aliases.insert(0, s)
         return aliases
-    canonical = resolve_subject_alias(subject_slug)
-    return [subject_slug] if subject_slug == canonical else [subject_slug, canonical]
+    return [s]
 
 
 def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
@@ -1194,35 +1186,8 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
     # 2. Ранжируем институты по числу карточек
     sorted_insts = sorted(theme_cards.items(), key=lambda x: len(x[1]), reverse=True)
 
-    # Динамический расчет числа ветвей и узлов
-    if canonical in ("sudoustr", "sudoustroystvo"):
-        # Строгое соответствие контракту тестов test_reviewer_adversarial.py (25-45 узлов)
-        max_branches = min(9, max(6, len(sorted_insts)))
-        if len(cards) >= 100:
-            target_total = 33
-        elif len(cards) >= 40:
-            target_total = 28
-        else:
-            target_total = len(cards)
-    else:
-        # Для пользовательских колод масштабируем граф пропорционально числу карточек
-        if len(cards) >= 150:
-            max_branches = min(16, max(8, len(sorted_insts)))
-            target_total = min(max(len(sorted_insts) * 3 + 1, 48), 65)
-        elif len(cards) >= 80:
-            max_branches = min(14, max(7, len(sorted_insts)))
-            target_total = min(max(len(sorted_insts) * 3 + 1, 40), 55)
-        elif len(cards) >= 40:
-            max_branches = min(10, max(6, len(sorted_insts)))
-            target_total = 32
-        else:
-            max_branches = min(len(sorted_insts), 8)
-            target_total = len(cards)
-
-    top_insts = sorted_insts[:max_branches]
-
-    remaining_leaves = max(len(top_insts), target_total - 1 - len(top_insts))
-    leaves_per_inst = max(2, min(5, (remaining_leaves + len(top_insts) - 1) // len(top_insts)))
+    # Все институты становятся ветвями первого уровня (без искусственного ограничения)
+    top_insts = sorted_insts
 
     # Формируем ветви институтов (Уровень 1)
     branch_ids = []
@@ -1258,8 +1223,6 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
         seen_concepts = set()
 
         for c in c_list:
-            if sub_added >= leaves_per_inst:
-                break
             leaf_name = extract_entity_name_from_card(c, institute_name=t_name, clean_title=clean_title)
             if not leaf_name or len(leaf_name) < 3:
                 continue
