@@ -265,6 +265,11 @@ async def admin_web_page():
                 </div>
             </div>
 
+            <div style="margin-bottom: 12px; display:flex; align-items:center; gap:8px;">
+                <label style="font-size:12px; color:#94a3b8; font-weight:600;">Модель:</label>
+                <input type="text" id="model-input" value="{curr_model}" placeholder="Например: deepseek-chat, deepseek-reasoner, mimo-v2.5" style="flex:1; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#38bdf8; font-size:12px; font-family:'JetBrains Mono', monospace;">
+            </div>
+
             <div style="display:flex; gap:8px; align-items:center;">
                 <input type="password" id="admin-token-input" value="{admin_token}" placeholder="X-Admin-Token" style="flex:1; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#f1f5f9; font-size:12px; font-family:'JetBrains Mono', monospace;">
                 <button class="btn" style="padding:8px 16px; font-size:12px;" onclick="applySwitch()">Применить</button>
@@ -318,13 +323,25 @@ async def admin_web_page():
             selectedProvider = prov;
             document.querySelectorAll('.switch-card').forEach(c => c.classList.remove('active'));
             document.getElementById('card-' + prov).classList.add('active');
+            const modelInput = document.getElementById('model-input');
+            if (prov === 'deepseek' && modelInput.value.includes('mimo')) {{
+                modelInput.value = 'deepseek-chat';
+            }} else if (prov === 'mimo' && modelInput.value.includes('deepseek')) {{
+                modelInput.value = 'mimo-v2.5';
+            }}
         }}
 
         async function applySwitch() {{
             const token = document.getElementById('admin-token-input').value.trim();
+            const modelVal = document.getElementById('model-input').value.trim();
             const toast = document.getElementById('switch-toast');
             toast.className = 'toast';
             toast.style.display = 'none';
+
+            const payload = {{ provider: selectedProvider }};
+            if (modelVal) {{
+                payload.model = modelVal;
+            }}
 
             try {{
                 const res = await fetch('/api/admin/switch-ai-provider', {{
@@ -333,7 +350,7 @@ async def admin_web_page():
                         'Content-Type': 'application/json',
                         'X-Admin-Token': token
                     }},
-                    body: JSON.stringify({{ provider: selectedProvider }})
+                    body: JSON.stringify(payload)
                 }});
                 const data = await res.json();
                 if (res.ok) {{
@@ -346,6 +363,7 @@ async def admin_web_page():
                     }}
                     document.getElementById('ai-active-badge').innerText = 'ИИ: ' + selectedProvider.toUpperCase();
                     document.getElementById('current-model-tag').innerText = data.model || selectedProvider;
+                    if (data.model) document.getElementById('model-input').value = data.model;
                     
                     document.getElementById('pill-deepseek').className = selectedProvider === 'deepseek' ? 'status-pill active' : 'status-pill inactive';
                     document.getElementById('pill-deepseek').innerText = selectedProvider === 'deepseek' ? 'АКТИВЕН' : 'ВЫБРАТЬ';

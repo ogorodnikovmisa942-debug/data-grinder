@@ -943,7 +943,7 @@ async def call_deepseek(
     fallback_subject: str = "generic"
 ) -> tuple[dict, dict]:
     """Вызывает DeepSeek напрямую через стандартный REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
-    api_key = settings.DEEPSEEK_API_KEY
+    api_key = (settings.DEEPSEEK_API_KEY or "").strip().strip('"\'')
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY не установлен в .env")
 
@@ -1031,7 +1031,7 @@ async def call_mimo(
     fallback_subject: str = "generic"
 ) -> tuple[dict, dict]:
     """Вызывает Xiaomi MiMo API напрямую через стандартный OpenAI-совместимый REST API с поддержкой JSON Mode, Context Caching и автоматической десериализацией."""
-    api_key = settings.MIMO_API_KEY
+    api_key = (settings.MIMO_API_KEY or "").strip().strip('"\'')
     if not api_key:
         raise ValueError("MIMO_API_KEY не установлен в .env")
 
@@ -1192,12 +1192,8 @@ async def extract_curriculum_skeleton(
                         system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
                         fallback_subject=clean_sub
                     )
-                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient", "401")):
-                        try:
-                            from app.api.endpoints.admin import set_active_ai_provider
-                            set_active_ai_provider("deepseek")
-                        except Exception:
-                            settings.AI_PROVIDER = "deepseek"
+                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient")):
+                        settings.AI_PROVIDER = "deepseek"
                 else:
                     raise mimo_err
         else:
@@ -1215,12 +1211,8 @@ async def extract_curriculum_skeleton(
                         system_instruction=CURRICULUM_SKELETON_SYSTEM_PROMPT,
                         fallback_subject=clean_sub
                     )
-                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient", "401")):
-                        try:
-                            from app.api.endpoints.admin import set_active_ai_provider
-                            set_active_ai_provider("mimo")
-                        except Exception:
-                            settings.AI_PROVIDER = "mimo"
+                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient")):
+                        settings.AI_PROVIDER = "mimo"
                 else:
                     raise ds_err
 
@@ -1358,12 +1350,8 @@ async def parse_raw_text(
                     print(f"[AI Gateway FAILOVER] Xiaomi MiMo вернул ошибку ({str(mimo_err)[:100]}). Автоматическое переключение на DeepSeek ({settings.DEEPSEEK_MODEL})...")
                     res, meta = await call_deepseek(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
                     fallback_used = True
-                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient", "401")):
-                        try:
-                            from app.api.endpoints.admin import set_active_ai_provider
-                            set_active_ai_provider("deepseek")
-                        except Exception:
-                            settings.AI_PROVIDER = "deepseek"
+                    if any(c in str(mimo_err).lower() for c in ("402", "balance", "insufficient")):
+                        settings.AI_PROVIDER = "deepseek"
                 else:
                     raise mimo_err
         else:
@@ -1374,12 +1362,8 @@ async def parse_raw_text(
                     print(f"[AI Gateway FAILOVER] DeepSeek вернул ошибку ({str(ds_err)[:100]}). Автоматическое переключение на Xiaomi MiMo ({settings.MIMO_MODEL})...")
                     res, meta = await call_mimo(user_prompt, system_instruction=DEEPSEEK_CACHED_SYSTEM_PROMPT, fallback_subject=clean_sub)
                     fallback_used = True
-                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient", "401")):
-                        try:
-                            from app.api.endpoints.admin import set_active_ai_provider
-                            set_active_ai_provider("mimo")
-                        except Exception:
-                            settings.AI_PROVIDER = "mimo"
+                    if any(c in str(ds_err).lower() for c in ("402", "balance", "insufficient")):
+                        settings.AI_PROVIDER = "mimo"
                 else:
                     raise ds_err
 

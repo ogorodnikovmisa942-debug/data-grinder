@@ -516,9 +516,10 @@ async def distribute_deck(
 
 class SwitchAiProviderIn(BaseModel):
     provider: str  # "deepseek" или "mimo"
+    model: Optional[str] = None
 
-def set_active_ai_provider(provider: str) -> str:
-    """Устанавливает активного ИИ-провайдера и сохраняет выбор в .env для персистентности."""
+def set_active_ai_provider(provider: str, model: Optional[str] = None) -> str:
+    """Устанавливает активного ИИ-провайдера (и опционально модель) и сохраняет выбор в .env для персистентности."""
     import os
     import re
     norm = provider.strip().lower()
@@ -528,6 +529,15 @@ def set_active_ai_provider(provider: str) -> str:
     settings.AI_PROVIDER = norm
     os.environ["AI_PROVIDER"] = norm
 
+    clean_model = model.strip() if model and model.strip() else None
+    if clean_model:
+        if norm == "mimo":
+            settings.MIMO_MODEL = clean_model
+            os.environ["MIMO_MODEL"] = clean_model
+        else:
+            settings.DEEPSEEK_MODEL = clean_model
+            os.environ["DEEPSEEK_MODEL"] = clean_model
+
     env_path = Path(".env")
     try:
         if env_path.exists():
@@ -536,12 +546,24 @@ def set_active_ai_provider(provider: str) -> str:
                 new_content = re.sub(r"^AI_PROVIDER=.*", f"AI_PROVIDER={norm}", content, flags=re.MULTILINE)
             else:
                 new_content = content.rstrip() + f"\nAI_PROVIDER={norm}\n"
+            
+            if clean_model:
+                model_var = "MIMO_MODEL" if norm == "mimo" else "DEEPSEEK_MODEL"
+                if re.search(rf"^{model_var}=.*", new_content, flags=re.MULTILINE):
+                    new_content = re.sub(rf"^{model_var}=.*", f"{model_var}={clean_model}", new_content, flags=re.MULTILINE)
+                else:
+                    new_content = new_content.rstrip() + f"\n{model_var}={clean_model}\n"
+
             env_path.write_text(new_content, encoding="utf-8")
         else:
-            env_path.write_text(f"AI_PROVIDER={norm}\n", encoding="utf-8")
-        print(f"[Admin] AI_PROVIDER успешно обновлен на '{norm}' в .env")
+            txt = f"AI_PROVIDER={norm}\n"
+            if clean_model:
+                model_var = "MIMO_MODEL" if norm == "mimo" else "DEEPSEEK_MODEL"
+                txt += f"{model_var}={clean_model}\n"
+            env_path.write_text(txt, encoding="utf-8")
+        print(f"[Admin] AI_PROVIDER успешно обновлен на '{norm}' (модель: {clean_model or 'default'}) в .env")
     except Exception as env_err:
-        print(f"[Admin WARN] Ошибка записи AI_PROVIDER в .env: {env_err}")
+        print(f"[Admin WARN] Ошибка записи настроек ИИ в .env: {env_err}")
     return norm
 
 @router.get("/ai-provider")
@@ -590,7 +612,7 @@ async def switch_ai_provider(
     Обновляет глобальные настройки приложения в памяти и файл .env.
     """
     try:
-        active = set_active_ai_provider(payload.provider)
+        active = set_active_ai_provider(payload.provider, payload.model)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 

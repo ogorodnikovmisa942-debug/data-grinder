@@ -2472,15 +2472,37 @@ function isOffPeakWindow() {
     return utcMinutes >= 990 || utcMinutes < 30; // 16:30 - 00:30 UTC / 19:30 - 03:30 MSK
 }
 
-window.updateTariffBanner = function() {
+let cachedAiProviderInfo = null;
+let lastAiProviderFetchTime = 0;
+
+window.updateTariffBanner = async function() {
     const bannerTitle = document.getElementById('tariff-status-title');
     const bannerBadge = document.getElementById('tariff-status-badge');
     const btnDeferred = document.getElementById('btn-import-deferred');
     if (!bannerBadge) return;
 
+    // Запрашиваем актуального ИИ-провайдера и модель с сервера (с кэшем 30 сек)
+    const nowTs = Date.now();
+    if (!cachedAiProviderInfo || (nowTs - lastAiProviderFetchTime > 30000)) {
+        try {
+            const res = await apiFetch('/api/config/ai-provider');
+            if (res.ok) {
+                cachedAiProviderInfo = await res.json();
+                lastAiProviderFetchTime = nowTs;
+            }
+        } catch (e) {
+            // Игнорируем сетевые сбои фонового опроса
+        }
+    }
+
+    const prov = (cachedAiProviderInfo?.provider || 'deepseek').toUpperCase();
+    const model = (cachedAiProviderInfo?.model || 'deepseek-chat').toUpperCase();
     const isOffPeak = isOffPeakWindow();
+
+    const titleText = `ИИ: <span class="text-primary font-bold">${prov} (${model})</span>`;
+
     if (isOffPeak) {
-        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V4.1 FLASH</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = titleText;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
         bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
         if (btnDeferred) {
@@ -2494,7 +2516,7 @@ window.updateTariffBanner = function() {
         const h = Math.floor(diffMinutes / 60);
         const m = diffMinutes % 60;
 
-        if (bannerTitle) bannerTitle.innerHTML = `МОДЕЛЬ: <span class="text-primary font-bold">DEEPSEEK V4.1 FLASH</span>`;
+        if (bannerTitle) bannerTitle.innerHTML = titleText;
         bannerBadge.className = "text-secondary font-bold font-mono";
         bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
         if (btnDeferred) {
@@ -3051,10 +3073,24 @@ window.handleImageOcr = async function(event) {
     }
 
     if (typeof Tesseract === 'undefined') {
-        alert("Движок Tesseract OCR ещё загружается. Подождите пару секунд и повторите.");
-        if (statusEl) statusEl.classList.add('hidden');
-        event.target.value = '';
-        return;
+        if (statusEl) {
+            statusEl.textContent = "[ЗАГРУЗКА OCR-ДВИЖКА TESSERACT...]";
+            statusEl.classList.remove('hidden');
+        }
+        try {
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+                s.onload = resolve;
+                s.onerror = () => reject(new Error("Не удалось загрузить библиотеку Tesseract OCR"));
+                document.head.appendChild(s);
+            });
+        } catch (loadErr) {
+            alert("Ошибка загрузки движка OCR: " + loadErr.message);
+            if (statusEl) statusEl.classList.add('hidden');
+            event.target.value = '';
+            return;
+        }
     }
 
     const recognizedPages = [];
@@ -5146,6 +5182,7 @@ function renderKnowledgeTreeNode(node, container, depth) {
 }
 
 function wrapNodeText(text, maxChars = 16) {
+    text = String(text || '');
     if (!text || text.length <= maxChars) return [text || ''];
     const words = text.split(' ');
     const lines = [];
@@ -5182,10 +5219,12 @@ function getGraphLinkKey(source, target) {
 function applyLayoutForces(graphInstance, layoutType) {
     if (!graphInstance) return;
 
-    const cleanData = getCleanGraphData();
-    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
+    const graphData = (graphInstance.graphData && typeof graphInstance.graphData === 'function') ? graphInstance.graphData() : null;
+    const nodes = (graphData && graphData.nodes && graphData.nodes.length > 0)
+        ? graphData.nodes
+        : ((getCleanGraphData() || {}).nodes || []);
+    if (!nodes || nodes.length === 0) return;
 
-    const nodes = cleanData.nodes;
     const nodeCount = nodes.length;
     const isLarge = nodeCount > 40;
     const nodeMap = new Map(nodes.map(n => [String(n.id), n]));
@@ -5761,9 +5800,9 @@ window.initForceGraph = function(graphData) {
             return 0.8;
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
-        .warmupTicks(100)
-        .cooldownTicks(180)
-        .d3VelocityDecay(0.32) // Плавное расслабление физики: узлы успевают разойтись и распутаться
+        .warmupTicks(15)
+        .cooldownTicks(70)
+        .d3VelocityDecay(0.42) // Быстрый и плавный разогрев на мобильных устройствах
         .onDagError(() => false)
         .onEngineStop(() => {
             if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
@@ -5785,7 +5824,7 @@ window.initForceGraph = function(graphData) {
             const label = node.name || node.id;
             const baseR = Math.max(3.0, (node.val || 4) * 0.75);
             const radius = baseR * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
-            const currentDark = document.documentElement.classList.contains('dark');
+            const currentDark = isDark;
 
             ctx.save();
             if (hasActiveSelection && !isHighlighted) {
@@ -5876,18 +5915,34 @@ window.initForceGraph = function(graphData) {
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                const lines = wrapNodeText(label, node.level === 0 ? 22 : 16);
+                // Кэширование разбиения строк и измерений ширины для предотвращения просадки FPS
+                if (!node.__lines || node.__lastLabel !== label) {
+                    node.__lines = wrapNodeText(label, node.level === 0 ? 22 : 16);
+                    node.__lastLabel = label;
+                    node.__lineMetrics = null;
+                }
+
                 const lineHeight = baseFontSize + 3.0;
                 const startY = node.y + radius + 4.5 + (lineHeight / 2);
 
-                const padX = 4.0;
-                const padY = 2.5;
+                if (!node.__lineMetrics || node.__lineMetricsSize !== baseFontSize) {
+                    const padX = 4.0;
+                    const padY = 2.5;
+                    node.__lineMetricsSize = baseFontSize;
+                    node.__lineMetrics = node.__lines.map(line => {
+                        const textW = ctx.measureText(line).width;
+                        return {
+                            pillW: textW + (padX * 2),
+                            pillH: baseFontSize + (padY * 2)
+                        };
+                    });
+                }
 
-                lines.forEach((line, i) => {
+                node.__lines.forEach((line, i) => {
                     const lineY = startY + (i * lineHeight);
-                    const textW = ctx.measureText(line).width;
-                    const pillW = textW + (padX * 2);
-                    const pillH = baseFontSize + (padY * 2);
+                    const metrics = node.__lineMetrics[i] || { pillW: 40, pillH: baseFontSize + 5.0 };
+                    const pillW = metrics.pillW;
+                    const pillH = metrics.pillH;
 
                     // Фон плашки
                     if (isTarget) {
