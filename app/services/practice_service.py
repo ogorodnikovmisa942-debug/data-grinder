@@ -13,6 +13,7 @@ import re
 import uuid
 import random
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 from datetime import datetime
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -273,29 +274,78 @@ def is_invalid_distractor(text: str) -> bool:
     return False
 
 
+def create_mirror_contrast_distractor(answer: str) -> Optional[str]:
+    """Синтезирует инвертированный дистрактор для контрастных пар (зеркальная путаница критериев)."""
+    splitters = [", а ", ", тогда как ", ", в то время как ", "; а ", "; "]
+    for sp in splitters:
+        if sp in answer:
+            parts = answer.split(sp, 1)
+            p1, p2 = parts[0].strip(), parts[1].strip()
+            if len(p1) > 8 and len(p2) > 8:
+                p2_cap = p2[0].upper() + p2[1:] if len(p2) > 1 else p2.upper()
+                p1_low = p1[0].lower() + p1[1:] if len(p1) > 1 else p1.lower()
+                p1_clean = p1_low.rstrip('.') + '.'
+                p2_clean = p2_cap.rstrip('.')
+                swapped = f"{p2_clean}{sp}{p1_clean}"
+                if swapped.strip().lower() != answer.strip().lower():
+                    return swapped
+    return None
+
+
 def select_coherent_distractors(
     target_answer: str,
     candidate_answers: list[str],
     count: int = 3,
-    fallback_pool: Optional[list[str]] = None
+    fallback_pool: Optional[list[str]] = None,
+    cluster_candidates: Optional[list[str]] = None,
+    mirror_distractor: Optional[str] = None
 ) -> list[str]:
-    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины (без вопросительных предложений)."""
+    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины, приоритизируя тематический кластер."""
     target_clean = target_answer.strip().lower()
     target_words = len(target_clean.split())
 
-    valid = [
+    chosen: list[str] = []
+    chosen_low: set[str] = {target_clean}
+
+    # 1. Если сформирован зеркальный дистрактор для контрастной пары — добавляем первым!
+    if mirror_distractor:
+        m_clean = mirror_distractor.strip()
+        if m_clean and m_clean.lower() not in chosen_low and not is_invalid_distractor(m_clean):
+            chosen.append(m_clean)
+            chosen_low.add(m_clean.lower())
+
+    # 2. Кандидаты из того же тематического кластера (наивысший приоритет)
+    if cluster_candidates:
+        valid_cluster = [
+            c.strip() for c in cluster_candidates
+            if c.strip() and c.strip().lower() not in chosen_low and not is_invalid_distractor(c)
+        ]
+        # Приоритет схожей длины внутри темы
+        def cluster_score(cand: str):
+            c_words = len(cand.split())
+            return abs(c_words - target_words)
+
+        valid_cluster.sort(key=cluster_score)
+        for c in valid_cluster:
+            if len(chosen) >= count:
+                break
+            chosen.append(c)
+            chosen_low.add(c.lower())
+
+    # 3. Общий пул ответов предмета
+    valid_general = [
         a.strip() for a in candidate_answers 
-        if a.strip() and a.strip().lower() != target_clean and not is_invalid_distractor(a)
+        if a.strip() and a.strip().lower() not in chosen_low and not is_invalid_distractor(a)
     ]
 
-    # 1. Если переданы дополнительные кандидаты (термины или определения)
+    # Дополнительный пул (термины или определения)
     if fallback_pool:
         for fb in fallback_pool:
             clean_fb = fb.strip()
-            if clean_fb and clean_fb.lower() != target_clean and clean_fb not in valid and not is_invalid_distractor(clean_fb):
-                valid.append(clean_fb)
+            if clean_fb and clean_fb.lower() not in chosen_low and clean_fb not in valid_general and not is_invalid_distractor(clean_fb):
+                valid_general.append(clean_fb)
 
-    # 2. Если ответ числовой/временной (например "3 года", "10 суток"), формируем реалистичные альтернативы
+    # 4. Если ответ числовой/временной (например "3 года", "10 суток"), формируем реалистичные альтернативы
     deadline_pattern = r'^(\d+)\s+(суток|дней|дня|месяц|месяца|месяцев|лет|года|часов|часа)$'
     m_num = re.match(deadline_pattern, target_answer.strip(), re.IGNORECASE)
     if m_num:
@@ -309,11 +359,32 @@ def select_coherent_distractors(
             f"{max(1, val - 5)} {unit}"
         ]
         for a in alts:
-            if a.lower() != target_clean and a not in valid:
-                valid.append(a)
+            if a.lower() not in chosen_low and a not in valid_general:
+                valid_general.append(a)
 
-    # 3. Универсальные смысловые альтернативы для любой дисциплины
-    if len(valid) < count:
+    # Сортируем общий пул по схожести длины
+    def dist_score(cand: str):
+        c_words = len(cand.split())
+        return abs(c_words - target_words)
+
+    similar = [c for c in valid_general if dist_score(c) <= max(3, target_words // 2)]
+    random.shuffle(similar)
+    for c in similar:
+        if len(chosen) >= count:
+            break
+        chosen.append(c)
+        chosen_low.add(c.lower())
+
+    if len(chosen) < count:
+        valid_general.sort(key=dist_score)
+        for c in valid_general:
+            if len(chosen) >= count:
+                break
+            chosen.append(c)
+            chosen_low.add(c.lower())
+
+    # 5. Универсальные смысловые альтернативы при дефиците
+    if len(chosen) < count:
         semantic_fallbacks = [
             "Применяется факультативно по специальному соглашению сторон",
             "Определяется базовыми общими правилами системы",
@@ -323,22 +394,13 @@ def select_coherent_distractors(
             "Исключается при наступлении ограничивающих факторов"
         ]
         for sf in semantic_fallbacks:
-            if sf.lower() != target_clean and sf not in valid:
-                valid.append(sf)
-            if len(valid) >= count:
+            if sf.lower() not in chosen_low:
+                chosen.append(sf)
+                chosen_low.add(sf.lower())
+            if len(chosen) >= count:
                 break
 
-    # Приоритет кандидатам со схожей длиной по словам
-    def dist_score(cand: str):
-        c_words = len(cand.split())
-        return abs(c_words - target_words)
-
-    similar = [c for c in valid if dist_score(c) <= max(3, target_words // 2)]
-    if len(similar) >= count:
-        return random.sample(similar, count)
-
-    valid.sort(key=dist_score)
-    return valid[:count]
+    return chosen[:count]
 
 
 
@@ -437,6 +499,56 @@ async def generate_practice_session(
                 if p_text and len(p_text) > 2 and p_text not in all_fronts:
                     all_fronts.append(p_text)
 
+            # Кластеризация карточек по подтемам и ключевым понятиям
+            theme_to_cards = defaultdict(list)
+            for c in user_cards:
+                if c.secondary_text:
+                    theme_key = c.secondary_text.strip().lower()
+                    theme_to_cards[theme_key].append(c)
+
+            def get_card_cluster_answers(current_card) -> list[str]:
+                cluster_ans: list[str] = []
+                # 1. По вторичной теме (раздел/подтема)
+                if current_card.secondary_text:
+                    theme_key = current_card.secondary_text.strip().lower()
+                    for c in theme_to_cards.get(theme_key, []):
+                        if c.id != current_card.id and c.translation:
+                            t = c.translation.strip()
+                            if t and t.lower() != (current_card.translation or "").strip().lower() and t not in cluster_ans:
+                                cluster_ans.append(t)
+
+                # 2. По общим ключевым словам в вопросе (front)
+                c_words = set(re.findall(r'\b[а-яa-z]{4,}\b', (current_card.text or "").lower()))
+                stop_words = {"какой", "какие", "каком", "какому", "понятие", "определение", "является", "случае", "различие", "между", "отличие", "когда"}
+                c_keywords = c_words - stop_words
+                if c_keywords:
+                    keyword_matches = []
+                    for c in user_cards:
+                        if c.id != current_card.id and c.translation:
+                            other_words = set(re.findall(r'\b[а-яa-z]{4,}\b', (c.text or "").lower()))
+                            common = c_keywords.intersection(other_words)
+                            if common:
+                                t = c.translation.strip()
+                                if t and t.lower() != (current_card.translation or "").strip().lower() and t not in cluster_ans:
+                                    keyword_matches.append((len(common), t))
+                    keyword_matches.sort(key=lambda x: x[0], reverse=True)
+                    for _, t in keyword_matches:
+                        if t not in cluster_ans:
+                            cluster_ans.append(t)
+
+                return cluster_ans
+
+            def get_card_cluster_fronts(current_card) -> list[str]:
+                cluster_fr: list[str] = []
+                if current_card.secondary_text:
+                    theme_key = current_card.secondary_text.strip().lower()
+                    for c in theme_to_cards.get(theme_key, []):
+                        if c.id != current_card.id and c.text:
+                            t = c.text.strip().rstrip('?:.')
+                            if t and t.lower() != (current_card.text or "").strip().rstrip('?:.').lower() and t not in cluster_fr:
+                                cluster_fr.append(t)
+                return cluster_fr
+
             # Для маленьких колод (< 3 карт) синтезируем по несколько разнообразных когнитивных упражнений на карту
             if len(user_cards) < 3:
                 for card in user_cards:
@@ -450,14 +562,23 @@ async def generate_practice_session(
                         continue
 
                     # Вариант A: Прямой вопрос (front -> back)
+                    is_contrast = any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница", "difference"))
+                    mirror_a = create_mirror_contrast_distractor(back) if is_contrast else None
+                    cluster_ans_a = get_card_cluster_answers(card)
                     item_id_a = str(uuid.uuid4())
-                    chosen_a = select_coherent_distractors(back, all_answers, count=3, fallback_pool=[p.text for p in deck_phrases])
+                    chosen_a = select_coherent_distractors(
+                        back,
+                        all_answers,
+                        count=3,
+                        fallback_pool=[p.text for p in deck_phrases],
+                        cluster_candidates=cluster_ans_a,
+                        mirror_distractor=mirror_a
+                    )
                     opts_a = [back] + chosen_a[:3]
                     while len(opts_a) < 4:
                         opts_a.append(f"Альтернативное правило {len(opts_a)}")
                     random.shuffle(opts_a)
 
-                    is_contrast = any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница"))
                     i_type = "contrast_pair" if is_contrast else "situational"
                     practice_records.append(PracticeItem(
                         item_id=item_id_a,
@@ -480,7 +601,14 @@ async def generate_practice_session(
                         cloze_prompt, cloze_target = extract_cloze_target(ex, back)
                     if cloze_target and len(cloze_target) > 1:
                         item_id_b = str(uuid.uuid4())
-                        chosen_b = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=all_fronts)
+                        cluster_ans_b = get_card_cluster_answers(card)
+                        chosen_b = select_coherent_distractors(
+                            cloze_target,
+                            all_answers,
+                            count=3,
+                            fallback_pool=all_fronts,
+                            cluster_candidates=cluster_ans_b
+                        )
                         opts_b = [cloze_target] + chosen_b[:3]
                         while len(opts_b) < 4:
                             opts_b.append(f"Альтернативное условие {len(opts_b)}")
@@ -504,7 +632,14 @@ async def generate_practice_session(
                     clean_front = front.rstrip('?:.')
                     if len(clean_front) <= 60 and clean_front != back:
                         item_id_c = str(uuid.uuid4())
-                        chosen_c = select_coherent_distractors(clean_front, all_fronts, count=3, fallback_pool=[p.text for p in deck_phrases])
+                        cluster_fr_c = get_card_cluster_fronts(card)
+                        chosen_c = select_coherent_distractors(
+                            clean_front,
+                            all_fronts,
+                            count=3,
+                            fallback_pool=[p.text for p in deck_phrases],
+                            cluster_candidates=cluster_fr_c
+                        )
                         opts_c = [clean_front] + chosen_c[:3]
                         while len(opts_c) < 4:
                             opts_c.append(f"Иное понятие {len(opts_c)}")
@@ -561,10 +696,17 @@ async def generate_practice_session(
 
                     cloze_prompt, cloze_target = extract_cloze_target(front, back)
                     item_id = str(uuid.uuid4())
+                    cluster_ans = get_card_cluster_answers(card)
 
                     # Тип 1: Заполнение пропусков (Slot-Filling)
                     if cloze_target and len(cloze_target) > 1:
-                        chosen_distractors = select_coherent_distractors(cloze_target, all_answers, count=3, fallback_pool=None)
+                        chosen_distractors = select_coherent_distractors(
+                            cloze_target,
+                            all_answers,
+                            count=3,
+                            fallback_pool=all_fronts,
+                            cluster_candidates=cluster_ans
+                        )
                         options = [cloze_target] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Альтернативное условие {len(options)}")
@@ -585,7 +727,15 @@ async def generate_practice_session(
 
                     # Тип 2: Контрастная пара (Contrast Pair)
                     elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница", "difference")):
-                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
+                        mirror = create_mirror_contrast_distractor(back)
+                        chosen_distractors = select_coherent_distractors(
+                            back,
+                            all_answers,
+                            count=3,
+                            fallback_pool=None,
+                            cluster_candidates=cluster_ans,
+                            mirror_distractor=mirror
+                        )
                         options = [back] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Иной критерий {len(options)}")
@@ -606,8 +756,13 @@ async def generate_practice_session(
 
                     # Тип 3: Ситуационный кейс / Концептуальный вопрос (для любой дисциплины)
                     else:
-                        is_case = any(w in front.lower() for w in ("если", "в случае", "при условии", "сторона", "спор", "пациент", "клиент", "пользователь", "задача", "дело", "иск", "ситуация", "if", "when", "case"))
-                        chosen_distractors = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
+                        chosen_distractors = select_coherent_distractors(
+                            back,
+                            all_answers,
+                            count=3,
+                            fallback_pool=None,
+                            cluster_candidates=cluster_ans
+                        )
                         options = [back] + chosen_distractors[:3]
                         while len(options) < 4:
                             options.append(f"Альтернативный вариант {len(options)}")
@@ -686,7 +841,8 @@ async def generate_practice_session(
                 back = (c.translation or "").strip()
                 if not front or not back:
                     continue
-                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None)
+                c_cluster = get_card_cluster_answers(c)
+                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None, cluster_candidates=c_cluster)
                 opts = [back] + chosen[:3]
                 while len(opts) < 4:
                     opts.append(f"Альтернативный вариант {len(opts)}")

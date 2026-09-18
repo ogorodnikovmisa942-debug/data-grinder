@@ -173,7 +173,12 @@ async def get_session_cards(
         # Режим "Повторение": долгосрочные повторения (state == 2) + краткосрочные внутри дня (state in [1, 3])
         full_pool = due_reviews + intra_day_cards
     elif mode == "cram":
-        cram_stmt = select(Card).filter(Card.user_id == current_user).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
+        # Режим "Штурм": строго только уже изученные карточки (state in [1, 2, 3]), исключая новые (state == 0)
+        # Сортировка: самые трудные (высокий difficulty) и наименее стабильные (низкая stability)
+        cram_stmt = select(Card).filter(
+            Card.user_id == current_user,
+            Card.state.in_([1, 2, 3])
+        ).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
         if subject != 'all':
             cram_stmt = cram_stmt.filter(Card.subject.in_(sub_aliases))
         cram_res = await db.execute(cram_stmt)
@@ -322,11 +327,10 @@ async def handle_answer(
         target_retention=target_retention
     )
 
-    if effective_rating == 1:
-        card.lapses += 1
-
     # Валидация и обновление весов в БД, если не Штурм (cram)
     if not payload.is_cram:
+        if effective_rating == 1:
+            card.lapses += 1
         card.stability = stability
         card.difficulty = difficulty
         card.state = state

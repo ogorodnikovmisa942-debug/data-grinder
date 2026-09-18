@@ -1021,7 +1021,8 @@ async function startSession(mode) {
 async function fetchActiveSession(mode = 'mixed') {
     try {
         currentSessionMode = mode;
-        const response = await apiFetch(`/api/session?subject=${currentSubject}&mode=${mode}`);
+        const targetSub = (mode === 'cram') ? 'all' : currentSubject;
+        const response = await apiFetch(`/api/session?subject=${targetSub}&mode=${mode}`);
         cardsQueue = await response.json();
         shuffleArray(cardsQueue);
         const surveyContainer = document.getElementById('survey-container');
@@ -1035,7 +1036,7 @@ async function fetchActiveSession(mode = 'mixed') {
                 if (surveyContainer) surveyContainer.classList.add('hidden');
                 if (cardText) {
                     cardText.classList.remove('hidden');
-                    cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : "Очередь пуста");
+                    cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : (mode === 'cram' ? "Штурм недоступен" : "Очередь пуста"));
                 }
             }
             if (cardSecondaryText) cardSecondaryText.textContent = "";
@@ -1044,7 +1045,9 @@ async function fetchActiveSession(mode = 'mixed') {
                     ? "На данный момент нет карточек, требующих повторения." 
                     : (mode === 'new' 
                         ? "Вы изучили все новые карточки на сегодня или дневной лимит исчерпан." 
-                        : "Все задачи решены.");
+                        : (mode === 'cram'
+                            ? "В режиме штурма повторяются только пройденные сложные карточки. Сначала изучите новые карточки в режиме «Учить новое»."
+                            : "Все задачи решены."));
             }
             if (cardCounter) cardCounter.textContent = "";
             if (progressFill) progressFill.style.width = "100%"; 
@@ -1797,11 +1800,26 @@ function renderSessionStarterButtons(data) {
         }
     }
 
-    // 3. Штурм
-    const totalDeck = data.total_cards !== undefined ? data.total_cards : (data.cards_new + data.cards_learning + data.cards_review);
+    // 3. Штурм (сложные карточки со всех предметов без влияния на fsrs)
+    const cramAvailable = data.cards_cram_available !== undefined 
+        ? data.cards_cram_available 
+        : (data.cards_learning + data.cards_review);
+    const btnCram = document.getElementById('btn-session-cram');
     if (btnCramText && btnCramBadge) {
         btnCramText.textContent = "[ ШТУРМ ]";
-        btnCramBadge.textContent = `${totalDeck} КАРТ`;
+        if (cramAvailable > 0) {
+            btnCramBadge.textContent = `${cramAvailable} КАРТ (СЛОЖНЫЕ)`;
+            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
+            if (btnCram) {
+                btnCram.className = "w-full flex items-center justify-between px-4 border border-amber-500/40 hover:border-amber-500 text-amber-700 dark:text-amber-300 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed hover:bg-amber-500/5 cursor-pointer shadow-xs";
+            }
+        } else {
+            btnCramBadge.textContent = "0 (НЕТ ИЗУЧЕННЫХ)";
+            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
+            if (btnCram) {
+                btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed";
+            }
+        }
     }
 }
 
@@ -5716,8 +5734,14 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     if (currentForceGraphInstance) {
         currentForceGraphInstance.refresh();
         if (typeof targetNode.x === 'number' && typeof targetNode.y === 'number') {
-            currentForceGraphInstance.centerAt(targetNode.x, targetNode.y, 750);
-            currentForceGraphInstance.zoom(1.8, 750);
+            const isMobile = window.innerWidth <= 768;
+            const targetZoom = isMobile ? 1.5 : 1.8;
+            const wrapper = document.getElementById('kg-graph-canvas-wrapper');
+            const h = wrapper ? wrapper.clientHeight : (window.innerHeight - 150);
+            // Вариант А: смещаем центр холста вниз, чтобы узел оказался в верхней половине видимой зоны над шторкой
+            const yOffset = isMobile ? (h * 0.22 / targetZoom) : 0;
+            currentForceGraphInstance.centerAt(targetNode.x, targetNode.y + yOffset, 750);
+            currentForceGraphInstance.zoom(targetZoom, 750);
         }
     }
 
@@ -5990,22 +6014,55 @@ window.initForceGraph = function(graphData) {
             ctx.restore();
         })
         .nodePointerAreaPaint((node, color, ctx) => {
-            const radius = Math.max(4, (node.val || 5)) + 5;
+            const baseR = Math.max(3.0, (node.val || 4) * 0.75);
+            // Увеличиваем сенсорный радиус касания для мобильных пальцев (минимум 26px)
+            const radius = Math.max(26, baseR + 10);
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
             ctx.fill();
+
+            // Также регистрируем область текстовой плашки понятия под узлом,
+            // чтобы нажатие на текст на телефоне не считалось фоновым кликом!
+            const label = node.name || node.id;
+            if (label) {
+                const baseFontSize = (node.level === 0 ? 12 : (node.level === 1 ? 9.5 : 8));
+                const lineHeight = baseFontSize + 3.0;
+                const lines = node.__lines || wrapNodeText(label, node.level === 0 ? 22 : 16);
+                const startY = node.y + (baseR * 1.4) + 4.5 + (lineHeight / 2);
+                
+                lines.forEach((line, i) => {
+                    const lineY = startY + (i * lineHeight);
+                    const pillW = Math.max(60, line.length * (baseFontSize * 0.7) + 20);
+                    const pillH = baseFontSize + 9.0;
+                    ctx.beginPath();
+                    ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
+                    ctx.fill();
+                });
+            }
         })
         .onNodeClick(node => {
-            // Повторный клик по активному узлу сбрасывает выделение
+            if (!node || !node.id) return;
+            const now = Date.now();
             if (activeSearchTargetId === String(node.id)) {
-                window.clearKgSearch();
+                // Если клик повторный в пределах 600мс — это мобильный дубль тапа, не сбрасываем
+                if (now - (window.__lastKgNodeClickTime || 0) < 600) return;
+                // Иначе просто подтверждаем открытие карточки понятия
+                showKgNodeDrawer(node);
                 return;
             }
+            window.__lastKgNodeClickTime = now;
             focusNodeInGraph(node.id);
         })
         .onBackgroundClick(() => {
-            // Клик по пустому пространству мгновенно сбрасывает выделение
+            // На мобильных устройствах не сбрасываем выделение по случайному касанию холста,
+            // чтобы свайп или зум не закрывали открытую карточку понятия!
+            if (window.innerWidth <= 768) {
+                const resBox = document.getElementById('kg-search-results');
+                if (resBox) resBox.classList.add('hidden');
+                return;
+            }
+            // На десктопе сохраняем сброс кликом по пустому месту
             window.clearKgSearch();
         });
 
@@ -6147,6 +6204,13 @@ window.showKgNodeDrawer = function(node) {
         } else {
             if (linksSection) linksSection.classList.add('hidden');
         }
+    }
+
+    if (drawer && !drawer.__touchIsolated) {
+        drawer.__touchIsolated = true;
+        drawer.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+        drawer.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+        drawer.addEventListener('pointerdown', e => e.stopPropagation(), { passive: true });
     }
 
     drawer.classList.remove('hidden');

@@ -65,6 +65,10 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
     3. Normative Defining Criteria: Test the exact constituent legal standard or threshold, never dictionary wordiness.
   * Decision Vignettes: For procedural rules, jurisdiction, and appeals, construct a situational decision point: Given factual status A and conflict B, which instance, authority, deadline, or remedy applies?
   * The back ('d') delivers the exact concept, definition core, or procedural verdict in 1 grammatically complete sentence with statutory article.
+  * ANTI-GIVEAWAY DIRECTIVE (Stem-to-Answer Root & Synonym Leakage Prohibition):
+    The question stem 't' MUST NEVER contain the root, morphological stem, obvious synonym, or literal definition of the target answer 'd'.
+    - FORBIDDEN GIVEAWAY: Mentioning the answer's root or key defining term in 't' (e.g. "Какая теория утверждает, что государство создано Богом? -> Теологическая" — "Богом" gives away "Тео-"; "Какой принцип гарантирует независимость судей? -> Принцип независимости судей"; "Какая функция права отвечает за охрану правопорядка? -> Охранительная функция").
+    - MANDATORY ANTI-GIVEAWAY REPHRASING: Describe the functional mechanism, operational consequences, or objective factual elements WITHOUT uttering the defining stem (e.g. "Согласно какому учению происхождение государства возводится к высшей сакральной сверхъестественной воле? -> Теологическая теория."; "Какой конституционный принцип категорически исключает вмешательство любых органов и лиц в процесс отправления правосудия? -> Принцип независимости судей.").
   * ANTI-BOILERPLATE SYNTAX LAW (Strict Prohibition of Robotic Formulaic Stems):
     Do NOT generate repetitive, formulaic decks where multiple cards begin with the exact same sentence openers (such as "Какое понятие обозначает...", "Что представляет собой...", or "Чем принципиально отличается...").
     Formulate questions naturally and variedly across 4 universal cognitive archetypes:
@@ -76,6 +80,7 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * The human brain understands structure strictly through boundaries and differences.
   * When encountering two related, easily confused concepts, institutions, or diagnoses (e.g. народные vs присяжные заседатели; крайняя необходимость vs необходимая оборона; ИМпST vs расслоение аорты):
     Formulate a contrast card testing the single decisive dividing line (Gold Standard Discriminative Criterion).
+  * ATOMIC CONTRAST DISCRIMINANT: Formulate the difference sharply in under 15 words without reciting the whole textbook definition for both sides (e.g. "Виндикация — истребование владения; негаторный иск — устранение помех пользованию без лишения владения.").
 - Rule 4: High-Yield Doctrinal Taxonomy (Functional Classification, Zero Fluff):
   * Foundational classifications (e.g. "На какие 2 типа делятся конституционные предписания по способу воздействия на субъектов? -> Императивные (категорические запреты/обязанности) и диспозитивные (допускающие выбор поведения)") are strictly preserved!
   * Formulate them strictly through their functional distinction, never through dictionary padding.
@@ -94,7 +99,9 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
   * PERMITTED IN 's': STRICTLY high-level domain qualification, code name, and procedural chapter to disambiguate context without spoiling recall.
   * Canonical Format: '[Discipline / Statutory Code / Procedural Stage] | [Conceptual Scope / Normative Category]'
 - Rule 7: Plain Language & Intuitive Example Directive (Feynman Principle):
-  * The back side ('d') must deliver the semantic core in simple, crystal-clear, direct language. Avoid impenetrable academic jargon and heavy bureaucratic legalese where a straightforward term suffices.
+  * ATOMIC ANSWER DIRECTIVE (Strict Brevity: 1-12 Words, Zero Essays):
+    The back side ('d') must deliver the semantic core in simple, crystal-clear, direct language in strictly 1 to 12 words (maximum 1 short, punchy sentence).
+    NEVER output 30-50 word textbook paragraphs as 'd'. Extended explanations, statutory citations, and historical nuance belong exclusively in 'e' (Example) and 's' (Anchor).
   * The example field ('e') MUST explain the concept using a vivid, intuitive real-world scenario, practical case, or thought experiment ("на пальцах" / "на живом примере").
   * Absolute prohibition in 'e' of merely copying dry legal statutes, quoting bylaw articles verbatim, or using abstract philosophical mumbo-jumbo.
   * Show the rule or principle in action: Who did what? What was the immediate practical consequence?
@@ -336,6 +343,25 @@ CONTRAST CASE 8 (Language - Chinese Vocabulary):
       "h": "Юридическая лексика"
     }
   ]
+}
+
+CONTRAST CASE 9 (Universal - Giveaway Question Stem vs Anti-Giveaway Functional Formulation):
+❌ UNACCEPTABLE QUESTION STEM GIVEAWAY:
+{
+  "t": "Какая теория происхождения государства утверждает, что оно создано Богом?",
+  "s": "Теория государства и права | Учения о происхождении государства",
+  "d": "Теологическая теория."
+}
+(Explanation: The word 'Богом' immediately gives away 'Теологическая' with zero cognitive effort or understanding.)
+
+✅ CORRECT ANTI-GIVEAWAY SPECIFICATION (Atomic & Discriminant):
+{
+  "t": "Согласно какому учению генезис публичной власти возводится к высшей сакральной сверхъестественной воле, а монарх выступает помазанником?",
+  "s": "Теория государства и права | Доктрины происхождения государства",
+  "d": "Теологическая теория.",
+  "e": "Яркие представители (Фома Аквинский, Августин) обосновывали священность монархии и греховность неповиновения государю.",
+  "l": "easy",
+  "h": "Происхождение государства"
 }
 
 6. CRITICAL FORMATTING & SYNTAX CONSTRAINTS:

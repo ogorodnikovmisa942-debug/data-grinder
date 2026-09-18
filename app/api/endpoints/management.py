@@ -873,11 +873,20 @@ async def get_analytics(
     heatmap_res = await db.execute(heatmap_stmt)
     heatmap_data = {str(row[0]): row[1] for row in heatmap_res.all() if row[0]}
 
+    # Подсчет изученных карт для режима штурма (все предметы, state in [1, 2, 3])
+    cram_available_stmt = select(func.count(Card.id)).filter(
+        Card.user_id == current_user,
+        Card.state.in_([1, 2, 3])
+    )
+    cram_available_res = await db.execute(cram_available_stmt)
+    cards_cram_available = cram_available_res.scalar() or 0
+
     return {
         "cards_new": states_dict[0], 
         "cards_learning": states_dict[1] + states_dict[3], 
         "cards_review": states_dict[2],
         "total_cards": total_cards,
+        "cards_cram_available": cards_cram_available,
         "due_reviews_now": due_reviews_now,
         "new_remaining_today": new_remaining_today,
         "daily_new_limit": daily_new_limit,
