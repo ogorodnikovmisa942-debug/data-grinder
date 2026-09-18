@@ -480,6 +480,75 @@ class TestKnowledgeGraph(unittest.TestCase):
         get_res = self.client.get("/api/knowledge-graph?subject=delete_test_deck", headers={"X-User-Id": self.user_a})
         self.assertEqual(get_res.status_code, 404)
 
+    def test_14_deck_deletion_purges_graph_permanently(self):
+        """Deleting a deck via /api/data/subjects/{sub} permanently removes its TopicKnowledgeGraph."""
+        sub = "deck_to_purge"
+        payload = {
+            "subject": sub,
+            "graph_data": {
+                "nodes": [{"id": "p1", "name": "Purge Node", "category": "authority", "summary": "To purge."}],
+                "edges": []
+            }
+        }
+        self.client.post("/api/knowledge-graph", headers={"X-User-Id": self.user_a}, json=payload)
+        self.client.post("/api/management/cards", headers={"X-User-Id": self.user_a}, json={
+            "subject": sub,
+            "text": "Card for purge test",
+            "translation": "Translation"
+        })
+
+        # Verify graph exists
+        res = self.client.get(f"/api/knowledge-graph?subject={sub}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(res.status_code, 200)
+
+        # Delete subject all
+        del_sub_res = self.client.delete(f"/api/data/subjects/{sub}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(del_sub_res.status_code, 200)
+
+        # Verify graph is gone and returns 404
+        get_res = self.client.get(f"/api/knowledge-graph?subject={sub}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(get_res.status_code, 404)
+
+    def test_15_single_card_deletion_preserves_graph_structure(self):
+        """Deleting a single card keeps graph structure, but deleting the last card purges the graph."""
+        sub = "preserve_deck"
+        # 1. Create 2 cards
+        c1 = self.client.post("/api/management/cards", headers={"X-User-Id": self.user_a}, json={
+            "subject": sub, "text": "Card 1", "translation": "T1"
+        }).json()["card_id"]
+        c2 = self.client.post("/api/management/cards", headers={"X-User-Id": self.user_a}, json={
+            "subject": sub, "text": "Card 2", "translation": "T2"
+        }).json()["card_id"]
+
+        # 2. Put custom graph
+        custom_node_id = "custom_semantic_node_42"
+        self.client.post("/api/knowledge-graph", headers={"X-User-Id": self.user_a}, json={
+            "subject": sub,
+            "graph_data": {
+                "nodes": [{"id": custom_node_id, "name": "Semantic Authority", "category": "authority", "summary": "Detailed law concept"}],
+                "edges": []
+            }
+        })
+
+        # 3. Delete 1 card
+        del_c1 = self.client.delete(f"/api/management/cards/{c1}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(del_c1.status_code, 204)
+
+        # 4. Verify custom graph still intact (not overwritten by text synthesis)
+        g_res = self.client.get(f"/api/knowledge-graph?subject={sub}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(g_res.status_code, 200)
+        node_ids = [n["id"] for n in g_res.json()["graph_data"]["nodes"]]
+        self.assertIn(custom_node_id, node_ids, "Existing semantic graph should not be overwritten upon single card deletion")
+
+        # 5. Delete the last remaining card
+        del_c2 = self.client.delete(f"/api/management/cards/{c2}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(del_c2.status_code, 204)
+
+        # 6. Now that deck is empty, graph must be deleted
+        g_empty = self.client.get(f"/api/knowledge-graph?subject={sub}", headers={"X-User-Id": self.user_a})
+        self.assertEqual(g_empty.status_code, 404, "When 0 cards remain, graph must be deleted")
+
 
 if __name__ == "__main__":
     unittest.main()
+

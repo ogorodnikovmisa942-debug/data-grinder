@@ -52,11 +52,23 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
         return
 
     try:
+        # Проверяем UserSetting: если пользователь уже проходил онбординг, никогда не клонируем повторно
+        setting_stmt = select(UserSetting).filter(UserSetting.user_id == user_id)
+        user_setting = (await db.execute(setting_stmt)).scalar_one_or_none()
+        if user_setting and user_setting.subject_limits and user_setting.subject_limits.get("_onboarded"):
+            return
+
         user_cards_count = (await db.execute(
             select(func.count(Card.id)).filter(Card.user_id == user_id)
         )).scalar() or 0
 
         if user_cards_count > 0:
+            if user_setting:
+                limits = dict(user_setting.subject_limits or {})
+                if not limits.get("_onboarded"):
+                    limits["_onboarded"] = True
+                    user_setting.subject_limits = limits
+                    await db.commit()
             return
 
         # Ищем источник карточек
@@ -137,6 +149,11 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
                     updated_at=now
                 )
                 db.add(new_g)
+
+        if user_setting:
+            limits = dict(user_setting.subject_limits or {})
+            limits["_onboarded"] = True
+            user_setting.subject_limits = limits
 
         await db.commit()
         print(f"[Auth Onboarding] Для пользователя {user_id} клонирована библиотека из {len(src_cards)} карточек.")

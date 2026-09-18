@@ -406,15 +406,52 @@ async def sync_subject_knowledge_and_practice(
     graph_data = None
     tree_data = None
 
-    if kg_data and kg_data.get("nodes") and len(kg_data.get("nodes", [])) >= 20:
+    # Проверяем, есть ли уже сохраненный граф для данного пользователя и предмета
+    kg_stmt = select(TopicKnowledgeGraph).where(
+        TopicKnowledgeGraph.user_id == user_id,
+        TopicKnowledgeGraph.subject == canonical
+    )
+    kg_rec = (await db.execute(kg_stmt)).scalars().first()
+
+    stmt_c = select(Card).where(Card.user_id == user_id, Card.subject.in_(all_aliases))
+    res_c = await db.execute(stmt_c)
+    deck_cards = res_c.scalars().all()
+
+    if not deck_cards and not cards_data:
+        # Если в предмете не осталось карточек — полностью удаляем граф и практику для ЛЮБОГО предмета
+        await db.execute(delete(TopicKnowledgeGraph).where(
+            TopicKnowledgeGraph.user_id == user_id,
+            TopicKnowledgeGraph.subject.in_(all_aliases)
+        ))
+        await db.execute(delete(PracticeItem).where(
+            PracticeItem.user_id == user_id,
+            PracticeItem.subject.in_(all_aliases)
+        ))
+    elif kg_data and kg_data.get("nodes") and len(kg_data.get("nodes", [])) >= 20:
+        # Явно передан свежий семантический граф от ИИ (генерация / импорт)
         graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
         tree_data = kg_data.get("tree_data")
+        if kg_rec:
+            kg_rec.graph_data = graph_data
+            kg_rec.tree_data = tree_data
+            kg_rec.updated_at = now
+        else:
+            new_kg = TopicKnowledgeGraph(
+                user_id=user_id,
+                subject=canonical,
+                graph_data=graph_data,
+                tree_data=tree_data,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(new_kg)
+    elif kg_rec:
+        # Граф уже существует! При удалении/редактировании отдельных карточек НЕ разрушаем структуру графа
+        if isinstance(kg_rec.graph_data, dict):
+            kg_rec.graph_data["deck_size"] = len(deck_cards)
+            kg_rec.updated_at = now
     else:
-        # Извлекаем все актуальные карточки пользователя по всем алиасам для построения полного графа
-        stmt_c = select(Card).where(Card.user_id == user_id, Card.subject.in_(all_aliases))
-        res_c = await db.execute(stmt_c)
-        deck_cards = res_c.scalars().all()
-
+        # Графа еще нет совсем, но карточки есть — выполняем первичный синтез
         cards_payload = [
             {
                 "text": c.text,
@@ -433,18 +470,6 @@ async def sync_subject_knowledge_and_practice(
             graph_data = syn["graph_data"]
             graph_data["deck_size"] = len(deck_cards) if deck_cards else len(cards_payload)
             tree_data = syn.get("tree_data")
-
-    if graph_data:
-        kg_stmt = select(TopicKnowledgeGraph).where(
-            TopicKnowledgeGraph.user_id == user_id,
-            TopicKnowledgeGraph.subject == canonical
-        )
-        kg_rec = (await db.execute(kg_stmt)).scalars().first()
-        if kg_rec:
-            kg_rec.graph_data = graph_data
-            kg_rec.tree_data = tree_data
-            kg_rec.updated_at = now
-        else:
             new_kg = TopicKnowledgeGraph(
                 user_id=user_id,
                 subject=canonical,
@@ -454,17 +479,6 @@ async def sync_subject_knowledge_and_practice(
                 updated_at=now
             )
             db.add(new_kg)
-    elif not cards_payload and not cards_data:
-        # Если в предмете не осталось карточек, очищаем граф и практику для пользовательских предметов
-        if canonical not in ("sudoustroystvo", "court_system", "судоустройство", "default"):
-            await db.execute(delete(TopicKnowledgeGraph).where(
-                TopicKnowledgeGraph.user_id == user_id,
-                TopicKnowledgeGraph.subject.in_(all_aliases)
-            ))
-            await db.execute(delete(PracticeItem).where(
-                PracticeItem.user_id == user_id,
-                PracticeItem.subject.in_(all_aliases)
-            ))
 
     # 3. Синхронизируем интерактивную практику
     try:

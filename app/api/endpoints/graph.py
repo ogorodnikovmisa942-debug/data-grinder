@@ -87,11 +87,18 @@ async def get_knowledge_graph(
         ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
         top_sub = (await db.execute(top_stmt)).scalar()
         if not top_sub:
-            def_stmt = select(Card.subject).where(
-                Card.user_id.in_(["default_user", "dev_user"])
-            ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
-            top_sub = (await db.execute(def_stmt)).scalar()
-        clean_sub = top_sub if top_sub else "sudoustr"
+            # Проверяем, есть ли хотя бы одна сохраненная запись графа у пользователя
+            top_kg_stmt = select(TopicKnowledgeGraph.subject).where(
+                TopicKnowledgeGraph.user_id == current_user
+            ).order_by(TopicKnowledgeGraph.updated_at.desc()).limit(1)
+            top_sub = (await db.execute(top_kg_stmt)).scalar()
+        if not top_sub:
+            if current_user in ("default_user", "dev_user") or not current_user.isdigit():
+                def_stmt = select(Card.subject).where(
+                    Card.user_id.in_(["default_user", "dev_user"])
+                ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
+                top_sub = (await db.execute(def_stmt)).scalar()
+        clean_sub = top_sub if top_sub else "generic"
 
     all_aliases = get_all_subject_aliases(clean_sub)
     if clean_sub not in all_aliases:
@@ -114,30 +121,18 @@ async def get_knowledge_graph(
     result = await db.execute(stmt)
     records = result.scalars().all()
 
-    # Fallback на пресетный сид-граф при отсутствии персональных карточек и графа
+    # Fallback на пресетный сид-граф только для тестовых профилей или первого знакомства при отсутствии колод
     if not records and not user_cards:
-        seed = get_preset_seed_graph(clean_sub)
-        if seed:
-            return KnowledgeGraphResponse(
-                subject=clean_sub,
-                graph_data=seed["graph_data"],
-                tree_data=seed.get("tree_data"),
-                updated_at=None,
-                is_seed=True
-            )
-        # Для несеменированных предметов у реальных Telegram-пользователей проверяем системный демо-профиль
-        if current_user.isdigit():
-            card_def_stmt = select(Card).options(selectinload(Card.phrase)).where(
-                Card.user_id.in_(["default_user", "dev_user"]),
-                Card.subject.in_(all_aliases)
-            )
-            user_cards = (await db.execute(card_def_stmt)).scalars().all()
-
-            stmt_def = select(TopicKnowledgeGraph).where(
-                TopicKnowledgeGraph.user_id.in_(["default_user", "dev_user"]),
-                TopicKnowledgeGraph.subject.in_(all_aliases)
-            ).order_by(TopicKnowledgeGraph.updated_at.desc())
-            records = (await db.execute(stmt_def)).scalars().all()
+        if current_user in ("default_user", "dev_user") or not current_user.isdigit():
+            seed = get_preset_seed_graph(clean_sub)
+            if seed:
+                return KnowledgeGraphResponse(
+                    subject=clean_sub,
+                    graph_data=seed["graph_data"],
+                    tree_data=seed.get("tree_data"),
+                    updated_at=None,
+                    is_seed=True
+                )
 
     # Устраняем конфликты записей по алиасам одного и того же предмета для одного пользователя
     if len(records) > 1:
@@ -407,9 +402,10 @@ async def rebuild_knowledge_graph(
     user_cards = cards_res.scalars().all()
 
     if not user_cards:
-        stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_(all_aliases))
-        res_def = await db.execute(stmt_def)
-        user_cards = res_def.scalars().all()
+        if current_user in ("default_user", "dev_user"):
+            stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_(all_aliases))
+            res_def = await db.execute(stmt_def)
+            user_cards = res_def.scalars().all()
 
     if not user_cards:
         raise HTTPException(
