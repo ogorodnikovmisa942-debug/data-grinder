@@ -120,8 +120,26 @@ class DailySessionIn(BaseModel):
     perceived_retention: int
     session_duration: int
 
+def is_admin_or_dev(user_id: str) -> bool:
+    user_clean = str(user_id or "").strip()
+    if not user_clean:
+        return False
+    if user_clean in ("default_user", "dev_user"):
+        return True
+    admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
+    if admin_id_str:
+        admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
+        if user_clean in admins:
+            return True
+    return False
+
 async def check_experiment_lock(current_user: str, db: AsyncSession):
-    """Проверяет блокировку модификации колоды и настроек для участников научного эксперимента (Фаза 1)."""
+    """Проверяет блокировку модификации колоды и настроек для участников научного эксперимента (Фаза 1).
+    Администраторы и тестовые пользователи освобождены от блокировки.
+    """
+    if is_admin_or_dev(current_user):
+        return
+
     session_res = await db.execute(select(UserSession).filter(UserSession.user_id == current_user))
     user_sess = session_res.scalars().first()
     if user_sess and user_sess.is_experiment_participant and user_sess.experiment_phase == 1:
@@ -785,7 +803,7 @@ async def get_analytics(
     is_participant = bool(user_sess and user_sess.is_experiment_participant)
     phase = user_sess.experiment_phase if user_sess else 1
 
-    if is_participant and phase == 1:
+    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
         daily_new_limit = settings.EXPERIMENT_DAILY_LIMIT
     else:
         setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

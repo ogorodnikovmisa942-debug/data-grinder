@@ -287,6 +287,9 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
         [ai_toggle],
         [phase_toggle],
         [
+            InlineKeyboardButton(text="🕊 Освободить меня от эксперимента", callback_data="admin_free_me")
+        ],
+        [
             InlineKeyboardButton(text="🔄 Обновить сводку", callback_data="admin_refresh")
         ]
     ])
@@ -337,6 +340,33 @@ async def cmd_admin(message: types.Message):
     data = await get_admin_dashboard_data()
     text_content = render_admin_dashboard_text(data)
     await message.answer(text_content, reply_markup=build_admin_keyboard(data["phase"], data["ai_provider"]), parse_mode="HTML")
+
+@dp.message(Command("free", "unlock"))
+async def cmd_free(message: types.Message):
+    user_id_str = str(message.from_user.id)
+    async with AsyncSessionLocal() as db:
+        sess_stmt = select(UserSession).filter(UserSession.telegram_id == user_id_str)
+        sess = (await db.execute(sess_stmt)).scalar_one_or_none()
+
+        set_stmt = select(UserSetting).filter(UserSetting.user_id == user_id_str)
+        user_set = (await db.execute(set_stmt)).scalar_one_or_none()
+
+        if sess:
+            sess.is_experiment_participant = False
+            sess.experiment_phase = 2
+        if user_set:
+            user_set.is_experiment_participant = False
+            user_set.experiment_phase = 2
+
+        await db.commit()
+
+    await message.answer(
+        "🕊 <b>Вы полностью освобождены от ограничений эксперимента!</b>\n\n"
+        "• Статус участника: <b>Отключен</b>\n"
+        "• Режим: <b>Фаза 2 (Свободный доступ)</b>\n"
+        "• Теперь вам снова доступны: удаление карточек, создание и импорт новых предметов, свободное изменение лимитов и сброс прогресса.",
+        parse_mode="HTML"
+    )
 
 @dp.message(Command("export"))
 async def cmd_export(message: types.Message):
@@ -907,6 +937,35 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         except Exception:
             pass
         await callback.answer(f"🤖 Активная модель: DeepSeek ({settings.DEEPSEEK_MODEL})", show_alert=True)
+
+    elif action == "admin_free_me":
+        user_id_str = str(callback.from_user.id)
+        async with AsyncSessionLocal() as db:
+            sess_stmt = select(UserSession).filter(UserSession.telegram_id == user_id_str)
+            sess = (await db.execute(sess_stmt)).scalar_one_or_none()
+
+            set_stmt = select(UserSetting).filter(UserSetting.user_id == user_id_str)
+            user_set = (await db.execute(set_stmt)).scalar_one_or_none()
+
+            if sess:
+                sess.is_experiment_participant = False
+                sess.experiment_phase = 2
+            if user_set:
+                user_set.is_experiment_participant = False
+                user_set.experiment_phase = 2
+            await db.commit()
+
+        await callback.answer("🕊 Ваш аккаунт успешно освобожден от ограничений эксперимента!", show_alert=True)
+        data = await get_admin_dashboard_data()
+        try:
+            await callback.message.edit_text(
+                render_admin_dashboard_text(data),
+                reply_markup=build_admin_keyboard(data["phase"], data["ai_provider"], data["ai_model"]),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
 
 
 @dp.message(F.document)

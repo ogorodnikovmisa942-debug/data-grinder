@@ -24,6 +24,19 @@ class AnswerIn(BaseModel):
     is_introduction: bool = False
     is_fast_track: bool = False
 
+def is_admin_or_dev(user_id: str) -> bool:
+    user_clean = str(user_id or "").strip()
+    if not user_clean:
+        return False
+    if user_clean in ("default_user", "dev_user"):
+        return True
+    admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
+    if admin_id_str:
+        admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
+        if user_clean in admins:
+            return True
+    return False
+
 def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
     """
     Алгоритмический балансировщик (интерливинг).
@@ -86,7 +99,7 @@ async def get_session_cards(
     is_participant = bool(user_sess and user_sess.is_experiment_participant)
     phase = user_sess.experiment_phase if user_sess else 1
 
-    if is_participant and phase == 1:
+    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
         # Фаза 1: жесткий лок — только судоустройство, лимит 20 карт, target_retention = 0.9
         subject = "sudoustroystvo"
         limit = settings.EXPERIMENT_DAILY_LIMIT
@@ -285,7 +298,7 @@ async def handle_answer(
     is_participant = bool(user_sess and user_sess.is_experiment_participant)
     phase = user_sess.experiment_phase if user_sess else 1
 
-    if is_participant and phase == 1:
+    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
         target_retention = 0.9
     else:
         setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
