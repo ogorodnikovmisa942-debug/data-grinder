@@ -907,23 +907,27 @@ function updateAssocPreferenceUI(pref) {
 }
 window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
-function showSurveyDirectly() {
+window.showSurveyDirectly = function() {
     resetCardDOM();
     if (window.surveyCompletedToday) {
         const surveyContainer = document.getElementById('survey-container');
         if (surveyContainer) surveyContainer.classList.add('hidden');
-        if (cardText) {
-            cardText.classList.remove('hidden');
-            cardText.textContent = "Очередь пуста";
+        if (typeof window.showSessionDebrief === 'function') {
+            window.showSessionDebrief();
+        } else {
+            if (cardText) {
+                cardText.classList.remove('hidden');
+                cardText.textContent = "Очередь пуста";
+            }
+            if (cardCounter) cardCounter.textContent = "";
+            if (progressFill) progressFill.style.width = "100%";
+            if (actionButtons) {
+                actionButtons.classList.add('hidden');
+                actionButtons.classList.remove('flex');
+            }
+            if (cardSecondaryText) cardSecondaryText.textContent = "";
+            if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
         }
-        if (cardCounter) cardCounter.textContent = "";
-        if (progressFill) progressFill.style.width = "100%";
-        if (actionButtons) {
-            actionButtons.classList.add('hidden');
-            actionButtons.classList.remove('flex');
-        }
-        if (cardSecondaryText) cardSecondaryText.textContent = "";
-        if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
         return;
     }
     const surveyContainer = document.getElementById('survey-container');
@@ -939,8 +943,8 @@ function showSurveyDirectly() {
         actionButtons.classList.remove('flex');
     }
     if (cardSecondaryText) cardSecondaryText.textContent = "";
-    if (cardMainText) cardMainText.textContent = "Очередь пуста. Оцените параметры сессии:";
-}
+    if (cardMainText) cardMainText.textContent = "Сессия завершена. Оцените параметры сессии:";
+};
 
 let currentSessionStats = {
     totalAnswered: 0,
@@ -1233,7 +1237,11 @@ function recalculateQueueCounters() {
 function renderCurrentCard() {
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
-            showSessionDebrief();
+            if (!window.surveyCompletedToday) {
+                window.showSurveyDirectly();
+            } else {
+                showSessionDebrief();
+            }
         } else {
             resetCardDOM();
             showSessionStarter();
@@ -4909,27 +4917,26 @@ window.submitDailySessionSurvey = async function() {
         });
         
         if (response.ok) {
-            alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+            triggerHaptic('success');
+            if (window.showNotification) {
+                window.showNotification("Отчет сессии сохранен для аналитики FSRS!", "success");
+            } else {
+                alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+            }
             window.surveyCompletedToday = true;
             
             const surveyContainer = document.getElementById('survey-container');
-            const cardTextEl = document.getElementById('card-text');
-            const cardCounterEl = document.getElementById('card-counter');
-            
             if (surveyContainer) surveyContainer.classList.add('hidden');
-            if (cardTextEl) {
-                cardTextEl.classList.remove('hidden');
-                cardTextEl.textContent = "Очередь пуста";
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
             }
-            if (cardCounterEl) cardCounterEl.classList.remove('hidden');
             
-            if (cardSecondaryText) cardSecondaryText.textContent = "";
-            if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
-            
-            cardsQueue = [];
-            currentIndex = 0;
-            recalculateQueueCounters();
-            updateGlobalBadges();
+            if (typeof window.showSessionDebrief === 'function') {
+                window.showSessionDebrief();
+            } else {
+                window.exitToSessionMenu();
+            }
         } else {
             alert("Ошибка при отправке отчета сессии.");
             if (btn) {

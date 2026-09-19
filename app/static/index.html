@@ -317,6 +317,9 @@
                             <button id="survey-submit-btn" class="w-full bg-primary text-on-primary mt-3 py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase">
                                 [ОТПРАВИТЬ ОТЧЕТ СЕССИИ]
                             </button>
+                            <button type="button" onclick="event.stopPropagation(); window.showSessionDebrief();" class="text-[11px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 font-mono py-0.5">
+                                Пропустить к итогам &rarr;
+                            </button>
                         </div>
 
                         <!-- Экран итогов сессии (Session Debrief) -->
@@ -379,7 +382,11 @@
                                         <span>В ГРАФ</span>
                                     </button>
                                 </div>
-                                <button onclick="event.stopPropagation(); exitToSessionMenu();" class="w-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 py-1.5 text-[11px] font-mono uppercase flex items-center justify-center gap-1 transition-colors">
+                                <button type="button" onclick="event.stopPropagation(); window.showSurveyDirectly();" class="w-full text-neutral-400 hover:text-primary py-1 text-[10px] font-mono uppercase flex items-center justify-center gap-1 transition-colors">
+                                    <span class="material-symbols-outlined text-[13px]">rate_review</span>
+                                    <span>Оценить состояние сессии (FSRS)</span>
+                                </button>
+                                <button onclick="event.stopPropagation(); exitToSessionMenu();" class="w-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 py-1 text-[11px] font-mono uppercase flex items-center justify-center gap-1 transition-colors">
                                     <span class="material-symbols-outlined text-[14px]">arrow_back</span>
                                     <span>К списку сессий</span>
                                 </button>

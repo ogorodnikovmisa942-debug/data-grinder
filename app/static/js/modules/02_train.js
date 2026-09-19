@@ -702,23 +702,27 @@ function updateAssocPreferenceUI(pref) {
 }
 window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
-function showSurveyDirectly() {
+window.showSurveyDirectly = function() {
     resetCardDOM();
     if (window.surveyCompletedToday) {
         const surveyContainer = document.getElementById('survey-container');
         if (surveyContainer) surveyContainer.classList.add('hidden');
-        if (cardText) {
-            cardText.classList.remove('hidden');
-            cardText.textContent = "Очередь пуста";
+        if (typeof window.showSessionDebrief === 'function') {
+            window.showSessionDebrief();
+        } else {
+            if (cardText) {
+                cardText.classList.remove('hidden');
+                cardText.textContent = "Очередь пуста";
+            }
+            if (cardCounter) cardCounter.textContent = "";
+            if (progressFill) progressFill.style.width = "100%";
+            if (actionButtons) {
+                actionButtons.classList.add('hidden');
+                actionButtons.classList.remove('flex');
+            }
+            if (cardSecondaryText) cardSecondaryText.textContent = "";
+            if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
         }
-        if (cardCounter) cardCounter.textContent = "";
-        if (progressFill) progressFill.style.width = "100%";
-        if (actionButtons) {
-            actionButtons.classList.add('hidden');
-            actionButtons.classList.remove('flex');
-        }
-        if (cardSecondaryText) cardSecondaryText.textContent = "";
-        if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
         return;
     }
     const surveyContainer = document.getElementById('survey-container');
@@ -734,8 +738,8 @@ function showSurveyDirectly() {
         actionButtons.classList.remove('flex');
     }
     if (cardSecondaryText) cardSecondaryText.textContent = "";
-    if (cardMainText) cardMainText.textContent = "Очередь пуста. Оцените параметры сессии:";
-}
+    if (cardMainText) cardMainText.textContent = "Сессия завершена. Оцените параметры сессии:";
+};
 
 let currentSessionStats = {
     totalAnswered: 0,
@@ -1028,7 +1032,11 @@ function recalculateQueueCounters() {
 function renderCurrentCard() {
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
-            showSessionDebrief();
+            if (!window.surveyCompletedToday) {
+                window.showSurveyDirectly();
+            } else {
+                showSessionDebrief();
+            }
         } else {
             resetCardDOM();
             showSessionStarter();

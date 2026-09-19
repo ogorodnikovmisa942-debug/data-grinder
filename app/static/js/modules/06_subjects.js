@@ -304,27 +304,26 @@ window.submitDailySessionSurvey = async function() {
         });
         
         if (response.ok) {
-            alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+            triggerHaptic('success');
+            if (window.showNotification) {
+                window.showNotification("Отчет сессии сохранен для аналитики FSRS!", "success");
+            } else {
+                alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+            }
             window.surveyCompletedToday = true;
             
             const surveyContainer = document.getElementById('survey-container');
-            const cardTextEl = document.getElementById('card-text');
-            const cardCounterEl = document.getElementById('card-counter');
-            
             if (surveyContainer) surveyContainer.classList.add('hidden');
-            if (cardTextEl) {
-                cardTextEl.classList.remove('hidden');
-                cardTextEl.textContent = "Очередь пуста";
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
             }
-            if (cardCounterEl) cardCounterEl.classList.remove('hidden');
             
-            if (cardSecondaryText) cardSecondaryText.textContent = "";
-            if (cardMainText) cardMainText.textContent = "Все задачи решены. Опрос завершен.";
-            
-            cardsQueue = [];
-            currentIndex = 0;
-            recalculateQueueCounters();
-            updateGlobalBadges();
+            if (typeof window.showSessionDebrief === 'function') {
+                window.showSessionDebrief();
+            } else {
+                window.exitToSessionMenu();
+            }
         } else {
             alert("Ошибка при отправке отчета сессии.");
             if (btn) {
