@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.database.session import get_db
 from app.database.models import TopicKnowledgeGraph, Card
 from app.core.auth import get_current_user_id
+from collections import defaultdict
 from app.services.graph_service import (
     clean_graph_data,
     build_hierarchical_tree,
@@ -25,6 +26,124 @@ from app.services.graph_service import (
 )
 
 router = APIRouter()
+
+
+def enrich_graph_with_user_learning_state(
+    graph_data: dict,
+    tree_data: Optional[dict],
+    user_cards: list
+) -> tuple[dict, Optional[dict]]:
+    """Enriches graph and tree nodes with real-time user learning status (FSRS card states)."""
+    if not user_cards or not graph_data:
+        return graph_data, tree_data
+
+    card_by_id = {c.id: c for c in user_cards if hasattr(c, "id")}
+    
+    card_tuples = []
+    for c in user_cards:
+        c_id = getattr(c, "id", None)
+        c_state = getattr(c, "state", 0) or 0
+        c_reps = getattr(c, "reps", 0) or 0
+        front = (getattr(c, "text", "") or "").lower()
+        trans = (getattr(c, "translation", "") or "").lower()
+        sec = (getattr(c, "secondary_text", "") or "").lower()
+        ch = (getattr(c, "chapter", "") or getattr(c, "phrase_text", "") or "").lower()
+        slug = (getattr(c, "organ_slug", "") or "").lower()
+        card_tuples.append((c_id, c_state, c_reps, front, trans, sec, ch, slug))
+
+    nodes = graph_data.get("nodes", [])
+    node_state_map = {}
+
+    for node in nodes:
+        node_id = str(node.get("id", ""))
+        lvl = node.get("level", 2)
+        if lvl == 0:
+            continue
+        
+        assigned_card_id = node.get("card_id")
+        matched_card = None
+
+        if assigned_card_id and assigned_card_id in card_by_id:
+            c = card_by_id[assigned_card_id]
+            matched_card = (c.id, getattr(c, "state", 0) or 0, getattr(c, "reps", 0) or 0)
+        else:
+            n_name = (node.get("name", "") or "").lower().strip()
+            n_id = node_id.lower()
+            if n_name and len(n_name) >= 3:
+                for c_id, c_state, c_reps, front, trans, sec, ch, slug in card_tuples:
+                    if slug and slug in (n_id, n_name):
+                        matched_card = (c_id, c_state, c_reps)
+                        break
+                    if n_name in trans or n_name in front or (len(n_name) >= 5 and n_name[:5] in trans):
+                        matched_card = (c_id, c_state, c_reps)
+                        break
+
+        if matched_card:
+            c_id, c_state, c_reps = matched_card
+            is_learned = bool(c_state > 0 or c_reps > 0)
+            node["card_id"] = c_id
+            node["card_state"] = c_state
+            node["reps"] = c_reps
+            node["is_learned"] = is_learned
+            node_state_map[node_id] = {
+                "is_learned": is_learned,
+                "card_state": c_state,
+                "reps": c_reps,
+                "card_id": c_id
+            }
+        else:
+            node["card_state"] = 0
+            node["reps"] = 0
+            node["is_learned"] = False
+            node_state_map[node_id] = {
+                "is_learned": False,
+                "card_state": 0,
+                "reps": 0
+            }
+
+    branch_leaves = defaultdict(list)
+    for node in nodes:
+        if node.get("level") == 2 and node.get("parent_id"):
+            branch_leaves[str(node.get("parent_id"))].append(node)
+
+    for node in nodes:
+        if node.get("level") == 1:
+            b_id = str(node.get("id", ""))
+            leaves = branch_leaves.get(b_id, [])
+            total_leaves = len(leaves)
+            learned_leaves = sum(1 for leaf in leaves if leaf.get("is_learned"))
+            mastered_leaves = sum(1 for leaf in leaves if leaf.get("card_state") == 2)
+            
+            node["total_leaves"] = total_leaves
+            node["learned_count"] = learned_leaves
+            node["mastered_count"] = mastered_leaves
+            node["is_learned"] = learned_leaves > 0
+            if total_leaves > 0 and mastered_leaves == total_leaves:
+                node["card_state"] = 2
+            elif learned_leaves > 0:
+                node["card_state"] = 1
+            else:
+                node["card_state"] = 0
+            node_state_map[b_id] = {
+                "is_learned": node["is_learned"],
+                "card_state": node["card_state"],
+                "learned_count": learned_leaves,
+                "total_leaves": total_leaves
+            }
+
+    def enrich_tree_node(tnode):
+        if not tnode or not isinstance(tnode, dict):
+            return
+        tid = str(tnode.get("id", ""))
+        if tid in node_state_map:
+            tnode.update(node_state_map[tid])
+        for child in tnode.get("children", []):
+            enrich_tree_node(child)
+
+    if tree_data:
+        enrich_tree_node(tree_data)
+
+    return graph_data, tree_data
 
 
 # --- PYDANTIC SCHEMAS ---
@@ -194,10 +313,11 @@ async def get_knowledge_graph(
         except Exception:
             await db.rollback()
 
+        resp_g, resp_t = enrich_graph_with_user_learning_state(record.graph_data, record.tree_data, user_cards)
         return KnowledgeGraphResponse(
             subject=clean_sub,
-            graph_data=record.graph_data,
-            tree_data=record.tree_data,
+            graph_data=resp_g,
+            tree_data=resp_t,
             updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),
             is_seed=False
         )
@@ -211,10 +331,11 @@ async def get_knowledge_graph(
             r_nodes, r_edges = ensure_connected_spiderweb(r_nodes, r_edges, fallback_title=clean_sub)
             g_data = {"nodes": r_nodes, "edges": r_edges}
 
+        resp_g, resp_t = enrich_graph_with_user_learning_state(g_data, record.tree_data, user_cards)
         return KnowledgeGraphResponse(
             subject=clean_sub,
-            graph_data=g_data,
-            tree_data=record.tree_data,
+            graph_data=resp_g,
+            tree_data=resp_t,
             updated_at=record.updated_at.isoformat() if record.updated_at else None,
             is_seed=False
         )
@@ -237,10 +358,11 @@ async def get_knowledge_graph(
             except Exception:
                 await db.rollback()
 
+            resp_g, resp_t = enrich_graph_with_user_learning_state(syn["graph_data"], syn["tree_data"], user_cards)
             return KnowledgeGraphResponse(
                 subject=clean_sub,
-                graph_data=syn["graph_data"],
-                tree_data=syn["tree_data"],
+                graph_data=resp_g,
+                tree_data=resp_t,
                 updated_at=now.isoformat(),
                 is_seed=False
             )
@@ -457,10 +579,11 @@ async def rebuild_knowledge_graph(
     await db.commit()
     await db.refresh(record)
 
+    resp_g, resp_t = enrich_graph_with_user_learning_state(record.graph_data, record.tree_data, user_cards)
     return KnowledgeGraphResponse(
         subject=clean_sub,
-        graph_data=record.graph_data,
-        tree_data=record.tree_data,
+        graph_data=resp_g,
+        tree_data=resp_t,
         updated_at=record.updated_at.isoformat() if record.updated_at else now.isoformat(),
         is_seed=False
     )

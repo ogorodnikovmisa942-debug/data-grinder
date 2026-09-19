@@ -746,7 +746,8 @@ let currentSessionStats = {
     correctCount: 0,
     lapsedCount: 0,
     newCount: 0,
-    startTime: null
+    startTime: null,
+    reviewedCards: []
 };
 
 function resetCardDOM() {
@@ -869,6 +870,30 @@ window.openGraphFromDebrief = function() {
     triggerHaptic('medium');
     const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : getActiveDeckSubject();
     openKnowledgeGraphModal(sub);
+    switchKgView('graph');
+
+    const reviewed = (currentSessionStats.reviewedCards && currentSessionStats.reviewedCards.length > 0)
+        ? currentSessionStats.reviewedCards
+        : cardsQueue.slice(0, currentIndex || 10);
+
+    const tryHighlight = () => {
+        if (!currentKgGraphData || !currentKgGraphData.nodes || currentKgGraphData.nodes.length === 0) return false;
+        if (typeof window.highlightSessionInGraph === 'function') {
+            window.highlightSessionInGraph(reviewed);
+            return true;
+        }
+        return false;
+    };
+
+    if (!tryHighlight()) {
+        let attempts = 0;
+        const iv = setInterval(() => {
+            attempts++;
+            if (tryHighlight() || attempts > 15) {
+                clearInterval(iv);
+            }
+        }, 200);
+    }
 };
 
 window.teleportCurrentCardToGraph = function() {
@@ -887,7 +912,10 @@ window.teleportCurrentCardToGraph = function() {
         const nodes = currentKgGraphData.nodes;
         
         let target = null;
-        if (card.organ_slug) {
+        if (card.id) {
+            target = nodes.find(n => n.card_id === card.id || (n.card_ids && n.card_ids.includes(card.id)));
+        }
+        if (!target && card.organ_slug) {
             target = nodes.find(n => String(n.id) === String(card.organ_slug));
         }
         if (!target && card.translation) {
@@ -900,6 +928,14 @@ window.teleportCurrentCardToGraph = function() {
         if (!target && card.text) {
             const qLower = card.text.toLowerCase().trim();
             target = nodes.find(n => n.name && qLower.includes(n.name.toLowerCase().trim()));
+            if (!target) {
+                const words = qLower.match(/[a-zа-яё0-9]{4,}/g) || [];
+                for (const w of words) {
+                    const stem = w.slice(0, 5);
+                    target = nodes.find(n => n.name && n.name.toLowerCase().includes(stem));
+                    if (target) break;
+                }
+            }
         }
 
         if (target) {
@@ -953,7 +989,8 @@ async function startSession(mode) {
         correctCount: 0,
         lapsedCount: 0,
         newCount: 0,
-        startTime: Date.now()
+        startTime: Date.now(),
+        reviewedCards: []
     };
     resetCardDOM();
     const starter = document.getElementById('session-starter');
@@ -1314,6 +1351,8 @@ function completeIntroduction() {
     currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
     currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
     currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
@@ -1343,6 +1382,8 @@ window.fastTrackIntroduction = function() {
     currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
     currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
     currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
@@ -1385,12 +1426,12 @@ function renderReviewCard(card) {
     
     const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
 
-    // Хлебные крошки: предмет карточки на лицевой стороне
+    // Хлебные крошки: предмет карточки на лицевой стороне показываем только в общем режиме ("Все предметы")
     const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
     const frontSubBadge = document.getElementById('card-front-subject-badge');
     const frontSubText = document.getElementById('card-front-subject-text');
     if (frontSubBadge && frontSubText) {
-        if (subTitle) {
+        if (subTitle && currentSubject === 'all') {
             frontSubText.textContent = subTitle;
             frontSubBadge.classList.remove('hidden');
             frontSubBadge.classList.add('inline-flex');
@@ -1501,9 +1542,31 @@ function renderReviewCard(card) {
         if (secText) {
             // Защита от спойлеров: на лицевой стороне оставляем только нейтральный нормативный контекст (до '|')
             if (secText.includes('|')) {
-                secText = secText.split('|')[0].trim();
+                const parts = secText.split('|').map(p => p.trim()).filter(Boolean);
+                const subLower = (card.subject_title || subTitle || card.subject || '').toLowerCase();
+                if (parts[0] && parts[0].toLowerCase() === subLower && parts.length > 1) {
+                    secText = parts[1];
+                } else {
+                    secText = parts[0] || '';
+                }
             }
-            if (ansLower) {
+
+            // Убираем дублирование названия колоды или главы на лицевой стороне карточки
+            const secLower = secText.toLowerCase();
+            const subTitleLower = (subTitle || '').toLowerCase();
+            const cardSubLower = (card.subject || '').toLowerCase();
+            const cardSubTitleLower = (card.subject_title || '').toLowerCase();
+            const chLower = (card.chapter || '').toLowerCase();
+
+            if (secLower === subTitleLower || secLower === cardSubLower || secLower === cardSubTitleLower || (chLower && secLower === chLower)) {
+                secText = '';
+            } else if (subTitleLower && secLower.length > 4 && subTitleLower.includes(secLower)) {
+                secText = '';
+            } else if (cardSubTitleLower && secLower.length > 4 && cardSubTitleLower.includes(secLower)) {
+                secText = '';
+            }
+
+            if (secText && ansLower) {
                 const secWords = secText.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || [];
                 const ansWords = ansLower.match(/[a-zа-яё0-9]{4,}/g) || [];
                 const stopWords = new Set(["суда", "суду", "суде", "дело", "дела", "орган", "закон", "право", "кодекс", "понятие", "термин"]);
@@ -1738,6 +1801,8 @@ window.submitCardRating = function(rating) {
     } else if (rating === 1) {
         currentSessionStats.lapsedCount = (currentSessionStats.lapsedCount || 0) + 1;
     }
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(currentCard);
 
     if (rating === 1) { 
         if (currentCard.state === 2) {

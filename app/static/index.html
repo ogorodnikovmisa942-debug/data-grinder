@@ -1288,42 +1288,42 @@
                 <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full min-h-0 overflow-hidden">
                     <div id="kg-graph-canvas-wrapper" class="w-full h-full min-h-0"></div>
 
-                    <!-- Панель переключения геометрии и поиска по связям -->
-                    <div class="absolute top-3 left-3 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1.5 flex-wrap max-w-[calc(100%-24px)]">
-                        <div class="flex items-center gap-0.5 border-r border-neutral-200 dark:border-neutral-700 pr-1.5 mr-0.5">
-                            <button id="kg-layout-force" onclick="setGraphLayout('force')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Органическая паутина со структурированными лучами">
-                                <span class="material-symbols-outlined text-[14px]">hub</span>
-                                <span>Паутина</span>
+                    <!-- Панель переключения геометрии и поиска по связям (компактная на мобильных устройствах) -->
+                    <div class="absolute top-2.5 left-2.5 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 max-w-[calc(100%-20px)] flex-nowrap">
+                        <div class="flex items-center gap-0.5 border-r border-neutral-200 dark:border-neutral-700 pr-1 mr-0.5 shrink-0">
+                            <button id="kg-layout-force" onclick="setGraphLayout('force')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Паутина: органическая раскладка">
+                                <span class="material-symbols-outlined text-[15px]">hub</span>
+                                <span class="hidden sm:inline">Паутина</span>
                             </button>
-                            <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Концентрические радиальные кольца от центра">
-                                <span class="material-symbols-outlined text-[14px]">adjust</span>
-                                <span>Радиальное</span>
+                            <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Радиальное: концентрические кольца">
+                                <span class="material-symbols-outlined text-[15px]">adjust</span>
+                                <span class="hidden sm:inline">Радиальное</span>
                             </button>
-                            <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Иерархическое дерево сверху вниз">
-                                <span class="material-symbols-outlined text-[14px]">account_tree</span>
-                                <span>Сверху вниз</span>
+                            <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: иерархия сверху вниз">
+                                <span class="material-symbols-outlined text-[15px]">account_tree</span>
+                                <span class="hidden sm:inline">Сверху вниз</span>
                             </button>
-                            <button id="kg-layout-lr" onclick="setGraphLayout('horizontal')" class="px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Иерархическое дерево слева направо">
-                                <span class="material-symbols-outlined text-[14px]">east</span>
-                                <span>Слева направо</span>
+                            <button id="kg-layout-lr" onclick="setGraphLayout('horizontal')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: слева направо">
+                                <span class="material-symbols-outlined text-[15px]">east</span>
+                                <span class="hidden sm:inline">Слева направо</span>
                             </button>
                         </div>
 
-                        <!-- Поиск по графу и вопросам с подсветкой связей -->
-                        <form id="kg-search-form" action="#" onsubmit="event.preventDefault(); window.submitKgSearch(); return false;" class="relative flex items-center">
-                            <span class="material-symbols-outlined text-neutral-400 text-[15px] pl-1 pointer-events-none">search</span>
+                        <!-- Поиск по графу и понятиям -->
+                        <form id="kg-search-form" action="#" onsubmit="event.preventDefault(); window.submitKgSearch(); return false;" class="relative flex items-center min-w-0">
+                            <span class="material-symbols-outlined text-neutral-400 text-[14px] pl-1 pointer-events-none shrink-0">search</span>
                             <input id="kg-search-input" 
                                    type="search" 
                                    inputmode="search" 
                                    enterkeyhint="search" 
-                                   placeholder="Поиск по понятиям..." 
+                                   placeholder="Поиск..." 
                                    autocomplete="off" 
                                    autocapitalize="off" 
                                    spellcheck="false"
                                    oninput="onKgSearchInput(this.value)"
                                    onkeydown="onKgSearchKeyDown(event)"
-                                   class="bg-transparent text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 text-[11px] font-mono pl-1.5 pr-6 py-0.5 outline-none w-32 sm:w-56 focus:w-44 sm:focus:w-72 transition-all" />
-                            <button type="button" id="kg-search-clear" onclick="clearKgSearch()" class="hidden absolute right-1 text-neutral-400 hover:text-primary cursor-pointer p-0.5 flex items-center justify-center" aria-label="Очистить поиск">
+                                   class="bg-transparent text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 text-[11px] font-mono pl-1 pr-5 py-0.5 outline-none w-20 focus:w-36 sm:w-48 sm:focus:w-64 transition-all" />
+                            <button type="button" id="kg-search-clear" onclick="clearKgSearch()" class="hidden absolute right-0.5 text-neutral-400 hover:text-primary cursor-pointer p-0.5 flex items-center justify-center" aria-label="Очистить поиск">
                                 <span class="material-symbols-outlined text-[13px]">close</span>
                             </button>
                         </form>

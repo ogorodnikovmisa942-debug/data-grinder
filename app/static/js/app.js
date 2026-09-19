@@ -951,7 +951,8 @@ let currentSessionStats = {
     correctCount: 0,
     lapsedCount: 0,
     newCount: 0,
-    startTime: null
+    startTime: null,
+    reviewedCards: []
 };
 
 function resetCardDOM() {
@@ -1074,6 +1075,30 @@ window.openGraphFromDebrief = function() {
     triggerHaptic('medium');
     const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : getActiveDeckSubject();
     openKnowledgeGraphModal(sub);
+    switchKgView('graph');
+
+    const reviewed = (currentSessionStats.reviewedCards && currentSessionStats.reviewedCards.length > 0)
+        ? currentSessionStats.reviewedCards
+        : cardsQueue.slice(0, currentIndex || 10);
+
+    const tryHighlight = () => {
+        if (!currentKgGraphData || !currentKgGraphData.nodes || currentKgGraphData.nodes.length === 0) return false;
+        if (typeof window.highlightSessionInGraph === 'function') {
+            window.highlightSessionInGraph(reviewed);
+            return true;
+        }
+        return false;
+    };
+
+    if (!tryHighlight()) {
+        let attempts = 0;
+        const iv = setInterval(() => {
+            attempts++;
+            if (tryHighlight() || attempts > 15) {
+                clearInterval(iv);
+            }
+        }, 200);
+    }
 };
 
 window.teleportCurrentCardToGraph = function() {
@@ -1092,7 +1117,10 @@ window.teleportCurrentCardToGraph = function() {
         const nodes = currentKgGraphData.nodes;
         
         let target = null;
-        if (card.organ_slug) {
+        if (card.id) {
+            target = nodes.find(n => n.card_id === card.id || (n.card_ids && n.card_ids.includes(card.id)));
+        }
+        if (!target && card.organ_slug) {
             target = nodes.find(n => String(n.id) === String(card.organ_slug));
         }
         if (!target && card.translation) {
@@ -1105,6 +1133,14 @@ window.teleportCurrentCardToGraph = function() {
         if (!target && card.text) {
             const qLower = card.text.toLowerCase().trim();
             target = nodes.find(n => n.name && qLower.includes(n.name.toLowerCase().trim()));
+            if (!target) {
+                const words = qLower.match(/[a-zа-яё0-9]{4,}/g) || [];
+                for (const w of words) {
+                    const stem = w.slice(0, 5);
+                    target = nodes.find(n => n.name && n.name.toLowerCase().includes(stem));
+                    if (target) break;
+                }
+            }
         }
 
         if (target) {
@@ -1158,7 +1194,8 @@ async function startSession(mode) {
         correctCount: 0,
         lapsedCount: 0,
         newCount: 0,
-        startTime: Date.now()
+        startTime: Date.now(),
+        reviewedCards: []
     };
     resetCardDOM();
     const starter = document.getElementById('session-starter');
@@ -1519,6 +1556,8 @@ function completeIntroduction() {
     currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
     currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
     currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
@@ -1548,6 +1587,8 @@ window.fastTrackIntroduction = function() {
     currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
     currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
     currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
@@ -1590,12 +1631,12 @@ function renderReviewCard(card) {
     
     const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
 
-    // Хлебные крошки: предмет карточки на лицевой стороне
+    // Хлебные крошки: предмет карточки на лицевой стороне показываем только в общем режиме ("Все предметы")
     const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
     const frontSubBadge = document.getElementById('card-front-subject-badge');
     const frontSubText = document.getElementById('card-front-subject-text');
     if (frontSubBadge && frontSubText) {
-        if (subTitle) {
+        if (subTitle && currentSubject === 'all') {
             frontSubText.textContent = subTitle;
             frontSubBadge.classList.remove('hidden');
             frontSubBadge.classList.add('inline-flex');
@@ -1706,9 +1747,31 @@ function renderReviewCard(card) {
         if (secText) {
             // Защита от спойлеров: на лицевой стороне оставляем только нейтральный нормативный контекст (до '|')
             if (secText.includes('|')) {
-                secText = secText.split('|')[0].trim();
+                const parts = secText.split('|').map(p => p.trim()).filter(Boolean);
+                const subLower = (card.subject_title || subTitle || card.subject || '').toLowerCase();
+                if (parts[0] && parts[0].toLowerCase() === subLower && parts.length > 1) {
+                    secText = parts[1];
+                } else {
+                    secText = parts[0] || '';
+                }
             }
-            if (ansLower) {
+
+            // Убираем дублирование названия колоды или главы на лицевой стороне карточки
+            const secLower = secText.toLowerCase();
+            const subTitleLower = (subTitle || '').toLowerCase();
+            const cardSubLower = (card.subject || '').toLowerCase();
+            const cardSubTitleLower = (card.subject_title || '').toLowerCase();
+            const chLower = (card.chapter || '').toLowerCase();
+
+            if (secLower === subTitleLower || secLower === cardSubLower || secLower === cardSubTitleLower || (chLower && secLower === chLower)) {
+                secText = '';
+            } else if (subTitleLower && secLower.length > 4 && subTitleLower.includes(secLower)) {
+                secText = '';
+            } else if (cardSubTitleLower && secLower.length > 4 && cardSubTitleLower.includes(secLower)) {
+                secText = '';
+            }
+
+            if (secText && ansLower) {
                 const secWords = secText.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || [];
                 const ansWords = ansLower.match(/[a-zа-яё0-9]{4,}/g) || [];
                 const stopWords = new Set(["суда", "суду", "суде", "дело", "дела", "орган", "закон", "право", "кодекс", "понятие", "термин"]);
@@ -1943,6 +2006,8 @@ window.submitCardRating = function(rating) {
     } else if (rating === 1) {
         currentSessionStats.lapsedCount = (currentSessionStats.lapsedCount || 0) + 1;
     }
+    if (!currentSessionStats.reviewedCards) currentSessionStats.reviewedCards = [];
+    currentSessionStats.reviewedCards.push(currentCard);
 
     if (rating === 1) { 
         if (currentCard.state === 2) {
@@ -5426,6 +5491,16 @@ function renderKnowledgeTreeNode(node, container, depth) {
     const badgeClass = `badge-${cat}`;
     const catLabel = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
 
+    const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
+    let statusBadgeHTML = '';
+    if (cardState === 2) {
+        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Изучено</span>`;
+    } else if (cardState === 1 || cardState === 3) {
+        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">В процессе</span>`;
+    } else if (depth > 0) {
+        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-neutral-400 dark:text-neutral-500 uppercase">Новое</span>`;
+    }
+
     const card = document.createElement('div');
     card.className = "tree-node-card p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 transition-all flex items-start justify-between gap-2.5 cursor-pointer shadow-xs select-none";
     
@@ -5436,12 +5511,14 @@ function renderKnowledgeTreeNode(node, container, depth) {
                     <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
                 </button>
             ` : `
-                <span class="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600 mt-2 ml-1 shrink-0"></span>
+                <span class="w-1.5 h-1.5 rounded-full ${cardState === 2 ? 'bg-emerald-500' : (cardState > 0 ? 'bg-amber-500' : 'bg-neutral-400 dark:bg-neutral-600')} mt-2 ml-1 shrink-0"></span>
             `}
             <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="font-bold text-xs sm:text-sm text-neutral-900 dark:text-neutral-100 font-mono">${escapeHTML(node.name || node.id)}</span>
                     <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${badgeClass}">${escapeHTML(catLabel)}</span>
+                    ${statusBadgeHTML}
+                    ${node.total_leaves ? `<span class="text-[9px] font-mono text-neutral-400 font-medium">(${node.learned_count || 0}/${node.total_leaves})</span>` : ''}
                 </div>
                 ${node.summary ? `
                     <p class="text-[11px] text-neutral-600 dark:text-neutral-400 leading-snug mt-1 font-sans line-clamp-2">${escapeHTML(node.summary)}</p>
@@ -5635,7 +5712,7 @@ function applyLayoutForces(graphInstance, layoutType) {
     const targetYMap = new Map();
 
     if (layoutType === 'tree') {
-        // Дерево: СВЕРХУ ВНИЗ (Четкие параллельные вертикальные колонки, без пересечений)
+        // Дерево: СВЕРХУ ВНИЗ (Иерархический веер институтов с распределением понятий по сетке)
         rootNodes.forEach(r => {
             r.fx = 0;
             r.fy = -480;
@@ -5643,20 +5720,47 @@ function applyLayoutForces(graphInstance, layoutType) {
             targetYMap.set(String(r.id), -480);
         });
 
-        const branchSpacingX = 85; // Просторное горизонтальное расстояние между ветками
+        // Рассчитываем ширину институтов по количеству их дочерних понятий
+        const branchWidths = branches.map(b => {
+            const leaves = branchLeavesMap.get(String(b.id)) || [];
+            if (leaves.length <= 1) return 150;
+            const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
+            return Math.max(160, cols * 76 + 20);
+        });
+        const totalTreeWidth = branchWidths.reduce((sum, w) => sum + w, 0);
+        let curX = -totalTreeWidth / 2;
+
         branches.forEach((b, idx) => {
-            const bX = (idx - (branchCount - 1) / 2) * branchSpacingX;
-            const bY = (idx % 2 === 0) ? -220 : -100; // Чередование эшелонов по высоте
+            const bWidth = branchWidths[idx];
+            const bX = curX + bWidth / 2;
+            curX += bWidth;
+
+            const bY = (idx % 2 === 0) ? -230 : -150;
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
-            leaves.forEach((leaf, lIdx) => {
-                const leafX = bX; // Строго в вертикальной колонке родительского института
-                const leafY = bY + 120 + (lIdx * 48);
-                targetXMap.set(String(leaf.id), leafX);
-                targetYMap.set(String(leaf.id), leafY);
-            });
+            if (leaves.length === 1) {
+                targetXMap.set(String(leaves[0].id), bX);
+                targetYMap.set(String(leaves[0].id), bY + 110);
+            } else if (leaves.length > 1) {
+                // Распределяем дочерние понятия веером по сетке (не в одну колонку!)
+                const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
+                const colSpacing = 76;
+                const rowSpacing = 52;
+                leaves.forEach((leaf, lIdx) => {
+                    const col = lIdx % cols;
+                    const row = Math.floor(lIdx / cols);
+                    const totalRows = Math.ceil(leaves.length / cols);
+                    const itemsInRow = (row === totalRows - 1 && leaves.length % cols !== 0)
+                        ? (leaves.length % cols)
+                        : cols;
+                    const leafX = bX + (col - (itemsInRow - 1) / 2) * colSpacing;
+                    const leafY = bY + 110 + (row * rowSpacing);
+                    targetXMap.set(String(leaf.id), leafX);
+                    targetYMap.set(String(leaf.id), leafY);
+                });
+            }
         });
 
         nodes.forEach(n => {
@@ -5673,7 +5777,7 @@ function applyLayoutForces(graphInstance, layoutType) {
         }
 
     } else if (layoutType === 'horizontal') {
-        // Горизонтально: СЛЕВА НАПРАВО (Четкие параллельные горизонтальные линии)
+        // Горизонтально: СЛЕВА НАПРАВО (Иерархический веер институтов)
         rootNodes.forEach(r => {
             r.fx = -480;
             r.fy = 0;
@@ -5681,20 +5785,45 @@ function applyLayoutForces(graphInstance, layoutType) {
             targetYMap.set(String(r.id), 0);
         });
 
-        const branchSpacingY = 70;
+        const branchHeights = branches.map(b => {
+            const leaves = branchLeavesMap.get(String(b.id)) || [];
+            if (leaves.length <= 1) return 130;
+            const rows = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
+            return Math.max(140, rows * 64 + 20);
+        });
+        const totalTreeHeight = branchHeights.reduce((sum, h) => sum + h, 0);
+        let curY = -totalTreeHeight / 2;
+
         branches.forEach((b, idx) => {
-            const bY = (idx - (branchCount - 1) / 2) * branchSpacingY;
-            const bX = (idx % 2 === 0) ? -220 : -100;
+            const bHeight = branchHeights[idx];
+            const bY = curY + bHeight / 2;
+            curY += bHeight;
+
+            const bX = (idx % 2 === 0) ? -230 : -150;
             targetXMap.set(String(b.id), bX);
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
-            leaves.forEach((leaf, lIdx) => {
-                const leafX = bX + 120 + (lIdx * 48);
-                const leafY = bY; // Строго на горизонтальной линии родителя
-                targetXMap.set(String(leaf.id), leafX);
-                targetYMap.set(String(leaf.id), leafY);
-            });
+            if (leaves.length === 1) {
+                targetXMap.set(String(leaves[0].id), bX + 110);
+                targetYMap.set(String(leaves[0].id), bY);
+            } else if (leaves.length > 1) {
+                const rows = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
+                const colSpacing = 68;
+                const rowSpacing = 52;
+                leaves.forEach((leaf, lIdx) => {
+                    const row = lIdx % rows;
+                    const col = Math.floor(lIdx / rows);
+                    const totalCols = Math.ceil(leaves.length / rows);
+                    const itemsInCol = (col === totalCols - 1 && leaves.length % rows !== 0)
+                        ? (leaves.length % rows)
+                        : rows;
+                    const leafY = bY + (row - (itemsInCol - 1) / 2) * rowSpacing;
+                    const leafX = bX + 110 + (col * colSpacing);
+                    targetXMap.set(String(leaf.id), leafX);
+                    targetYMap.set(String(leaf.id), leafY);
+                });
+            }
         });
 
         nodes.forEach(n => {
@@ -5711,7 +5840,7 @@ function applyLayoutForces(graphInstance, layoutType) {
         }
 
     } else if (layoutType === 'radial') {
-        // Радиальный: Аккуратный просторный цветок с расходящимися лучами (STARBURST)
+        // Радиальный: Аккуратный просторный цветок с расходящимися секторами (STARBURST)
         rootNodes.forEach(r => {
             r.fx = 0;
             r.fy = 0;
@@ -5719,7 +5848,6 @@ function applyLayoutForces(graphInstance, layoutType) {
             targetYMap.set(String(r.id), 0);
         });
 
-        // 71 институт на двух ступенях радиуса: четные 340px, нечетные 520px
         branches.forEach((b, idx) => {
             const angle = (idx / branchCount) * 2 * Math.PI;
             const radius = (idx % 2 === 0) ? 340 : 520;
@@ -5729,9 +5857,17 @@ function applyLayoutForces(graphInstance, layoutType) {
             targetYMap.set(String(b.id), bY);
 
             const leaves = branchLeavesMap.get(String(b.id)) || [];
+            const angleSpan = Math.min(0.24, (2 * Math.PI / branchCount) * 0.85);
             leaves.forEach((leaf, lIdx) => {
-                const leafRadius = radius + 130 + (lIdx * 45);
-                const angleOffset = leaves.length > 1 ? ((lIdx - (leaves.length - 1) / 2) * 0.015) : 0;
+                const row = Math.floor(lIdx / 4);
+                const col = lIdx % 4;
+                const itemsInRow = (row === Math.floor((leaves.length - 1) / 4))
+                    ? ((leaves.length - 1) % 4 + 1)
+                    : 4;
+                const leafRadius = radius + 110 + (row * 60);
+                const angleOffset = itemsInRow > 1
+                    ? ((col - (itemsInRow - 1) / 2) * (angleSpan / itemsInRow))
+                    : 0;
                 const leafX = Math.cos(angle + angleOffset) * leafRadius;
                 const leafY = Math.sin(angle + angleOffset) * leafRadius;
                 targetXMap.set(String(leaf.id), leafX);
@@ -5773,8 +5909,8 @@ window.setGraphLayout = function(layoutType) {
     const btnTree = document.getElementById('kg-layout-tree');
     const btnLr = document.getElementById('kg-layout-lr');
 
-    const inactiveClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer";
-    const activeClass = "px-2.5 py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
+    const inactiveClass = "p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer";
+    const activeClass = "p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
 
     if (btnForce) btnForce.className = currentKgLayout === 'force' ? activeClass : inactiveClass;
     if (btnRadial) btnRadial.className = currentKgLayout === 'radial' ? activeClass : inactiveClass;
@@ -6023,16 +6159,23 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
 
     if (currentForceGraphInstance) {
         currentForceGraphInstance.refresh();
-        if (typeof targetNode.x === 'number' && typeof targetNode.y === 'number') {
-            const isMobile = window.innerWidth <= 768;
-            const targetZoom = isMobile ? 1.5 : 1.8;
-            const wrapper = document.getElementById('kg-graph-canvas-wrapper');
-            const h = wrapper ? wrapper.clientHeight : (window.innerHeight - 150);
-            // Вариант А: смещаем центр холста вниз, чтобы узел оказался в верхней половине видимой зоны над шторкой
-            const yOffset = isMobile ? (h * 0.22 / targetZoom) : 0;
-            currentForceGraphInstance.centerAt(targetNode.x, targetNode.y + yOffset, 750);
-            currentForceGraphInstance.zoom(targetZoom, 750);
-        }
+        const doCenter = () => {
+            if (!currentForceGraphInstance) return;
+            const gNodes = (currentForceGraphInstance.graphData && currentForceGraphInstance.graphData().nodes) || cleanData.nodes || [];
+            const liveTarget = gNodes.find(n => String(n.id) === String(targetNode.id)) || targetNode;
+            if (typeof liveTarget.x === 'number' && !isNaN(liveTarget.x) && (liveTarget.x !== 0 || liveTarget.y !== 0)) {
+                const isMobile = window.innerWidth <= 768;
+                const targetZoom = isMobile ? 1.5 : 1.8;
+                const wrapper = document.getElementById('kg-graph-canvas-wrapper');
+                const h = wrapper ? wrapper.clientHeight : (window.innerHeight - 150);
+                const yOffset = isMobile ? (h * 0.22 / targetZoom) : 0;
+                currentForceGraphInstance.centerAt(liveTarget.x, liveTarget.y + yOffset, 600);
+                currentForceGraphInstance.zoom(targetZoom, 600);
+            }
+        };
+        doCenter();
+        setTimeout(doCenter, 250);
+        setTimeout(doCenter, 650);
     }
 
     // Отображаем плавающую плашку быстрого сброса
@@ -6053,6 +6196,105 @@ window.focusNodeInGraph = function(nodeId) {
     const target = cleanData.nodes.find(n => String(n.id) === String(nodeId));
     if (target) {
         selectSearchResult(target, true);
+    }
+};
+
+window.highlightSessionInGraph = function(cards) {
+    if (!cards || cards.length === 0) return;
+    const cleanData = getCleanGraphData();
+    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
+
+    searchHighlightNodes.clear();
+    searchHighlightLinkKeys.clear();
+    searchBackboneNodes.clear();
+    searchBackboneLinkKeys.clear();
+
+    const rootNode = cleanData.nodes.find(n => n.level === 0);
+    const rootId = rootNode ? String(rootNode.id) : null;
+    if (rootId) {
+        searchBackboneNodes.add(rootId);
+        searchHighlightNodes.add(rootId);
+    }
+
+    const matchedNodes = [];
+    cards.forEach(card => {
+        let node = null;
+        if (card.id) {
+            node = cleanData.nodes.find(n => n.card_id === card.id || (n.card_ids && n.card_ids.includes(card.id)));
+        }
+        if (!node && card.organ_slug) {
+            node = cleanData.nodes.find(n => String(n.id) === String(card.organ_slug));
+        }
+        if (!node && card.translation) {
+            const tLower = card.translation.toLowerCase().trim();
+            node = cleanData.nodes.find(n => n.name && n.name.toLowerCase().trim() === tLower);
+            if (!node) {
+                node = cleanData.nodes.find(n => n.name && (tLower.includes(n.name.toLowerCase()) || n.name.toLowerCase().includes(tLower)));
+            }
+        }
+        if (!node && card.text) {
+            const qLower = card.text.toLowerCase().trim();
+            node = cleanData.nodes.find(n => n.name && qLower.includes(n.name.toLowerCase().trim()));
+            if (!node) {
+                const words = qLower.match(/[a-zа-яё0-9]{4,}/g) || [];
+                for (const w of words) {
+                    const stem = w.slice(0, 5);
+                    node = cleanData.nodes.find(n => n.name && n.name.toLowerCase().includes(stem));
+                    if (node) break;
+                }
+            }
+        }
+        if (node && !matchedNodes.some(m => String(m.id) === String(node.id))) {
+            matchedNodes.push(node);
+        }
+    });
+
+    matchedNodes.forEach(node => {
+        const nId = String(node.id);
+        searchHighlightNodes.add(nId);
+        searchBackboneNodes.add(nId);
+        if (node.parent_id) {
+            const pId = String(node.parent_id);
+            searchHighlightNodes.add(pId);
+            searchBackboneNodes.add(pId);
+        }
+    });
+
+    const allLinks = (cleanData.links && cleanData.links.length > 0)
+        ? cleanData.links
+        : ((currentKgGraphData && currentKgGraphData.edges) ? currentKgGraphData.edges : []);
+
+    allLinks.forEach(edge => {
+        const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
+        const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
+        const lKey = getGraphLinkKey(sId, tId);
+
+        if (searchBackboneNodes.has(sId) && searchBackboneNodes.has(tId)) {
+            searchBackboneLinkKeys.add(lKey);
+            searchHighlightLinkKeys.add(lKey);
+        } else if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
+            searchHighlightLinkKeys.add(lKey);
+        }
+    });
+
+    if (matchedNodes.length > 0) {
+        activeSearchTargetId = String(matchedNodes[matchedNodes.length - 1].id);
+    }
+
+    if (currentForceGraphInstance) {
+        currentForceGraphInstance.refresh();
+        setTimeout(() => {
+            if (currentForceGraphInstance) {
+                currentForceGraphInstance.zoomToFit(600, 50);
+            }
+        }, 250);
+    }
+
+    const pill = document.getElementById('kg-selection-pill');
+    const pillName = document.getElementById('kg-selection-pill-name');
+    if (pill && pillName) {
+        pillName.textContent = `Пройдено в блоке: ${matchedNodes.length} понятий`;
+        pill.classList.remove('hidden');
     }
 };
 
@@ -6100,12 +6342,12 @@ window.initForceGraph = function(graphData) {
             const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
                 if (searchBackboneLinkKeys.has(lKey)) {
-                    // Чистый монохромный контрастный путь (Apple / Notion)
-                    return isDark ? '#ffffff' : '#0f172a';
+                    // Яркая контрастная магистраль к активному понятию (Sky Blue)
+                    return isDark ? '#38bdf8' : '#0284c7';
                 }
                 if (searchHighlightLinkKeys.has(lKey)) {
-                    // Мягкий деликатный контекст ветви
-                    return isDark ? 'rgba(255, 255, 255, 0.40)' : 'rgba(15, 23, 42, 0.40)';
+                    // Контекстная связь ветви
+                    return isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(2, 132, 199, 0.40)';
                 }
                 return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
             }
@@ -6115,8 +6357,8 @@ window.initForceGraph = function(graphData) {
         .linkWidth(link => {
             const lKey = getGraphLinkKey(link.source, link.target);
             if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinkKeys.has(lKey)) return 2.2; // Четкая аккуратная магистраль
-                if (searchHighlightLinkKeys.has(lKey)) return 1.2;
+                if (searchBackboneLinkKeys.has(lKey)) return 3.2; // Четкая контрастная магистраль
+                if (searchHighlightLinkKeys.has(lKey)) return 1.8;
                 return 0.5;
             }
             return 0.8;
@@ -6153,29 +6395,29 @@ window.initForceGraph = function(graphData) {
                 ctx.globalAlpha = 0.05; // Мягкое затемнение фона
             }
 
-            // 1. Спокойный монохром узлов (Apple / Notion)
+            // 1. Спокойный монохром узлов с цветными кольцами статуса
             let nodeFill;
             let nodeStroke;
             let strokeWidth = 1.0;
 
             if (isTarget) {
-                // Целевой узел: чистый высокий контраст без неона
+                // Целевой узел: чистый высокий контраст с акцентным фокусом
                 nodeFill = currentDark ? '#ffffff' : '#0f172a';
-                nodeStroke = currentDark ? '#000000' : '#ffffff';
-                strokeWidth = 2.0;
+                nodeStroke = currentDark ? '#38bdf8' : '#0284c7';
+                strokeWidth = 2.4;
 
-                // Аккуратная тонкая окантовка без пульсаций и кислотного сияния
+                // Акцентный ореол активного фокуса
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 3.5, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = currentDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.35)';
-                ctx.lineWidth = 1.0;
+                ctx.arc(node.x, node.y, radius + 4.5, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = currentDark ? '#38bdf8' : '#0284c7';
+                ctx.lineWidth = 2.0;
                 ctx.stroke();
 
             } else if (isBackboneNode) {
-                // Узлы магистрали (Корень и Родительский институт): благородный платиновый / угольный тон
+                // Узлы магистрали (Корень и Родительский институт)
                 nodeFill = currentDark ? '#e2e8f0' : '#334155';
-                nodeStroke = currentDark ? '#000000' : '#ffffff';
-                strokeWidth = 1.4;
+                nodeStroke = currentDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(2, 132, 199, 0.6)';
+                strokeWidth = 1.6;
 
             } else if (hasActiveSelection && isHighlighted) {
                 // Соседние понятия ветви
@@ -6184,7 +6426,7 @@ window.initForceGraph = function(graphData) {
                 strokeWidth = 1.0;
 
             } else {
-                // ОБЫЧНОЕ СОСТОЯНИЕ (Минимализм)
+                // ОБЫЧНОЕ СОСТОЯНИЕ
                 if (node.level === 0) {
                     nodeFill = currentDark ? '#f8fafc' : '#0f172a';
                     nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.6)' : '#ffffff';
@@ -6210,6 +6452,24 @@ window.initForceGraph = function(graphData) {
             ctx.lineWidth = strokeWidth;
             ctx.strokeStyle = nodeStroke;
             ctx.stroke();
+
+            // 3.1. Индикация изученности карточки (Learning Status Ring)
+            const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
+            if (cardState === 2) {
+                // Изучено / Mastered: Изумрудное кольцо статуса
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 2.2, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+            } else if (cardState === 1 || cardState === 3) {
+                // В процессе изучения: Янтарное кольцо статуса
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 2.2, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+            }
 
             // 4. Текстовая плашка-метка узла (Obsidian-Style Semantic Zoom LOD)
             let shouldShowLabel = false;

@@ -119,6 +119,10 @@ def build_hierarchical_tree(
             "summary": n.get("summary", ""),
             "level": n.get("level", 0),
             "parent_id": str(n.get("parent_id")) if n.get("parent_id") else None,
+            "card_id": n.get("card_id"),
+            "card_ids": n.get("card_ids", []),
+            "is_learned": n.get("is_learned", False),
+            "card_state": n.get("card_state", 0),
             "children": []
         }
         for n in nodes if n.get("id")
@@ -1261,13 +1265,16 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
                     cat = "authority"
                     lbl = "орган / состав"
 
+                card_id_val = getattr(c, "id", None) if hasattr(c, "id") else (c.get("id") if isinstance(c, dict) else None)
                 nodes_map[leaf_id] = {
                     "id": leaf_id,
                     "name": leaf_name[:50],
                     "category": cat,
                     "summary": (trans or leaf_name)[:120],
                     "parent_id": t_id,
-                    "level": 2
+                    "level": 2,
+                    "card_id": card_id_val,
+                    "card_ids": [card_id_val] if card_id_val else []
                 }
                 edge_key = (t_id, leaf_id)
                 if edge_key not in seen_edges:
