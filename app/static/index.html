@@ -64,38 +64,19 @@
         .animate-fade-in {
             animation: fadeIn 0.4s ease-out forwards;
         }
-        /* Fluid Card Typography & Anti-Overflow Protection */
+        /* Стабильная типографика карточек (17px) без скачков масштаба */
         .dynamic-card-text {
-            word-break: break-word;
-            overflow-wrap: break-word;
-            transition: font-size 0.15s ease-out, line-height 0.15s ease-out;
-        }
-        [data-text-length="short"] .dynamic-card-text,
-        .dynamic-card-text[data-text-length="short"] {
-            font-size: 1.25rem;
-            line-height: 1.35;
-            font-weight: 700;
-        }
-        [data-text-length="medium"] .dynamic-card-text,
-        .dynamic-card-text[data-text-length="medium"] {
-            font-size: 1.0rem;
+            font-size: 1.0625rem; /* 17px */
             line-height: 1.45;
             font-weight: 600;
+            word-break: break-word;
+            overflow-wrap: break-word;
         }
-        [data-text-length="long"] .dynamic-card-text,
-        .dynamic-card-text[data-text-length="long"] {
-            font-size: 0.88rem;
-            line-height: 1.5;
-            font-weight: 500;
-            text-align: left;
-        }
-        [data-text-length="vignette"] .dynamic-card-text,
-        .dynamic-card-text[data-text-length="vignette"] {
-            font-size: 0.82rem;
-            line-height: 1.55;
-            font-weight: 500;
-            text-align: left;
-            letter-spacing: -0.01em;
+        @media (max-width: 480px) {
+            .dynamic-card-text {
+                font-size: 1.0rem; /* 16px */
+                line-height: 1.42;
+            }
         }
         .card-scroll-clean {
             scrollbar-width: thin;
@@ -241,7 +222,7 @@
                             
                             <div class="shrink-0 pt-1 pb-1 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
                                 <span class="material-symbols-outlined text-[14px]">touch_app</span>
-                                <span>Нажмите или свайпните для ответа</span>
+                                <span>Нажмите для ответа</span>
                             </div>
                         </div>
 
@@ -344,26 +325,16 @@
                                         <span id="card-back-chapter-text" class="truncate"></span>
                                     </div>
                                 </div>
-                                <div id="card-back-term-text" class="max-h-20 overflow-y-auto card-scroll-clean text-xs sm:text-sm font-semibold text-neutral-800 dark:text-neutral-200 text-center break-words leading-snug px-1">---</div>
-                                <div id="card-secondary-container" class="hidden mt-1">
-                                    <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary bg-primary/10 px-2.5 py-0.5 rounded-full border border-primary/20">---</span>
-                                </div>
+                                <div id="card-back-term-text" class="max-h-16 overflow-y-auto card-scroll-clean text-xs sm:text-sm font-semibold text-neutral-800 dark:text-neutral-200 text-center break-words leading-snug px-1">---</div>
                             </div>
                         </div>
 
-                        <!-- Центральная зона: Скроллируемое содержимое (Определение в боксе + Пример + Мнемоника) -->
-                        <div class="w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 card-scroll-clean card-scroll-masked px-1 overscroll-contain gap-2" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
+                        <!-- Центральная зона: Скроллируемое содержимое (Определение + Мнемоника + Аккордеон деталей) -->
+                        <div class="w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 card-scroll-clean card-scroll-masked px-1 overscroll-contain gap-2.5" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
                             <!-- Определение (структурированный блок, идентичный режиму знакомства) -->
                             <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 sm:p-3.5 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
                                 <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
                                 <div id="card-main-text" class="text-sm sm:text-base font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words whitespace-pre-line">---</div>
-                            </div>
-                            
-                            <!-- Пример (стилизован как элегантная цитата с акцентной чертой) -->
-                            <div id="card-example-container" class="hidden w-full px-1">
-                                <div class="border-l-2 border-primary/50 pl-3 py-1 text-left">
-                                    <p id="card-example-text" class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 italic leading-relaxed break-words"></p>
-                                </div>
                             </div>
 
                             <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
@@ -379,6 +350,27 @@
                                 </div>
                                 <div id="mnemonic-content" class="transition-opacity duration-300">
                                     <p id="card-mnemonic" class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words"></p>
+                                </div>
+                            </div>
+
+                            <!-- Progressive Disclosure: Вторичные нормативные данные и пример -->
+                            <div id="card-details-accordion" class="w-full hidden text-left mt-0.5">
+                                <button type="button" onclick="event.stopPropagation(); window.toggleCardDetailsAccordion();" class="w-full flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-neutral-100/80 dark:bg-neutral-800/80 hover:bg-neutral-200/80 dark:hover:bg-neutral-700/80 text-neutral-600 dark:text-neutral-300 transition-colors text-[11px] font-mono cursor-pointer border border-neutral-200/60 dark:border-neutral-700/50">
+                                    <span class="flex items-center gap-1 font-medium">
+                                        <span id="card-details-icon" class="material-symbols-outlined text-[14px]">expand_more</span>
+                                        <span>Норма закона и пример</span>
+                                    </span>
+                                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase font-mono">Детали</span>
+                                </button>
+                                <div id="card-details-body" class="hidden mt-1.5 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/80 dark:border-neutral-800 flex flex-col gap-2 text-left text-xs">
+                                    <div id="card-secondary-container" class="hidden">
+                                        <span class="block text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold mb-0.5">СТАТЬЯ ЗАКОНА / НОРМА</span>
+                                        <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary dark:text-primary-fixed bg-primary/10 px-2 py-0.5 rounded border border-primary/20 break-words">---</span>
+                                    </div>
+                                    <div id="card-example-container" class="hidden border-l-2 border-primary/50 pl-2.5 py-0.5">
+                                        <span class="block text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold mb-0.5">ПРИМЕР ИЗ ПРАКТИКИ</span>
+                                        <p id="card-example-text" class="text-xs text-neutral-600 dark:text-neutral-400 italic leading-relaxed break-words"></p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1239,6 +1231,18 @@
 
                     <!-- Выпадающий список результатов поиска -->
                     <div id="kg-search-results" class="hidden absolute top-14 left-3 z-20 w-72 sm:w-84 max-h-60 overflow-y-auto bg-surface-container-lowest/95 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-2xl backdrop-blur-md p-1.5 flex flex-col gap-1 text-[11px] font-mono animate-fade-in"></div>
+
+                    <!-- Плавающая плашка выбранного узла (Сброс выделения в 1 клик на мобильных и ПК) -->
+                    <div id="kg-selection-pill" class="hidden absolute top-14 left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-24px)] transition-all duration-200 animate-fade-in pointer-events-auto">
+                        <div class="bg-surface-container-lowest/95 border border-neutral-200/90 dark:border-neutral-800 shadow-xl shadow-neutral-900/10 dark:shadow-black/50 backdrop-blur-md rounded-full px-3 py-1 flex items-center gap-2 text-xs font-mono">
+                            <span class="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0"></span>
+                            <span id="kg-selection-pill-name" class="font-semibold text-neutral-800 dark:text-neutral-200 truncate max-w-[170px] sm:max-w-[320px]">---</span>
+                            <button type="button" onclick="clearKgSearch()" class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-bold uppercase transition-colors cursor-pointer" title="Сбросить фокус и вернуться ко всему графу">
+                                <span class="material-symbols-outlined text-[13px]">close</span>
+                                <span>Сбросить</span>
+                            </button>
+                        </div>
+                    </div>
 
                     <!-- Оверлей управления зумом -->
                     <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">

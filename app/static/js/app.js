@@ -81,18 +81,35 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
-// Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK
+// Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK и Web Vibration API
 function triggerHaptic(type = 'light') {
     try {
         const haptic = window.Telegram?.WebApp?.HapticFeedback;
-        if (!haptic) return;
-        if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(type)) {
-            haptic.impactOccurred(type);
-        } else if (['error', 'success', 'warning'].includes(type)) {
-            haptic.notificationOccurred(type);
+        if (haptic) {
+            if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(type)) {
+                haptic.impactOccurred(type);
+                return;
+            } else if (['error', 'success', 'warning'].includes(type)) {
+                haptic.notificationOccurred(type);
+                return;
+            }
+        }
+        // Fallback для мобильных браузеров (Safari / Chrome на смартфонах)
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            if (type === 'light') {
+                navigator.vibrate(12);
+            } else if (type === 'medium') {
+                navigator.vibrate(24);
+            } else if (type === 'heavy' || type === 'error') {
+                navigator.vibrate([30, 40, 30]);
+            } else if (type === 'warning') {
+                navigator.vibrate([20, 30, 20]);
+            } else if (type === 'success') {
+                navigator.vibrate([15, 30, 25]);
+            }
         }
     } catch (e) {
-        // Игнорируем вне среды Telegram
+        // Игнорируем в браузерах без поддержки вибрации
     }
 }
 
@@ -302,44 +319,20 @@ let flashcard, actionButtons, focusToggle, subjectSelector, body, cardText, card
 /**
  * Динамическая адаптивная типографика для карточек (Zero Overflow Architecture).
  * Классифицирует объем текста на корзины ('short', 'medium', 'long', 'vignette'),
- * предотвращая вылезание за границы длинных ситуационных вопросов и кейсов.
+ * Обеспечивает стабильный, комфортный для глаз размер шрифта (17px) без скачков
+ * и сброс позиции скролла для длинных ситуационных вопросов.
  */
 function applyDynamicCardTypography(element, text) {
     if (!element) return;
-    const cleanText = (text || '').trim();
-    const len = cleanText.length;
-    
-    let bucket = 'medium';
-    if (len < 60) {
-        bucket = 'short';
-    } else if (len <= 160) {
-        bucket = 'medium';
-    } else if (len <= 300) {
-        bucket = 'long';
-    } else {
-        bucket = 'vignette';
-    }
-    
-    element.setAttribute('data-text-length', bucket);
-    element.style.fontSize = ''; // Сброс inline-стилей
+    element.removeAttribute('data-text-length');
+    element.style.fontSize = '';
     element.style.lineHeight = '';
     
-    // Micro-fit guard: плавная проверка реального переполнения контейнера
-    requestAnimationFrame(() => {
-        const scrollContainer = element.closest('.card-scroll-clean') || element.closest('.overflow-y-auto') || element.parentElement;
-        if (!scrollContainer) return;
-        
-        let currentFz = parseFloat(window.getComputedStyle(element).fontSize);
-        const minFz = 11; // минимальный размер для комфортного чтения
-        
-        let attempts = 0;
-        while ((scrollContainer.scrollHeight > scrollContainer.clientHeight || element.scrollHeight > 220) && currentFz > minFz && attempts < 10) {
-            currentFz -= 0.5;
-            element.style.fontSize = `${currentFz}px`;
-            element.style.lineHeight = '1.4';
-            attempts++;
-        }
-    });
+    // Сброс прокрутки наверх при показе новой карточки
+    const scrollContainer = element.closest('.card-scroll-clean') || element.closest('.overflow-y-auto') || element.parentElement;
+    if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+    }
 }
 
 const STAGING_CARD_TEMPLATE = `
@@ -1543,8 +1536,9 @@ function renderReviewCard(card) {
         }
 
         const secContainer = document.getElementById('card-secondary-container');
+        const hasSec = Boolean(card.secondary_text && card.secondary_text !== '---' && card.secondary_text.trim());
         if (secContainer && cardSecondaryText) {
-            if (card.secondary_text && card.secondary_text !== '---') {
+            if (hasSec) {
                 cardSecondaryText.textContent = card.secondary_text;
                 secContainer.classList.remove('hidden');
             } else {
@@ -1556,12 +1550,28 @@ function renderReviewCard(card) {
         
         const exampleContainer = document.getElementById('card-example-container');
         const exampleText = document.getElementById('card-example-text');
+        const hasEx = Boolean(card.example && card.example.trim() && card.example !== '---');
         if (exampleContainer && exampleText) {
-            if (card.example && card.example.trim() && card.example !== '---') {
+            if (hasEx) {
                 exampleText.textContent = `«${card.example.trim()}»`;
                 exampleContainer.classList.remove('hidden');
             } else {
                 exampleContainer.classList.add('hidden');
+            }
+        }
+
+        // Управление аккордеоном деталей (Progressive Disclosure)
+        const detailsAccordion = document.getElementById('card-details-accordion');
+        const detailsBody = document.getElementById('card-details-body');
+        const detailsIcon = document.getElementById('card-details-icon');
+        if (detailsAccordion) {
+            if (hasSec || hasEx) {
+                detailsAccordion.classList.remove('hidden');
+                // При каждой новой карте оставляем свернутым
+                if (detailsBody) detailsBody.classList.add('hidden');
+                if (detailsIcon) detailsIcon.textContent = 'expand_more';
+            } else {
+                detailsAccordion.classList.add('hidden');
             }
         }
 
@@ -1585,7 +1595,7 @@ function renderReviewCard(card) {
         const isLeech = card.is_leech || (card.lapses && card.lapses >= 4);
         if (leechBadge) {
             if (isLeech) {
-                if (leechText) leechText.textContent = `[!] СЛОЖНАЯ КАРТА (СБОЕВ: ${card.lapses || 4})`;
+                if (leechText) leechText.innerHTML = `<span class="material-symbols-outlined text-[13px] mr-1">warning</span>СЛОЖНАЯ КАРТА (СБОЕВ: ${card.lapses || 4})`;
                 leechBadge.classList.remove('hidden');
                 leechBadge.classList.add('flex');
             } else {
@@ -1639,13 +1649,29 @@ window.regenerateMnemonic = async function(e) {
     }
 };
 
+window.toggleCardDetailsAccordion = function() {
+    const body = document.getElementById('card-details-body');
+    const icon = document.getElementById('card-details-icon');
+    if (!body) return;
+    const isHidden = body.classList.contains('hidden');
+    if (isHidden) {
+        body.classList.remove('hidden');
+        if (icon) icon.textContent = 'expand_less';
+        triggerHaptic('light');
+    } else {
+        body.classList.add('hidden');
+        if (icon) icon.textContent = 'expand_more';
+        triggerHaptic('light');
+    }
+};
+
 window.submitCardRating = function(rating) {
     if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
     const currentCard = cardsQueue[currentIndex];
     if (!currentCard) return;
 
     if (rating === 1) {
-        triggerHaptic('warning');
+        triggerHaptic('error');
     } else if (rating === 2) {
         triggerHaptic('medium');
     } else if (rating === 3) {
@@ -5588,6 +5614,9 @@ window.clearKgSearch = function() {
     const resBox = document.getElementById('kg-search-results');
     if (resBox) resBox.classList.add('hidden');
 
+    const pill = document.getElementById('kg-selection-pill');
+    if (pill) pill.classList.add('hidden');
+
     searchHighlightNodes.clear();
     searchHighlightLinkKeys.clear();
     searchBackboneNodes.clear();
@@ -5598,7 +5627,9 @@ window.clearKgSearch = function() {
 
     if (currentForceGraphInstance) {
         currentForceGraphInstance.refresh();
+        currentForceGraphInstance.zoomToFit(400, 40);
     }
+    triggerHaptic('light');
 };
 
 window.highlightConceptSearch = function(searchTerm) {
@@ -5743,6 +5774,12 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
             currentForceGraphInstance.centerAt(targetNode.x, targetNode.y + yOffset, 750);
             currentForceGraphInstance.zoom(targetZoom, 750);
         }
+    // Отображаем плавающую плашку быстрого сброса
+    const pill = document.getElementById('kg-selection-pill');
+    const pillName = document.getElementById('kg-selection-pill-name');
+    if (pill && pillName) {
+        pillName.textContent = targetNode.name || targetNode.id;
+        pill.classList.remove('hidden');
     }
 
     // Показываем карточку найденного понятия
@@ -6055,15 +6092,21 @@ window.initForceGraph = function(graphData) {
             focusNodeInGraph(node.id);
         })
         .onBackgroundClick(() => {
-            // На мобильных устройствах не сбрасываем выделение по случайному касанию холста,
-            // чтобы свайп или зум не закрывали открытую карточку понятия!
-            if (window.innerWidth <= 768) {
-                const resBox = document.getElementById('kg-search-results');
-                if (resBox) resBox.classList.add('hidden');
-                return;
+            const resBox = document.getElementById('kg-search-results');
+            if (resBox) resBox.classList.add('hidden');
+
+            // На десктопе сбрасываем поиск кликом по фону
+            if (window.innerWidth > 768) {
+                window.clearKgSearch();
+            } else {
+                // На мобильных: если шторка понятия закрыта и есть активное выделение,
+                // касание свободного холста аккуратно сбрасывает изоляцию
+                const drawer = document.getElementById('kg-node-drawer');
+                const isDrawerOpen = drawer && !drawer.classList.contains('hidden');
+                if (!isDrawerOpen && (activeSearchTargetId || searchHighlightNodes.size > 0)) {
+                    window.clearKgSearch();
+                }
             }
-            // На десктопе сохраняем сброс кликом по пустому месту
-            window.clearKgSearch();
         });
 
     setGraphLayout(currentKgLayout || 'force');
@@ -6086,7 +6129,12 @@ window.zoomGraph = function(factor) {
 
 window.resetGraphZoom = function() {
     if (!currentForceGraphInstance) return;
-    currentForceGraphInstance.zoomToFit(400, 40);
+    if (activeSearchTargetId || searchHighlightNodes.size > 0) {
+        window.clearKgSearch();
+    } else {
+        currentForceGraphInstance.zoomToFit(400, 40);
+        triggerHaptic('light');
+    }
 };
 
 window.showKgNodeDrawer = function(node) {

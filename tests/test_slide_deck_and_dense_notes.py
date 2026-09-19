@@ -123,8 +123,7 @@ class TestSlideDeckAndDenseNotes(unittest.TestCase):
             for i in range(1, 7)
         ])
         
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(parse_raw_text(slide_chunk, target_subject="sudoustr"))
+        asyncio.run(parse_raw_text(slide_chunk, target_subject="sudoustr"))
         
         self.assertTrue(mock_call.called)
         sent_user_prompt = mock_call.call_args[0][0]
@@ -149,8 +148,7 @@ class TestSlideDeckAndDenseNotes(unittest.TestCase):
             "Основание: тяжесть преступления и состав УК РФ."
         )
         
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(parse_raw_text(note_chunk, target_subject="sudoustr"))
+        asyncio.run(parse_raw_text(note_chunk, target_subject="sudoustr"))
         
         self.assertTrue(mock_call.called)
         sent_user_prompt = mock_call.call_args[0][0]
