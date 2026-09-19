@@ -942,6 +942,14 @@ function showSurveyDirectly() {
     if (cardMainText) cardMainText.textContent = "Очередь пуста. Оцените параметры сессии:";
 }
 
+let currentSessionStats = {
+    totalAnswered: 0,
+    correctCount: 0,
+    lapsedCount: 0,
+    newCount: 0,
+    startTime: null
+};
+
 function resetCardDOM() {
     isFlipped = false;
     const flashcardEl = document.getElementById('flashcard');
@@ -949,6 +957,10 @@ function resetCardDOM() {
         flashcardEl.style.transform = '';
         flashcardEl.classList.remove('rotate-y-180');
     }
+    const debriefContainer = document.getElementById('session-debrief-container');
+    const surveyContainer = document.getElementById('survey-container');
+    if (debriefContainer) debriefContainer.classList.add('hidden');
+    if (surveyContainer) surveyContainer.classList.add('hidden');
     const normalFront = document.getElementById('card-front-normal');
     const introFront = document.getElementById('card-front-intro');
     const front = document.getElementById('card-front');
@@ -968,6 +980,146 @@ function resetCardDOM() {
         actionBtns.classList.remove('flex');
     }
 }
+
+window.showSessionDebrief = async function() {
+    triggerHaptic('success');
+    resetCardDOM();
+    
+    const debriefContainer = document.getElementById('session-debrief-container');
+    const normalFront = document.getElementById('card-front-normal');
+    const introFront = document.getElementById('card-front-intro');
+    const actionBtns = document.getElementById('action-buttons');
+    const cardCounterEl = document.getElementById('card-counter');
+    
+    if (normalFront) normalFront.classList.add('hidden');
+    if (introFront) {
+        introFront.classList.add('hidden');
+        introFront.classList.remove('flex');
+    }
+    if (actionBtns) {
+        actionBtns.classList.add('hidden');
+        actionBtns.classList.remove('flex');
+    }
+    if (cardCounterEl) cardCounterEl.textContent = 'Готово';
+
+    if (debriefContainer) {
+        debriefContainer.classList.remove('hidden');
+    }
+
+    const reviewed = currentSessionStats.totalAnswered || cardsQueue.length || 0;
+    const correct = currentSessionStats.correctCount || Math.max(0, reviewed - (currentSessionStats.lapsedCount || 0));
+    const accuracy = reviewed > 0 ? Math.max(0, Math.min(100, Math.round((correct / reviewed) * 100))) : 100;
+    const evening = window.eveningDueCount || 0;
+
+    const elReviewed = document.getElementById('debrief-stat-reviewed');
+    const elAcc = document.getElementById('debrief-stat-accuracy');
+    const elEvening = document.getElementById('debrief-stat-evening');
+    const elSub = document.getElementById('debrief-subject-text');
+    const elBtnNextText = document.getElementById('debrief-btn-next-text');
+
+    if (elReviewed) elReviewed.textContent = reviewed;
+    if (elAcc) elAcc.textContent = `${accuracy}%`;
+    if (elEvening) elEvening.textContent = evening;
+    
+    let subDisplay = (currentSubject && currentSubject !== 'all') ? currentSubject.toUpperCase() : 'ВСЕ ПРЕДМЕТЫ';
+    if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
+        subDisplay = cardsQueue[0].subject_title.toUpperCase();
+    }
+    if (elSub) elSub.textContent = subDisplay;
+
+    if (elBtnNextText) {
+        if (currentSessionMode === 'new') {
+            elBtnNextText.textContent = 'СЛЕДУЮЩИЙ БЛОК (+10)';
+        } else if (currentSessionMode === 'cram') {
+            elBtnNextText.textContent = 'ЕЩЕ РАУНД ШТУРМА';
+        } else {
+            elBtnNextText.textContent = 'ПРОДОЛЖИТЬ ПОВТОРЕНИЕ';
+        }
+    }
+
+    try {
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`);
+        if (res.ok) {
+            const data = await res.json();
+            const total = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
+            const mastered = data.cards_review || 0;
+            const progress = total > 0 ? Math.round((mastered / total) * 100) : 0;
+            
+            const elProgPercent = document.getElementById('debrief-progress-percent');
+            const elProgBar = document.getElementById('debrief-progress-bar');
+            if (elProgPercent) elProgPercent.textContent = `${progress}%`;
+            if (elProgBar) elProgBar.style.width = `${progress}%`;
+        }
+    } catch (e) {
+        console.error("Ошибка обновления прогресса в debrief:", e);
+    }
+};
+
+window.continueWithNextChunk = function() {
+    triggerHaptic('medium');
+    startSession(currentSessionMode || 'new');
+};
+
+window.openPracticeFromDebrief = function() {
+    triggerHaptic('medium');
+    const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : getActiveDeckSubject();
+    openPracticeModal(sub);
+};
+
+window.openGraphFromDebrief = function() {
+    triggerHaptic('medium');
+    const sub = (currentSubject && currentSubject !== 'all') ? currentSubject : getActiveDeckSubject();
+    openKnowledgeGraphModal(sub);
+};
+
+window.teleportCurrentCardToGraph = function() {
+    if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+    const card = cardsQueue[currentIndex];
+    if (!card) return;
+
+    triggerHaptic('medium');
+    const sub = card.subject || (currentSubject !== 'all' ? currentSubject : getActiveDeckSubject());
+
+    openKnowledgeGraphModal(sub);
+    switchKgView('graph');
+
+    const tryFocus = () => {
+        if (!currentKgGraphData || !currentKgGraphData.nodes || currentKgGraphData.nodes.length === 0) return false;
+        const nodes = currentKgGraphData.nodes;
+        
+        let target = null;
+        if (card.organ_slug) {
+            target = nodes.find(n => String(n.id) === String(card.organ_slug));
+        }
+        if (!target && card.translation) {
+            const tLower = card.translation.toLowerCase().trim();
+            target = nodes.find(n => n.name && n.name.toLowerCase().trim() === tLower);
+            if (!target) {
+                target = nodes.find(n => n.name && (tLower.includes(n.name.toLowerCase()) || n.name.toLowerCase().includes(tLower)));
+            }
+        }
+        if (!target && card.text) {
+            const qLower = card.text.toLowerCase().trim();
+            target = nodes.find(n => n.name && qLower.includes(n.name.toLowerCase().trim()));
+        }
+
+        if (target) {
+            focusNodeInGraph(target.id);
+            return true;
+        }
+        return false;
+    };
+
+    if (!tryFocus()) {
+        let attempts = 0;
+        const iv = setInterval(() => {
+            attempts++;
+            if (tryFocus() || attempts > 15) {
+                clearInterval(iv);
+            }
+        }, 200);
+    }
+};
 
 function showSessionStarter() {
     resetCardDOM();
@@ -997,6 +1149,13 @@ window.exitToSessionMenu = function() {
 
 async function startSession(mode) {
     currentSessionMode = mode;
+    currentSessionStats = {
+        totalAnswered: 0,
+        correctCount: 0,
+        lapsedCount: 0,
+        newCount: 0,
+        startTime: Date.now()
+    };
     resetCardDOM();
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
@@ -1017,7 +1176,12 @@ async function fetchActiveSession(mode = 'mixed') {
         const targetSub = (mode === 'cram') ? 'all' : currentSubject;
         const response = await apiFetch(`/api/session?subject=${targetSub}&mode=${mode}`);
         cardsQueue = await response.json();
-        shuffleArray(cardsQueue);
+        
+        // ВНИМАНИЕ: Для 'new' и 'review' не перемешиваем!
+        // Сохраняется дидактический порядок: слой (layer) -> topological_rank -> phrase_id
+        if (mode === 'cram') {
+            shuffleArray(cardsQueue);
+        }
         const surveyContainer = document.getElementById('survey-container');
         if (cardsQueue.length === 0) {
             resetCardDOM();
@@ -1069,7 +1233,7 @@ function recalculateQueueCounters() {
 function renderCurrentCard() {
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
-            showSurveyDirectly();
+            showSessionDebrief();
         } else {
             resetCardDOM();
             showSessionStarter();
@@ -1113,6 +1277,30 @@ function renderIntroductionCard(card) {
     if (front) front.classList.add('introduction-mode');
     
     // 1. Заполняем намертво закрепленный заголовок термина (НИКОГДА НЕ СКРОЛЛИТСЯ)
+    const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
+    const introSubBadge = document.getElementById('card-intro-subject-badge');
+    const introSubText = document.getElementById('card-intro-subject-text');
+    if (introSubBadge && introSubText) {
+        if (subTitle) {
+            introSubText.textContent = subTitle;
+            introSubBadge.classList.remove('hidden');
+            introSubBadge.classList.add('inline-flex');
+        } else {
+            introSubBadge.classList.add('hidden');
+            introSubBadge.classList.remove('inline-flex');
+        }
+    }
+
+    const introModeText = document.getElementById('card-intro-mode-text');
+    if (introModeText) {
+        introModeText.textContent = card.reason_label || 'РЕЖИМ ЗНАКОМСТВА';
+    }
+
+    const introModeIcon = document.getElementById('card-intro-mode-icon');
+    if (introModeIcon) {
+        introModeIcon.textContent = card.reason_icon || 'school';
+    }
+
     const introChapterBadge = document.getElementById('card-intro-chapter-badge');
     const introChapterText = document.getElementById('card-intro-chapter-text');
     const introChapterName = (card.chapter || card.phrase_text || '').trim();
@@ -1320,6 +1508,10 @@ function completeIntroduction() {
     card.has_seen_intro = true;
     card.state = 1; // Learning
     
+    currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
+    currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
+    currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
         method: 'POST',
@@ -1341,9 +1533,14 @@ function completeIntroduction() {
 window.fastTrackIntroduction = function() {
     const card = cardsQueue[currentIndex];
     if (!card) return;
+    triggerHaptic('success');
     card.has_seen_intro = true;
     card.state = 2; // Сразу в Review
     
+    currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
+    currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
+    currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     apiFetch('/api/answer', {
         method: 'POST',
@@ -1385,11 +1582,45 @@ function renderReviewCard(card) {
     
     const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
 
-    // Динамический бейдж режима на лицевой стороне
+    // Хлебные крошки: предмет карточки на лицевой стороне
+    const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
+    const frontSubBadge = document.getElementById('card-front-subject-badge');
+    const frontSubText = document.getElementById('card-front-subject-text');
+    if (frontSubBadge && frontSubText) {
+        if (subTitle) {
+            frontSubText.textContent = subTitle;
+            frontSubBadge.classList.remove('hidden');
+            frontSubBadge.classList.add('inline-flex');
+        } else {
+            frontSubBadge.classList.add('hidden');
+            frontSubBadge.classList.remove('inline-flex');
+        }
+    }
+
+    // Динамический бейдж режима и причины выдачи на лицевой стороне
     const modeBadge = document.getElementById('card-front-mode-badge');
     const modeText = document.getElementById('card-front-mode-text');
+    const modeIcon = document.getElementById('card-front-mode-icon');
+    if (modeIcon) {
+        modeIcon.textContent = card.reason_icon || (isCloze ? 'edit_note' : (currentSessionMode === 'cram' ? 'local_fire_department' : (currentSessionMode === 'new' ? 'school' : 'history')));
+    }
     if (modeText) {
-        if (isCloze) {
+        if (card.reason_label) {
+            modeText.textContent = card.reason_label;
+            if (modeBadge) {
+                if (card.reason_type === 'new') {
+                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary';
+                } else if (card.reason_type === 'intra_relearn') {
+                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400';
+                } else if (card.reason_type === 'intra_learn') {
+                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                } else if (card.reason_type === 'cram') {
+                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                } else {
+                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+                }
+            }
+        } else if (isCloze) {
             modeText.textContent = 'ПРОПУСК (CLOZE)';
             if (modeBadge) {
                 modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400';
@@ -1510,11 +1741,25 @@ function renderReviewCard(card) {
 
     setTimeout(() => {
         // Заполняем оборотную сторону
+        const backSubBadge = document.getElementById('card-back-subject-badge');
+        const backSubText = document.getElementById('card-back-subject-text');
+        if (backSubBadge && backSubText) {
+            if (subTitle) {
+                backSubText.textContent = subTitle;
+                backSubBadge.classList.remove('hidden');
+                backSubBadge.classList.add('inline-flex');
+            } else {
+                backSubBadge.classList.add('hidden');
+                backSubBadge.classList.remove('inline-flex');
+            }
+        }
+
+        const rawChapter = (card.chapter || card.phrase_text || '').trim();
         const backChapterBadge = document.getElementById('card-back-chapter-badge');
         const backChapterText = document.getElementById('card-back-chapter-text');
         if (backChapterBadge && backChapterText) {
-            if (chapterName) {
-                backChapterText.textContent = chapterName;
+            if (rawChapter) {
+                backChapterText.textContent = rawChapter;
                 backChapterBadge.classList.remove('hidden');
                 backChapterBadge.classList.add('inline-flex');
             } else {
@@ -1683,6 +1928,13 @@ window.submitCardRating = function(rating) {
     const payloadCardId = currentCard.id;
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
     const hasAssoc = currentCard.mnemonic ? true : false;
+
+    currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
+    if (rating >= 3) {
+        currentSessionStats.correctCount = (currentSessionStats.correctCount || 0) + 1;
+    } else if (rating === 1) {
+        currentSessionStats.lapsedCount = (currentSessionStats.lapsedCount || 0) + 1;
+    }
 
     if (rating === 1) { 
         if (currentCard.state === 2) {
@@ -5774,6 +6026,8 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
             currentForceGraphInstance.centerAt(targetNode.x, targetNode.y + yOffset, 750);
             currentForceGraphInstance.zoom(targetZoom, 750);
         }
+    }
+
     // Отображаем плавающую плашку быстрого сброса
     const pill = document.getElementById('kg-selection-pill');
     const pillName = document.getElementById('kg-selection-pill-name');

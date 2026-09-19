@@ -117,7 +117,7 @@ async def get_session_cards(
     # Разрешаем все алиасы предмета (например, sudoustr <-> sudoustroystvo)
     sub_aliases = get_all_subject_aliases(subject) if subject != 'all' else ['all']
 
-    # 1. Сбор просроченных повторений (REV) текущего пользователя
+    # 1. Сбор просроченных повторений (REV) текущего пользователя с упорядочиванием по темам и дидактике
     review_stmt = select(Card).filter(
         Card.user_id == current_user,
         Card.state == 2, 
@@ -125,6 +125,7 @@ async def get_session_cards(
     )
     if subject != 'all':
         review_stmt = review_stmt.filter(Card.subject.in_(sub_aliases))
+    review_stmt = review_stmt.order_by(Card.subject.asc(), Card.layer.asc(), Card.topological_rank.asc(), Card.next_review.asc())
     review_res = await db.execute(review_stmt)
     due_reviews = review_res.scalars().all()
 
@@ -135,6 +136,7 @@ async def get_session_cards(
     )
     if subject != 'all':
         intra_stmt = intra_stmt.filter(Card.subject.in_(sub_aliases))
+    intra_stmt = intra_stmt.order_by(Card.subject.asc(), Card.layer.asc(), Card.topological_rank.asc())
     intra_res = await db.execute(intra_stmt)
     intra_day_cards = intra_res.scalars().all()
 
@@ -187,7 +189,6 @@ async def get_session_cards(
         full_pool = due_reviews + intra_day_cards + new_cards
 
     # 4. Sibling Burying для Cloze (защита от немедленного прайминга)
-    # Не показываем сиблингов (пропуски из одной фразы) в одну сессию и откладываем, если один уже изучен сегодня
     reviewed_today_phrase_stmt = select(Card.phrase_id).join(ReviewLog, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.review_time >= today_start,
@@ -207,8 +208,9 @@ async def get_session_cards(
 
     full_pool = filtered_pool
     
-    # Запускаем интерливинг в отдельном потоке, только если режим "ALL", чтобы размыть контекст
-    if subject == 'all':
+    # Интерливинг запускаем ТОЛЬКО при выборе 'all' И если это режим review/mixed,
+    # но НИКОГДА не размываем новые карточки (mode == 'new'), чтобы не разрушать связность урока
+    if subject == 'all' and mode not in ('new', 'cram'):
         full_pool = await asyncio.to_thread(apply_interleaving, full_pool, 1)
     
     # Оптимизация N+1: собираем все phrase_id для всех карт и загружаем их с фильтром по пользователю
@@ -219,11 +221,66 @@ async def get_session_cards(
         phrases_res = await db.execute(phrases_stmt)
         phrase_map = {p.id: p.text for p in phrases_res.scalars().all()}
 
+    subject_display_names = {
+        "sudoustr": "Судоустройство РФ",
+        "sudoustroystvo": "Судоустройство РФ",
+        "law": "Юриспруденция",
+        "law_civil": "Гражданское право",
+        "ugolovnoe": "Уголовное право",
+        "constitutional_law": "Конституционное право",
+        "constitution": "Конституционное право",
+        "upk": "Уголовный процесс",
+        "gpk": "Гражданский процесс",
+        "python": "Python разработка",
+        "chinese": "Китайский язык (HSK)",
+        "hsk3": "Китайский язык (HSK 3)",
+        "generic": "Общий курс"
+    }
+
     result = []
     for c in full_pool:
         phrase_text = phrase_map.get(c.phrase_id, "") or ""
-
         lapses_count = c.lapses or 0
+
+        # Расчет дидактического контекста и причины появления карточки
+        interval_days = 0
+        if c.state == 2 and c.next_review and c.last_review:
+            try:
+                interval_days = max(1, round((c.next_review - c.last_review).total_seconds() / 86400))
+            except Exception:
+                interval_days = max(1, round(c.stability or 1.0))
+        elif c.state == 2 and c.stability:
+            interval_days = max(1, round(c.stability))
+
+        if mode == "cram":
+            reason_type = "cram"
+            reason_icon = "local_fire_department"
+            diff_val = round(c.difficulty or 5.5, 1)
+            reason_label = f"Штурм (сложность {diff_val})"
+        elif c.state == 0:
+            reason_type = "new"
+            reason_icon = "school"
+            reason_label = "Новое понятие"
+        elif c.state == 1:
+            reason_type = "learning"
+            reason_icon = "bolt"
+            reason_label = "Закрепление (шаг 2)"
+        elif c.state == 3:
+            reason_type = "relearning"
+            reason_icon = "warning"
+            reason_label = "Закрепление ошибки"
+        elif c.state == 2:
+            reason_type = "review"
+            reason_icon = "history"
+            reason_label = f"Повторение ({interval_days} дн.)" if interval_days > 0 else "Повторение FSRS"
+        else:
+            reason_type = "review"
+            reason_icon = "history"
+            reason_label = "Повторение FSRS"
+
+        canon_sub = resolve_subject_alias(c.subject or "")
+        sub_title = subject_display_names.get(canon_sub) or subject_display_names.get(c.subject, "") or (c.subject.replace("_", " ").capitalize() if c.subject else "Курс")
+
         result.append({
             "id": c.id, 
             "text": c.text, 
@@ -231,6 +288,11 @@ async def get_session_cards(
             "translation": c.translation, 
             "state": c.state, 
             "subject": c.subject,
+            "subject_title": sub_title,
+            "reason_type": reason_type,
+            "reason_label": reason_label,
+            "reason_icon": reason_icon,
+            "interval_days": interval_days,
             "is_anchored": c.is_anchored, 
             "phrase_text": phrase_text, 
             "chapter": phrase_text,

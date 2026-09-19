@@ -205,9 +205,19 @@
                         <!-- Обычный режим (Лицевая сторона повторения и штурма) -->
                         <div id="card-front-normal" class="w-full h-full flex-1 min-h-0 flex flex-col justify-between items-center text-center">
                             <div class="w-full shrink-0 flex flex-col items-center gap-1 pt-1 pb-1">
-                                <div id="card-front-mode-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-                                    <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 font-mono">ПОВТОРЕНИЕ FSRS</span>
+                                <div class="flex items-center gap-1.5 flex-wrap justify-center">
+                                    <div id="card-front-subject-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
+                                        <span class="material-symbols-outlined text-[12px]">folder</span>
+                                        <span id="card-front-subject-text"></span>
+                                    </div>
+                                    <div id="card-front-mode-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50">
+                                        <span id="card-front-mode-icon" class="material-symbols-outlined text-[13px] text-primary">history</span>
+                                        <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 font-mono">ПОВТОРЕНИЕ FSRS</span>
+                                    </div>
+                                    <button type="button" id="card-front-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 hover:bg-primary/10 hover:text-primary dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-[10px] font-mono text-neutral-500 transition-colors" title="Показать в графе знаний">
+                                        <span class="material-symbols-outlined text-[12px]">account_tree</span>
+                                        <span>В графе</span>
+                                    </button>
                                 </div>
                                 <div id="card-front-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-[10px] text-neutral-600 dark:text-neutral-300 font-mono max-w-[320px] truncate">
                                     <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
@@ -233,10 +243,18 @@
                                 <!-- Шапка с бейджами и вопросом -->
                                 <div class="w-full shrink-0 flex flex-col items-center pb-2 mb-1.5 border-b border-neutral-200/60 dark:border-neutral-800">
                                     <div class="flex items-center gap-1.5 mb-1.5 flex-wrap justify-center">
-                                        <div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
-                                            <span class="material-symbols-outlined text-[13px]">school</span>
-                                            <span>РЕЖИМ ЗНАКОМСТВА</span>
+                                        <div id="card-intro-subject-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
+                                            <span class="material-symbols-outlined text-[12px]">folder</span>
+                                            <span id="card-intro-subject-text"></span>
                                         </div>
+                                        <div id="card-intro-mode-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
+                                            <span id="card-intro-mode-icon" class="material-symbols-outlined text-[13px]">school</span>
+                                            <span id="card-intro-mode-text">РЕЖИМ ЗНАКОМСТВА</span>
+                                        </div>
+                                        <button type="button" id="card-intro-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 hover:bg-primary/10 hover:text-primary dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-[10px] font-mono text-neutral-500 transition-colors" title="Показать в графе знаний">
+                                            <span class="material-symbols-outlined text-[12px]">account_tree</span>
+                                            <span>В графе</span>
+                                        </button>
                                         <div id="card-intro-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[10px] font-mono max-w-[220px] truncate">
                                             <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
                                             <span id="card-intro-chapter-text" class="truncate"></span>
@@ -300,6 +318,73 @@
                                 [ОТПРАВИТЬ ОТЧЕТ СЕССИИ]
                             </button>
                         </div>
+
+                        <!-- Экран итогов сессии (Session Debrief) -->
+                        <div id="session-debrief-container" class="hidden absolute inset-0 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between select-none overflow-y-auto card-scroll-clean z-20" onclick="event.stopPropagation()">
+                            <!-- Верхний блок: Поздравление и предмет -->
+                            <div class="w-full flex flex-col items-center text-center gap-1.5 shrink-0 pt-1">
+                                <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-1">
+                                    <span class="material-symbols-outlined text-2xl">workspace_premium</span>
+                                </div>
+                                <h2 id="debrief-title" class="font-bold text-base text-neutral-900 dark:text-neutral-100 uppercase tracking-wider font-mono">Блок завершен!</h2>
+                                <div id="debrief-subject-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200/60 dark:border-neutral-700 text-[10px] font-mono text-neutral-600 dark:text-neutral-300">
+                                    <span class="material-symbols-outlined text-[12px] text-primary">folder</span>
+                                    <span id="debrief-subject-text">ПРЕДМЕТ</span>
+                                </div>
+                            </div>
+
+                            <!-- Средний блок: Метрики усвоения и прогресс -->
+                            <div class="w-full flex flex-col gap-2.5 my-auto py-2">
+                                <div class="grid grid-cols-3 gap-2 text-center">
+                                    <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
+                                        <span id="debrief-stat-reviewed" class="block font-bold text-lg text-primary font-mono">0</span>
+                                        <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">В блоке</span>
+                                    </div>
+                                    <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
+                                        <span id="debrief-stat-accuracy" class="block font-bold text-lg text-emerald-600 dark:text-emerald-400 font-mono">100%</span>
+                                        <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">Точность</span>
+                                    </div>
+                                    <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
+                                        <span id="debrief-stat-evening" class="block font-bold text-lg text-amber-600 dark:text-amber-400 font-mono">0</span>
+                                        <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">К вечеру</span>
+                                    </div>
+                                </div>
+
+                                <div class="w-full p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800 flex flex-col gap-1.5">
+                                    <div class="flex justify-between items-center text-[10px] font-mono text-neutral-600 dark:text-neutral-300">
+                                        <span class="flex items-center gap-1 font-bold">
+                                            <span class="material-symbols-outlined text-[13px] text-primary">trending_up</span> Прогресс курса:
+                                        </span>
+                                        <span id="debrief-progress-percent" class="font-bold text-primary">0%</span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                                        <div id="debrief-progress-bar" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Нижний блок: Кнопки навигации и следующих действий -->
+                            <div class="w-full flex flex-col gap-1.5 shrink-0 pt-1">
+                                <button id="debrief-btn-next" onclick="event.stopPropagation(); window.continueWithNextChunk();" class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs flex items-center justify-center gap-1.5">
+                                    <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+                                    <span id="debrief-btn-next-text">СЛЕДУЮЩИЙ БЛОК (+10)</span>
+                                </button>
+                                <div class="grid grid-cols-2 gap-1.5">
+                                    <button onclick="event.stopPropagation(); window.openPracticeFromDebrief();" class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
+                                        <span class="material-symbols-outlined text-[14px]">psychology_alt</span>
+                                        <span>ПРАКТИКА</span>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); window.openGraphFromDebrief();" class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1">
+                                        <span class="material-symbols-outlined text-[14px]">account_tree</span>
+                                        <span>В ГРАФ</span>
+                                    </button>
+                                </div>
+                                <button onclick="event.stopPropagation(); exitToSessionMenu();" class="w-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 py-1.5 text-[11px] font-mono uppercase flex items-center justify-center gap-1 transition-colors">
+                                    <span class="material-symbols-outlined text-[14px]">arrow_back</span>
+                                    <span>К списку сессий</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Обратная сторона (Гармоничная структурированная архитектура) -->
@@ -319,11 +404,19 @@
                             <!-- Четкий заголовок вопроса/термина (без обрезки, аккуратный и читаемый) -->
                             <div class="w-full flex flex-col items-center px-1">
                                 <div class="flex items-center gap-1.5 mb-0.5 flex-wrap justify-center">
+                                    <div id="card-back-subject-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-bold font-mono uppercase tracking-wider">
+                                        <span class="material-symbols-outlined text-[11px]">folder</span>
+                                        <span id="card-back-subject-text"></span>
+                                    </div>
                                     <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">ВОПРОС</span>
-                                    <div id="card-back-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[9px] font-mono max-w-[220px] truncate">
+                                    <div id="card-back-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[9px] font-mono max-w-[200px] truncate">
                                         <span class="material-symbols-outlined text-[11px] text-primary">menu_book</span>
                                         <span id="card-back-chapter-text" class="truncate"></span>
                                     </div>
+                                    <button type="button" id="card-back-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 hover:bg-primary/10 hover:text-primary dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-[9px] font-mono text-neutral-500 transition-colors" title="Показать в графе знаний">
+                                        <span class="material-symbols-outlined text-[11px]">account_tree</span>
+                                        <span>В графе</span>
+                                    </button>
                                 </div>
                                 <div id="card-back-term-text" class="max-h-16 overflow-y-auto card-scroll-clean text-xs sm:text-sm font-semibold text-neutral-800 dark:text-neutral-200 text-center break-words leading-snug px-1">---</div>
                             </div>
