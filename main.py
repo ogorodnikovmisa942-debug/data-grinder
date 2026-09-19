@@ -14,12 +14,19 @@ from app.database.models import Base
 from app.database.migrations import backup_sqlite_database, run_sqlite_pragma_migrations
 from app.services.notifications import notification_scheduler_loop
 from app.services.generation_worker import generation_worker_loop
+from app.services.frontend_bundler import bundle_modules
 
 ADMIN_TEMPLATE_PATH = Path("app/templates/admin.html")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 0. Автоматическая сборка модулей фронтенда (гарантия актуальности app.js)
+    try:
+        bundle_modules()
+    except Exception as e:
+        print(f"[Frontend Bundler Warning] {e}")
+
     # 1. Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек)
     backup_sqlite_database("data_grinder.db")
 
