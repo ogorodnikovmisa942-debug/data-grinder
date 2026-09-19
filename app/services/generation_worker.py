@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update, text, delete
 from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph
-from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front, extract_curriculum_skeleton
+from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front, extract_curriculum_skeleton, analyze_source_density
 from app.services.graph_service import consolidate_knowledge_graphs, resolve_subject_alias, get_all_subject_aliases
 from app.services.practice_service import generate_practice_session
 from app.core.config import settings
@@ -96,24 +96,31 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         if len(clean_text_no_headers) < 15:
             raise ValueError("Распознанный текст слишком короткий или пуст (менее 15 знаков). Похоже, в документе нет текста.")
 
-        # Укрупненное разбиение на смысловые макро-разделы под 64k-контекст DeepSeek-V3 (до 85 000 знаков).
-        # Сокращает число запросов и накладных расходов в 3-4 раза без потери глубины курса.
+        # Умное адаптивное разбиение на смысловые блоки с учетом типа источника
+        density_info = analyze_source_density(job_data["raw_text"])
         max_chars = 85000
         overlap = 2000
         chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=max_chars, overlap_chars=overlap)
         total_chunks = len(chunks)
-        print(f"[Generation Worker] Задача #{job_data['id']}: материал скомпонован в {total_chunks} смысловых разделов/глав.", flush=True)
+        print(f"[Generation Worker] Задача #{job_data['id']}: тип «{density_info['archetype']}», скомпонован в {total_chunks} смысловых блоков/разделов.", flush=True)
 
         # Отправляем мгновенное уведомление в Telegram о старте генерации
         if job_data.get("telegram_id"):
             try:
                 escaped_theme = html.escape(str(job_data['theme']))
                 discount_badge = "🔥 <b>Скидка 50% активна!</b>\n" if is_offpeak else "☀️ <b>Дневная обработка</b>\n"
+                archetype_ru = {
+                    "slides": f"Презентация ({density_info.get('slide_count', total_chunks * 6)} слайдов)",
+                    "dense_notes": "Конспект / шпаргалка",
+                    "textbook": "Учебник / книга",
+                    "short_article": "Статья / материал"
+                }.get(density_info.get("archetype", ""), "Материал")
                 start_msg = (
                     f"{discount_badge}"
                     f"🚀 <b>Документ взят в обработку ИИ!</b>\n\n"
                     f"Материал: «<b>{escaped_theme}</b>»\n"
-                    f"Объем: <b>{char_count:,} знаков</b> (~{total_chunks} смысловых разделов)\n"
+                    f"Формат: <b>{archetype_ru}</b>\n"
+                    f"Объем: <b>{char_count:,} знаков</b> (~{total_chunks} смысловых блоков)\n"
                     f"Тариф: <i>{tariff_label}</i>\n\n"
                     f"⏳ <i>ИИ нарезает карточки. По готовности пришлю кнопку для разбора в Песочнице!</i>"
                 )
@@ -130,12 +137,26 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         any_fallback_used = False
         any_json_repair_applied = False
 
-        # --- ПРОХОД 1: СИНТЕЗ КАРКАСА ДИСЦИПЛИНЫ (CURRICULUM SKELETON) ДЛЯ КРУПНЫХ ТЕКСТОВ ---
+        # --- ПРОХОД 1: СИНТЕЗ КАРКАСА ДИСЦИПЛИНЫ (CURRICULUM SKELETON) ДЛЯ КРУПНЫХ ТЕКСТОВ И ПРЕЗЕНТАЦИЙ ---
         curriculum_skeleton = None
-        if total_chunks >= 2 or char_count >= 30000:
+        should_run_skeleton = (
+            total_chunks >= 2 
+            or density_info.get("is_presentation") 
+            or density_info.get("slide_count", 0) >= 8 
+            or (density_info.get("is_dense_notes") and char_count >= 10000) 
+            or char_count >= 25000
+        )
+        if should_run_skeleton:
             print(f"[Generation Worker] Задача #{job_data['id']}: Проход 1 — извлечение дерева органов и институтов...", flush=True)
             try:
-                target_skel_cards = min(max(total_chunks * 6, 60), 120) if job_data.get("volume") in ("auto", "balanced", None, "") else 80
+                is_auto = job_data.get("volume") in ("auto", "balanced", None, "")
+                if density_info.get("is_presentation"):
+                    target_skel_cards = min(max(total_chunks * 6, 50), 85) if is_auto else 65
+                elif density_info.get("is_dense_notes"):
+                    target_skel_cards = min(max(total_chunks * 7, 40), 75) if is_auto else 60
+                else:
+                    target_skel_cards = min(max(total_chunks * 6, 60), 120) if is_auto else 80
+
                 curriculum_skeleton = await extract_curriculum_skeleton(
                     text=job_data["raw_text"],
                     target_subject=job_data["subject"],
@@ -195,14 +216,30 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 extracted_theme = parsed["phrase_title"]
             chunk_cards = parsed.get("cards", [])
             if isinstance(chunk_cards, list):
-                # Калибровка объема: сохраняем пропорциональное количество глубоких карточек с главы/раздела
+                # Калибровка объема: сохраняем пропорциональное количество глубоких карточек с учетом формата материала
                 is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
-                if is_auto_volume and total_chunks >= 3:
-                    chunk_cards = chunk_cards[:14]
-                elif job_data.get("volume") in ("low", "low_5"):
-                    chunk_cards = chunk_cards[:6]
-                elif job_data.get("volume") in ("high", "high_20", "max"):
-                    chunk_cards = chunk_cards[:18]
+                vol = job_data.get("volume")
+                if density_info.get("is_presentation"):
+                    if vol in ("low", "low_5"):
+                        chunk_cards = chunk_cards[:4]
+                    elif vol in ("high", "high_20", "max"):
+                        chunk_cards = chunk_cards[:10]
+                    else:
+                        chunk_cards = chunk_cards[:8]
+                elif density_info.get("is_dense_notes"):
+                    if vol in ("low", "low_5"):
+                        chunk_cards = chunk_cards[:5]
+                    elif vol in ("high", "high_20", "max"):
+                        chunk_cards = chunk_cards[:12]
+                    else:
+                        chunk_cards = chunk_cards[:9]
+                else:
+                    if vol in ("low", "low_5"):
+                        chunk_cards = chunk_cards[:6]
+                    elif vol in ("high", "high_20", "max"):
+                        chunk_cards = chunk_cards[:18]
+                    elif is_auto_volume and total_chunks >= 3:
+                        chunk_cards = chunk_cards[:14]
 
                 for c in chunk_cards:
                     raw_c_text = (c.get("text") or "").strip()
@@ -255,9 +292,15 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         for rank_idx, c in enumerate(all_collected_cards, 1):
             c["topological_rank"] = rank_idx
 
-        # Ограничение по объему: для крупных книг (>15 блоков) удерживаем целевой пул до 200 карточек для баланса памяти
+        # Ограничение по объему: для презентаций (55-75 карт), конспектов (45-65 карт) и крупных книг (до 200 карт)
         is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
-        if is_auto_volume and total_chunks >= 15 and len(all_collected_cards) > 200:
+        if is_auto_volume and density_info.get("is_presentation") and len(all_collected_cards) > 85:
+            print(f"[Generation Worker] Калибровка презентации: сжатие {len(all_collected_cards)} -> 75 ключевых карточек для фокусного изучения.", flush=True)
+            all_collected_cards = all_collected_cards[:75]
+        elif is_auto_volume and density_info.get("is_dense_notes") and len(all_collected_cards) > 75:
+            print(f"[Generation Worker] Калибровка конспекта: сжатие {len(all_collected_cards)} -> 65 ключевых карточек.", flush=True)
+            all_collected_cards = all_collected_cards[:65]
+        elif is_auto_volume and total_chunks >= 15 and len(all_collected_cards) > 200:
             print(f"[Generation Worker] Оптимизация объема: сжатие {len(all_collected_cards)} -> 200 ключевых карточек для {total_chunks} блоков.", flush=True)
             all_collected_cards = all_collected_cards[:200]
 

@@ -1191,7 +1191,42 @@ async def parse_raw_text(
             "Return strictly empty graph: \"graph\": {\"nodes\": [], \"edges\": []}. "
             "Do NOT waste tokens generating redundant graph nodes or edges. Direct 100% capacity exclusively to high-yield cards in 'c'."
         )
-    if volume in ("auto", "balanced"):
+    # Анализируем плотность переданного блока текста
+    density_meta = analyze_source_density(text)
+    is_slides = density_meta["is_presentation"] or (text.count(": Слайд ") >= 1)
+    is_notes = density_meta["is_dense_notes"]
+
+    if is_slides:
+        slide_matches = re.findall(r'(?:Слайд|Slide)\s+(\d+)', text)
+        slide_in_chunk = max(text.count(": Слайд "), len(slide_matches))
+        min_c = max(4, int(slide_in_chunk * 0.8)) if slide_in_chunk >= 2 else 5
+        max_c = min(12, max(min_c + 2, int(slide_in_chunk * 1.2))) if slide_in_chunk >= 2 else 8
+        user_directives.append(
+            f"CARD VOLUME: SLIDE CLUSTER EXTRACTION ({slide_in_chunk} slides in this section). "
+            f"Extract strictly {min_c} to {max_c} high-yield atomic cards (~0.8 to 1.0 cards per substantive slide). "
+            f"Capture every key distinction, formula, rule, classification, or procedural step presented on these slides. "
+            f"Do NOT artificially compress the section to 1-2 cards. "
+            f"In 's', ALWAYS include the slide number and scope (format: '[Domain / Subject Code] | Слайд N')."
+        )
+        user_directives.append(
+            "SLIDE BULLET RECONSTRUCTION DIRECTIVE: Slide text is frequently condensed into telegraphic bullet points, tables, and short fragments. "
+            "Reconstruct full, grammatically complete, self-contained questions and answers from the slide context. "
+            "Never leave dangling bullet fragments or telegraphic ellipses."
+        )
+    elif is_notes:
+        user_directives.append(
+            "CARD VOLUME: DENSE LECTURE NOTES / CHEATSHEET EXTRACTION. "
+            "The input represents concentrated student lecture notes or a cheatsheet with high conceptual density. "
+            "Extract 6 to 9 high-yield atomic cards from this section (approximately 1 card per key definition, distinction, or rule). "
+            "Do NOT artificially compress the section to 1-2 cards. "
+            "In 's', preserve the section header, ticket number, or topic name from the notes."
+        )
+        user_directives.append(
+            "NOTES & ABBREVIATION EXPANSION DIRECTIVE: Student notes and cheatsheets frequently use domain abbreviations "
+            "(e.g. 'ст.', 'ч.', 'РФ', 'ГК', 'УПК', 'vs', 'т.е.', 'юр. лицо', 'дисп. норма', 'AO', 'OOP', 'PR'). "
+            "Expand standard abbreviations into precise, professional terminology in 't' and 'd' without losing atomic conciseness (1-12 words in 'd')."
+        )
+    elif volume in ("auto", "balanced"):
         user_directives.append(
             "CARD VOLUME: HIGH-YIELD BALANCED EXTRACTION. "
             "Extract 10 to 14 master conceptual cards from this section (proportionate to its substantive weight, targeting ~140–180 cards for an entire multi-chapter course). "
@@ -1364,25 +1399,202 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         else:
             raise RuntimeError(f"DeepSeek mnemonic error ({res.status_code}): {res.text}")
 
-# --- УМНОЕ ЧАНКОВАНИЕ ДЛИННЫХ ДОКУМЕНТОВ И КНИГ (МАКРО-ГЛАВЫ ДЛЯ 64K КОНТЕКСТА) ---
+# --- УНИВЕРСАЛЬНЫЙ АНАЛИЗАТОР ИНФОРМАЦИОННОЙ ПЛОТНОСТИ И КОНЦЕПТУАЛЬНОЙ ЭНТРОПИИ ---
+def analyze_source_density(text: str) -> dict:
+    """
+    Универсальный анализатор структуры, формата и информационной плотности текста.
+    Классифицирует входящий материал по 4 когнитивным архетипам:
+    1. 'slides' — презентации PPTX / PDF-слайды (маркеры '--- Слайд N ---', страницы с <800 знаков).
+    2. 'dense_notes' — студенческие конспекты, шпаргалки, выжимки (короткие строки, списки, буллеты, тире-определения).
+    3. 'textbook' — классические учебники, монографии, длинная связная проза (>45 000 знаков).
+    4. 'short_article' — единичные статьи, небольшие заметки (<12 000 знаков).
+    """
+    clean_text = text.strip()
+    total_chars = len(clean_text)
+    if not clean_text:
+        return {
+            "archetype": "generic",
+            "is_presentation": False,
+            "is_dense_notes": False,
+            "slide_count": 0,
+            "target_chunk_chars": 25000,
+            "min_cards_per_chunk": 6,
+            "max_cards_per_chunk": 12
+        }
+
+    # 1. Поиск маркеров слайдов
+    explicit_slide_matches = re.findall(r'(?:--- [^\n]+: Слайд \d+ ---|\b(?:Слайд|Slide)\s+\d+\b)', clean_text, re.IGNORECASE)
+    page_matches = re.findall(r'--- [^\n]+: Стр\. \d+ ---', clean_text)
+    explicit_slide_count = len(explicit_slide_matches)
+    page_count = len(page_matches)
+
+    # 2. Подсчет структурных элементов плотности конспектов и шпаргалок
+    lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
+    line_count = len(lines)
+    avg_line_len = (total_chars / line_count) if line_count > 0 else 500
+
+    # Буллеты: -, *, •, —, 1., 1.1, а)
+    bullet_count = len(re.findall(r'^\s*(?:[-*•—–]|\d+[\.\)]|[а-яa-z][\.\)])\s+', clean_text, re.MULTILINE))
+    bullet_ratio = (bullet_count / line_count) if line_count > 0 else 0.0
+
+    chars_per_page = (total_chars / page_count) if page_count > 0 else 99999
+
+    has_slide_markers = False
+    effective_slides = 0
+    if explicit_slide_count >= 3 or clean_text.count(": Слайд ") >= 2:
+        has_slide_markers = True
+        effective_slides = max(explicit_slide_count, clean_text.count(": Слайд "))
+    elif page_count >= 4 and chars_per_page < 950:
+        # PDF-презентация: мало текста на страницу (<950 знаков/стр)
+        has_slide_markers = True
+        effective_slides = page_count
+
+    # Заголовки тем, вопросов, билетов, разделов:
+    header_count = len(re.findall(r'^\s*#{1,4}\s+|\b(?:Тема|ТЕМА|Раздел|РАЗДЕЛ|Вопрос|ВОПРОС|Билет|БИЛЕТ|Лекция|ЛЕКЦИЯ|Блок|Глава|§)\s+\d+', clean_text, re.MULTILINE))
+
+    # Плотные тире-определения и структурные пары (e.g., "Понятие — определение", "Термин: значение")
+    definition_count = len(re.findall(r'(?:[А-Яа-яA-Za-z0-9\)]\s+[—–-]\s+[А-Яа-яA-Z0-9]|[А-Яа-яA-Za-z0-9\)]:\s+[А-Яа-яA-Z0-9])', clean_text))
+
+    # Признаки конспекта/шпаргалки:
+    # короткие строки (avg_line_len < 160), высокий процент буллетов, тире-определения или заголовки
+    is_dense_notes = (
+        not has_slide_markers
+        and (
+            (avg_line_len < 160 and (bullet_ratio > 0.05 or definition_count >= 2 or header_count >= 1))
+            or (header_count >= 2 and total_chars < 65000)
+            or (bullet_ratio > 0.12)
+        )
+    )
+
+    if has_slide_markers:
+        effective_slides = max(effective_slides, clean_text.count(": Слайд "))
+        return {
+            "archetype": "slides",
+            "is_presentation": True,
+            "is_dense_notes": False,
+            "slide_count": effective_slides,
+            "target_chunk_chars": 6000,
+            "slides_per_chunk": 6,
+            "min_cards_per_chunk": 5,
+            "max_cards_per_chunk": 8
+        }
+    elif is_dense_notes:
+        return {
+            "archetype": "dense_notes",
+            "is_presentation": False,
+            "is_dense_notes": True,
+            "slide_count": 0,
+            "target_chunk_chars": 5500,
+            "min_cards_per_chunk": 6,
+            "max_cards_per_chunk": 9
+        }
+    elif total_chars > 45000:
+        return {
+            "archetype": "textbook",
+            "is_presentation": False,
+            "is_dense_notes": False,
+            "slide_count": 0,
+            "target_chunk_chars": 50000,
+            "min_cards_per_chunk": 10,
+            "max_cards_per_chunk": 14
+        }
+    else:
+        return {
+            "archetype": "short_article",
+            "is_presentation": False,
+            "is_dense_notes": False,
+            "slide_count": 0,
+            "target_chunk_chars": 15000,
+            "min_cards_per_chunk": 6,
+            "max_cards_per_chunk": 10
+        }
+
+
+# --- УМНОЕ АДАПТИВНОЕ ЧАНКОВАНИЕ С УЧЕТОМ ТИПА ИСТОЧНИКА ---
 def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_chars: int = 2000) -> list[str]:
     """
-    Интеллектуальное разбиение длинного документа на смысловые разделы/главы (по умолчанию ~10-15 страниц / до 35 000 знаков).
-    Сохраняет естественные границы глав, разделов, страниц, документов, слайдов и параграфов, добавляя скользящее перекрытие (overlap).
-    Обеспечивает гарантированное внимание LLM к каждому разделу книги без овер-сжатия материала.
+    Интеллектуальное адаптивное разбиение материала на смысловые блоки с учетом типа источника:
+    1. Для презентаций (slides) — группирует слайды в блоки по 5–7 слайдов (~4 000 – 6 000 знаков).
+    2. Для конспектов и шпаргалок (dense_notes) — делит по заголовкам тем порциями по 4 500 – 6 500 знаков.
+    3. Для учебников (textbook) — формирует крупные макро-главы (до 50 000 – 85 000 знаков) с перекрытием.
     """
-    text = text.strip()
+    text = text.replace('\r\n', '\n').strip()
     if not text:
         return []
-    if len(text) <= max_chunk_chars:
+
+    density = analyze_source_density(text)
+    archetype = density["archetype"]
+
+    # 1. СПЕЦИАЛИЗИРОВАННЫЙ РЕЖИМ ДЛЯ ПРЕЗЕНТАЦИЙ (СЛАЙДЫ)
+    if archetype == "slides":
+        slide_pattern = r'(?=\n--- [^\n]+: (?:Слайд|Стр\.) \d+ ---)'
+        slides = re.split(slide_pattern, text)
+        slides = [s.strip() for s in slides if s.strip()]
+        if len(slides) <= 1:
+            slide_pattern_alt = r'(?=\n\s*(?:Слайд|Slide)\s+\d+)'
+            slides = re.split(slide_pattern_alt, text)
+            slides = [s.strip() for s in slides if s.strip()]
+
+        if len(slides) > 1:
+            slides_per_chunk = density.get("slides_per_chunk", 6)
+            slide_chunks = []
+            current_slide_group = []
+            current_len = 0
+            for sl in slides:
+                sl_len = len(sl)
+                # Если набрали 5-7 слайдов или превысили 7 500 знаков — закрываем блок
+                if len(current_slide_group) >= slides_per_chunk or (current_len + sl_len > 7500 and current_slide_group):
+                    slide_chunks.append("\n\n".join(current_slide_group))
+                    current_slide_group = [sl]
+                    current_len = sl_len
+                else:
+                    current_slide_group.append(sl)
+                    current_len += sl_len + 2
+            if current_slide_group:
+                # Если в последней группе осталось 1-2 слайда и уже есть чанки, объединяем с предыдущим
+                if len(current_slide_group) <= 2 and slide_chunks:
+                    slide_chunks[-1] += "\n\n" + "\n\n".join(current_slide_group)
+                else:
+                    slide_chunks.append("\n\n".join(current_slide_group))
+            return slide_chunks
+
+    # 2. СПЕЦИАЛИЗИРОВАННЫЙ РЕЖИМ ДЛЯ КОНСПЕКТОВ И ШПАРГАЛОК (DENSE NOTES)
+    if archetype == "dense_notes":
+        target_max = density.get("target_chunk_chars", 5500)
+        # Ищем естественные границы подтем, билетов, вопросов, разделов или заголовков Markdown
+        note_split_pattern = r'(?=(?:\n\s*#{1,4}\s+|\n\s*(?:Тема|ТЕМА|Раздел|РАЗДЕЛ|Вопрос|ВОПРОС|Билет|БИЛЕТ|Лекция|ЛЕКЦИЯ|Блок|Глава|§)\s+\d+|\n\n(?=[А-ЯA-Z0-9\.\-]{3,}:?\n)))'
+        sections = re.split(note_split_pattern, text)
+        sections = [s.strip() for s in sections if s.strip()]
+        if len(sections) <= 1:
+            sections = [s.strip() for s in text.split("\n\n") if s.strip()]
+
+        if len(sections) > 1:
+            note_chunks = []
+            cur_note = []
+            cur_note_len = 0
+            for sec in sections:
+                s_len = len(sec)
+                if cur_note_len + s_len > target_max and cur_note:
+                    note_chunks.append("\n\n".join(cur_note))
+                    cur_note = [sec]
+                    cur_note_len = s_len
+                else:
+                    cur_note.append(sec)
+                    cur_note_len += s_len + 2
+            if cur_note:
+                note_chunks.append("\n\n".join(cur_note))
+            if len(note_chunks) > 1:
+                return note_chunks
+
+    # 3. СТАНДАРТНЫЙ РЕЖИМ ДЛЯ УЧЕБНИКОВ И ДЛИННОЙ ПРОЗЫ
+    effective_max = min(max_chunk_chars, 85000)
+    if len(text) <= effective_max:
         return [text]
 
-    # Паттерн ищет границы глав, разделов, тем, страниц, слайдов или документов
     split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===|\n\s*(?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Chapter|CHAPTER|Тема|ТЕМА|§)\s+\d+))'
     sections = re.split(split_pattern, text)
     sections = [s.strip() for s in sections if s.strip()]
 
-    # Если маркеров страниц/документов не было или всего одна секция, делим по параграфам (\n\n) или заголовкам Markdown
     if len(sections) <= 1:
         sections = re.split(r'(?=(?:\n\n(?=[#A-ZА-Я0-9])|\n#{1,4} ))', text)
         sections = [s.strip() for s in sections if s.strip()]
@@ -1391,42 +1603,39 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_char
         sections = text.split("\n\n")
         sections = [s.strip() for s in sections if s.strip()]
 
-    # Если все еще одна крупная секция, делим по строкам
     if len(sections) <= 1:
         sections = text.split("\n")
         sections = [s.strip() for s in sections if s.strip()]
 
-    # Нормализуем секции: если отдельная секция превышает max_chunk_chars, режем её по предложениям
     normalized_sections = []
     for sec in sections:
         sec_len = len(sec)
-        if sec_len <= max_chunk_chars:
+        if sec_len <= effective_max:
             normalized_sections.append(sec)
         else:
             start = 0
             while start < sec_len:
-                end = min(start + max_chunk_chars, sec_len)
+                end = min(start + effective_max, sec_len)
                 if end < sec_len:
                     last_period = sec.rfind(". ", start, end)
-                    if last_period != -1 and last_period > start + (max_chunk_chars // 2):
+                    if last_period != -1 and last_period > start + (effective_max // 2):
                         end = last_period + 1
                     else:
                         last_newline = sec.rfind("\n", start, end)
-                        if last_newline != -1 and last_newline > start + (max_chunk_chars // 2):
+                        if last_newline != -1 and last_newline > start + (effective_max // 2):
                             end = last_newline
                 piece = sec[start:end].strip()
                 if piece:
                     normalized_sections.append(piece)
                 start = end
 
-    # Собираем блоки до max_chunk_chars
     raw_chunks = []
     current_chunk = []
     current_len = 0
 
     for sec in normalized_sections:
         sec_len = len(sec)
-        if current_len + sec_len + 2 > max_chunk_chars and current_chunk:
+        if current_len + sec_len + 2 > effective_max and current_chunk:
             raw_chunks.append("\n\n".join(current_chunk))
             current_chunk = [sec]
             current_len = sec_len
@@ -1440,7 +1649,6 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_char
     if len(raw_chunks) <= 1:
         return raw_chunks
 
-    # Добавляем скользящий overlap к последующим чанкам для неразрывности контекста
     final_chunks = []
     for idx, ch in enumerate(raw_chunks):
         if idx == 0:

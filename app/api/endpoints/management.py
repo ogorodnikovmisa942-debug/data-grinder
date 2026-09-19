@@ -14,7 +14,7 @@ from sqlalchemy import select, func, delete, update
 from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, GenerationJob, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog
-from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic, split_text_into_chunks
+from app.services.ai_gateway import parse_raw_text, regenerate_card_mnemonic, split_text_into_chunks, analyze_source_density
 from app.services.generation_worker import is_deepseek_offpeak
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases, synthesize_graph_from_cards, clean_graph_data, build_hierarchical_tree
 from app.services.practice_service import generate_practice_session
@@ -979,17 +979,29 @@ async def import_raw_text(
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
     # Если выбрана отложенная обработка «Ночной Грайнд» (-50% стоимости)
-    # ИЛИ объем текста превышает 35 000 знаков (автоматический фоновый режим во избежание таймаута)
-    is_too_large = len(payload.text.strip()) > 35000
+    # ИЛИ материал является презентацией / конспектом / объемным текстом (>30 000 зн.)
+    # (автоматический фоновый воркер с 2-проходным синтезом графа во избежание таймаута)
+    density_info = analyze_source_density(payload.text.strip())
+    is_dense_material = (
+        density_info["is_presentation"]
+        or density_info.get("slide_count", 0) >= 8
+        or (density_info["is_dense_notes"] and len(payload.text.strip()) >= 10000)
+    )
+    is_too_large = len(payload.text.strip()) > 30000 or is_dense_material
+
     if payload.is_deferred or is_too_large:
         is_offpeak = is_deepseek_offpeak()
+        archetype_label = (
+            f"Презентация ({density_info.get('slide_count', 'слайды')})" if density_info["is_presentation"]
+            else ("Конспект / шпаргалка" if density_info["is_dense_notes"] else "Крупный материал")
+        )
         if is_offpeak:
             # Скидка 50% УЖЕ действует прямо сейчас (19:30-03:30 МСК)!
             # Нарезка начинается немедленно, задача не задерживается
             effective_deferred = False
             is_immediate = True
             if is_too_large:
-                msg = f"🔥 Скидка 50% активна прямо сейчас! Объемный текст ({len(payload.text.strip())} знаков) взят в фоновую нарезку со скидкой 50%."
+                msg = f"🔥 Скидка 50% активна прямо сейчас! {archetype_label} ({len(payload.text.strip())} знаков) взят(а) в фоновую нарезку со скидкой 50%."
             else:
                 msg = f"🔥 Скидка 50% активна прямо сейчас! Материал передан в немедленную фоновую обработку."
         else:
@@ -1002,7 +1014,7 @@ async def import_raw_text(
                 # Дневное время, но пользователь выбрал генерацию сейчас: фоновый запуск без откладывания
                 effective_deferred = False
                 is_immediate = True
-                msg = f"Объемный материал ({len(payload.text.strip())} знаков) взят в немедленную фоновую обработку по дневному тарифу."
+                msg = f"{archetype_label} ({len(payload.text.strip())} знаков) взят(а) в немедленную фоновую обработку по дневному тарифу."
 
         # Извлекаем осмысленное имя темы (пропуская служебные технические разделители OCR)
         meaningful_lines = [
@@ -1299,17 +1311,27 @@ async def import_file_at_code_level(
     # ИЛИ объем документов превышает 30 000 знаков / более 1 документа (автоматический фоновый режим)
     if all_extracted_texts:
         combined_text = "\n\n".join(all_extracted_texts)
-        is_large = len(combined_text) > 30000 or len(upload_list) > 1
+        density_info = analyze_source_density(combined_text)
+        is_dense_material = (
+            density_info["is_presentation"]
+            or density_info.get("slide_count", 0) >= 8
+            or (density_info["is_dense_notes"] and len(combined_text) >= 10000)
+        )
+        is_large = len(combined_text) > 30000 or len(upload_list) > 1 or is_dense_material
 
         if is_deferred or is_large:
             is_offpeak = is_deepseek_offpeak()
+            archetype_label = (
+                f"Презентация ({density_info.get('slide_count', 'слайды')})" if density_info["is_presentation"]
+                else ("Конспект / шпаргалка" if density_info["is_dense_notes"] else "Крупный документ")
+            )
             if is_offpeak:
                 # В часы скидок (19:30-03:30 МСК) скидка 50% УЖЕ действует прямо сейчас!
                 # Задачи НЕ откладываются на потом, а запускаются фоновым воркером немедленно со скидкой 50%
                 effective_deferred = False
                 is_immediate = True
                 if is_large:
-                    msg = f"🔥 Скидка 50% активна прямо сейчас! Крупный документ ({len(combined_text)} знаков) взят в фоновую нарезку со скидкой 50%."
+                    msg = f"🔥 Скидка 50% активна прямо сейчас! {archetype_label} ({len(combined_text)} знаков) взят(а) в фоновую нарезку со скидкой 50%."
                 else:
                     msg = f"🔥 Скидка 50% активна! Файлы ({len(upload_list)} шт.) переданы в немедленную фоновую обработку."
             else:
@@ -1324,7 +1346,7 @@ async def import_file_at_code_level(
                     # Крупные материалы отправляются в фоновый воркер во избежание HTTP таймаута, но запускаются НЕМЕДЛЕННО
                     effective_deferred = False
                     is_immediate = True
-                    msg = f"Крупный документ ({len(combined_text)} знаков) взят в немедленную фоновую нарезку по дневному тарифу."
+                    msg = f"{archetype_label} ({len(combined_text)} знаков) взят(а) в немедленную фоновую нарезку по дневному тарифу."
 
             theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
             if len(file_titles) > 2:
