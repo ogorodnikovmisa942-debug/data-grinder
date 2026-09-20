@@ -777,28 +777,28 @@
                     <div id="file-import-status" class="hidden text-[10px] font-mono text-center text-secondary font-bold py-1"></div>
                 </div>
 
-                <!-- 3 безопасных пресета генерации (в 1 клик, без микро-ползунков) -->
+                <!-- 3 смысловых пресета генерации FSRS -->
                 <div class="flex flex-col gap-1.5 border-t border-neutral-200/60 dark:border-neutral-800 pt-3 mt-2">
-                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Фокус генерации</span>
+                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Пресет декомпозиции</span>
                     
                     <div class="grid grid-cols-3 gap-1.5">
-                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span class="tracking-wide font-sans">Базовый</span>
-                            <span class="text-[8px] opacity-80 font-normal">ключевые факты</span>
+                        <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
+                            <span class="tracking-wide font-sans">High-Yield</span>
+                            <span class="text-[8px] opacity-80 font-normal">Парето (авто)</span>
                         </button>
-                        <button type="button" onclick="setGranularityMode('detailed')" id="gran-detailed" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span class="tracking-wide font-sans">Детальный</span>
-                            <span class="text-[8px] opacity-80 font-normal">все тонкости</span>
+                        <button type="button" onclick="setGranularityMode('detailed')" id="gran-detailed" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
+                            <span class="tracking-wide font-sans">Полный</span>
+                            <span class="text-[8px] opacity-80 font-normal">все факты (макс)</span>
                         </button>
-                        <button type="button" onclick="setGranularityMode('blitz')" id="gran-blitz" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs">
-                            <span class="tracking-wide font-sans">Блиц</span>
-                            <span class="text-[8px] opacity-80 font-normal">основы (5–10)</span>
+                        <button type="button" onclick="setGranularityMode('blitz')" id="gran-blitz" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
+                            <span class="tracking-wide font-sans">Экспресс</span>
+                            <span class="text-[8px] opacity-80 font-normal">основы темы</span>
                         </button>
                     </div>
 
                     <!-- Пояснение текущего пресета -->
                     <div id="import-mode-explanation" class="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans px-2.5 py-1.5 bg-surface-container rounded-xl">
-                        Стандартный баланс FSRS: 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).
+                        High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).
                     </div>
 
                     <!-- Быстрые чипы фокусировки -->

@@ -523,34 +523,25 @@ let currentGranularityMode = 'atomic';
 let currentVolumeLimit = 'auto';
 let currentDetailDensity = 'medium';
 
-const VOLUME_SLIDER_STEPS = [
-    { value: 'auto', label: '[АВТО] High-Yield (Парето)', desc: '1–2 золотые карты / стр (защита от перегрузки)' },
-    { value: 'low_5', label: '5 карт / блок (минимум)', desc: 'до 5 карт на блок' },
-    { value: 'med_10', label: '10 карт / блок (сжато)', desc: 'до 10 карт на блок' },
-    { value: 'med_15', label: '15 карт / блок (стандарт)', desc: 'до 15 карт на блок' },
-    { value: 'high_20', label: '20 карт / блок (подробно)', desc: 'до 20 карт на блок' },
-    { value: 'max', label: 'МАКСИМУМ (все данные)', desc: 'все ключевые термины' }
-];
-
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
     ['atomic', 'detailed', 'blitz'].forEach(m => {
         const el = document.getElementById(`gran-${m}`);
         if (el) {
             if (m === mode) {
-                el.className = 'border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs';
+                el.className = 'border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer';
             } else {
-                el.className = 'border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs';
+                el.className = 'border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer';
             }
         }
     });
 
     if (mode === 'detailed') {
         currentDetailDensity = 'high';
-        currentVolumeLimit = 'auto';
+        currentVolumeLimit = 'max';
     } else if (mode === 'blitz' || mode === 'cheatsheet') {
         currentDetailDensity = 'low';
-        currentVolumeLimit = 'med_10';
+        currentVolumeLimit = 'low_5';
     } else {
         currentDetailDensity = 'medium';
         currentVolumeLimit = 'auto';
@@ -582,33 +573,16 @@ window.toggleFocusChip = function(btn, chipText) {
     }
 };
 
-window.onVolumeSliderChange = function(sliderVal) {
-    const idx = parseInt(sliderVal, 10);
-    const step = VOLUME_SLIDER_STEPS[idx] || VOLUME_SLIDER_STEPS[0];
-    currentVolumeLimit = step.value;
-    updateImportExplanation();
-};
-
-window.setVolumeLimit = function(vol) {
-    currentVolumeLimit = vol;
-    updateImportExplanation();
-};
-
-window.setDetailDensity = function(density) {
-    currentDetailDensity = density;
-    updateImportExplanation();
-};
-
 function updateImportExplanation() {
     const explEl = document.getElementById('import-mode-explanation');
     if (!explEl) return;
 
     if (currentGranularityMode === 'detailed') {
-        explEl.textContent = 'Глубокий разбор: больше точечных микро-карточек по всем нюансам и исключениям (каждое условие — в отдельную карточку).';
+        explEl.textContent = 'Полный разбор: максимальная глубина без сокращений. Извлечение 100% ветвей схем, условий, статей, формул и исключений.';
     } else if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') {
-        explEl.textContent = 'Экспресс-блиц: 5–10 самых фундаментальных основ в предельно сжатых карточках.';
+        explEl.textContent = 'Экспресс-блиц: только фундаментальный понятийный каркас верхнего уровня для быстрого входа в тему.';
     } else {
-        explEl.textContent = 'Баланс High-Yield FSRS: ~1–2 золотые карточки на страницу, защита от перегрузки колоды (отклик 1.5–3.5 сек).';
+        explEl.textContent = 'High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).';
     }
 }
 
