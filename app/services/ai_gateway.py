@@ -76,14 +76,29 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
     2) Boundary Contrast Pairs (e.g. "По какому решающему критерию разграничиваются институты X и Y?", "В чём водораздел между...").
     3) Causal Foundations & Doctrinal Mechanisms (e.g. "На каком базовом постулате строится концепция X?", "Почему согласно учению Y право первично по отношению к государству?").
     4) Normative Conditions & Exceptions (e.g. "При наличии каких обязательных условий закон допускает...", "В каком единственном случае норма X имеет обратную силу?").
+  * ANTI-TAUTOLOGY & ZERO-SEMANTIC-ECHO LAW:
+    - ABSOLUTELY FORBIDDEN to generate tautological pseudo-questions where the answer 'd' merely echoes or repeats terms from the question 't' (e.g. NEVER ask "Что в системе X определяет характер Y? -> Их взаимодействие в системе X" or "Какой уровень правосознания выступает целью? -> Уровень правосознания").
+    - The answer ('d') must introduce the actual decisive standard, substantive hallmark, distinct institution, or statutory qualification.
+    - Never create double-barreled questions ("Сколько X и какой Y?"). Strictly one atomic target per card.
 - Rule 3: The Contrast-Pair Differentiation Law (Comparison Prompts):
   * The human brain understands structure strictly through boundaries and differences.
   * When encountering two related, easily confused concepts, institutions, or diagnoses (e.g. народные vs присяжные заседатели; крайняя необходимость vs необходимая оборона; ИМпST vs расслоение аорты):
     Formulate a contrast card testing the single decisive dividing line (Gold Standard Discriminative Criterion).
   * ATOMIC CONTRAST DISCRIMINANT: Formulate the difference sharply in under 15 words without reciting the whole textbook definition for both sides (e.g. "Виндикация — истребование владения; негаторный иск — устранение помех пользованию без лишения владения.").
-- Rule 4: High-Yield Doctrinal Taxonomy (Functional Classification, Zero Fluff):
+- Rule 4: High-Yield Doctrinal Taxonomy & Scheme Atomization (Decomposing Diagrams & Trees into Atomic FSRS Forks):
   * Foundational classifications (e.g. "На какие 2 типа делятся конституционные предписания по способу воздействия на субъектов? -> Императивные (категорические запреты/обязанности) и диспозитивные (допускающие выбор поведения)") are strictly preserved!
   * Formulate them strictly through their functional distinction, never through dictionary padding.
+  * SCHEME, TREE & TAXONOMY ATOMIZATION LAW (Zero-Information Loss, Zero-Lists):
+    When the source contains an extensive classification scheme, flowchart, hierarchy, ASCII diagram, or decision tree:
+    NEVER compress the entire diagram into a forbidden multi-item list!
+    NEVER skip branches or collapse an entire 4-6 branch scheme into 1 superficial overview card!
+    Instead, DECOMPOSE EVERY BRANCH of the diagram into its own distinct, atomic FSRS cards:
+    1) Branch Criterion: What specific substantive feature/threshold assigns an entity to Branch X? (e.g. "По какому критерию в схеме соучастия организованная группа отделяется от группы лиц? -> Наличие устойчивости и предварительного сговора.")
+    2) Contrast Discriminator: How Branch X differs from adjacent Branch Y in the scheme?
+    3) Situational Routing (Case): Given condition Z, which branch of the scheme applies?
+    4) Boundary & Exclusion: What circumstance disqualifies Branch X from applying?
+    5) Operational Output: What legal, clinical, or algorithmic consequence is triggered by Branch X?
+    This extracts 100% of dense diagrams without violating the Minimum Information Principle (1 memory trace per card, 1-12 words in 'd').
 - Rule 5: Strict Negative Constraints & Context-Aware Scope Governance:
   * 1. STRICT PROHIBITION OF BINARY YES/NO QUESTIONS: Under NO circumstances generate cards with answers "Да." или "Нет.". They produce noise and fail to construct mental connections.
   * 2. STRICT BAN ON TRIVIAL COMMON SENSE: Never ask "Что такое диалог?", "Что такое правосудие?", "Зачем юристу логика?".
@@ -405,17 +420,20 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
     if re.match(r'^(да|нет)[\.,\s!]', back_lower) or back_lower in ("да", "нет", "да.", "нет."):
         return True, "binary_yes_no"
 
-    # 2. Тавтологии (когда короткий ответ целиком состоит из слов, уже упомянутых в вопросе)
+    # 2. Тавтологии и смысловое эхо (когда ответ почти целиком состоит из слов, уже упомянутых в вопросе)
     stop_words = {
         "орган", "органы", "органов", "органам", "органами", "дело", "дела", "государство", "государства",
-        "является", "относятся", "относится", "входит", "входят", "группе", "какой", "какому", "какая",
-        "это", "для", "при", "том", "что"
+        "является", "относятся", "относится", "входит", "входят", "группе", "какой", "какому", "какая", "какие", "каком",
+        "это", "для", "при", "том", "что", "как", "чем", "кто", "где", "куда", "откуда", "зачем", "почему",
+        "его", "ее", "их", "свой", "своей", "своих", "этом", "этой", "этих", "всех", "все", "всей"
     }
     back_words = [w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', back_lower) if w not in stop_words]
-    if back_words and len(back_words) <= 3:
-        back_stems = {w[:6] for w in back_words}
+    if back_words:
+        back_stems = [w[:6] for w in back_words]
         front_stems = {w[:6] for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', front_lower)}
-        if back_stems.issubset(front_stems):
+        overlap_count = sum(1 for s in back_stems if s in front_stems)
+        # Если ответ короткий и все значащие основы в вопросе, ЛИБО длинный и >= 75% слов в вопросе:
+        if (len(back_stems) <= 3 and overlap_count == len(back_stems)) or (len(back_stems) >= 4 and (overlap_count / len(back_stems)) >= 0.75):
             return True, "tautology"
 
     # 3. Академическая методология и вода вводных глав
@@ -994,7 +1012,7 @@ async def call_deepseek(
             {"role": "user", "content": user_prompt}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.2,
+        "temperature": 0.1,
         "max_tokens": 8192 if target_model == "deepseek-chat" else 32768,
         "thinking": {"type": "disabled"}
     }
@@ -1111,7 +1129,24 @@ async def extract_curriculum_skeleton(
     """Проход 1: Извлекает иерархический скелет органов/модулей и распределяет квоты на целевой пул карточек через DeepSeek."""
     clean_sub = target_subject.strip().lower() or "generic"
     max_sample_chars = 70000
-    sample_text = text[:max_sample_chars] if len(text) > max_sample_chars else text
+    if len(text) > max_sample_chars:
+        # Интеллектуальное извлечение сквозной структуры всей книги/курса
+        toc_pattern = r'(?:^|\n)\s*(?:ОГЛАВЛЕНИЕ|СОДЕРЖАНИЕ|TABLE OF CONTENTS|ПЛАН КУРСА)[:\s]+([\s\S]{20,25000})'
+        toc_match = re.search(toc_pattern, text, re.IGNORECASE)
+        all_headers = re.findall(
+            r'(?:^|\n)\s*((?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Тема|ТЕМА|Chapter|CHAPTER|§|Статья|СТАТЬЯ)\s+\d+[\.\s][^\n]{3,120})',
+            text
+        )
+        if toc_match:
+            sample_text = f"[ОГЛАВЛЕНИЕ КНИГИ/КУРСА]:\n{toc_match.group(0).strip()[:35000]}\n\n[БАЗОВЫЕ МАТЕРИАЛЫ КУРСА]:\n{text[:30000]}"
+        elif all_headers and len(all_headers) >= 3:
+            outline_text = "\n".join(f"- {h.strip()}" for h in all_headers[:60])
+            sample_text = f"[СПИСОК ГЛАВ И РАЗДЕЛОВ ВСЕГО ДОКУМЕНТА]:\n{outline_text}\n\n[ОСНОВНЫЕ МАТЕРИАЛЫ КУРСА]:\n{text[:35000]}"
+        else:
+            sample_text = text[:max_sample_chars]
+    else:
+        sample_text = text
+
     user_prompt = (
         f"[TARGET SUBJECT]: {clean_sub}\n"
         f"[TARGET TOTAL CARDS]: {target_card_count}\n"
@@ -1214,12 +1249,30 @@ async def parse_raw_text(
             "Never leave dangling bullet fragments or telegraphic ellipses."
         )
     elif is_notes:
+        is_micro_snippet = len(text) < 1200
+        if volume in ("low", "low_5"):
+            note_cards_directive = "Extract strictly 4 to 6 high-yield atomic cards (focus exclusively on the highest-priority rules and core terms)."
+        elif volume in ("high", "high_20"):
+            note_cards_directive = "Extract 14 to 18 high-yield atomic cards (deep extraction covering all classifications, criteria, and operational rules)."
+        elif volume == "max":
+            note_cards_directive = "Extract 18 to 24 high-yield atomic cards (exhaustive extraction of every verifiable rule, distinction, scheme branch, and formula)."
+        elif is_micro_snippet:
+            note_cards_directive = "Extract 6 to 9 high-yield atomic cards from this section (approximately 1 card per key definition, distinction, or rule)."
+        else:
+            note_cards_directive = "Extract 10 to 14 high-yield atomic cards (proportionate to the concentrated conceptual density of this section)."
+
         user_directives.append(
-            "CARD VOLUME: DENSE LECTURE NOTES / CHEATSHEET EXTRACTION. "
-            "The input represents concentrated student lecture notes or a cheatsheet with high conceptual density. "
-            "Extract 6 to 9 high-yield atomic cards from this section (approximately 1 card per key definition, distinction, or rule). "
-            "Do NOT artificially compress the section to 1-2 cards. "
-            "In 's', preserve the section header, ticket number, or topic name from the notes."
+            f"CARD VOLUME: DENSE LECTURE NOTES / CHEATSHEET EXTRACTION. "
+            f"The input represents concentrated student lecture notes or a cheatsheet with high conceptual density and zero narrative filler. "
+            f"{note_cards_directive} "
+            f"Do NOT artificially compress this dense section to 1-2 cards. "
+            f"In 's', preserve the section header, ticket number, or topic name from the notes."
+        )
+        user_directives.append(
+            "SCHEME & TAXONOMY ATOMIZATION DIRECTIVE: Dense student notes and cheatsheets frequently present information via ASCII schemes, indented classification trees, comparative tables, and flowcharts. "
+            "Under the Minimum Information Principle, NEVER summarize a multi-branch diagram into a single card with a list of items! "
+            "Instead, DECOMPOSE THE SCHEME INTO ATOMIC DECISION FORKS: create dedicated cards for (1) the core criterion distinguishing each branch, (2) contrast pairs between adjacent branches, (3) situational cases applying a specific branch, and (4) boundary exceptions. "
+            "Ensure 100% conceptual coverage of every branch with answers ('d') strictly 1-12 words."
         )
         user_directives.append(
             "NOTES & ABBREVIATION EXPANSION DIRECTIVE: Student notes and cheatsheets frequently use domain abbreviations "
@@ -1258,6 +1311,11 @@ async def parse_raw_text(
     user_directives.append(
         "SYNTACTIC VARIETY DIRECTIVE: Strictly avoid monotonous boilerplate phrasing. "
         "Do NOT start multiple cards with identical formulaic stems. Formulate questions naturally, variedly, and professionally as an expert university examiner or senior practitioner."
+    )
+    user_directives.append(
+        "ANTI-TAUTOLOGY & ZERO-ECHO DIRECTIVE: Under NO circumstances generate tautological pseudo-questions where the answer 'd' merely echoes or repeats words from the question 't' "
+        "(e.g. NEVER ask 'Что в системе социального регулирования определяет характер взаимодействия? -> Их взаимодействие...' or 'Какой уровень правосознания выступает целью? -> Уровень правосознания...'). "
+        "The answer must state the decisive substantive rule, criterion, classification, or statutory qualification."
     )
     source_count = (
         text.count("=== МАТЕРИАЛ")
@@ -1455,14 +1513,29 @@ def analyze_source_density(text: str) -> dict:
     # Плотные тире-определения и структурные пары (e.g., "Понятие — определение", "Термин: значение")
     definition_count = len(re.findall(r'(?:[А-Яа-яA-Za-z0-9\)]\s+[—–-]\s+[А-Яа-яA-Z0-9]|[А-Яа-яA-Za-z0-9\)]:\s+[А-Яа-яA-Z0-9])', clean_text))
 
-    # Признаки конспекта/шпаргалки:
-    # короткие строки (avg_line_len < 160), высокий процент буллетов, тире-определения или заголовки
+    # Проверка на кодифицированные нормативно-правовые акты (НПА, кодексы)
+    statute_matches = len(re.findall(r'\b(?:Статья|ст\.)\s+\d+[\.\s]', clean_text, re.IGNORECASE))
+    is_statutory = not has_slide_markers and (statute_matches >= 15 and total_chars >= 25000)
+
+    has_book_chapters = len(re.findall(r'\b(?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Chapter|CHAPTER)\s+\d+', clean_text)) >= 2
+    has_tickets_or_notes = len(re.findall(r'\b(?:Билет|БИЛЕТ|Вопрос|ВОПРОС)\s+\d+|^\s*##\s+', clean_text, re.MULTILINE)) >= 2
+
+    # Признаки конспекта/шпаргалки/тезисов/билетов (включая крупные сборники лекций и билетов):
     is_dense_notes = (
         not has_slide_markers
         and (
-            (avg_line_len < 160 and (bullet_ratio > 0.05 or definition_count >= 2 or header_count >= 1))
-            or (header_count >= 2 and total_chars < 65000)
-            or (bullet_ratio > 0.12)
+            # Компактный конспект до 45к знаков
+            (total_chars < 45000 and not has_book_chapters and (
+                has_tickets_or_notes
+                or (avg_line_len < 160 and (bullet_ratio > 0.05 or definition_count >= 2))
+                or (bullet_ratio > 0.10)
+            ))
+            # Или крупный сборник лекций/билетов/шпаргалок (более 45к знаков без структуры монографии/книги)
+            or (total_chars >= 45000 and (
+                has_tickets_or_notes
+                or (bullet_ratio > 0.10 and not has_book_chapters)
+                or (avg_line_len < 140 and bullet_ratio > 0.05 and not has_book_chapters)
+            ))
         )
     )
 
@@ -1478,24 +1551,34 @@ def analyze_source_density(text: str) -> dict:
             "min_cards_per_chunk": 5,
             "max_cards_per_chunk": 8
         }
+    elif total_chars >= 70000 and is_statutory:
+        return {
+            "archetype": "statutory_code",
+            "is_presentation": False,
+            "is_dense_notes": False,
+            "slide_count": 0,
+            "target_chunk_chars": 30000,
+            "min_cards_per_chunk": 8,
+            "max_cards_per_chunk": 14
+        }
     elif is_dense_notes:
         return {
             "archetype": "dense_notes",
             "is_presentation": False,
             "is_dense_notes": True,
             "slide_count": 0,
-            "target_chunk_chars": 5500,
-            "min_cards_per_chunk": 6,
-            "max_cards_per_chunk": 9
+            "target_chunk_chars": 6500,
+            "min_cards_per_chunk": 8,
+            "max_cards_per_chunk": 16
         }
-    elif total_chars > 45000:
+    elif has_book_chapters or total_chars > 45000:
         return {
             "archetype": "textbook",
             "is_presentation": False,
             "is_dense_notes": False,
             "slide_count": 0,
-            "target_chunk_chars": 50000,
-            "min_cards_per_chunk": 10,
+            "target_chunk_chars": 40000,
+            "min_cards_per_chunk": 8,
             "max_cards_per_chunk": 14
         }
     else:
@@ -1560,7 +1643,7 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_char
 
     # 2. СПЕЦИАЛИЗИРОВАННЫЙ РЕЖИМ ДЛЯ КОНСПЕКТОВ И ШПАРГАЛОК (DENSE NOTES)
     if archetype == "dense_notes":
-        target_max = density.get("target_chunk_chars", 5500)
+        target_max = density.get("target_chunk_chars", 6500)
         # Ищем естественные границы подтем, билетов, вопросов, разделов или заголовков Markdown
         note_split_pattern = r'(?=(?:\n\s*#{1,4}\s+|\n\s*(?:Тема|ТЕМА|Раздел|РАЗДЕЛ|Вопрос|ВОПРОС|Билет|БИЛЕТ|Лекция|ЛЕКЦИЯ|Блок|Глава|§)\s+\d+|\n\n(?=[А-ЯA-Z0-9\.\-]{3,}:?\n)))'
         sections = re.split(note_split_pattern, text)
@@ -1569,6 +1652,18 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_char
             sections = [s.strip() for s in text.split("\n\n") if s.strip()]
 
         if len(sections) > 1:
+            refined_sections = []
+            for sec in sections:
+                if len(sec) > target_max * 1.5:
+                    sub_parts = [p.strip() for p in sec.split("\n\n") if p.strip()]
+                    if len(sub_parts) > 1:
+                        refined_sections.extend(sub_parts)
+                    else:
+                        refined_sections.append(sec)
+                else:
+                    refined_sections.append(sec)
+            sections = refined_sections
+
             note_chunks = []
             cur_note = []
             cur_note_len = 0
@@ -1587,11 +1682,11 @@ def split_text_into_chunks(text: str, max_chunk_chars: int = 85000, overlap_char
                 return note_chunks
 
     # 3. СТАНДАРТНЫЙ РЕЖИМ ДЛЯ УЧЕБНИКОВ И ДЛИННОЙ ПРОЗЫ
-    effective_max = min(max_chunk_chars, 85000)
+    effective_max = min(max_chunk_chars, 45000)
     if len(text) <= effective_max:
         return [text]
 
-    split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===|\n\s*(?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Chapter|CHAPTER|Тема|ТЕМА|§)\s+\d+))'
+    split_pattern = r'(?=(?:\n--- [^\n]+: (?:Стр\.|Слайд) \d+ ---|\n=== [^\n]+ ===|\n\s*(?:Глава|ГЛАВА|Раздел|РАЗДЕЛ|Chapter|CHAPTER|Тема|ТЕМА|§|Статья|СТАТЬЯ)\s+\d+))'
     sections = re.split(split_pattern, text)
     sections = [s.strip() for s in sections if s.strip()]
 

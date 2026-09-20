@@ -98,8 +98,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
         # Умное адаптивное разбиение на смысловые блоки с учетом типа источника
         density_info = analyze_source_density(job_data["raw_text"])
-        max_chars = 85000
-        overlap = 2000
+        max_chars = density_info.get("target_chunk_chars", 40000)
+        overlap = 1500
         chunks = split_text_into_chunks(job_data["raw_text"], max_chunk_chars=max_chars, overlap_chars=overlap)
         total_chunks = len(chunks)
         print(f"[Generation Worker] Задача #{job_data['id']}: тип «{density_info['archetype']}», скомпонован в {total_chunks} смысловых блоков/разделов.", flush=True)
@@ -113,6 +113,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                     "slides": f"Презентация ({density_info.get('slide_count', total_chunks * 6)} слайдов)",
                     "dense_notes": "Конспект / шпаргалка",
                     "textbook": "Учебник / книга",
+                    "statutory_code": "Кодекс / закон",
                     "short_article": "Статья / материал"
                 }.get(density_info.get("archetype", ""), "Материал")
                 start_msg = (
@@ -151,11 +152,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             try:
                 is_auto = job_data.get("volume") in ("auto", "balanced", None, "")
                 if density_info.get("is_presentation"):
-                    target_skel_cards = min(max(total_chunks * 6, 50), 85) if is_auto else 65
+                    target_skel_cards = min(max(total_chunks * 6, 45), 80) if is_auto else 65
                 elif density_info.get("is_dense_notes"):
-                    target_skel_cards = min(max(total_chunks * 7, 40), 75) if is_auto else 60
+                    target_skel_cards = min(max(total_chunks * 10, 45), 140) if is_auto else 80
                 else:
-                    target_skel_cards = min(max(total_chunks * 6, 60), 120) if is_auto else 80
+                    target_skel_cards = min(max(total_chunks * 7, 100), 250) if is_auto else 150
 
                 curriculum_skeleton = await extract_curriculum_skeleton(
                     text=job_data["raw_text"],
@@ -181,23 +182,28 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         async def process_chunk(chunk_idx: int, chunk_text: str):
             async with semaphore:
                 print(f"[Generation Worker] Задача #{job_data['id']}: нарезка блока {chunk_idx}/{total_chunks} ({len(chunk_text)} знаков)...", flush=True)
-                try:
-                    parsed = await parse_raw_text(
-                        text=chunk_text,
-                        target_subject=job_data["subject"],
-                        density=job_data["density"],
-                        volume=job_data["volume"],
-                        granularity_mode=job_data["granularity_mode"],
-                        custom_instruction=job_data["custom_instruction"],
-                        user_id=job_data.get("user_id", "default_user"),
-                        job_id=str(job_data["id"]),
-                        skip_graph=bool(curriculum_skeleton and total_chunks >= 2),
-                        force_chat_model=True
-                    )
-                    return chunk_idx, parsed
-                except Exception as chunk_err:
-                    print(f"[Generation Worker WARN] Ошибка в блоке {chunk_idx}/{total_chunks}: {chunk_err}", flush=True)
-                    return chunk_idx, None
+                for attempt in range(1, 4):
+                    try:
+                        parsed = await parse_raw_text(
+                            text=chunk_text,
+                            target_subject=job_data["subject"],
+                            density=job_data["density"],
+                            volume=job_data["volume"],
+                            granularity_mode=job_data["granularity_mode"],
+                            custom_instruction=job_data["custom_instruction"],
+                            user_id=job_data.get("user_id", "default_user"),
+                            job_id=str(job_data["id"]),
+                            skip_graph=bool(curriculum_skeleton and total_chunks >= 2),
+                            force_chat_model=True
+                        )
+                        return chunk_idx, parsed
+                    except Exception as chunk_err:
+                        print(f"[Generation Worker WARN] Блок {chunk_idx}/{total_chunks}, попытка {attempt}/3 не удалась: {chunk_err}", flush=True)
+                        if attempt < 3:
+                            await asyncio.sleep(attempt * 1.5)
+                        else:
+                            return chunk_idx, None
+                return chunk_idx, None
 
         chunk_tasks = [process_chunk(idx, ch) for idx, ch in enumerate(chunks, 1)]
         results = await asyncio.gather(*chunk_tasks)
@@ -228,11 +234,13 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                         chunk_cards = chunk_cards[:8]
                 elif density_info.get("is_dense_notes"):
                     if vol in ("low", "low_5"):
-                        chunk_cards = chunk_cards[:5]
-                    elif vol in ("high", "high_20", "max"):
-                        chunk_cards = chunk_cards[:12]
+                        chunk_cards = chunk_cards[:6]
+                    elif vol == "max":
+                        chunk_cards = chunk_cards[:25]
+                    elif vol in ("high", "high_20"):
+                        chunk_cards = chunk_cards[:18]
                     else:
-                        chunk_cards = chunk_cards[:9]
+                        chunk_cards = chunk_cards[:14]
                 else:
                     if vol in ("low", "low_5"):
                         chunk_cards = chunk_cards[:6]
@@ -242,6 +250,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                         chunk_cards = chunk_cards[:14]
 
                 for c in chunk_cards:
+                    c["source_chunk_idx"] = chunk_idx
                     raw_c_text = (c.get("text") or "").strip()
                     norm_key = normalize_front(raw_c_text)
                     sem_key = semantic_normalize_front(raw_c_text)
@@ -270,39 +279,73 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 if nodes:
                     all_chunk_graphs.append(chunk_graph)
 
-        # Топологическая пересортировка и сквозное ранжирование деки ("Graph in engine, playlist in UI")
-        organ_order = {}
-        if curriculum_skeleton and curriculum_skeleton.get("modules"):
-            for m_idx, m in enumerate(curriculum_skeleton["modules"]):
-                m_slug = str(m.get("slug") or "").strip().lower()
-                if m_slug:
-                    organ_order[m_slug] = m_idx
+        # Определение целевого бюджета карточек с учетом формата материала и настроек пользователя
+        is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
+        vol = job_data.get("volume")
+        if is_auto_volume:
+            if density_info.get("is_presentation"):
+                target_budget = 75 if len(all_collected_cards) > 85 else len(all_collected_cards)
+            elif density_info.get("is_dense_notes"):
+                if total_chunks <= 1:
+                    target_budget = max(14, len(all_collected_cards))
+                else:
+                    target_budget = min(max(total_chunks * 12, 45), 220)
+            elif total_chunks <= 3:
+                target_budget = max(45, len(all_collected_cards))
+            else:
+                # Учебники / большие книги (10-40 блоков): от 120 до 250 карточек
+                target_budget = min(max(total_chunks * 7, 120), 250)
+        else:
+            vol_per_block = {
+                "low": 5, "low_5": 5,
+                "med_10": 10,
+                "medium": 14, "med_15": 14,
+                "high": 18, "high_20": 18,
+                "max": 99999
+            }.get(vol, 12)
+            target_budget = total_chunks * vol_per_block if vol != "max" else 999999
 
-        for c in all_collected_cards:
-            o = (c.get("organ_slug") or "").strip().lower()
-            if o and o not in organ_order:
-                organ_order[o] = len(organ_order)
+        # СТРАТИФИЦИРОВАННАЯ КАЛИБРОВКА (Stratified Retention):
+        # Если карточек больше целевого бюджета, сокращаем ПРОПОРЦИОНАЛЬНО из каждого смыслового блока/главы,
+        # сохраняя 100% сквозное покрытие материала от первой до последней страницы!
+        if len(all_collected_cards) > target_budget and target_budget < 99999:
+            print(f"[Generation Worker] Стратифицированная калибровка: оптимизация {len(all_collected_cards)} -> {target_budget} карт с равномерным покрытием всех {total_chunks} блоков...", flush=True)
+            from collections import defaultdict
+            cards_by_chunk = defaultdict(list)
+            for c in all_collected_cards:
+                cards_by_chunk[c.get("source_chunk_idx", 1)].append(c)
 
+            num_active_chunks = len(cards_by_chunk)
+            if num_active_chunks > 0:
+                base_quota = max(1, target_budget // num_active_chunks)
+                remainder = target_budget % num_active_chunks
+
+                stratified_cards = []
+                overflow_pool = []
+                for ch_idx in sorted(cards_by_chunk.keys()):
+                    ch_cards = cards_by_chunk[ch_idx]
+                    take_k = base_quota + (1 if remainder > 0 else 0)
+                    if remainder > 0:
+                        remainder -= 1
+                    stratified_cards.extend(ch_cards[:take_k])
+                    overflow_pool.extend(ch_cards[take_k:])
+
+                if len(stratified_cards) < target_budget and overflow_pool:
+                    stratified_cards.extend(overflow_pool[:target_budget - len(stratified_cards)])
+
+                all_collected_cards = stratified_cards
+
+        # Топологическая пересортировка и сквозное ранжирование деки ("Graph in engine, playlist in UI"):
+        # 1. Порядок глав / смысловых блоков книги (source_chunk_idx)
+        # 2. Внутри главы — от фундаментального слоя (layer 0/1) к сложным условиям (layer 2)
         all_collected_cards.sort(
             key=lambda c: (
-                int(c.get("layer", 1)) if str(c.get("layer", 1)).isdigit() else 1,
-                organ_order.get((c.get("organ_slug") or "").strip().lower(), 999)
+                c.get("source_chunk_idx", 1),
+                int(c.get("layer", 1)) if str(c.get("layer", 1)).isdigit() else 1
             )
         )
         for rank_idx, c in enumerate(all_collected_cards, 1):
             c["topological_rank"] = rank_idx
-
-        # Ограничение по объему: для презентаций (55-75 карт), конспектов (45-65 карт) и крупных книг (до 200 карт)
-        is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
-        if is_auto_volume and density_info.get("is_presentation") and len(all_collected_cards) > 85:
-            print(f"[Generation Worker] Калибровка презентации: сжатие {len(all_collected_cards)} -> 75 ключевых карточек для фокусного изучения.", flush=True)
-            all_collected_cards = all_collected_cards[:75]
-        elif is_auto_volume and density_info.get("is_dense_notes") and len(all_collected_cards) > 75:
-            print(f"[Generation Worker] Калибровка конспекта: сжатие {len(all_collected_cards)} -> 65 ключевых карточек.", flush=True)
-            all_collected_cards = all_collected_cards[:65]
-        elif is_auto_volume and total_chunks >= 15 and len(all_collected_cards) > 200:
-            print(f"[Generation Worker] Оптимизация объема: сжатие {len(all_collected_cards)} -> 200 ключевых карточек для {total_chunks} блоков.", flush=True)
-            all_collected_cards = all_collected_cards[:200]
 
         if not all_collected_cards:
             raise ValueError("ИИ не смог выделить карточки из переданного материала.")
