@@ -89,9 +89,10 @@ function getCleanGraphData() {
         return null;
     }
 
-    // 1. Clean nodes: preserve parent_id and hierarchy levels
+    // 1. Clean nodes: preserve parent_id, hierarchy levels, and real-time FSRS learning states
     const nodes = currentKgGraphData.nodes.map(n => {
         const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
+        const cardState = n.card_state !== undefined ? n.card_state : (n.is_learned ? 2 : 0);
         return {
             id: String(n.id),
             name: n.name || n.id,
@@ -99,7 +100,14 @@ function getCleanGraphData() {
             summary: n.summary || '',
             level: lvl,
             parent_id: n.parent_id ? String(n.parent_id) : undefined,
-            val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5)
+            val: lvl === 0 ? 14 : (lvl === 1 ? 8 : 4.5),
+            card_id: n.card_id,
+            card_state: cardState,
+            is_learned: Boolean(n.is_learned || cardState > 0),
+            reps: n.reps || 0,
+            learned_count: n.learned_count || 0,
+            total_leaves: n.total_leaves || 0,
+            mastered_count: n.mastered_count || 0
         };
     });
 
@@ -436,7 +444,7 @@ function renderKnowledgeTreeNode(node, container, depth) {
     if (cardState === 2) {
         statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Изучено</span>`;
     } else if (cardState === 1 || cardState === 3) {
-        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">В процессе</span>`;
+        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">В процессе</span>`;
     } else if (depth > 0) {
         statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-neutral-400 dark:text-neutral-500 uppercase">Новое</span>`;
     }
@@ -451,7 +459,7 @@ function renderKnowledgeTreeNode(node, container, depth) {
                     <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
                 </button>
             ` : `
-                <span class="w-1.5 h-1.5 rounded-full ${cardState === 2 ? 'bg-emerald-500' : (cardState > 0 ? 'bg-amber-500' : 'bg-neutral-400 dark:bg-neutral-600')} mt-2 ml-1 shrink-0"></span>
+                <span class="w-1.5 h-1.5 rounded-full ${cardState === 2 ? 'bg-emerald-500' : (cardState > 0 ? 'bg-blue-500' : 'bg-neutral-400 dark:bg-neutral-600')} mt-2 ml-1 shrink-0"></span>
             `}
             <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -1335,10 +1343,11 @@ window.initForceGraph = function(graphData) {
                 ctx.globalAlpha = 0.05; // Мягкое затемнение фона
             }
 
-            // 1. Спокойный монохром узлов с цветными кольцами статуса
+            // 1. Цвет узлов в зависимости от роли, фокуса и FSRS-статуса изучения
             let nodeFill;
             let nodeStroke;
             let strokeWidth = 1.0;
+            const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
 
             if (isTarget) {
                 // Целевой узел: чистый высокий контраст с акцентным фокусом
@@ -1361,9 +1370,17 @@ window.initForceGraph = function(graphData) {
 
             } else if (hasActiveSelection && isHighlighted) {
                 // Соседние понятия ветви
-                nodeFill = currentDark ? '#94a3b8' : '#64748b';
-                nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.15)';
-                strokeWidth = 1.0;
+                if (cardState === 2) {
+                    nodeFill = currentDark ? '#059669' : '#10b981';
+                    nodeStroke = currentDark ? '#34d399' : '#047857';
+                } else if (cardState === 1 || cardState === 3) {
+                    nodeFill = currentDark ? '#1d4ed8' : '#3b82f6';
+                    nodeStroke = currentDark ? '#60a5fa' : '#1d4ed8';
+                } else {
+                    nodeFill = currentDark ? '#94a3b8' : '#64748b';
+                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.15)';
+                }
+                strokeWidth = 1.2;
 
             } else {
                 // ОБЫЧНОЕ СОСТОЯНИЕ
@@ -1372,13 +1389,36 @@ window.initForceGraph = function(graphData) {
                     nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.6)' : '#ffffff';
                     strokeWidth = 1.8;
                 } else if (node.level === 1) {
-                    nodeFill = currentDark ? '#94a3b8' : '#475569';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.12)';
-                    strokeWidth = 1.0;
+                    if (cardState === 2) {
+                        nodeFill = currentDark ? '#065f46' : '#059669';
+                        nodeStroke = '#10b981';
+                        strokeWidth = 1.6;
+                    } else if (cardState === 1 || cardState === 3) {
+                        nodeFill = currentDark ? '#1e3a8a' : '#2563eb';
+                        nodeStroke = '#3b82f6';
+                        strokeWidth = 1.6;
+                    } else {
+                        nodeFill = currentDark ? '#94a3b8' : '#475569';
+                        nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.12)';
+                        strokeWidth = 1.0;
+                    }
                 } else {
-                    nodeFill = currentDark ? '#475569' : '#94a3b8';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
-                    strokeWidth = 0.6;
+                    if (cardState === 2) {
+                        // Изучено (Mastered): выразительный изумрудный цвет
+                        nodeFill = currentDark ? '#059669' : '#10b981';
+                        nodeStroke = currentDark ? '#34d399' : '#047857';
+                        strokeWidth = 1.2;
+                    } else if (cardState === 1 || cardState === 3) {
+                        // В процессе изучения: выразительный синий цвет
+                        nodeFill = currentDark ? '#1d4ed8' : '#3b82f6';
+                        nodeStroke = currentDark ? '#60a5fa' : '#1d4ed8';
+                        strokeWidth = 1.2;
+                    } else {
+                        // Новое понятие: нейтральный спокойный цвет
+                        nodeFill = currentDark ? '#475569' : '#94a3b8';
+                        nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
+                        strokeWidth = 0.6;
+                    }
                 }
             }
 
@@ -1393,21 +1433,20 @@ window.initForceGraph = function(graphData) {
             ctx.strokeStyle = nodeStroke;
             ctx.stroke();
 
-            // 3.1. Индикация изученности карточки (Learning Status Ring)
-            const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
+            // 3.1. Индикация изученности карточки (Learning Status Ring & Glow)
             if (cardState === 2) {
                 // Изучено / Mastered: Изумрудное кольцо статуса
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 2.2, 0, 2 * Math.PI, false);
+                ctx.arc(node.x, node.y, radius + (node.level <= 1 ? 3.2 : 2.2), 0, 2 * Math.PI, false);
                 ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 1.8;
+                ctx.lineWidth = node.level <= 1 ? 2.2 : 1.8;
                 ctx.stroke();
             } else if (cardState === 1 || cardState === 3) {
-                // В процессе изучения: Янтарное кольцо статуса
+                // В процессе изучения: Синее кольцо статуса
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, radius + 2.2, 0, 2 * Math.PI, false);
-                ctx.strokeStyle = '#f59e0b';
-                ctx.lineWidth = 1.8;
+                ctx.arc(node.x, node.y, radius + (node.level <= 1 ? 3.2 : 2.2), 0, 2 * Math.PI, false);
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = node.level <= 1 ? 2.2 : 1.8;
                 ctx.stroke();
             }
 
@@ -1601,20 +1640,55 @@ window.resetGraphZoom = function() {
 window.showKgNodeDrawer = function(node) {
     const drawer = document.getElementById('kg-node-drawer');
     const badge = document.getElementById('kg-drawer-badge');
+    const statusBadge = document.getElementById('kg-drawer-status-badge');
     const title = document.getElementById('kg-drawer-title');
     const summary = document.getElementById('kg-drawer-summary');
     const linksContainer = document.getElementById('kg-drawer-links');
     const linksSection = document.getElementById('kg-drawer-links-section');
     const linksCountEl = document.getElementById('kg-drawer-links-count');
     const linksFilterEl = document.getElementById('kg-drawer-links-filter');
+    const cardBtn = document.getElementById('kg-drawer-btn-card');
 
     if (!drawer) return;
+    currentKgDrawerNode = node;
 
     const cat = node.category || 'authority';
     if (badge) {
         badge.className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 badge-${cat}`;
         badge.textContent = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
     }
+
+    if (statusBadge) {
+        const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
+        if (cardState === 2) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+            statusBadge.textContent = 'Изучено';
+            statusBadge.classList.remove('hidden');
+        } else if (cardState === 1 || cardState === 3) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20';
+            statusBadge.textContent = 'В процессе';
+            statusBadge.classList.remove('hidden');
+        } else if (node.total_leaves) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20';
+            statusBadge.textContent = `Прогресс ${node.learned_count || 0}/${node.total_leaves}`;
+            statusBadge.classList.remove('hidden');
+        } else if (node.level > 0) {
+            statusBadge.className = 'px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 bg-neutral-500/10 text-neutral-500 border border-neutral-500/20';
+            statusBadge.textContent = 'Новое';
+            statusBadge.classList.remove('hidden');
+        } else {
+            statusBadge.classList.add('hidden');
+        }
+    }
+
+    if (cardBtn) {
+        if (node.card_id) {
+            cardBtn.classList.remove('hidden');
+        } else {
+            cardBtn.classList.add('hidden');
+        }
+    }
+
     if (title) title.textContent = node.name || node.id;
     if (summary) summary.textContent = node.summary || 'Детальное описание и законодательное основание отсутствуют.';
 
@@ -1725,9 +1799,27 @@ window.showKgNodeDrawer = function(node) {
     drawer.classList.remove('hidden');
 };
 
+let currentKgDrawerNode = null;
+
 window.closeKgNodeDrawer = function() {
     const drawer = document.getElementById('kg-node-drawer');
     if (drawer) drawer.classList.add('hidden');
+    currentKgDrawerNode = null;
 };
+
+window.openPracticeForKgNode = function() {
+    const sub = currentKgSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : 'all');
+    if (window.openPracticeModal) {
+        window.openPracticeModal(sub);
+    }
+};
+
+window.openCardForKgNode = function() {
+    if (!currentKgDrawerNode || !currentKgDrawerNode.card_id) return;
+    if (window.requestEditCard) {
+        window.requestEditCard(currentKgDrawerNode.card_id);
+    }
+};
+
 
 

@@ -228,24 +228,28 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 if density_info.get("is_presentation"):
                     if vol in ("low", "low_5"):
                         chunk_cards = chunk_cards[:4]
-                    elif vol in ("high", "high_20", "max"):
+                    elif vol in ("high", "high_20"):
                         chunk_cards = chunk_cards[:10]
+                    elif vol == "max":
+                        pass  # Без ограничений: сохраняем все карточки слайдов
                     else:
                         chunk_cards = chunk_cards[:8]
                 elif density_info.get("is_dense_notes"):
                     if vol in ("low", "low_5"):
                         chunk_cards = chunk_cards[:6]
-                    elif vol == "max":
-                        chunk_cards = chunk_cards[:25]
                     elif vol in ("high", "high_20"):
                         chunk_cards = chunk_cards[:18]
+                    elif vol == "max":
+                        pass  # Без ограничений: сохраняем все факты и ветви конспекта
                     else:
                         chunk_cards = chunk_cards[:14]
                 else:
                     if vol in ("low", "low_5"):
                         chunk_cards = chunk_cards[:6]
-                    elif vol in ("high", "high_20", "max"):
+                    elif vol in ("high", "high_20"):
                         chunk_cards = chunk_cards[:18]
+                    elif vol == "max":
+                        pass  # Без ограничений: сохраняем все карточки книги
                     elif is_auto_volume and total_chunks >= 3:
                         chunk_cards = chunk_cards[:14]
 
@@ -282,28 +286,17 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         # Определение целевого бюджета карточек с учетом формата материала и настроек пользователя
         is_auto_volume = job_data.get("volume") in ("auto", "balanced", None, "")
         vol = job_data.get("volume")
-        if is_auto_volume:
-            if density_info.get("is_presentation"):
-                target_budget = 75 if len(all_collected_cards) > 85 else len(all_collected_cards)
-            elif density_info.get("is_dense_notes"):
-                if total_chunks <= 1:
-                    target_budget = max(14, len(all_collected_cards))
-                else:
-                    target_budget = min(max(total_chunks * 12, 45), 220)
-            elif total_chunks <= 3:
-                target_budget = max(45, len(all_collected_cards))
-            else:
-                # Учебники / большие книги (10-40 блоков): от 120 до 250 карточек
-                target_budget = min(max(total_chunks * 7, 120), 250)
+        if is_auto_volume or vol == "max":
+            # Без искусственных потолков: сохраняем все качественно извлеченные атомарные карточки из всех глав
+            target_budget = len(all_collected_cards)
         else:
             vol_per_block = {
                 "low": 5, "low_5": 5,
                 "med_10": 10,
                 "medium": 14, "med_15": 14,
                 "high": 18, "high_20": 18,
-                "max": 99999
-            }.get(vol, 12)
-            target_budget = total_chunks * vol_per_block if vol != "max" else 999999
+            }.get(vol, len(all_collected_cards))
+            target_budget = total_chunks * vol_per_block
 
         # СТРАТИФИЦИРОВАННАЯ КАЛИБРОВКА (Stratified Retention):
         # Если карточек больше целевого бюджета, сокращаем ПРОПОРЦИОНАЛЬНО из каждого смыслового блока/главы,
