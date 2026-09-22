@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 
 from app.database.session import get_db
 from app.database.models import (
-    Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting
+    Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, utc_now
 )
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import is_admin_or_dev
@@ -48,7 +48,7 @@ async def get_analytics(
     progress_percent = round((states_dict[2] / total_cards) * 100) if total_cards > 0 else 0
 
     # Расчет Retention Rate за 30 дней для конкретного пользователя
-    one_month_ago = datetime.utcnow() - timedelta(days=30)
+    one_month_ago = utc_now() - timedelta(days=30)
     
     if subject != 'all':
         log_stmt = select(ReviewLog).join(Card, ReviewLog.card_id == Card.id).filter(
@@ -78,7 +78,7 @@ async def get_analytics(
     
     streak = 0
     dates_set = {datetime.strptime(str(d[0]), "%Y-%m-%d").date() if isinstance(d[0], str) else d[0] for d in active_days}
-    current_date = datetime.utcnow().date()
+    current_date = utc_now().date()
     if current_date not in dates_set: 
         current_date -= timedelta(days=1)
     while current_date in dates_set:
@@ -114,7 +114,7 @@ async def get_analytics(
             })
 
     # Проверяем, пройден ли опрос сегодня именно этим пользователем
-    msk_now = datetime.utcnow() + timedelta(hours=3)
+    msk_now = utc_now() + timedelta(hours=3)
     msk_today_start = msk_now.replace(hour=0, minute=0, second=0, microsecond=0)
     utc_today_start = msk_today_start - timedelta(hours=3)
     
@@ -143,7 +143,7 @@ async def get_analytics(
     due_evening = evening_res.scalar() or 0
 
     # Проверяем карточки, требующие повторения прямо сейчас (REV просроченные + LRN краткосрочные)
-    now_utc = datetime.utcnow()
+    now_utc = utc_now()
     due_stmt = select(func.count(Card.id)).filter(
         Card.user_id == current_user,
         (
@@ -175,7 +175,7 @@ async def get_analytics(
         daily_new_limit = subject_limits.get(canonical_sub, subject_limits.get(subject, user_daily_limit))
 
     # Сколько новых карточек изучено сегодня
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
     new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.state == 0,
@@ -211,7 +211,7 @@ async def get_analytics(
                 maturity["mastered"] += 1
 
     # 2. Тепловая карта активности (Heatmap) за последние 60 дней
-    sixty_days_ago = datetime.utcnow() - timedelta(days=60)
+    sixty_days_ago = utc_now() - timedelta(days=60)
     heatmap_stmt = select(func.date(ReviewLog.review_time), func.count(ReviewLog.id)).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.review_time >= sixty_days_ago
@@ -255,7 +255,7 @@ async def start_rest_session(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    now = datetime.utcnow()
+    now = utc_now()
     rest_end = now + timedelta(minutes=17)
     session_res = await db.execute(select(UserSession).filter(UserSession.telegram_id == current_user))
     session = session_res.scalar_one_or_none()
@@ -278,7 +278,7 @@ async def get_timer_status(
     session = session_res.scalar_one_or_none()
     if not session or not session.is_resting: 
         return {"is_resting": False, "seconds_left": 0}
-    now = datetime.utcnow()
+    now = utc_now()
     if now >= session.rest_ends_at:
         session.is_resting = False
         await db.commit()
@@ -293,7 +293,7 @@ async def log_daily_session(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    check_time = datetime.utcnow() - timedelta(seconds=60)
+    check_time = utc_now() - timedelta(seconds=60)
     dup_stmt = select(DailySession).filter(
         DailySession.user_id == current_user,
         DailySession.timestamp >= check_time
@@ -306,7 +306,7 @@ async def log_daily_session(
     last_session_res = await db.execute(last_session_stmt)
     last_session = last_session_res.scalar_one_or_none()
     
-    start_time = datetime.utcnow() - timedelta(hours=24)
+    start_time = utc_now() - timedelta(hours=24)
     if last_session:
         start_time = last_session.timestamp
         
@@ -337,7 +337,7 @@ async def log_daily_session(
         mental_effort=payload.mental_effort,
         association_utility=payload.association_utility,
         perceived_retention=payload.perceived_retention,
-        timestamp=datetime.utcnow()
+        timestamp=utc_now()
     )
     db.add(session_entry)
     await db.commit()

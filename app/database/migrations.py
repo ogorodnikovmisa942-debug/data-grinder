@@ -1,6 +1,6 @@
-# app/database/migrations.py
 import os
 import shutil
+import sqlite3
 from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -8,15 +8,32 @@ from app.database.session import AsyncSessionLocal
 
 
 def backup_sqlite_database(db_file: str = "data_grinder.db") -> None:
-    """Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек)."""
+    """
+    Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек).
+    Использует SQLite Native Backup API для безопасного резервного копирования без риска
+    повреждения WAL-файла и несогласованности страниц.
+    """
     if os.path.exists(db_file) and os.path.getsize(db_file) > 0:
         try:
             os.makedirs("backups", exist_ok=True)
-            shutil.copy2(db_file, "backups/data_grinder.latest.bak")
+            target_latest = "backups/data_grinder.latest.bak"
             today_bak = f"backups/data_grinder_{datetime.now().strftime('%Y%m%d')}.bak"
-            if not os.path.exists(today_bak):
-                shutil.copy2(db_file, today_bak)
-            print("[SAFE-BACKUP] Автоматический бэкап базы успешно сохранен в backups/")
+
+            try:
+                # 1. Попытка нативного бэкапа через SQLite API
+                with sqlite3.connect(db_file) as src_conn:
+                    with sqlite3.connect(target_latest) as dst_latest:
+                        src_conn.backup(dst_latest)
+                    if not os.path.exists(today_bak):
+                        with sqlite3.connect(today_bak) as dst_today:
+                            src_conn.backup(dst_today)
+                print("[SAFE-BACKUP] Автоматический бэкап базы успешно сохранен через SQLite Backup API в backups/")
+            except Exception as sql_err:
+                # 2. Фолбэк на файловое копирование, если база заблокирована или не открывается
+                shutil.copy2(db_file, target_latest)
+                if not os.path.exists(today_bak):
+                    shutil.copy2(db_file, today_bak)
+                print(f"[SAFE-BACKUP] Фолбэк на shutil.copy2: {sql_err}")
         except Exception as b_err:
             print(f"[WARNING] Не удалось создать автобэкап базы: {b_err}")
 

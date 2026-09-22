@@ -10,6 +10,7 @@ Validates:
 
 import unittest
 import asyncio
+import re
 from datetime import datetime
 from fastapi.testclient import TestClient
 from sqlalchemy import select, delete
@@ -101,6 +102,15 @@ class TestPracticeModule(unittest.TestCase):
         self.assertEqual(data_correct["selected"], real_correct_answer)
         self.assertIsNotNone(data_correct["gold_standard"])
 
+        # 3. Отправляем ответ с хвостовыми знаками препинания и пробелами (проверка устойчивой нормализации)
+        verify_norm = self.client.post(
+            "/api/practice/verify",
+            headers=headers,
+            json={"item_id": item_id, "selected_answer": f"  {real_correct_answer}... "}
+        )
+        self.assertEqual(verify_norm.status_code, 200)
+        self.assertTrue(verify_norm.json()["correct"])
+
     def test_03_dynamic_practice_generation_from_user_cards(self):
         """Проверка синтеза практических заданий из реальных карточек пользователя."""
         custom_sub = "civil_law_practice_test"
@@ -182,6 +192,15 @@ class TestPracticeModule(unittest.TestCase):
 
             types = {item["type"] for item in items}
             self.assertTrue(len(types.intersection({"situational", "contrast_pair", "slot_filling"})) >= 1)
+
+            # Проверяем, что во всех заданиях ровно 4 варианта и нет числовых заглушек
+            for item in items:
+                self.assertEqual(len(item["options"]), 4)
+                for opt in item["options"]:
+                    self.assertFalse(
+                        re.search(r'(?:Альтернативн|Ино[йея])\s+(?:правило|условие|понятие|раздел|критерий|вариант|инстанция)\s+\d+', opt),
+                        f"Обнаружена числовая заглушка в дистракторах: {opt}"
+                    )
 
         finally:
             async def cleanup_cards():

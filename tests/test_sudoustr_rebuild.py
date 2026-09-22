@@ -13,6 +13,15 @@ class TestSudoustrRebuild(unittest.TestCase):
             "X-User-Role": "student"
         }
 
+    def tearDown(self):
+        import asyncio
+        from sqlalchemy import text
+        from app.database.session import engine
+        async def _cleanup():
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM topic_knowledge_graphs WHERE user_id = 'test_sudoustr_user'"))
+        asyncio.run(_cleanup())
+
     def test_alias_preserves_sudoustr(self):
         self.assertEqual(resolve_subject_alias("sudoustr"), "sudoustr")
         self.assertEqual(resolve_subject_alias("sudoustroystvo"), "sudoustroystvo")

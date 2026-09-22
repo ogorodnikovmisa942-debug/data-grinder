@@ -1,0 +1,46 @@
+        <!-- Экран архива DATA -->
+        <div id="screen-data" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 overflow-hidden pt-md">
+            <div id="data-screen-counters" class="w-full flex justify-between items-center font-mono text-[10px] border border-neutral-200/90 dark:border-neutral-800 p-2.5 bg-surface-container-lowest mb-sm select-none shrink-0 rounded-xl shadow-xs">
+                <span class="text-outline font-bold uppercase tracking-wider">Очередь сессии</span>
+                <div class="flex gap-2">
+                    <span class="px-2 py-0.5 border border-neutral-200 dark:border-neutral-700 text-primary font-mono text-[10px] font-bold bg-neutral-100 dark:bg-primary-container rounded-lg">ОЧЕРЕДЬ: <span class="data-cnt-queue ml-0.5">0</span></span>
+                    <span class="px-2 py-0.5 border border-neutral-200 dark:border-neutral-700 text-primary font-mono text-[10px] font-bold bg-neutral-200 dark:bg-surface-container-high rounded-lg">К ВЕЧЕРУ (21:00): <span class="data-cnt-evening ml-0.5">0</span></span>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-sm shrink-0">
+                <div class="flex items-center gap-sm">
+                    <div class="text-xs font-bold tracking-wider uppercase text-outline font-mono">АРХИВ КАРТОЧЕК <span id="archive-count" class="text-secondary ml-1 font-bold"></span></div>
+                    <button id="bulk-select-toggle" class="text-[10px] font-mono font-bold px-2 py-0.5 border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary hover:border-primary rounded-lg transition-colors uppercase">Выбрать</button>
+                    <button id="export-cards-btn" onclick="exportCardsJSON()" class="text-[10px] font-mono font-bold px-2 py-0.5 border border-neutral-300 dark:border-neutral-700 text-outline hover:text-primary hover:border-primary rounded-lg transition-colors uppercase flex items-center gap-1" title="Скачать карточки в JSON">
+                        <span class="material-symbols-outlined text-[13px]">download</span>
+                        <span>JSON</span>
+                    </button>
+                </div>
+                <div class="flex gap-1.5 text-[11px] font-mono font-bold" id="archive-filter-bar">
+                    <button data-filter="all" class="px-2.5 py-1 bg-primary text-on-primary border border-primary rounded-xl transition-all">[ВСЕ]</button>
+                    <button data-filter="review" class="px-2.5 py-1 text-neutral-500 hover:text-primary border border-neutral-300 dark:border-neutral-700 rounded-xl transition-all">[ПОВТОР]</button>
+                    <button data-filter="new" class="px-2.5 py-1 text-neutral-500 hover:text-primary border border-neutral-300 dark:border-neutral-700 rounded-xl transition-all">[НОВЫЕ]</button>
+                </div>
+            </div>
+            <div id="data-container" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 border-t border-b border-outline-variant/30 pr-1"></div>
+            
+            <!-- ВСПЛЫВАЮЩИЙ ACTION BAR ДЛЯ МАССОВЫХ ДЕЙСТВИЙ -->
+            <div id="bulk-action-bar" class="hidden transition-all duration-300 transform translate-y-full border border-neutral-300 dark:border-neutral-700 bg-surface-container-lowest p-3 my-sm flex items-center justify-between font-mono text-xs shadow-xl shrink-0 rounded-2xl">
+                <span id="bulk-selected-count" class="font-bold text-primary">Выбрано: 0</span>
+                <div class="flex items-center gap-sm">
+                    <div class="relative">
+                        <select id="bulk-target-subject" class="bg-surface border border-neutral-300 dark:border-neutral-700 font-bold tracking-tighter text-xs p-1.5 pr-6 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate rounded-xl">
+                        </select>
+                        <span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] pointer-events-none text-outline">expand_more</span>
+                    </div>
+                    <button id="bulk-move-btn" onclick="executeBulkMove()" class="bg-primary text-on-primary px-3 py-1.5 border border-primary font-bold hover:bg-transparent hover:text-primary transition-all uppercase rounded-xl">
+                        [ПЕРЕНЕСТИ]
+                    </button>
+                    <button id="bulk-delete-btn" onclick="executeBulkDelete()" class="border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-3 py-1.5 font-bold transition-all uppercase rounded-xl">
+                        [УДАЛИТЬ]
+                    </button>
+                </div>
+            </div>
+        </div>
+

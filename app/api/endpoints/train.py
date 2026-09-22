@@ -1,19 +1,54 @@
 # app/api/endpoints/train.py
 import asyncio
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession
-from app.services.fsrs_core import calculate_intervals
+from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, utc_now
+from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from datetime import datetime
 
 router = APIRouter()
+
+KNOWN_SUBJECT_NAMES = {
+    "sudoustr": "Судоустройство РФ",
+    "sudoustroystvo": "Судоустройство РФ",
+    "constitutional_law": "Конституционное право",
+    "constitution": "Конституционное право",
+    "law": "Юриспруденция",
+    "law_civil": "Гражданское право",
+    "ugolovnoe": "Уголовное право",
+    "upk": "Уголовный процесс",
+    "gpk": "Гражданский процесс",
+    "python": "Python разработка",
+    "chinese": "Китайский язык (HSK)",
+    "hsk3": "Китайский язык (HSK 3)",
+    "generic": "Общий курс"
+}
+
+async def get_subject_display_name(slug: str, user_id: str, db: AsyncSession) -> str:
+    if not slug:
+        return "Курс"
+    # Try resolving from Category or Phrase
+    stmt = select(Category.name).where(Category.user_id == user_id, Category.name.ilike(f"%{slug}%")).limit(1)
+    cat = (await db.execute(stmt)).scalar()
+    if cat:
+        return cat
+    if slug.lower() in KNOWN_SUBJECT_NAMES:
+        return KNOWN_SUBJECT_NAMES[slug.lower()]
+    stmt_p = select(Phrase.text).where(Phrase.user_id == user_id, Phrase.subject == slug).limit(1)
+    p_text = (await db.execute(stmt_p)).scalar()
+    if p_text:
+        return p_text
+    if slug.lower() in ("sudoustr", "sudoustroystvo"):
+        return "Судоустройство РФ"
+    return slug.replace('_', ' ').replace('-', ' ').title()
 
 class AnswerIn(BaseModel):
     card_id: int
@@ -30,11 +65,15 @@ def is_admin_or_dev(user_id: str) -> bool:
         return False
     if user_clean in ("default_user", "dev_user"):
         return True
-    admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
-    if admin_id_str:
-        admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
-        if user_clean in admins:
-            return True
+    try:
+        from app.core.config import settings
+        admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
+        if admin_id_str:
+            admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
+            if user_clean in admins:
+                return True
+    except Exception:
+        pass
     return False
 
 def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
@@ -85,12 +124,18 @@ def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
 # --- 1. ВЫДАЧА ОЧЕРЕДИ С ИНТЕРЛИВИНГОМ ТЕМ И ИЗОЛЯЦИЕЙ ПО ПОЛЬЗОВАТЕЛЮ ---
 @router.get("/session")
 async def get_session_cards(
-    subject: str = Query("all"), 
+    subject: Optional[str] = Query("all"), 
     mode: str = Query("mixed"), 
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    now = datetime.utcnow()
+    if not subject:
+        stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(stmt)
+        active_sub = res.scalar()
+        subject = active_sub or "sudoustroystvo"
+
+    now = utc_now()
     
     # Проверяем участие в научном эксперименте
     session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
@@ -141,7 +186,7 @@ async def get_session_cards(
     intra_day_cards = intra_res.scalars().all()
 
     # 3. Расчет квот на новые карты с учетом уже изученных именно этим пользователем за день
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
     
     new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
@@ -221,21 +266,13 @@ async def get_session_cards(
         phrases_res = await db.execute(phrases_stmt)
         phrase_map = {p.id: p.text for p in phrases_res.scalars().all()}
 
-    subject_display_names = {
-        "sudoustr": "Судоустройство РФ",
-        "sudoustroystvo": "Судоустройство РФ",
-        "law": "Юриспруденция",
-        "law_civil": "Гражданское право",
-        "ugolovnoe": "Уголовное право",
-        "constitutional_law": "Конституционное право",
-        "constitution": "Конституционное право",
-        "upk": "Уголовный процесс",
-        "gpk": "Гражданский процесс",
-        "python": "Python разработка",
-        "chinese": "Китайский язык (HSK)",
-        "hsk3": "Китайский язык (HSK 3)",
-        "generic": "Общий курс"
-    }
+    distinct_subs = {c.subject for c in full_pool if c.subject}
+    display_names_cache = {}
+    for s in distinct_subs:
+        canon_s = resolve_subject_alias(s)
+        name = await get_subject_display_name(canon_s, current_user, db)
+        display_names_cache[s] = name
+        display_names_cache[canon_s] = name
 
     result = []
     for c in full_pool:
@@ -279,7 +316,7 @@ async def get_session_cards(
             reason_label = "Повторение FSRS"
 
         canon_sub = resolve_subject_alias(c.subject or "")
-        sub_title = subject_display_names.get(canon_sub) or subject_display_names.get(c.subject, "") or (c.subject.replace("_", " ").capitalize() if c.subject else "Курс")
+        sub_title = display_names_cache.get(c.subject) or display_names_cache.get(canon_sub) or (c.subject.replace("_", " ").title() if c.subject else "Курс")
 
         result.append({
             "id": c.id, 
@@ -308,6 +345,20 @@ async def get_session_cards(
             "is_leech": lapses_count >= 4
         })
     return result
+
+
+async def get_next_train_session(
+    subject: Optional[str] = None,
+    mode: str = "mixed",
+    current_user: str = "default_user",
+    db: AsyncSession = None
+):
+    if not subject or subject == "all":
+        stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(stmt)
+        active_sub = res.scalar()
+        subject = active_sub or "sudoustroystvo"
+    return await get_session_cards(subject=subject, mode=mode, current_user=current_user, db=db)
 
 # --- 2. СПИСОК ПРЕДМЕТОВ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
 @router.get("/subjects")
@@ -372,7 +423,7 @@ async def handle_answer(
         user_setting = setting_res.scalar_one_or_none()
         target_retention = user_setting.target_retention if user_setting else 0.9
 
-    now = datetime.utcnow()
+    now = utc_now()
     old_state = card.state
     old_next_review = card.next_review
     
@@ -380,13 +431,20 @@ async def handle_answer(
     if card.last_review and old_next_review:
         scheduled_days = (old_next_review - card.last_review).days
 
-    # Расчет интервалов через ядро FSRS с учетом санированного response_time и target_retention
+    # Адаптивная калибровка retention на основе последних 30 логов пользователя
+    recent_logs_stmt = select(ReviewLog.rating).where(ReviewLog.user_id == current_user).order_by(ReviewLog.review_time.desc()).limit(30)
+    recent_logs_res = await db.execute(recent_logs_stmt)
+    ratings = [{"rating": r} for r in recent_logs_res.scalars().all()]
+    factor = calculate_adaptive_retention_factor(ratings)
+
+    # Расчет интервалов через ядро FSRS с учетом санированного response_time, target_retention и адаптивного retention_factor
     stability, difficulty, state, next_review, elapsed_days = calculate_intervals(
         card=card, 
         rating=effective_rating, 
         now=now,
         response_time=effective_response_time,
-        target_retention=target_retention
+        target_retention=target_retention,
+        retention_factor=factor
     )
 
     # Валидация и обновление весов в БД, если не Штурм (cram)
@@ -427,3 +485,5 @@ async def handle_answer(
     await db.commit()
     
     return {"status": "success"}
+
+submit_answer = handle_answer

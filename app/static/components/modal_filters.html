@@ -1,0 +1,45 @@
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО ФИЛЬТРОВ И ПОИСКА КАРТОЧЕК (MODAL FILTERS)             -->
+    <!-- ===================================================================== -->
+    <div id="cards-filter-modal" role="dialog" aria-modal="true" aria-label="Фильтры карточек" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-5 flex flex-col gap-sm shadow-2xl max-h-[90vh] overflow-y-auto font-sans">
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
+                <span id="cards-filter-modal-title" class="text-xs font-bold text-primary uppercase font-mono tracking-wider">ФИЛЬТРЫ И ПОИСК КАРТОЧЕК</span>
+                <button onclick="closeCardsFilterModal()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Поисковый запрос (термин / перевод / пример):</label>
+                <input type="text" id="filter-search-query" placeholder="Введите текст для поиска..." class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Статус FSRS:</label>
+                <select id="filter-fsrs-state" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+                    <option value="all">[ВСЕ СТАТУСЫ]</option>
+                    <option value="new">Новые (New, state 0)</option>
+                    <option value="learning">Изучаемые (Learning, state 1)</option>
+                    <option value="review">Повторение (Review, state 2)</option>
+                    <option value="relearning">Переучивание (Relearning, state 3)</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Фильтр по тегам и главам:</label>
+                <div id="filter-tags-list" class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1.5 border border-outline-variant/50 rounded-xl bg-surface-container-lowest">
+                    <!-- Заполняется динамически -->
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-sm border-t border-outline-variant/40">
+                <button onclick="resetCardsFilterModal()" class="border border-outline-variant text-outline px-4 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:text-primary transition-colors">
+                    Сбросить
+                </button>
+                <button onclick="applyCardsFilterModal()" class="border border-primary bg-primary text-on-primary px-5 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:bg-transparent hover:text-primary transition-colors shadow-xs">
+                    Применить
+                </button>
+            </div>
+        </div>
+    </div>

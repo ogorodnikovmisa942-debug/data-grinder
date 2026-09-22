@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 from sqlalchemy import delete
 from app.database.session import AsyncSessionLocal, engine
-from app.database.models import Base, Phrase, Card, ReviewLog, DailySession
+from app.database.models import Base, Phrase, Card, ReviewLog, DailySession, utc_now
 
 async def seed_database(user_id: str = "dev_user"):
     # Создаем таблицы асинхронно перед посевом
@@ -39,7 +39,7 @@ async def seed_database(user_id: str = "dev_user"):
                     stability=1.5,
                     state=0,
                     mnemonic={"keyword": "ДЖОНГ-ГУО", "verbal_cue": "В центре (ДЖОНГ) мира стоит великое государство (ГУО)."},
-                    next_review=datetime.utcnow()
+                    next_review=utc_now()
                 ),
                 Card(
                     phrase_id=p1.id,
@@ -53,7 +53,7 @@ async def seed_database(user_id: str = "dev_user"):
                     stability=1.5,
                     state=0,
                     mnemonic={"keyword": "ДА-СЮЭ", "verbal_cue": "БОЛЬШОЕ (да) УЧЕНИЕ (сюэ) получают в университете."},
-                    next_review=datetime.utcnow()
+                    next_review=utc_now()
                 ),
                 Card(
                     phrase_id=p1.id,
@@ -67,7 +67,7 @@ async def seed_database(user_id: str = "dev_user"):
                     stability=1.2,
                     state=0,
                     mnemonic={"keyword": "ДЖУН-БЭЙ", "verbal_cue": "ДЖУНГЛИ зовут, БЕЙ в барабан — готовься к походу!"},
-                    next_review=datetime.utcnow()
+                    next_review=utc_now()
                 ),
             ]
             db.add_all(cards_chinese)

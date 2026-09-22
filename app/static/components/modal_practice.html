@@ -1,0 +1,118 @@
+    <!-- Модальное окно: Интерактивная практика и кейсы (Milestone 4) -->
+    <div id="practice-modal" role="dialog" aria-modal="true" aria-label="Практический тренажер" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <!-- Хедер практики -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">psychology_alt</span>
+                    <div class="flex flex-col min-w-0">
+                        <h3 class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Интерактивная практика</h3>
+                        <div class="flex items-center gap-1.5 text-[10px] font-mono text-neutral-500">
+                            <span>ПРЕДМЕТ:</span>
+                            <span id="practice-subject-badge" class="font-bold text-neutral-800 dark:text-neutral-200 uppercase truncate">---</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <div id="practice-counter-badge" class="px-2.5 py-1 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-mono text-neutral-700 dark:text-neutral-300">
+                        Вопрос <span id="practice-current-step" class="font-bold text-primary">1</span> / <span id="practice-total-step">10</span>
+                    </div>
+                    <button onclick="closePracticeModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Закрыть практику">
+                        <span class="material-symbols-outlined text-xl">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Контентная область практики -->
+            <div class="flex-1 relative overflow-y-auto p-4 flex flex-col items-center justify-start min-h-0 bg-background">
+                <!-- Загрузка -->
+                <div id="practice-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-xs gap-3">
+                    <span class="material-symbols-outlined text-3xl text-primary animate-spin">progress_activity</span>
+                    <span class="text-xs font-mono text-neutral-500 uppercase tracking-wider">Формирование заданий...</span>
+                </div>
+
+                <!-- Карточка задания -->
+                <div id="practice-card-container" class="w-full flex flex-col gap-3 py-1">
+                    <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
+                    <div class="flex items-center justify-between">
+                        <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5">
+                            Ситуационный кейс
+                        </span>
+                        <span class="text-[10px] font-mono text-neutral-400">ТРЕНАЖЕР</span>
+                    </div>
+
+                    <!-- Текст вопроса / сценария -->
+                    <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+                        <p id="practice-prompt" class="text-sm text-neutral-900 dark:text-neutral-100 leading-relaxed font-medium">
+                            Текст фабулы дела или вопрос...
+                        </p>
+                    </div>
+
+                    <!-- Варианты ответов -->
+                    <div id="practice-options-list" class="flex flex-col gap-2">
+                        <!-- Кнопки вариантов ответа генерируются JS -->
+                    </div>
+
+                    <!-- Блок вердикта и Gold Standard объяснения -->
+                    <div id="practice-feedback-container" class="hidden flex flex-col gap-2.5 p-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-surface-container-lowest shadow-xs animate-fade-in">
+                        <div id="practice-feedback-status" class="flex items-center gap-2 font-mono font-bold text-xs uppercase">
+                            <!-- Статус: ВЕРНО или НЕВЕРНО -->
+                        </div>
+                        
+                        <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
+                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[14px]">bolt</span>
+                                <span>Водораздельный критерий (Gold Standard):</span>
+                            </span>
+                            <div id="practice-gold-standard-text" class="font-sans leading-relaxed"></div>
+                        </div>
+
+                        <div id="practice-explanation-box" class="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed font-sans">
+                            <span class="font-mono font-bold text-[10px] uppercase text-neutral-400 block mb-1">Разъяснение:</span>
+                            <div id="practice-explanation-text"></div>
+                        </div>
+
+                        <button id="practice-next-btn" onclick="nextPracticeQuestion()" class="mt-1 w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span>Следующий вопрос</span>
+                            <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Экран завершения практики -->
+                <div id="practice-finish-screen" class="hidden w-full flex flex-col items-center justify-center p-6 text-center gap-4 my-auto animate-fade-in">
+                    <div class="w-16 h-16 rounded-3xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center text-primary">
+                        <span class="material-symbols-outlined text-3xl">military_tech</span>
+                    </div>
+                    <h3 class="font-bold font-mono text-base text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Сессия практики завершена!</h3>
+                    <div class="p-4 rounded-2xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 w-full flex flex-col gap-1 font-mono shadow-xs">
+                        <div class="text-neutral-400 text-xs uppercase">ТОЧНОСТЬ ОТВЕТОВ:</div>
+                        <div id="practice-finish-score" class="text-2xl font-black text-primary">8 / 10 (80%)</div>
+                    </div>
+                    <p id="practice-finish-message" class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed font-sans">
+                        Отличный результат! Узлы и водоразделы закреплены в долговременной памяти.
+                    </p>
+                    <div id="practice-saved-badge" class="flex items-center justify-center gap-1 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span class="material-symbols-outlined text-sm">check_circle</span>
+                        <span>Результат практики зафиксирован в профиле</span>
+                    </div>
+
+                    <div class="flex flex-col gap-2 w-full pt-1">
+                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm">build</span>
+                            <span>Повторить только ошибки (<span id="practice-errors-count">0</span>)</span>
+                        </button>
+                        <button id="practice-new-session-btn" onclick="startPracticeSession(currentPracticeSubject)" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm">refresh</span>
+                            <span>Пройти новую сессию</span>
+                        </button>
+                        <button onclick="closePracticeModal()" class="w-full py-2.5 px-4 border border-neutral-300 dark:border-neutral-700 hover:border-primary hover:text-primary text-neutral-700 dark:text-neutral-300 font-mono font-bold text-xs uppercase rounded-xl transition-all">
+                            [ В главное меню ]
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+

@@ -27,20 +27,64 @@ def apply_fuzz(interval_days: int) -> int:
     fuzz = random.uniform(-0.08, 0.08)
     return max(1, round(interval_days * (1.0 + fuzz)))
 
+def calculate_adaptive_retention_factor(review_logs: list) -> float:
+    """
+    Рассчитывает адаптивный множитель интервалов на основе фактического retention пользователя.
+    Вход: список словарей или объектов с атрибутом/ключом rating (1=Again, 2=Hard, 3=Good, 4=Easy).
+    - При len(review_logs) < 10: возврат 1.0 (cold-start защита).
+    - Retention = successful_reviews / total_reviews (rating >= 2 — успех, rating == 1 — ошибка).
+    - При retention < 0.80: 0.80 + (retention - 0.80) * 0.5, минимум 0.75.
+    - При retention > 0.95: 1.0 + (retention - 0.95) * 2.0, максимум 1.25.
+    - При 0.80 <= retention <= 0.95: 1.0.
+    """
+    if not review_logs or len(review_logs) < 10:
+        return 1.0
+
+    successful_reviews = 0
+    total_reviews = len(review_logs)
+
+    for item in review_logs:
+        if isinstance(item, dict):
+            rating = item.get("rating")
+        elif hasattr(item, "rating"):
+            rating = item.rating
+        elif isinstance(item, (int, float)):
+            rating = item
+        else:
+            rating = None
+
+        if rating is not None and rating >= 2:
+            successful_reviews += 1
+
+    retention = successful_reviews / total_reviews
+
+    if retention < 0.80:
+        factor = 0.80 + (retention - 0.80) * 0.5
+        return max(0.75, float(factor))
+    elif retention > 0.95:
+        factor = 1.0 + (retention - 0.95) * 2.0
+        return min(1.25, float(factor))
+    else:
+        return 1.0
+
 def calculate_intervals(
     card, 
     rating: int, 
     now: datetime, 
     response_time: int = 0,
-    target_retention: float = 0.9
+    target_retention: float = 0.9,
+    retention_factor: float = 1.0
 ):
     """
-    Принимает объект карточки, оценку (1-4), текущее время, время отклика в мс и целевой retention.
+    Принимает объект карточки, оценку (1-4), текущее время, время отклика в мс,
+    целевой retention и адаптивный retention_factor.
     Возвращает: stability, difficulty, state, next_review, elapsed_days
     """
     # Состояния: 0 = New, 1 = Learning, 2 = Review, 3 = Relearning
     # Оценки: 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
     
+    clamped_factor = max(0.70, min(1.30, retention_factor))
+
     elapsed_days = 0
     if card.last_review:
         elapsed_days = (now - card.last_review).total_seconds() / 86400.0
@@ -66,7 +110,8 @@ def calculate_intervals(
             next_review = now + timedelta(minutes=5)
         elif rating == 4:
             new_state = 2  # Сразу в Review (интервал в днях с учетом retention)
-            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
+            calculated_days = calculate_target_interval(new_stability, safe_retention)
+            interval_days = apply_fuzz(max(1, round(calculated_days * clamped_factor)))
             next_review = now + timedelta(days=interval_days)
         else:
             new_state = 1
@@ -83,7 +128,8 @@ def calculate_intervals(
             new_stability = W[3] if rating == 4 else (W[2] if rating == 3 else W[1])
             new_difficulty = max(1.0, min(10.0, card.difficulty - W[6] * (rating - 3) + latency_penalty))
             new_state = 2
-            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
+            calculated_days = calculate_target_interval(new_stability, safe_retention)
+            interval_days = apply_fuzz(max(1, round(calculated_days * clamped_factor)))
             next_review = now + timedelta(days=interval_days)
             return float(new_stability), max(1.0, min(10.0, float(new_difficulty))), new_state, next_review, elapsed_days
 
@@ -110,7 +156,8 @@ def calculate_intervals(
             new_stability *= hard_modifier * easy_modifier
             new_state = 2
             
-            interval_days = apply_fuzz(calculate_target_interval(new_stability, safe_retention))
+            calculated_days = calculate_target_interval(new_stability, safe_retention)
+            interval_days = apply_fuzz(max(1, round(calculated_days * clamped_factor)))
             next_review = now + timedelta(days=interval_days)
 
         return max(0.1, float(new_stability)), max(1.0, min(10.0, float(new_difficulty))), new_state, next_review, elapsed_days

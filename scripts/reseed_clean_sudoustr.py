@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from sqlalchemy import select, delete
 from app.database.session import AsyncSessionLocal
-from app.database.models import Phrase, Card, TopicKnowledgeGraph, PracticeItem, UserSetting, UserSession
+from app.database.models import Phrase, Card, TopicKnowledgeGraph, PracticeItem, UserSetting, UserSession, utc_now
 from app.services.ai_gateway import is_blacklisted_card, semantic_normalize_front
 from app.services.graph_service import synthesize_graph_from_cards
 from app.services.practice_service import generate_practice_session
@@ -114,7 +114,7 @@ async def clean_and_seed(payload_path: str = DEFAULT_PAYLOAD_PATH, target_users:
             await db.flush()
 
             # Insert Clean Cards
-            now = datetime.utcnow()
+            now = utc_now()
             for i, c in enumerate(kept):
                 front = (c.get("text") or c.get("front") or "").strip()
                 back = (c.get("translation") or c.get("back") or "").strip()

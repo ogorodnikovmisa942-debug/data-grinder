@@ -12,47 +12,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/force-graph@1.43.5/dist/force-graph.min.js"></script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
-    <script>
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['"Plus Jakarta Sans"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-                        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
-                    },
-                    "colors": {
-                        "surface-container-highest": "#d4e4fc", "on-tertiary-container": "#868382",
-                        "outline-variant": "#c4c7c7", "inverse-on-surface": "#eaf1ff",
-                        "surface-container": "#e5eeff", "secondary-fixed-dim": "#ffb3ad",
-                        "on-background": "#1a1a1a", "secondary": "#b51822",
-                        "on-tertiary-fixed-variant": "#484645", "error-container": "#ffdad6",
-                        "on-primary-fixed-variant": "#474746", "surface-variant": "#d4e4fc",
-                        "on-surface-variant": "#444748", "outline": "#747878",
-                        "tertiary-fixed-dim": "#cac6c4", "surface-container-lowest": "#ffffff",
-                        "on-primary": "#ffffff", "primary-fixed-dim": "#c8c6c5",
-                        "secondary-container": "#d93537", "on-secondary": "#ffffff",
-                        "on-surface": "#1a1a1a", "on-secondary-container": "#fffbff",
-                        "background": "#fbfbfb", "primary-container": "#1c1b1b",
-                        "on-error": "#ffffff", "tertiary": "#000000", "tertiary-fixed": "#e6e2df",
-                        "inverse-primary": "#c8c6c5", "on-primary-fixed": "#1c1b1b",
-                        "on-tertiary": "#ffffff", "tertiary-container": "#1c1b1a", "surface": "#fbfbfb",
-                        "on-secondary-fixed": "#410004", "on-secondary-fixed-variant": "#930013",
-                        "on-tertiary-fixed": "#1c1b1a", "on-primary-container": "#858383",
-                        "surface-container-high": "#dce9ff", "error": "#ba1a1a",
-                        "surface-container-low": "#eff4ff", "surface-dim": "#ccdbf4",
-                        "surface-bright": "#fbfbfb", "inverse-surface": "#223144",
-                        "primary": "#1a1a1a", "secondary-fixed": "#ffdad7",
-                        "surface-tint": "#5f5e5e", "on-error-container": "#93000a", "primary-fixed": "#e5e2e1"
-                    },
-                    "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
-                    "spacing": { "xs": "4px", "xl": "32px", "md": "16px", "gutter": "12px", "margin-x": "16px", "sm": "8px", "lg": "24px" }
-                }
-            }
-        }
-    </script>
+    <link rel="stylesheet" href="/css/tailwind.min.css?v=1">
     <style>
         #data-container.selection-mode-active .card-checkbox {
             display: inline-block !important;
@@ -96,7 +56,7 @@
 
     <main class="flex-1 flex flex-col relative px-margin-x pb-md max-w-md mx-auto w-full transition-all duration-300 overflow-hidden min-h-0" style="padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px);">
         
-        <!-- Верхняя панель управления -->
+                <!-- Верхняя панель управления -->
         <div class="w-full flex justify-between items-center font-mono text-xs py-2.5 border-b border-neutral-200/60 dark:border-neutral-800 shrink-0 select-none">
             <div class="relative max-w-[68%] flex items-center gap-1.5 overflow-hidden border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs">
                 <div class="relative overflow-hidden flex-1 min-w-0">
@@ -105,13 +65,13 @@
                     </select>
                     <span class="material-symbols-outlined absolute right-0 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none text-outline">expand_more</span>
                 </div>
-                <button onclick="openSubjectsManagerModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Управление предметами">
+                <button onclick="openSubjectsManagerModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Управление предметами" aria-label="Управление предметами">
                     <span class="material-symbols-outlined text-[16px]">tune</span>
                 </button>
-                <button onclick="openKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Каркас знаний и Граф">
+                <button onclick="openKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Каркас знаний и Граф" aria-label="Каркас знаний и Граф">
                     <span class="material-symbols-outlined text-[16px]">account_tree</span>
                 </button>
-                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика">
+                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика" aria-label="Интерактивная практика">
                     <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
                 </button>
             </div>
@@ -127,7 +87,8 @@
             </div>
         </div>
 
-        <!-- Экран тренировки карточек -->
+
+                <!-- Экран тренировки карточек -->
         <div id="screen-train" class="app-screen active-screen flex-1 flex flex-col w-full min-h-0 justify-between pt-md relative">
             
             <!-- Стартовый оверлей сессии (100% непрозрачный, без артефактов и просвечивания) -->
@@ -396,6 +357,7 @@
 
                     <!-- Обратная сторона (Гармоничная структурированная архитектура) -->
                     <div id="card-back" class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center overflow-hidden select-none border border-neutral-200/90 dark:border-neutral-800 shadow-lg shadow-neutral-900/5 dark:shadow-black/40">
+                        <div id="train-answer" class="hidden"></div>
                         <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
                         <div class="w-full shrink-0 flex flex-col items-center gap-1 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
@@ -500,7 +462,8 @@
             </div>
         </div>
 
-        <!-- Экран архива DATA -->
+
+                <!-- Экран архива DATA -->
         <div id="screen-data" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 overflow-hidden pt-md">
             <div id="data-screen-counters" class="w-full flex justify-between items-center font-mono text-[10px] border border-neutral-200/90 dark:border-neutral-800 p-2.5 bg-surface-container-lowest mb-sm select-none shrink-0 rounded-xl shadow-xs">
                 <span class="text-outline font-bold uppercase tracking-wider">Очередь сессии</span>
@@ -546,7 +509,8 @@
             </div>
         </div>
 
-        <!-- Экран STATS -->
+
+                <!-- Экран STATS -->
         <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-y-auto pt-md pb-6">
             <!-- 1. Сводные метрики -->
             <div class="flex flex-col gap-sm font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
@@ -644,7 +608,8 @@
             </div>
         </div>
 
-        <!-- Экран CONFIG -->
+
+                <!-- Экран CONFIG -->
         <div id="screen-config" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md pt-md overflow-y-auto">
             
             <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
@@ -883,9 +848,10 @@
             </div>
         </div>
 
+
     </main>
 
-    <!-- Нижняя навигация -->
+        <!-- Нижняя навигация -->
     <nav class="w-full flex justify-around items-center bg-background border-t border-outline-variant shrink-0 transition-all duration-300" id="bottom-nav" style="padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); height: calc(4.5rem + max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)));">
         <button class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="data" aria-label="Данные">
             <span id="tab-text-data" class="text-[11px] font-bold tracking-wider font-mono">DATA</span>
@@ -900,6 +866,8 @@
             <span class="text-[11px] font-bold tracking-wider font-mono">CONFIG</span>
         </button>
     </nav>
+
+
 
     <!-- Оверлей отдыха Pomodoro (Break Screen) -->
     <div id="rest-overlay" class="hidden fixed inset-0 bg-background/95 z-50 flex-col items-center justify-center p-lg text-center font-mono select-none">
@@ -916,10 +884,10 @@
         </button>
     </div>
 
-    <!-- ===================================================================== -->
+        <!-- ===================================================================== -->
     <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
     <!-- ===================================================================== -->
-    <div id="staging-overlay" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-sans select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
+    <div id="staging-overlay" role="dialog" aria-modal="true" aria-label="Песочница карточек" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-sans select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
         <div class="max-w-md mx-auto w-full h-full flex flex-col justify-between">
             <!-- Верхняя панель песочницы -->
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
@@ -1064,7 +1032,7 @@
                         <span class="material-symbols-outlined text-[14px]">save</span>
                         <span>СОХРАНИТЬ (0)</span>
                     </button>
-                    <button onclick="closeStagingOverlay()" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors flex items-center justify-center">
+                    <button onclick="closeStagingOverlay()" aria-label="Закрыть" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors flex items-center justify-center">
                         <span class="material-symbols-outlined text-[16px]">close</span>
                     </button>
                 </div>
@@ -1073,11 +1041,11 @@
     </div>
 
     <!-- Модальное окно просмотра отклоненных карточек песочницы -->
-    <div id="staging-rejected-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[115] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+    <div id="staging-rejected-modal" role="dialog" aria-modal="true" aria-label="Отклоненные карточки" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[115] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
         <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-4 flex flex-col gap-sm shadow-2xl max-h-[85vh] font-sans">
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
                 <span class="text-xs font-bold text-secondary uppercase font-mono tracking-wider">ОТКЛОНЕННЫЕ КАРТОЧКИ</span>
-                <button onclick="closeRejectedDrawer()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                <button onclick="closeRejectedDrawer()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
                     <span class="material-symbols-outlined text-base">close</span>
                 </button>
             </div>
@@ -1092,14 +1060,15 @@
         </div>
     </div>
 
-    <!-- ===================================================================== -->
+
+        <!-- ===================================================================== -->
     <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ И РЕДАКТИРОВАНИЯ КАРТОЧЕК                    -->
     <!-- ===================================================================== -->
-    <div id="card-editor-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+    <div id="card-editor-modal" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" aria-label="Редактор карточек" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
         <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-5 flex flex-col gap-sm shadow-2xl max-h-[90vh] overflow-y-auto font-sans">
             <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
                 <span id="card-editor-title" class="text-xs font-bold text-primary uppercase font-mono tracking-wider">РЕДАКТИРОВАНИЕ КАРТОЧКИ</span>
-                <button onclick="closeCardEditorModal()" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                <button onclick="closeCardEditorModal()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
                     <span class="material-symbols-outlined text-base">close</span>
                 </button>
             </div>
@@ -1149,15 +1118,16 @@
         </div>
     </div>
 
-    <!-- Модальное окно управления предметами (Список, переименование, удаление) -->
-    <div id="subjects-manager-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+
+        <!-- Модальное окно управления предметами (Список, переименование, удаление) -->
+    <div id="subjects-manager-modal" role="dialog" aria-modal="true" aria-label="Управление предметами" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
         <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-md max-h-[85vh] flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
             <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3">
                 <div class="flex items-center gap-2">
                     <span class="material-symbols-outlined text-primary text-xl">folder_managed</span>
                     <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Управление предметами</h3>
                 </div>
-                <button onclick="closeSubjectsManagerModal()" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-lg">
+                <button onclick="closeSubjectsManagerModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-lg">
                     <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
@@ -1180,11 +1150,11 @@
     </div>
 
     <!-- Модальное окно переименования предмета -->
-    <div id="subject-rename-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+    <div id="subject-rename-modal" role="dialog" aria-modal="true" aria-label="Переименовать предмет" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
         <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-sm flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
             <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2">
                 <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Переименовать предмет</h3>
-                <button onclick="closeSubjectRenameModal()" class="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg">
+                <button onclick="closeSubjectRenameModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg">
                     <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
@@ -1208,8 +1178,9 @@
         </div>
     </div>
 
-    <!-- Модальное окно: Каркас знаний и Obsidian Граф (Milestone 4) -->
-    <div id="knowledge-graph-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col p-margin-x font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+
+        <!-- Модальное окно: Каркас знаний и Obsidian Граф (Milestone 4) -->
+    <div id="knowledge-graph-modal" role="dialog" aria-modal="true" aria-label="Каркас знаний" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col p-margin-x font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
         <div id="kg-modal-card" class="w-full max-w-[96vw] 2xl:max-w-[1600px] h-full mx-auto flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl transition-all duration-300">
             <!-- Хедер модалки -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
@@ -1239,13 +1210,13 @@
 
                 <!-- Кнопки управления (Перестроить / Полный экран / Закрыть) -->
                 <div class="flex items-center gap-1">
-                    <button id="kg-rebuild-btn" onclick="rebuildKnowledgeGraph()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Перестроить граф из актуальных карточек">
+                    <button id="kg-rebuild-btn" aria-label="Перестроить граф" onclick="rebuildKnowledgeGraph()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Перестроить граф из актуальных карточек">
                         <span id="kg-rebuild-icon" class="material-symbols-outlined text-xl">refresh</span>
                     </button>
-                    <button id="kg-fullscreen-btn" onclick="toggleKgFullscreen()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="На весь экран">
+                    <button id="kg-fullscreen-btn" aria-label="Полноэкранный режим графа" onclick="toggleKgFullscreen()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="На весь экран">
                         <span id="kg-fullscreen-icon" class="material-symbols-outlined text-xl">fullscreen</span>
                     </button>
-                    <button onclick="closeKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Закрыть">
+                    <button onclick="closeKnowledgeGraphModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-primary p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0 cursor-pointer" title="Закрыть">
                         <span class="material-symbols-outlined text-xl">close</span>
                     </button>
                 </div>
@@ -1291,19 +1262,19 @@
                     <!-- Панель переключения геометрии и поиска по связям (компактная на мобильных устройствах) -->
                     <div class="absolute top-2.5 left-2.5 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 max-w-[calc(100%-20px)] flex-nowrap">
                         <div class="flex items-center gap-0.5 border-r border-neutral-200 dark:border-neutral-700 pr-1 mr-0.5 shrink-0">
-                            <button id="kg-layout-force" onclick="setGraphLayout('force')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Паутина: органическая раскладка">
+                            <button id="kg-layout-force" aria-label="Сетка / Радиальный / Дерево" onclick="setGraphLayout('force')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer" title="Паутина: органическая раскладка">
                                 <span class="material-symbols-outlined text-[15px]">hub</span>
                                 <span class="hidden sm:inline">Паутина</span>
                             </button>
-                            <button id="kg-layout-radial" onclick="setGraphLayout('radial')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Радиальное: концентрические кольца">
+                            <button id="kg-layout-radial" aria-label="Сетка / Радиальный / Дерево" onclick="setGraphLayout('radial')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Радиальное: концентрические кольца">
                                 <span class="material-symbols-outlined text-[15px]">adjust</span>
                                 <span class="hidden sm:inline">Радиальное</span>
                             </button>
-                            <button id="kg-layout-tree" onclick="setGraphLayout('tree')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: иерархия сверху вниз">
+                            <button id="kg-layout-tree" aria-label="Сетка / Радиальный / Дерево" onclick="setGraphLayout('tree')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: иерархия сверху вниз">
                                 <span class="material-symbols-outlined text-[15px]">account_tree</span>
                                 <span class="hidden sm:inline">Сверху вниз</span>
                             </button>
-                            <button id="kg-layout-lr" onclick="setGraphLayout('horizontal')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: слева направо">
+                            <button id="kg-layout-lr" aria-label="Сетка / Радиальный / Дерево" onclick="setGraphLayout('horizontal')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: слева направо">
                                 <span class="material-symbols-outlined text-[15px]">east</span>
                                 <span class="hidden sm:inline">Слева направо</span>
                             </button>
@@ -1346,13 +1317,13 @@
 
                     <!-- Оверлей управления зумом -->
                     <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">
-                        <button onclick="zoomGraph(1.3)" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">
+                        <button onclick="zoomGraph(1.3)" aria-label="Приблизить" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">
                             <span class="material-symbols-outlined text-base">add</span>
                         </button>
-                        <button onclick="zoomGraph(0.7)" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Отдалить">
+                        <button onclick="zoomGraph(0.7)" aria-label="Отдалить" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Отдалить">
                             <span class="material-symbols-outlined text-base">remove</span>
                         </button>
-                        <button onclick="resetGraphZoom()" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="По центру">
+                        <button onclick="resetGraphZoom()" aria-label="По центру" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="По центру">
                             <span class="material-symbols-outlined text-base">center_focus_strong</span>
                         </button>
                     </div>
@@ -1366,7 +1337,7 @@
                             <span id="kg-drawer-status-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0"></span>
                             <h4 id="kg-drawer-title" class="font-bold text-sm text-neutral-900 dark:text-neutral-100 font-mono truncate">Название узла</h4>
                         </div>
-                        <button onclick="closeKgNodeDrawer()" class="text-neutral-400 hover:text-primary p-1 rounded-lg">
+                        <button onclick="closeKgNodeDrawer()" aria-label="Закрыть" class="text-neutral-400 hover:text-primary p-1 rounded-lg">
                             <span class="material-symbols-outlined text-base">close</span>
                         </button>
                     </div>
@@ -1395,8 +1366,9 @@
         </div>
     </div>
 
-    <!-- Модальное окно: Интерактивная практика и кейсы (Milestone 4) -->
-    <div id="practice-modal" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+
+        <!-- Модальное окно: Интерактивная практика и кейсы (Milestone 4) -->
+    <div id="practice-modal" role="dialog" aria-modal="true" aria-label="Практический тренажер" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
         <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
             <!-- Хедер практики -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 bg-surface-container-lowest shrink-0">
@@ -1415,7 +1387,7 @@
                     <div id="practice-counter-badge" class="px-2.5 py-1 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-mono text-neutral-700 dark:text-neutral-300">
                         Вопрос <span id="practice-current-step" class="font-bold text-primary">1</span> / <span id="practice-total-step">10</span>
                     </div>
-                    <button onclick="closePracticeModal()" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Закрыть практику">
+                    <button onclick="closePracticeModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-primary p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" title="Закрыть практику">
                         <span class="material-symbols-outlined text-xl">close</span>
                     </button>
                 </div>
@@ -1500,7 +1472,7 @@
                             <span class="material-symbols-outlined text-sm">build</span>
                             <span>Повторить только ошибки (<span id="practice-errors-count">0</span>)</span>
                         </button>
-                        <button onclick="startPracticeSession()" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                        <button id="practice-new-session-btn" onclick="startPracticeSession(currentPracticeSubject)" class="w-full py-2.5 px-4 bg-primary text-on-primary hover:opacity-90 font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
                             <span class="material-symbols-outlined text-sm">refresh</span>
                             <span>Пройти новую сессию</span>
                         </button>
@@ -1512,6 +1484,54 @@
             </div>
         </div>
     </div>
+
+
+        <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО ФИЛЬТРОВ И ПОИСКА КАРТОЧЕК (MODAL FILTERS)             -->
+    <!-- ===================================================================== -->
+    <div id="cards-filter-modal" role="dialog" aria-modal="true" aria-label="Фильтры карточек" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-5 flex flex-col gap-sm shadow-2xl max-h-[90vh] overflow-y-auto font-sans">
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
+                <span id="cards-filter-modal-title" class="text-xs font-bold text-primary uppercase font-mono tracking-wider">ФИЛЬТРЫ И ПОИСК КАРТОЧЕК</span>
+                <button onclick="closeCardsFilterModal()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Поисковый запрос (термин / перевод / пример):</label>
+                <input type="text" id="filter-search-query" placeholder="Введите текст для поиска..." class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Статус FSRS:</label>
+                <select id="filter-fsrs-state" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+                    <option value="all">[ВСЕ СТАТУСЫ]</option>
+                    <option value="new">Новые (New, state 0)</option>
+                    <option value="learning">Изучаемые (Learning, state 1)</option>
+                    <option value="review">Повторение (Review, state 2)</option>
+                    <option value="relearning">Переучивание (Relearning, state 3)</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Фильтр по тегам и главам:</label>
+                <div id="filter-tags-list" class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1.5 border border-outline-variant/50 rounded-xl bg-surface-container-lowest">
+                    <!-- Заполняется динамически -->
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-sm border-t border-outline-variant/40">
+                <button onclick="resetCardsFilterModal()" class="border border-outline-variant text-outline px-4 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:text-primary transition-colors">
+                    Сбросить
+                </button>
+                <button onclick="applyCardsFilterModal()" class="border border-primary bg-primary text-on-primary px-5 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:bg-transparent hover:text-primary transition-colors shadow-xs">
+                    Применить
+                </button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="/js/app.js?v=70"></script>
 </body>

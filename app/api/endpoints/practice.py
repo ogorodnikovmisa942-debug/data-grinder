@@ -5,9 +5,13 @@ Provides endpoints for generating dynamic practice sessions and verifying answer
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 
 from app.database.session import get_db
 from app.core.auth import get_current_user_id
@@ -69,9 +73,11 @@ class PracticeStatsResponse(BaseModel):
     last_practiced_at: Optional[str] = None
 
 
+@limiter.limit("10/minute")
 @router.get("/practice/session", response_model=List[PracticeItemResponse])
 async def get_practice_session(
-    subject: str = Query(default="sudoustroystvo", min_length=1, max_length=128),
+    request: Request,
+    subject: Optional[str] = Query(default=None, max_length=128),
     count: int = Query(default=10, ge=1, le=50),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
@@ -80,6 +86,15 @@ async def get_practice_session(
     Возвращает список интерактивных практических заданий для пользователя по предмету.
     Работает автономно: динамически генерирует кейсы из карточек пользователя или пресетных сценариев.
     """
+    from app.database.models import Card
+    from sqlalchemy import select
+
+    if not subject or subject == "all":
+        stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(stmt)
+        active_sub = res.scalar()
+        subject = active_sub or "sudoustroystvo"
+
     items = await generate_practice_session(user_id=current_user, subject=subject, count=count, db=db)
     return items
 
@@ -111,9 +126,8 @@ async def complete_practice(
     """
     Фиксирует завершение сессии практики, сохраняет результат в журнал и вычисляет процент освоения.
     """
-    from app.database.models import PracticeSessionLog
+    from app.database.models import PracticeSessionLog, utc_now
     from app.services.graph_service import resolve_subject_alias
-    from datetime import datetime
     
     canonical_sub = resolve_subject_alias(payload.subject)
     pct = round((payload.score / payload.total) * 100.0, 1)
@@ -131,7 +145,7 @@ async def complete_practice(
         score=payload.score,
         total=payload.total,
         percentage=pct,
-        created_at=datetime.utcnow()
+        created_at=utc_now()
     )
     db.add(log)
     await db.commit()
@@ -149,17 +163,22 @@ async def complete_practice(
 
 @router.get("/practice/stats", response_model=PracticeStatsResponse)
 async def get_practice_stats(
-    subject: str = Query(default="sudoustroystvo", min_length=1, max_length=128),
+    subject: Optional[str] = Query(default=None, max_length=128),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Возвращает статистику практики по предмету: пройдено ли сегодня, балл и история.
     """
-    from app.database.models import PracticeSessionLog
+    from app.database.models import PracticeSessionLog, utc_now, Card
     from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
     from sqlalchemy import select, func, desc
-    from datetime import datetime, date
+
+    if not subject or subject == "all":
+        stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(stmt)
+        active_sub = res.scalar()
+        subject = active_sub or "sudoustroystvo"
 
     all_aliases = get_all_subject_aliases(subject)
     stmt = (
@@ -180,7 +199,7 @@ async def get_practice_stats(
             today_count=0
         )
 
-    today = datetime.utcnow().date()
+    today = utc_now().date()
     today_logs = [l for l in logs if l.created_at and l.created_at.date() == today]
     today_log = today_logs[0] if today_logs else None
     latest_log = logs[0] if logs else None

@@ -14,19 +14,6 @@ from app.api.endpoints.train import get_session_cards
 
 class TestCurriculumAndPlainLanguage(unittest.IsolatedAsyncioTestCase):
 
-    async def asyncSetUp(self):
-        from sqlalchemy import text
-        async with AsyncSessionLocal() as db:
-            res = await db.execute(text("PRAGMA table_info(cards)"))
-            columns = [row[1] for row in res.fetchall()]
-            if "topological_rank" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN topological_rank INTEGER DEFAULT 0"))
-            if "organ_slug" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN organ_slug VARCHAR"))
-            if "layer" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN layer INTEGER DEFAULT 1"))
-            await db.commit()
-
     def test_01_unpack_minified_cards_with_organ_and_topological_rank(self):
         """Проверка распаковки organ_slug, layer и автоматического топологического ранжирования."""
         payload = {

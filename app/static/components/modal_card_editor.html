@@ -1,0 +1,57 @@
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ И РЕДАКТИРОВАНИЯ КАРТОЧЕК                    -->
+    <!-- ===================================================================== -->
+    <div id="card-editor-modal" role="dialog" aria-modal="true" aria-labelledby="card-editor-title" aria-label="Редактор карточек" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[120] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-5 flex flex-col gap-sm shadow-2xl max-h-[90vh] overflow-y-auto font-sans">
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
+                <span id="card-editor-title" class="text-xs font-bold text-primary uppercase font-mono tracking-wider">РЕДАКТИРОВАНИЕ КАРТОЧКИ</span>
+                <button onclick="closeCardEditorModal()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
+            </div>
+
+            <input type="hidden" id="edit-card-id" value="">
+            <input type="hidden" id="edit-is-staging" value="false">
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Предмет (код):</label>
+                <input type="text" id="edit-card-subject" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Лицевая сторона (Термин / Иероглиф / Функция):</label>
+                <textarea id="edit-card-text" rows="2" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0 resize-y min-h-[44px]"></textarea>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Подсказка (Пиньинь / Статья / Сигнатура):</label>
+                <input type="text" id="edit-card-secondary" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Значение / Определение на русском:</label>
+                <textarea id="edit-card-translation" rows="3" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0 min-h-[64px] resize-y"></textarea>
+            </div>
+
+            <div class="flex flex-col gap-1 text-[11px] font-mono">
+                <label class="text-outline uppercase font-bold">Пример использования:</label>
+                <textarea id="edit-card-example" rows="2" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0 min-h-[44px] resize-y"></textarea>
+            </div>
+
+            <div class="border-t border-dashed border-outline-variant/50 pt-xs flex flex-col gap-1 text-[11px] font-mono">
+                <span class="text-outline font-bold uppercase">Мнемоника:</span>
+                <input type="text" id="edit-card-mnem-keyword" placeholder="Ключевое слово (ассоциация)" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
+                <textarea id="edit-card-mnem-cue" rows="2" placeholder="Сюжетная связка" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0 min-h-[44px] resize-y"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-sm border-t border-outline-variant/40">
+                <button onclick="closeCardEditorModal()" class="border border-outline-variant text-outline px-4 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:text-primary transition-colors">
+                    Отмена
+                </button>
+                <button onclick="saveCardEditorData()" class="border border-primary bg-primary text-on-primary px-5 py-1.5 text-xs font-mono uppercase font-bold rounded-xl hover:bg-transparent hover:text-primary transition-colors shadow-xs">
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+

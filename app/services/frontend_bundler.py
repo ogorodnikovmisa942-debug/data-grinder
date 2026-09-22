@@ -3,12 +3,18 @@ Frontend Asset Bundler for Data Grinder.
 Splits monolithic app.js into domain modules, or bundles modules into app.js.
 """
 
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-STATIC_JS_DIR = BASE_DIR / "app" / "static" / "js"
+STATIC_DIR = BASE_DIR / "app" / "static"
+STATIC_JS_DIR = STATIC_DIR / "js"
 MODULES_DIR = STATIC_JS_DIR / "modules"
 APP_JS_PATH = STATIC_JS_DIR / "app.js"
+
+COMPONENTS_DIR = STATIC_DIR / "components"
+INDEX_HTML_PATH = STATIC_DIR / "index.html"
+INDEX_TEMPLATE_PATH = COMPONENTS_DIR / "index_template.html"
 
 MODULE_SLICES = [
     ("01_core.js", 1, 205, "Telegram SDK, Auth, Global State & Formatting"),
@@ -51,3 +57,26 @@ def bundle_modules():
 
     full_bundle = "".join(bundled_chunks)
     APP_JS_PATH.write_text(full_bundle, encoding="utf-8")
+
+
+def bundle_html():
+    if not INDEX_TEMPLATE_PATH.exists():
+        return
+
+    template_content = INDEX_TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    def replacer(match: re.Match) -> str:
+        component_name = match.group(1).strip()
+        comp_path = COMPONENTS_DIR / component_name
+        if not comp_path.exists():
+            raise FileNotFoundError(f"Component file not found: {comp_path}")
+        return comp_path.read_text(encoding="utf-8")
+
+    bundled_html = re.sub(r"<!--\s*@include\s+([a-zA-Z0-9_\-\.]+)\s*-->", replacer, template_content)
+    INDEX_HTML_PATH.write_text(bundled_html, encoding="utf-8")
+
+
+def bundle_all():
+    bundle_modules()
+    bundle_html()
+

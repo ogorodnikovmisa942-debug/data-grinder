@@ -424,28 +424,7 @@ function bindDOMPointers() {
             if (!card) return;
             
             // В режиме знакомства клик по телу карточки плавно продвигает этап обучения
-            if (card.state === 0 && !card.has_seen_intro) {
-                const phase = card.intro_phase || 0;
-                if (phase === 0) {
-                    advanceIntroduction();
-                } else if (!card._recall_checked) {
-                    if (typeof window.toggleIntroRecall === 'function') {
-                        window.toggleIntroRecall();
-                    }
-                } else {
-                    advanceIntroduction();
-                }
-                triggerHaptic('light');
-                return;
-            }
-            
-            if (cardsQueue.length === 0 || isFlipped) return;
-            isFlipped = true; 
-            triggerHaptic('light');
-            if (flashcard) flashcard.classList.add('rotate-y-180');
-            if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
-            executeVoiceSynthesis(cardsQueue[currentIndex].text);
-            if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
+            window.flipCard();
         };
     }
 
@@ -454,10 +433,7 @@ function bindDOMPointers() {
             if (e.target.closest('button, select, input, textarea, a')) return; 
             if (trainDrag && trainDrag.hasMoved) return;
             if (cardsQueue.length === 0 || !isFlipped) return;
-            isFlipped = false; 
-            triggerHaptic('light');
-            if (flashcard) flashcard.classList.remove('rotate-y-180');
-            if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
+            window.flipCard();
         };
     }
 
@@ -506,44 +482,58 @@ async function initApplicationLifecycle() {
         updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
     }
     if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
-
-    window.addEventListener('keydown', (e) => {
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-        if (currentTab !== 'train') return;
-        if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
-        const card = cardsQueue[currentIndex];
-        if (!card || (card.state === 0 && !card.has_seen_intro)) return;
-
-        if (e.code === 'Space') {
-            e.preventDefault();
-            triggerHaptic('light');
-            if (!isFlipped) {
-                isFlipped = true;
-                if (flashcard) flashcard.classList.add('rotate-y-180');
-                if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
-                executeVoiceSynthesis(card.text);
-                if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
-            } else {
-                isFlipped = false;
-                if (flashcard) flashcard.classList.remove('rotate-y-180');
-                if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
-            }
-        } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(e.code)) {
-            if (isFlipped) {
-                e.preventDefault();
-                const ratingMap = {
-                    'Digit1': 1, 'Numpad1': 1,
-                    'Digit2': 2, 'Numpad2': 2,
-                    'Digit3': 3, 'Numpad3': 3,
-                    'Digit4': 4, 'Numpad4': 4
-                };
-                if (typeof window.submitCardRating === 'function') {
-                    window.submitCardRating(ratingMap[e.code]);
-                }
-            }
-        }
-    });
 }
+
+window.flipCard = function() {
+    const starter = document.getElementById('session-starter');
+    if (starter && !starter.classList.contains('hidden')) return;
+    if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+    const card = cardsQueue[currentIndex];
+    if (!card) return;
+
+    if (card.state === 0 && !card.has_seen_intro) {
+        const phase = card.intro_phase || 0;
+        if (phase === 0) {
+            advanceIntroduction();
+        } else if (!card._recall_checked) {
+            if (typeof window.toggleIntroRecall === 'function') {
+                window.toggleIntroRecall();
+            }
+        } else {
+            advanceIntroduction();
+        }
+        triggerHaptic('light');
+        return;
+    }
+
+    triggerHaptic('light');
+    if (!isFlipped) {
+        isFlipped = true;
+        window.isAnswerRevealed = true;
+        if (flashcard) flashcard.classList.add('rotate-y-180');
+        if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
+        const trainAns = document.getElementById('train-answer');
+        if (trainAns) trainAns.classList.remove('hidden');
+        executeVoiceSynthesis(card.text);
+        if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
+    } else {
+        isFlipped = false;
+        window.isAnswerRevealed = false;
+        if (flashcard) flashcard.classList.remove('rotate-y-180');
+        if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
+        const trainAns = document.getElementById('train-answer');
+        if (trainAns) trainAns.classList.add('hidden');
+    }
+};
+window.showAnswer = window.flipCard;
+
+window.rateCard = function(rating) {
+    if (typeof window.submitCardRating === 'function') {
+        return window.submitCardRating(rating);
+    } else if (typeof submitCardRating === 'function') {
+        return submitCardRating(rating);
+    }
+};
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApplicationLifecycle);

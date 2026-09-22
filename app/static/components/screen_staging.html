@@ -1,0 +1,176 @@
+    <!-- ===================================================================== -->
+    <!-- ПЕСОЧНИЦА КАРТОЧЕК (STAGING SANDBOX) СО СВАЙПАМИ И МОДЕРАЦИЕЙ        -->
+    <!-- ===================================================================== -->
+    <div id="staging-overlay" role="dialog" aria-modal="true" aria-label="Песочница карточек" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] z-[100] flex flex-col justify-between p-margin-x font-sans select-none overflow-hidden" style="background-color: #fbfbfb; touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);">
+        <div class="max-w-md mx-auto w-full h-full flex flex-col justify-between">
+            <!-- Верхняя панель песочницы -->
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-sm shrink-0">
+                <div class="flex flex-col gap-1">
+                    <span class="text-[9px] text-outline uppercase tracking-wider font-bold">ПРОВЕРКА КАРТОЧЕК</span>
+                    <div class="flex items-center gap-xs">
+                        <span class="text-[9px] text-outline uppercase font-bold">ПРЕДМЕТ:</span>
+                        <select id="staging-subject-select" onchange="onStagingSubjectChange(event)" class="bg-surface-container-lowest border border-primary text-primary font-bold font-mono text-[10px] py-1 px-2 rounded-lg focus:ring-0 max-w-[150px] truncate">
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span id="staging-topic-title" class="text-[10px] text-outline font-medium truncate max-w-[180px]">Новый блок</span>
+                        <span id="staging-card-theme-badge" class="hidden text-[9px] font-bold px-2 py-0.5 rounded-lg bg-primary/10 text-primary border border-primary/20 truncate max-w-[150px]"></span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-xs text-[9px] font-bold">
+                    <span class="text-primary bg-surface-container px-2 py-1 rounded-lg border border-outline-variant/30">ОДОБРЕНО: <span id="staging-approved-count" class="text-primary font-bold">0</span></span>
+                    <span class="text-secondary bg-error-container/20 px-2 py-1 rounded-lg border border-outline-variant/30">ОТКЛОНЕНО: <span id="staging-rejected-count" class="text-secondary font-bold">0</span></span>
+                    <span class="text-outline bg-surface-container px-2 py-1 rounded-lg border border-outline-variant/30">ОСТАЛОСЬ: <span id="staging-remaining-count">0</span></span>
+                    <button onclick="discardStagingDeck()" class="border border-secondary text-secondary hover:bg-error-container/20 py-1 px-2.5 rounded-lg transition-colors flex items-center gap-1 font-mono text-[9px] font-bold" title="Удалить колоду из песочницы">
+                        <span class="material-symbols-outlined text-[13px]">delete</span>
+                        <span>[УДАЛИТЬ]</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Центральная зона карточки песочницы со свайпом -->
+            <div class="flex-1 flex items-center justify-center relative w-full my-auto min-h-0 py-sm" id="staging-card-container">
+                <div id="staging-card" class="relative w-full max-w-[420px] h-[520px] max-h-[calc(100dvh-200px)] min-h-[380px] bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-4 flex flex-col justify-between transition-transform duration-200 shadow-xl overflow-hidden">
+                    <!-- Значки-индикаторы свайпа (штампы APPROVED / DISCARDED) -->
+                    <div id="staging-badge-accept" class="absolute top-4 right-4 border-2 border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1 font-bold text-xs uppercase tracking-wider rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-surface-container-lowest/95 shadow-md flex items-center gap-1 z-30">
+                        <span class="material-symbols-outlined text-sm">check_circle</span>
+                        <span>ОДОБРЕНО</span>
+                    </div>
+                    <div id="staging-badge-reject" class="absolute top-4 left-4 border-2 border-secondary text-secondary px-3 py-1 font-bold text-xs uppercase tracking-wider -rotate-12 opacity-0 pointer-events-none transition-opacity rounded-xl bg-surface-container-lowest/95 shadow-md flex items-center gap-1 z-30">
+                        <span class="material-symbols-outlined text-sm">cancel</span>
+                        <span>ОТКЛОНЕНО</span>
+                    </div>
+
+                    <!-- Шапка карточки -->
+                    <div class="w-full shrink-0 flex justify-between items-center text-[10px] text-outline border-b border-outline-variant/30 pb-2 mb-2 select-none">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span id="staging-card-number" class="font-mono font-medium shrink-0">Карточка 1 из 1</span>
+                            <span id="staging-card-chapter-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-mono text-[9px] truncate max-w-[180px]">
+                                <span class="material-symbols-outlined text-[11px]">menu_book</span>
+                                <span id="staging-card-chapter-text" class="truncate"></span>
+                            </span>
+                        </div>
+                        <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container shrink-0">medium</span>
+                    </div>
+
+                    <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
+                    <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean overflow-y-auto py-1 px-1 select-text" style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
+                        <!-- Блок Вопроса / Кейса (чистый, крупный, без подсказок) -->
+                        <div class="flex flex-col gap-1 text-left select-text">
+                            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[12px]">help</span>
+                                <span>ВОПРОС</span>
+                            </span>
+                            <div id="staging-card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">...</div>
+                        </div>
+
+                        <!-- Разделитель -->
+                        <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
+
+                        <!-- Блок Ответа / Дефиниции с бейджем источника нормы -->
+                        <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left select-text">
+                            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[12px]">task_alt</span>
+                                    <span>ОТВЕТ</span>
+                                </span>
+                                <span id="staging-card-secondary" class="text-[9px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
+                            </div>
+                            <div id="staging-card-translation" class="text-xs sm:text-sm text-on-surface leading-relaxed break-words font-medium">...</div>
+                        </div>
+
+                        <!-- Пример (если есть) -->
+                        <div id="staging-card-example-box" class="border-l-2 border-primary/40 pl-2.5 py-0.5 text-left empty:hidden">
+                            <div id="staging-card-example" class="text-[11px] text-outline italic break-words">...</div>
+                        </div>
+                        
+                        <!-- Мнемоника / Ассоциация (если есть) -->
+                        <div id="staging-card-mnemonic-box" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl text-[10px] text-left hidden shadow-xs">
+                            <span class="text-amber-700 dark:text-amber-400 font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
+                                <span class="material-symbols-outlined text-[12px]">psychology</span>
+                                <span>АССОЦИАЦИЯ:</span>
+                            </span>
+                            <span id="staging-card-mnemonic" class="text-neutral-800 dark:text-neutral-200"></span>
+                        </div>
+                    </div>
+
+                    <!-- Кнопки управления карточкой внутри песочницы -->
+                    <div class="w-full grid grid-cols-2 gap-2 pt-2 border-t border-outline-variant/30 shrink-0">
+                        <button onclick="openStagingEditor()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-2 uppercase font-bold rounded-xl hover:bg-surface-container transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[14px]">edit</span>
+                            <span>ПРАВИТЬ</span>
+                        </button>
+                        <button onclick="regenerateStagingMnemonic()" class="border border-outline-variant hover:border-primary text-primary text-[10px] py-2 uppercase font-bold rounded-xl hover:bg-surface-container transition-all flex items-center justify-center gap-1">
+                            <span class="material-symbols-outlined text-[14px]">psychology</span>
+                            <span>МНЕМОНИКА</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Нижняя панель действий свайпа / кнопок -->
+            <div class="flex flex-col gap-xs shrink-0 pt-xs">
+                <div class="grid grid-cols-3 gap-xs h-[52px]">
+                    <button onclick="stagingSwipeLeft()" class="flex flex-col items-center justify-center border border-secondary text-secondary hover:bg-error-container/20 active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[15px]">close</span>ОТКЛОНИТЬ</span>
+                        <span class="text-[8px] text-outline opacity-70">СВАЙП ВЛЕВО</span>
+                    </button>
+                    <button id="staging-undo-btn" onclick="stagingUndo()" class="flex flex-col items-center justify-center border border-outline-variant hover:border-primary text-outline hover:text-primary active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs opacity-40 cursor-not-allowed" title="Отменить последнее действие (Ctrl+Z / Backspace)">
+                        <span class="material-symbols-outlined text-[20px]">undo</span>
+                        <span class="text-[8px] font-mono opacity-70">ОТМЕНА</span>
+                    </button>
+                    <button onclick="stagingSwipeRight()" class="flex flex-col items-center justify-center border border-primary text-primary hover:bg-surface-container active:scale-95 transition-all text-xs font-bold uppercase rounded-2xl shadow-xs">
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[15px]">check</span>ПРИНЯТЬ</span>
+                        <span class="text-[8px] text-outline opacity-70">СВАЙП ВПРАВО</span>
+                    </button>
+                </div>
+
+                <div class="flex justify-between items-center gap-xs mt-xs text-[10px]">
+                    <button onclick="discardStagingDeck()" class="border border-secondary text-secondary hover:bg-error-container/20 py-2 px-2.5 uppercase font-bold rounded-xl transition-colors flex items-center gap-1" title="Удалить всю колоду из песочницы">
+                        <span class="material-symbols-outlined text-[14px]">delete</span>
+                        <span>[УДАЛИТЬ]</span>
+                    </button>
+                    <button onclick="stagingResetSession()" class="border border-outline-variant hover:border-secondary text-outline hover:text-secondary py-2 px-2 uppercase font-bold rounded-xl transition-colors flex items-center gap-1" title="Сбросить прогресс и начать разбор сначала">
+                        <span class="material-symbols-outlined text-[14px]">restart_alt</span>
+                        <span>СБРОС</span>
+                    </button>
+                    <button onclick="openRejectedDrawer()" id="staging-rejected-drawer-btn" class="border border-outline-variant hover:border-outline text-outline hover:text-primary py-2 px-2 uppercase font-bold rounded-xl transition-colors flex items-center gap-1" title="Посмотреть список отклоненных карточек">
+                        <span class="material-symbols-outlined text-[14px]">delete_sweep</span>
+                        <span>ОТКЛОНЕННЫЕ (<span id="staging-rejected-sub-cnt">0</span>)</span>
+                    </button>
+                    <button onclick="stagingAcceptAll()" class="border border-outline-variant hover:border-outline text-outline hover:text-primary py-2 px-2 uppercase font-bold rounded-xl flex-1 transition-colors flex items-center justify-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">done_all</span>
+                        <span>ВСЕ</span>
+                    </button>
+                    <button onclick="commitApprovedStagingCards()" id="staging-commit-btn" class="border border-primary bg-primary text-on-primary py-2 px-3 uppercase font-bold rounded-xl flex-1 text-center hover:bg-transparent hover:text-primary transition-all shadow-xs flex items-center justify-center gap-1">
+                        <span class="material-symbols-outlined text-[14px]">save</span>
+                        <span>СОХРАНИТЬ (0)</span>
+                    </button>
+                    <button onclick="closeStagingOverlay()" aria-label="Закрыть" class="border border-outline-variant text-outline py-2 px-3 uppercase font-bold rounded-xl hover:bg-surface-container transition-colors flex items-center justify-center">
+                        <span class="material-symbols-outlined text-[16px]">close</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно просмотра отклоненных карточек песочницы -->
+    <div id="staging-rejected-modal" role="dialog" aria-modal="true" aria-label="Отклоненные карточки" class="hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-[115] flex items-center justify-center p-md font-mono select-none" style="touch-action: manipulation; isolation: isolate;">
+        <div class="w-full max-w-md bg-surface-container-lowest border border-outline-variant/70 rounded-2xl p-4 flex flex-col gap-sm shadow-2xl max-h-[85vh] font-sans">
+            <div class="flex justify-between items-center border-b border-outline-variant/40 pb-xs">
+                <span class="text-xs font-bold text-secondary uppercase font-mono tracking-wider">ОТКЛОНЕННЫЕ КАРТОЧКИ</span>
+                <button onclick="closeRejectedDrawer()" aria-label="Закрыть" class="text-outline hover:text-primary font-bold text-sm p-1 rounded-lg flex items-center justify-center">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
+            </div>
+            <div id="staging-rejected-list" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 text-xs font-mono max-h-[60vh] pr-1">
+                <!-- Заполняется динамически -->
+            </div>
+            <div class="flex justify-end pt-xs border-t border-outline-variant/30">
+                <button onclick="closeRejectedDrawer()" class="border border-outline-variant text-outline hover:text-primary py-1.5 px-4 rounded-xl text-xs font-mono font-bold uppercase">
+                    ЗАКРЫТЬ
+                </button>
+            </div>
+        </div>
+    </div>
+

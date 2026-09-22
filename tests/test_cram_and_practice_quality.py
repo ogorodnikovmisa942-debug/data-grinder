@@ -21,8 +21,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 
 from main import app
+from sqlalchemy import delete
 from app.database.session import AsyncSessionLocal
-from app.database.models import Card, Phrase, PracticeItem
+from app.database.models import Card, Phrase, PracticeItem, ReviewLog
 from app.services.practice_service import (
     create_mirror_contrast_distractor,
     select_coherent_distractors,
@@ -99,137 +100,151 @@ class TestCramAndPracticeQuality(unittest.TestCase):
     def test_04_cram_mode_strictly_studied_cards_and_no_fsrs_mutation(self):
         """Проверка штурм-режима: только изученные карточки (state in [1, 2, 3]), state=0 исключены, FSRS не мутирует."""
         async def _test():
-            async with AsyncSessionLocal() as db:
-                uid = f"test_cram_user_{datetime.utcnow().timestamp()}"
-                
-                phrase_law = Phrase(text="Тема право", subject="law", user_id=uid)
-                phrase_med = Phrase(text="Тема медицина", subject="medicine", user_id=uid)
-                db.add_all([phrase_law, phrase_med])
-                await db.flush()
+            uid = f"test_cram_user_{datetime.utcnow().timestamp()}"
+            try:
+                async with AsyncSessionLocal() as db:
+                    phrase_law = Phrase(text="Тема право", subject="law", user_id=uid)
+                    phrase_med = Phrase(text="Тема медицина", subject="medicine", user_id=uid)
+                    db.add_all([phrase_law, phrase_med])
+                    await db.flush()
 
-                # Создаем карточки:
-                # 1. Неизученная (state = 0)
-                card_new = Card(
-                    phrase_id=phrase_law.id,
-                    user_id=uid, subject="law", text="Новая неизученная карта",
-                    translation="Ответ новой", state=0, stability=0.0, difficulty=0.0,
-                    lapses=0, next_review=datetime.utcnow()
-                )
-                # 2. Изученная сложная (state = 1, difficulty = 8.5)
-                card_hard = Card(
-                    phrase_id=phrase_law.id,
-                    user_id=uid, subject="law", text="Сложная изученная карта",
-                    translation="Ответ сложной", state=1, stability=1.5, difficulty=8.5,
-                    lapses=2, next_review=datetime.utcnow() + timedelta(days=5)
-                )
-                # 3. Изученная средняя (state = 2, difficulty = 5.0)
-                card_review = Card(
-                    phrase_id=phrase_med.id,
-                    user_id=uid, subject="medicine", text="Медицинская изученная карта",
-                    translation="Ответ мед", state=2, stability=4.0, difficulty=5.0,
-                    lapses=1, next_review=datetime.utcnow() + timedelta(days=10)
-                )
-                db.add_all([card_new, card_hard, card_review])
-                await db.commit()
-                await db.refresh(card_new)
-                await db.refresh(card_hard)
-                await db.refresh(card_review)
+                    # Создаем карточки:
+                    # 1. Неизученная (state = 0)
+                    card_new = Card(
+                        phrase_id=phrase_law.id,
+                        user_id=uid, subject="law", text="Новая неизученная карта",
+                        translation="Ответ новой", state=0, stability=0.0, difficulty=0.0,
+                        lapses=0, next_review=datetime.utcnow()
+                    )
+                    # 2. Изученная сложная (state = 1, difficulty = 8.5)
+                    card_hard = Card(
+                        phrase_id=phrase_law.id,
+                        user_id=uid, subject="law", text="Сложная изученная карта",
+                        translation="Ответ сложной", state=1, stability=1.5, difficulty=8.5,
+                        lapses=2, next_review=datetime.utcnow() + timedelta(days=5)
+                    )
+                    # 3. Изученная средняя (state = 2, difficulty = 5.0)
+                    card_review = Card(
+                        phrase_id=phrase_med.id,
+                        user_id=uid, subject="medicine", text="Медицинская изученная карта",
+                        translation="Ответ мед", state=2, stability=4.0, difficulty=5.0,
+                        lapses=1, next_review=datetime.utcnow() + timedelta(days=10)
+                    )
+                    db.add_all([card_new, card_hard, card_review])
+                    await db.commit()
+                    await db.refresh(card_new)
+                    await db.refresh(card_hard)
+                    await db.refresh(card_review)
 
-                # Проверяем эндпоинт статистики
-                resp_stats = self.client.get("/api/stats/dashboard", headers={"X-User-Id": uid})
-                self.assertEqual(resp_stats.status_code, 200)
-                stats_data = resp_stats.json()
-                self.assertEqual(stats_data.get("cards_cram_available"), 2, "Доступно для штурма ровно 2 изученные карты")
+                    # Проверяем эндпоинт статистики
+                    resp_stats = self.client.get("/api/stats/dashboard", headers={"X-User-Id": uid})
+                    self.assertEqual(resp_stats.status_code, 200)
+                    stats_data = resp_stats.json()
+                    self.assertEqual(stats_data.get("cards_cram_available"), 2, "Доступно для штурма ровно 2 изученные карты")
 
-                # Проверяем очередь тренировки в режиме штурма (is_cram=true, subject=all)
-                resp_train = self.client.get("/api/session?mode=cram&subject=all", headers={"X-User-Id": uid})
-                self.assertEqual(resp_train.status_code, 200)
-                queue = resp_train.json()
-                queue_ids = [c["id"] for c in queue]
+                    # Проверяем очередь тренировки в режиме штурма (is_cram=true, subject=all)
+                    resp_train = self.client.get("/api/session?mode=cram&subject=all", headers={"X-User-Id": uid})
+                    self.assertEqual(resp_train.status_code, 200)
+                    queue = resp_train.json()
+                    queue_ids = [c["id"] for c in queue]
 
-                # В очереди штурма ДОЛЖНЫ быть card_hard и card_review, но НИ В КОЕМ СЛУЧАЕ не card_new!
-                self.assertNotIn(card_new.id, queue_ids, "Неизученные карточки (state=0) не должны попадать в штурм")
-                self.assertIn(card_hard.id, queue_ids, "Изученная сложная карточка должна быть в штурме")
-                self.assertIn(card_review.id, queue_ids, "Изученная карточка из любого предмета должна быть в штурме")
+                    # В очереди штурма ДОЛЖНЫ быть card_hard и card_review, но НИ В КОЕМ СЛУЧАЕ не card_new!
+                    self.assertNotIn(card_new.id, queue_ids, "Неизученные карточки (state=0) не должны попадать в штурм")
+                    self.assertIn(card_hard.id, queue_ids, "Изученная сложная карточка должна быть в штурме")
+                    self.assertIn(card_review.id, queue_ids, "Изученная карточка из любого предмета должна быть в штурме")
 
-                # Проверяем отправку ответа в режиме штурма (is_cram=True, rating=1 - Again)
-                initial_stability = card_hard.stability
-                initial_difficulty = card_hard.difficulty
-                initial_lapses = card_hard.lapses
-                initial_state = card_hard.state
-                initial_review = card_hard.next_review
+                    # Проверяем отправку ответа в режиме штурма (is_cram=True, rating=1 - Again)
+                    initial_stability = card_hard.stability
+                    initial_difficulty = card_hard.difficulty
+                    initial_lapses = card_hard.lapses
+                    initial_state = card_hard.state
+                    initial_review = card_hard.next_review
 
-                resp_ans = self.client.post("/api/answer", headers={"X-User-Id": uid}, json={
-                    "card_id": card_hard.id,
-                    "rating": 1,
-                    "is_cram": True
-                })
-                self.assertEqual(resp_ans.status_code, 200)
+                    resp_ans = self.client.post("/api/answer", headers={"X-User-Id": uid}, json={
+                        "card_id": card_hard.id,
+                        "rating": 1,
+                        "is_cram": True
+                    })
+                    self.assertEqual(resp_ans.status_code, 200)
 
-                # Перечитываем карточку из БД и проверяем, что FSRS параметры НЕ изменились
-                await db.refresh(card_hard)
-                self.assertEqual(card_hard.stability, initial_stability, "Stability не должна меняться в штурме")
-                self.assertEqual(card_hard.difficulty, initial_difficulty, "Difficulty не должна меняться в штурме")
-                self.assertEqual(card_hard.lapses, initial_lapses, "Lapses не должны увеличиваться в штурме")
-                self.assertEqual(card_hard.state, initial_state, "State не должен меняться в штурме")
-                self.assertEqual(card_hard.next_review, initial_review, "Next review не должна меняться в штурме")
+                    # Перечитываем карточку из БД и проверяем, что FSRS параметры НЕ изменились
+                    await db.refresh(card_hard)
+                    self.assertEqual(card_hard.stability, initial_stability, "Stability не должна меняться в штурме")
+                    self.assertEqual(card_hard.difficulty, initial_difficulty, "Difficulty не должна меняться в штурме")
+                    self.assertEqual(card_hard.lapses, initial_lapses, "Lapses не должны увеличиваться в штурме")
+                    self.assertEqual(card_hard.state, initial_state, "State не должен меняться в штурме")
+                    self.assertEqual(card_hard.next_review, initial_review, "Next review не должна меняться в штурме")
+            finally:
+                async with AsyncSessionLocal() as db:
+                    await db.execute(delete(Card).where(Card.user_id == uid))
+                    await db.execute(delete(Phrase).where(Phrase.user_id == uid))
+                    await db.execute(delete(ReviewLog).where(ReviewLog.user_id == uid))
+                    await db.commit()
+
+        self.run_async(_test())
 
     def test_05_generate_practice_session_clustered_distractors(self):
         """Проверка, что сессия практики подбирает дистракторы из одного смыслового кластера."""
         async def _test():
-            async with AsyncSessionLocal() as db:
-                uid = f"test_practice_cluster_{datetime.utcnow().timestamp()}"
-                phrase = Phrase(text="Теория государства и права", subject="law_tgp", user_id=uid)
-                db.add(phrase)
-                await db.flush()
+            uid = f"test_practice_cluster_{datetime.utcnow().timestamp()}"
+            try:
+                async with AsyncSessionLocal() as db:
+                    phrase = Phrase(text="Теория государства и права", subject="law_tgp", user_id=uid)
+                    db.add(phrase)
+                    await db.flush()
 
-                c_static = Card(
-                    phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                    text="В чем заключается статическая функция права?",
-                    secondary_text="Теория права | Функции права",
-                    translation="В закреплении и стабилизации существующих общественных отношений.",
-                    state=2, next_review=datetime.utcnow()
-                )
-                c_dynamic = Card(
-                    phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                    text="В чем заключается динамическая функция права?",
-                    secondary_text="Теория права | Функции права",
-                    translation="В стимулировании развития и возникновении новых общественных связей.",
-                    state=2, next_review=datetime.utcnow()
-                )
-                c_protective = Card(
-                    phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                    text="В чем заключается охранительная функция права?",
-                    secondary_text="Теория права | Функции права",
-                    translation="В вытеснении и пресечении правонарушений и защите базовых устоев строя.",
-                    state=2, next_review=datetime.utcnow()
-                )
-                c_deadline = Card(
-                    phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                    text="Каков срок подачи апелляционной жалобы?",
-                    secondary_text="Процесс | Сроки",
-                    translation="В течение одного месяца со дня принятия решения.",
-                    state=2, next_review=datetime.utcnow()
-                )
-                db.add_all([c_static, c_dynamic, c_protective, c_deadline])
-                await db.commit()
-
-                items = await generate_practice_session(user_id=uid, subject="law_tgp", count=3, db=db)
-                self.assertGreater(len(items), 0)
-
-                # Находим задание по статической функции
-                static_item = next((it for it in items if "статическая" in it["prompt"].lower()), None)
-                if static_item:
-                    options = static_item["options"]
-                    # Опции должны включать правильный ответ и дистракторы из того же кластера функций
-                    opts_text = " ".join(options).lower()
-                    self.assertTrue(
-                        "динамическ" in opts_text or "стимулирован" in opts_text or "охранительн" in opts_text or "пресечени" in opts_text,
-                        "Дистракторы для функций права должны браться из кластера функций права, а не посторонних сроков"
+                    c_static = Card(
+                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
+                        text="В чем заключается статическая функция права?",
+                        secondary_text="Теория права | Функции права",
+                        translation="В закреплении и стабилизации существующих общественных отношений.",
+                        state=2, next_review=datetime.utcnow()
                     )
+                    c_dynamic = Card(
+                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
+                        text="В чем заключается динамическая функция права?",
+                        secondary_text="Теория права | Функции права",
+                        translation="В стимулировании развития и возникновении новых общественных связей.",
+                        state=2, next_review=datetime.utcnow()
+                    )
+                    c_protective = Card(
+                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
+                        text="В чем заключается охранительная функция права?",
+                        secondary_text="Теория права | Функции права",
+                        translation="В вытеснении и пресечении правонарушений и защите базовых устоев строя.",
+                        state=2, next_review=datetime.utcnow()
+                    )
+                    c_deadline = Card(
+                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
+                        text="Каков срок подачи апелляционной жалобы?",
+                        secondary_text="Процесс | Сроки",
+                        translation="В течение одного месяца со дня принятия решения.",
+                        state=2, next_review=datetime.utcnow()
+                    )
+                    db.add_all([c_static, c_dynamic, c_protective, c_deadline])
+                    await db.commit()
+
+                    items = await generate_practice_session(user_id=uid, subject="law_tgp", count=3, db=db)
+                    self.assertGreater(len(items), 0)
+
+                    # Находим задание по статической функции
+                    static_item = next((it for it in items if "статическая" in it["prompt"].lower()), None)
+                    if static_item:
+                        options = static_item["options"]
+                        # Опции должны включать правильный ответ и дистракторы из того же кластера функций
+                        opts_text = " ".join(options).lower()
+                        self.assertTrue(
+                            "динамическ" in opts_text or "стимулирован" in opts_text or "охранительн" in opts_text or "пресечени" in opts_text,
+                            "Дистракторы для функций права должны браться из кластера функций права, а не посторонних сроков"
+                        )
+            finally:
+                async with AsyncSessionLocal() as db:
+                    await db.execute(delete(Card).where(Card.user_id == uid))
+                    await db.execute(delete(Phrase).where(Phrase.user_id == uid))
+                    await db.execute(delete(PracticeItem).where(PracticeItem.user_id == uid))
+                    await db.commit()
 
         self.run_async(_test())
-
 
 if __name__ == "__main__":
     unittest.main()

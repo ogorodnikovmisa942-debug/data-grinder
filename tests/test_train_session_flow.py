@@ -8,19 +8,6 @@ from app.api.endpoints.train import get_session_cards
 
 class TestTrainSessionFlow(unittest.IsolatedAsyncioTestCase):
 
-    async def asyncSetUp(self):
-        from sqlalchemy import text
-        async with AsyncSessionLocal() as db:
-            res = await db.execute(text("PRAGMA table_info(cards)"))
-            columns = [row[1] for row in res.fetchall()]
-            if "topological_rank" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN topological_rank INTEGER DEFAULT 0"))
-            if "organ_slug" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN organ_slug VARCHAR"))
-            if "layer" not in columns:
-                await db.execute(text("ALTER TABLE cards ADD COLUMN layer INTEGER DEFAULT 1"))
-            await db.commit()
-
     async def test_01_card_enriched_metadata_and_reasons(self):
         """Проверка обогащения карточек метаданными reason_type, reason_label, subject_title и interval_days."""
         test_user = "test_flow_user_01"

@@ -292,6 +292,101 @@ def create_mirror_contrast_distractor(answer: str) -> Optional[str]:
     return None
 
 
+CONTEXTUAL_RULE_DISTRACTORS = [
+    "Применяется факультативно по специальному соглашению сторон",
+    "Определяется общими предписаниями вышестоящей нормы",
+    "Допускается исключительно при наличии прямо установленных процессуальных условий",
+    "Не является обязательным квалифицирующим признаком для данного состава",
+    "Регулируется отдельным специальным регламентом соответствующей отрасли",
+    "Исключается при наступлении ограничивающих законных факторов",
+    "Требует обязательного предварительного согласования с надзорным органом",
+    "Устанавливается на основе дискреционного усмотрения правоприменителя",
+    "Подлежит применению в порядке межотраслевой аналогии права",
+    "Применяется субсидиарно при пробеле в специальном регулировании",
+    "Действует по умолчанию при отсутствии прямого волеизъявления сторон",
+    "Ограничивается исключительным перечнем, прямо указанным в норме"
+]
+
+CONTEXTUAL_CONDITION_DISTRACTORS = [
+    "при соблюдении обязательного досудебного порядка",
+    "по мотивированному постановлению прокурора",
+    "в пределах установленного пресекательного срока",
+    "при наличии письменного ходатайства стороны",
+    "по единогласному решению квалификационной коллегии",
+    "в порядке судебного дискреционного усмотрения",
+    "в исключительных случаях, прямо предусмотренных законом",
+    "по соглашению всех участвующих в деле лиц",
+    "при возникновении неустранимых процессуальных сомнений",
+    "с обязательным участием законного представителя"
+]
+
+CONTEXTUAL_CONCEPT_DISTRACTORS = [
+    "Институт процессуального соучастия",
+    "Принцип процессуальной экономии",
+    "Презумпция добросовестности участников",
+    "Институт подведомственности и подсудности",
+    "Коллизионное регулирование норм",
+    "Юридический состав правоотношения",
+    "Диспозитивное правомочие субъекта",
+    "Материально-правовая легитимация",
+    "Институт преюдициального значения фактов",
+    "Принцип состязательности сторон"
+]
+
+CONTEXTUAL_SECTION_DISTRACTORS = [
+    "Общие положения и принципы производства",
+    "Производство в суде первой инстанции",
+    "Производство по пересмотру вступивших в силу актов",
+    "Особое производство и специальные процедуры",
+    "Институты подведомственности и коллизий",
+    "Исполнительное производство и обеспечение решений",
+    "Организация судейского сообщества и статус судей",
+    "Процессуальные сроки и судебные расходы"
+]
+
+CONTEXTUAL_INSTANCE_DISTRACTORS = [
+    "Кассационный суд общей юрисдикции",
+    "Апелляционный суд общей юрисдикции",
+    "Судебная коллегия Верховного Суда РФ",
+    "Арбитражный суд округа",
+    "Президиум Верховного Суда РФ",
+    "Арбитражный апелляционный суд",
+    "Конституционный Суд РФ",
+    "Районный суд общей юрисдикции"
+]
+
+
+def fill_options_to_four(
+    opts: list[str],
+    candidates: Optional[list[str]] = None,
+    domain_fallbacks: Optional[list[str]] = None
+) -> list[str]:
+    """Дополняет список вариантов ответов до 4 уникальными дистракторами из кандидатов или доменного пула."""
+    existing_low = {o.strip().lower() for o in opts if o.strip()}
+
+    if candidates:
+        for c in candidates:
+            if len(opts) >= 4:
+                break
+            c_clean = c.strip()
+            if c_clean and c_clean.lower() not in existing_low and not is_invalid_distractor(c_clean):
+                opts.append(c_clean)
+                existing_low.add(c_clean.lower())
+
+    if len(opts) < 4 and domain_fallbacks:
+        shuffled_fallbacks = list(domain_fallbacks)
+        random.shuffle(shuffled_fallbacks)
+        for fb in shuffled_fallbacks:
+            if len(opts) >= 4:
+                break
+            fb_clean = fb.strip()
+            if fb_clean and fb_clean.lower() not in existing_low:
+                opts.append(fb_clean)
+                existing_low.add(fb_clean.lower())
+
+    return opts[:4]
+
+
 def select_coherent_distractors(
     target_answer: str,
     candidate_answers: list[str],
@@ -385,15 +480,9 @@ def select_coherent_distractors(
 
     # 5. Универсальные смысловые альтернативы при дефиците
     if len(chosen) < count:
-        semantic_fallbacks = [
-            "Применяется факультативно по специальному соглашению сторон",
-            "Определяется базовыми общими правилами системы",
-            "Допускается исключительно при наличии прямо установленных условий",
-            "Не является обязательным признаком для стандартного режима",
-            "Регулируется отдельным специальным регламентом дисциплины",
-            "Исключается при наступлении ограничивающих факторов"
-        ]
-        for sf in semantic_fallbacks:
+        shuffled_fallbacks = list(CONTEXTUAL_RULE_DISTRACTORS)
+        random.shuffle(shuffled_fallbacks)
+        for sf in shuffled_fallbacks:
             if sf.lower() not in chosen_low:
                 chosen.append(sf)
                 chosen_low.add(sf.lower())
@@ -499,6 +588,27 @@ async def generate_practice_session(
                 if p_text and len(p_text) > 2 and p_text not in all_fronts:
                     all_fronts.append(p_text)
 
+            # Извлекаем сущности графа знаний предмета для синтеза дистракторов
+            kg_nodes_names: list[str] = []
+            kg_record = None
+            try:
+                kg_stmt = select(TopicKnowledgeGraph).where(
+                    TopicKnowledgeGraph.user_id == user_id,
+                    TopicKnowledgeGraph.subject.in_(all_aliases)
+                ).order_by(TopicKnowledgeGraph.updated_at.desc())
+                kg_res = await db.execute(kg_stmt)
+                kg_record = kg_res.scalars().first()
+                if not kg_record:
+                    kg_stmt_any = select(TopicKnowledgeGraph).where(
+                        TopicKnowledgeGraph.subject.in_(all_aliases)
+                    ).order_by(TopicKnowledgeGraph.updated_at.desc())
+                    kg_res_any = await db.execute(kg_stmt_any)
+                    kg_record = kg_res_any.scalars().first()
+                if kg_record and kg_record.graph_data:
+                    kg_nodes_names = [n["name"].strip() for n in kg_record.graph_data.get("nodes", []) if n.get("name") and len(n.get("name").strip()) > 2]
+            except Exception as kg_fetch_err:
+                print(f"[Practice Engine] Ошибка предварительной загрузки графа: {kg_fetch_err}")
+
             # Кластеризация карточек по подтемам и ключевым понятиям
             theme_to_cards = defaultdict(list)
             for c in user_cards:
@@ -575,8 +685,7 @@ async def generate_practice_session(
                         mirror_distractor=mirror_a
                     )
                     opts_a = [back] + chosen_a[:3]
-                    while len(opts_a) < 4:
-                        opts_a.append(f"Альтернативное правило {len(opts_a)}")
+                    opts_a = fill_options_to_four(opts_a, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
                     random.shuffle(opts_a)
 
                     i_type = "contrast_pair" if is_contrast else "situational"
@@ -610,8 +719,7 @@ async def generate_practice_session(
                             cluster_candidates=cluster_ans_b
                         )
                         opts_b = [cloze_target] + chosen_b[:3]
-                        while len(opts_b) < 4:
-                            opts_b.append(f"Альтернативное условие {len(opts_b)}")
+                        opts_b = fill_options_to_four(opts_b, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONDITION_DISTRACTORS)
                         random.shuffle(opts_b)
                         practice_records.append(PracticeItem(
                             item_id=item_id_b,
@@ -641,8 +749,7 @@ async def generate_practice_session(
                             cluster_candidates=cluster_fr_c
                         )
                         opts_c = [clean_front] + chosen_c[:3]
-                        while len(opts_c) < 4:
-                            opts_c.append(f"Иное понятие {len(opts_c)}")
+                        opts_c = fill_options_to_four(opts_c, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONCEPT_DISTRACTORS)
                         random.shuffle(opts_c)
                         practice_records.append(PracticeItem(
                             item_id=item_id_c,
@@ -664,9 +771,9 @@ async def generate_practice_session(
                         sec_label = sec.split("|")[0].strip() if "|" in sec else sec.strip()
                         item_id_d = str(uuid.uuid4())
                         chosen_d = select_coherent_distractors(sec_label, [c.secondary_text for c in user_cards if c.secondary_text], count=3, fallback_pool=["Общая часть", "Особенная часть", "Процессуальный порядок"])
+                        sec_candidates = [c.secondary_text.strip() for c in user_cards if c.secondary_text and c.secondary_text.strip()]
                         opts_d = [sec_label] + chosen_d[:3]
-                        while len(opts_d) < 4:
-                            opts_d.append(f"Иной раздел {len(opts_d)}")
+                        opts_d = fill_options_to_four(opts_d, sec_candidates + kg_nodes_names, CONTEXTUAL_SECTION_DISTRACTORS)
                         random.shuffle(opts_d)
                         practice_records.append(PracticeItem(
                             item_id=item_id_d,
@@ -708,8 +815,7 @@ async def generate_practice_session(
                             cluster_candidates=cluster_ans
                         )
                         options = [cloze_target] + chosen_distractors[:3]
-                        while len(options) < 4:
-                            options.append(f"Альтернативное условие {len(options)}")
+                        options = fill_options_to_four(options, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONDITION_DISTRACTORS)
                         random.shuffle(options)
 
                         pi = PracticeItem(
@@ -737,8 +843,7 @@ async def generate_practice_session(
                             mirror_distractor=mirror
                         )
                         options = [back] + chosen_distractors[:3]
-                        while len(options) < 4:
-                            options.append(f"Иной критерий {len(options)}")
+                        options = fill_options_to_four(options, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
                         random.shuffle(options)
 
                         pi = PracticeItem(
@@ -764,8 +869,7 @@ async def generate_practice_session(
                             cluster_candidates=cluster_ans
                         )
                         options = [back] + chosen_distractors[:3]
-                        while len(options) < 4:
-                            options.append(f"Альтернативный вариант {len(options)}")
+                        options = fill_options_to_four(options, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
                         random.shuffle(options)
 
                         pi = PracticeItem(
@@ -783,18 +887,19 @@ async def generate_practice_session(
 
         # 3. Синтез вопросов из графа знаний предмета (топологическая инстанционность и связи)
         try:
-            kg_stmt = select(TopicKnowledgeGraph).where(
-                TopicKnowledgeGraph.user_id == user_id,
-                TopicKnowledgeGraph.subject.in_(all_aliases)
-            ).order_by(TopicKnowledgeGraph.updated_at.desc())
-            kg_res = await db.execute(kg_stmt)
-            kg_record = kg_res.scalars().first()
             if not kg_record:
-                kg_stmt_any = select(TopicKnowledgeGraph).where(
+                kg_stmt = select(TopicKnowledgeGraph).where(
+                    TopicKnowledgeGraph.user_id == user_id,
                     TopicKnowledgeGraph.subject.in_(all_aliases)
                 ).order_by(TopicKnowledgeGraph.updated_at.desc())
-                kg_res_any = await db.execute(kg_stmt_any)
-                kg_record = kg_res_any.scalars().first()
+                kg_res = await db.execute(kg_stmt)
+                kg_record = kg_res.scalars().first()
+                if not kg_record:
+                    kg_stmt_any = select(TopicKnowledgeGraph).where(
+                        TopicKnowledgeGraph.subject.in_(all_aliases)
+                    ).order_by(TopicKnowledgeGraph.updated_at.desc())
+                    kg_res_any = await db.execute(kg_stmt_any)
+                    kg_record = kg_res_any.scalars().first()
             if kg_record and kg_record.graph_data:
                 g_nodes = {n["id"]: n for n in kg_record.graph_data.get("nodes", []) if "id" in n}
                 g_edges = kg_record.graph_data.get("edges", [])
@@ -810,8 +915,15 @@ async def generate_practice_session(
                         other_names = [n.get("name") for n in g_nodes.values() if n.get("name") and n.get("name") != tgt_name and n.get("name") != src_name]
                         if len(other_names) >= 2:
                             chosen_dist = random.sample(other_names, min(3, len(other_names)))
-                            while len(chosen_dist) < 3:
-                                chosen_dist.append(f"Иная инстанция {len(chosen_dist) + 1}")
+                            existing_inst = {tgt_name.lower(), src_name.lower()} | {d.lower() for d in chosen_dist}
+                            shuffled_inst = list(CONTEXTUAL_INSTANCE_DISTRACTORS)
+                            random.shuffle(shuffled_inst)
+                            for inst in shuffled_inst:
+                                if len(chosen_dist) >= 3:
+                                    break
+                                if inst.lower() not in existing_inst:
+                                    chosen_dist.append(inst)
+                                    existing_inst.add(inst.lower())
                             opts = [tgt_name] + chosen_dist[:3]
                             random.shuffle(opts)
                             pi = PracticeItem(
@@ -844,8 +956,7 @@ async def generate_practice_session(
                 c_cluster = get_card_cluster_answers(c)
                 chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None, cluster_candidates=c_cluster)
                 opts = [back] + chosen[:3]
-                while len(opts) < 4:
-                    opts.append(f"Альтернативный вариант {len(opts)}")
+                opts = fill_options_to_four(opts, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
                 random.shuffle(opts)
                 is_case = any(w in front.lower() for w in ("если", "в случае", "при условии", "сторона", "спор", "пациент", "клиент", "пользователь", "задача", "дело", "иск", "ситуация", "if", "when", "case"))
                 practice_records.append(PracticeItem(
@@ -881,6 +992,13 @@ async def generate_practice_session(
             await db.close()
 
 
+def normalize_answer_text(text: str) -> str:
+    if not text:
+        return ""
+    t = text.replace('\xa0', ' ').strip()
+    return re.sub(r'[.!?,;:]+$', '', t).strip().lower()
+
+
 async def verify_practice_answer(
     user_id: str,
     item_id: str,
@@ -901,7 +1019,7 @@ async def verify_practice_answer(
         if not item:
             # Fallback для тестов или устаревших сессий: если не найдено в БД, ищем в пресетах
             for seed in SUDOUSTROYSTVO_PRESET_PRACTICE:
-                if selected_answer.strip().lower() == seed["correct_answer"].strip().lower():
+                if normalize_answer_text(selected_answer) == normalize_answer_text(seed["correct_answer"]):
                     return {
                         "correct": True,
                         "selected": selected_answer,
@@ -917,7 +1035,7 @@ async def verify_practice_answer(
                 "gold_standard": "Сессия обновлена."
             }
 
-        is_correct = (selected_answer.strip().lower() == item.correct_answer.strip().lower())
+        is_correct = (normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer))
         return {
             "correct": is_correct,
             "selected": selected_answer,

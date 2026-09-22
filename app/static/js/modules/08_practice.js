@@ -8,12 +8,26 @@ let practiceFailedItems = [];
 let practiceCurrentIndex = 0;
 let practiceScore = 0;
 let practiceAnswerSubmitted = false;
+let isRetrySession = false;
+let currentPracticeSubject = '';
+
+function normalizeAnswer(str) {
+    if (!str) return '';
+    return str
+        .replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, ' ')
+        .trim()
+        .replace(/[.!?,;:]+$/g, '')
+        .trim()
+        .toLowerCase();
+}
 
 window.openPracticeModal = function(targetSubject) {
     const modal = document.getElementById('practice-modal');
     if (!modal) return;
 
-    const sub = targetSubject || getActiveDeckSubject();
+    currentPracticeSubject = targetSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    window.currentPracticeSubject = currentPracticeSubject;
+    const sub = currentPracticeSubject;
     const badge = document.getElementById('practice-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
 
@@ -27,7 +41,10 @@ window.closePracticeModal = function() {
 };
 
 window.startPracticeSession = async function(customSub) {
-    const sub = customSub || getActiveDeckSubject();
+    isRetrySession = false;
+    currentPracticeSubject = customSub || currentPracticeSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    window.currentPracticeSubject = currentPracticeSubject;
+    const sub = currentPracticeSubject;
     
     const loading = document.getElementById('practice-loading');
     const cardContainer = document.getElementById('practice-card-container');
@@ -141,6 +158,21 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
 
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
+    const handleVerifyFailure = () => {
+        const spinner = clickedBtn.querySelector('.animate-spin');
+        if (spinner) spinner.remove();
+        allButtons.forEach(b => {
+            b.disabled = false;
+            b.classList.add('hover:border-neutral-400', 'cursor-pointer');
+        });
+        practiceAnswerSubmitted = false;
+        if (typeof window.showNotification === 'function') {
+            window.showNotification("Ошибка проверки ответа. Попробуйте еще раз.", "error");
+        } else {
+            alert("Ошибка проверки ответа. Попробуйте еще раз.");
+        }
+    };
+
     try {
         const res = await apiFetch('/api/practice/verify', {
             method: 'POST',
@@ -152,7 +184,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         });
 
         if (!res.ok) {
-            alert("Ошибка верификации ответа.");
+            handleVerifyFailure();
             return;
         }
 
@@ -181,7 +213,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             // Highlight authoritative correct answer button
             allButtons.forEach(b => {
                 const textSpan = b.querySelectorAll('span')[1];
-                if (textSpan && textSpan.textContent.trim() === data.correct_answer.trim()) {
+                if (textSpan && normalizeAnswer(textSpan.textContent) === normalizeAnswer(data.correct_answer)) {
                     b.classList.add('practice-option-correct');
                 }
             });
@@ -224,7 +256,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
 
     } catch (e) {
         console.error("Сбой проверки ответа:", e);
-        alert("Ошибка сети при проверке ответа.");
+        handleVerifyFailure();
     }
 }
 
@@ -238,6 +270,7 @@ function showPracticeFinish() {
     const finishScreen = document.getElementById('practice-finish-screen');
     const scoreEl = document.getElementById('practice-finish-score');
     const msgEl = document.getElementById('practice-finish-message');
+    const savedBadge = document.getElementById('practice-saved-badge');
 
     if (cardContainer) cardContainer.classList.add('hidden');
     if (finishScreen) finishScreen.classList.remove('hidden');
@@ -250,7 +283,9 @@ function showPracticeFinish() {
     }
 
     if (msgEl) {
-        if (percent >= 80) {
+        if (isRetrySession) {
+            msgEl.textContent = "Ошибки успешно проработаны! Спорные узлы и критерии закреплены в памяти.";
+        } else if (percent >= 80) {
             msgEl.textContent = "Превосходно! Вы безошибочно различаете правовые режимы, звенья инстанций и водоразделы.";
         } else if (percent >= 50) {
             msgEl.textContent = "Хороший результат. Рекомендуем повторить спорные узлы через Каркас знаний или колоду FSRS.";
@@ -259,21 +294,30 @@ function showPracticeFinish() {
         }
     }
 
-    // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране
-    const curSub = getActiveDeckSubject();
-    apiFetch('/api/practice/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            subject: curSub,
-            score: practiceScore,
-            total: total
-        })
-    }).then(() => {
-        if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
-    }).catch(err => {
-        console.warn("Сбой фиксации результатов практики:", err);
-    });
+    // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране (только для основных сессий)
+    const curSub = currentPracticeSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    if (isRetrySession) {
+        if (savedBadge) {
+            savedBadge.innerHTML = `<span class="material-symbols-outlined text-sm">task_alt</span><span>Ошибки успешно проработаны!</span>`;
+        }
+    } else {
+        if (savedBadge) {
+            savedBadge.innerHTML = `<span class="material-symbols-outlined text-sm">check_circle</span><span>Результат практики зафиксирован в профиле</span>`;
+        }
+        apiFetch('/api/practice/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                subject: curSub,
+                score: practiceScore,
+                total: total
+            })
+        }).then(() => {
+            if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
+        }).catch(err => {
+            console.warn("Сбой фиксации результатов практики:", err);
+        });
+    }
 
     // Настройка кнопки повторения ошибок
     const retryBtn = document.getElementById('practice-retry-errors-btn');
@@ -286,10 +330,18 @@ function showPracticeFinish() {
             retryBtn.classList.add('hidden');
         }
     }
+
+    // Настройка кнопки прохождения новой сессии
+    const newSessionBtn = document.getElementById('practice-new-session-btn');
+    if (newSessionBtn) {
+        newSessionBtn.onclick = () => startPracticeSession(currentPracticeSubject);
+    }
 }
 
 window.retryPracticeErrors = function() {
     if (!practiceFailedItems || practiceFailedItems.length === 0) return;
+
+    isRetrySession = true;
 
     const cardContainer = document.getElementById('practice-card-container');
     const finishScreen = document.getElementById('practice-finish-screen');

@@ -6,14 +6,18 @@ Supports O(1) retrieval, upsert, tree synthesis, and preset seed fallbacks (R1, 
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from pydantic import BaseModel, Field, ConfigDict
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
 
 from app.database.session import get_db
-from app.database.models import TopicKnowledgeGraph, Card
+from app.database.models import TopicKnowledgeGraph, Card, utc_now
 from app.core.auth import get_current_user_id
 from collections import defaultdict
 from app.services.graph_service import (
@@ -185,13 +189,14 @@ class KnowledgeGraphResponse(BaseModel):
     tree_data: Optional[Dict[str, Any]] = None
     updated_at: Optional[str] = None
     is_seed: bool = False
+    is_empty: bool = False
 
 
 # --- ENDPOINTS ---
 
 @router.get("/knowledge-graph", response_model=KnowledgeGraphResponse)
 async def get_knowledge_graph(
-    subject: str = Query(..., min_length=1, max_length=128, description="Subject/deck identifier"),
+    subject: Optional[str] = Query(default=None, max_length=128, description="Subject/deck identifier"),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
@@ -199,30 +204,33 @@ async def get_knowledge_graph(
     Supports unified alias resolution, conflict elimination, automatic synchronization of stale
     snapshots from current user deck, and preset seed fallbacks.
     """
-    clean_sub = subject.strip()
-    if clean_sub.lower() in ("all", "*", "", "generic"):
-        top_stmt = select(Card.subject).where(
+    clean_sub = (subject or "").strip()
+    if not clean_sub or clean_sub.lower() in ("all", "*", "generic"):
+        stmt = select(Card.subject).where(
             Card.user_id == current_user
-        ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
-        top_sub = (await db.execute(top_stmt)).scalar()
-        if not top_sub:
+        ).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(stmt)
+        active_sub = res.scalar()
+        clean_sub = active_sub
+        if not clean_sub:
             # Проверяем, есть ли хотя бы одна сохраненная запись графа у пользователя
             top_kg_stmt = select(TopicKnowledgeGraph.subject).where(
                 TopicKnowledgeGraph.user_id == current_user
             ).order_by(TopicKnowledgeGraph.updated_at.desc()).limit(1)
-            top_sub = (await db.execute(top_kg_stmt)).scalar()
-        if not top_sub:
-            if current_user in ("default_user", "dev_user") or not current_user.isdigit():
-                def_stmt = select(Card.subject).where(
-                    Card.user_id.in_(["default_user", "dev_user"])
-                ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
-                top_sub = (await db.execute(def_stmt)).scalar()
-        clean_sub = top_sub if top_sub else "generic"
+            clean_sub = (await db.execute(top_kg_stmt)).scalar()
+
+    if not clean_sub:
+        return KnowledgeGraphResponse(
+            subject="",
+            graph_data={"nodes": [], "edges": [], "links": []},
+            tree_data=None,
+            is_empty=True
+        )
 
     all_aliases = get_all_subject_aliases(clean_sub)
     if clean_sub not in all_aliases:
         all_aliases.insert(0, clean_sub)
-    now = datetime.utcnow()
+    now = utc_now()
 
     # 1. Извлекаем актуальные карточки пользователя по всей группе алиасов
     card_stmt = select(Card).options(selectinload(Card.phrase)).where(
@@ -425,15 +433,15 @@ async def upsert_knowledge_graph(
     if record:
         record.graph_data = final_graph_data
         record.tree_data = tree_data
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
     else:
         record = TopicKnowledgeGraph(
             user_id=current_user,
             subject=payload.subject,
             graph_data=final_graph_data,
             tree_data=tree_data,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=utc_now(),
+            updated_at=utc_now()
         )
         db.add(record)
 
@@ -451,7 +459,7 @@ async def upsert_knowledge_graph(
         if record:
             record.graph_data = final_graph_data
             record.tree_data = tree_data
-            record.updated_at = datetime.utcnow()
+            record.updated_at = utc_now()
             await db.commit()
         else:
             raise commit_err
@@ -462,7 +470,7 @@ async def upsert_knowledge_graph(
         subject=record.subject,
         graph_data=record.graph_data,
         tree_data=record.tree_data,
-        updated_at=record.updated_at.isoformat() if record.updated_at else datetime.utcnow().isoformat(),
+        updated_at=record.updated_at.isoformat() if record.updated_at else utc_now().isoformat(),
         is_seed=False
     )
 
@@ -492,25 +500,34 @@ async def delete_knowledge_graph(
     )
 
 
+@limiter.limit("3/minute")
 @router.post("/knowledge-graph/rebuild", response_model=KnowledgeGraphResponse)
 async def rebuild_knowledge_graph(
+    request: Request,
     subject: str = Query(..., min_length=1, max_length=128),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Принудительно перестраивает граф знаний и дерево напрямую из актуальных карточек пользователя в БД."""
-    clean_sub = subject.strip()
-    if clean_sub.lower() in ("all", "*", "", "generic"):
+    clean_sub = (subject or "").strip()
+    if not clean_sub or clean_sub.lower() in ("all", "*", "generic"):
         top_stmt = select(Card.subject).where(
             Card.user_id == current_user
-        ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
-        top_sub = (await db.execute(top_stmt)).scalar()
-        if not top_sub:
+        ).order_by(Card.next_review.desc()).limit(1)
+        res = await db.execute(top_stmt)
+        active_sub = res.scalar()
+        clean_sub = active_sub
+        if not clean_sub:
             def_stmt = select(Card.subject).where(
                 Card.user_id.in_(["default_user", "dev_user"])
-            ).group_by(Card.subject).order_by(func.count(Card.id).desc()).limit(1)
-            top_sub = (await db.execute(def_stmt)).scalar()
-        clean_sub = top_sub if top_sub else "sudoustr"
+            ).order_by(Card.next_review.desc()).limit(1)
+            clean_sub = (await db.execute(def_stmt)).scalar()
+
+    if not clean_sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Нет карточек для перестроения графа."
+        )
 
     all_aliases = get_all_subject_aliases(clean_sub)
     if clean_sub not in all_aliases:
@@ -554,7 +571,7 @@ async def rebuild_knowledge_graph(
     rec_res = await db.execute(rec_stmt)
     record = rec_res.scalars().first()
 
-    now = datetime.utcnow()
+    now = utc_now()
     if record:
         record.graph_data = g_data
         record.tree_data = t_data

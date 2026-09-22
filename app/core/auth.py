@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.config import settings
 from app.database.session import get_db
-from app.database.models import UserSetting, UserSession, Card, Phrase, TopicKnowledgeGraph
+from app.database.models import UserSetting, UserSession, Card, Phrase, TopicKnowledgeGraph, utc_now
 
 def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
     """
@@ -87,7 +87,7 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
         stmt_phrases = select(Phrase).filter(Phrase.user_id == src_user)
         src_phrases = (await db.execute(stmt_phrases)).scalars().all()
 
-        now = datetime.utcnow()
+        now = utc_now()
         phrase_id_map = {}
         for p in src_phrases:
             new_p = Phrase(
@@ -199,12 +199,24 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
 
     # Фолбэк для разработки и прямого браузерного доступа
     if not user_id:
-        if custom_user_header:
-            user_id = custom_user_header.strip()
-        elif query_tg_id:
-            user_id = query_tg_id.strip()
+        is_dev_mode = (
+            settings.DEBUG
+            or getattr(settings, "TESTING", False)
+            or not settings.TELEGRAM_BOT_TOKEN
+            or settings.TELEGRAM_BOT_TOKEN == "placeholder_bot_token"
+        )
+        if is_dev_mode:
+            if custom_user_header:
+                user_id = custom_user_header.strip()
+            elif query_tg_id:
+                user_id = query_tg_id.strip()
+            else:
+                user_id = "dev_user"
         else:
-            user_id = "dev_user"
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Требуется авторизация через Telegram WebApp."
+            )
 
     # Гарантируем наличие UserSetting и UserSession для этого пользователя
     try:

@@ -14,21 +14,26 @@ from app.database.models import Base
 from app.database.migrations import backup_sqlite_database, run_sqlite_pragma_migrations
 from app.services.notifications import notification_scheduler_loop
 from app.services.generation_worker import generation_worker_loop
-from app.services.frontend_bundler import bundle_modules
+from app.services.frontend_bundler import bundle_modules, bundle_html
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 ADMIN_TEMPLATE_PATH = Path("app/templates/admin.html")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 0. Автоматическая сборка модулей фронтенда (гарантия актуальности app.js)
+    # 0. Автоматическая сборка модулей фронтенда (гарантия актуальности app.js и index.html)
     try:
-        bundle_modules()
+        await asyncio.to_thread(bundle_modules)
+        await asyncio.to_thread(bundle_html)
     except Exception as e:
         print(f"[Frontend Bundler Warning] {e}")
 
     # 1. Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек)
-    backup_sqlite_database("data_grinder.db")
+    await asyncio.to_thread(backup_sqlite_database, "data_grinder.db")
 
     # 2. Создаем новые таблицы, если они не существуют
     async with engine.begin() as conn:
@@ -45,6 +50,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Data Grinder Движок", lifespan=lifespan)
+
+# Rate limiting для защиты от abuse
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.middleware("http")
@@ -83,7 +93,9 @@ async def read_index():
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_web_page():
     curr_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
-    admin_token = settings.ADMIN_TOKEN or "secret-admin-token"
+    admin_token = settings.ADMIN_TOKEN
+    if not admin_token:
+        return HTMLResponse("<h1>ADMIN_TOKEN not configured in .env</h1>", status_code=503)
     ds_key_badge = (
         '<span style="color:#4ade80;">🔑 Ключ OK</span>'
         if settings.DEEPSEEK_API_KEY

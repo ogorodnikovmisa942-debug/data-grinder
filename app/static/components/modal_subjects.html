@@ -1,0 +1,59 @@
+    <!-- Модальное окно управления предметами (Список, переименование, удаление) -->
+    <div id="subjects-manager-modal" role="dialog" aria-modal="true" aria-label="Управление предметами" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-md max-h-[85vh] flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
+            <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-xl">folder_managed</span>
+                    <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Управление предметами</h3>
+                </div>
+                <button onclick="closeSubjectsManagerModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-lg">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Список всех созданных предметов. Вы можете быстро переименовать любую дисциплину или удалить ненужный предмет вместе с карточками.
+            </p>
+
+            <!-- Контейнер списка предметов -->
+            <div id="subjects-manager-list" class="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/80 pr-1 flex flex-col gap-1 min-h-[120px] max-h-[45vh]">
+                <div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка предметов...</div>
+            </div>
+
+            <div class="flex justify-end pt-3 border-t border-neutral-200/60 dark:border-neutral-800">
+                <button onclick="closeSubjectsManagerModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно переименования предмета -->
+    <div id="subject-rename-modal" role="dialog" aria-modal="true" aria-label="Переименовать предмет" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-sm flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
+            <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-2">
+                <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Переименовать предмет</h3>
+                <button onclick="closeSubjectRenameModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-neutral-600 p-1 rounded-lg">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+            <input type="hidden" id="rename-old-subject">
+            <div class="flex flex-col gap-1 text-xs">
+                <label class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Текущее имя:</label>
+                <div id="rename-old-label" class="font-bold font-mono text-neutral-800 dark:text-neutral-200 py-1">---</div>
+            </div>
+            <div class="flex flex-col gap-1 text-xs">
+                <label for="rename-new-input" class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Новое название предмета:</label>
+                <input type="text" id="rename-new-input" onkeydown="if(event.key==='Enter') submitSubjectRename(); if(event.key==='Escape') closeSubjectRenameModal();" placeholder="Например: civil_law или Гражданское право" class="bg-surface-container-lowest border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-xs text-primary focus:border-primary focus:ring-0 font-medium">
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-neutral-200/60 dark:border-neutral-800">
+                <button onclick="closeSubjectRenameModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-3 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                    Отмена
+                </button>
+                <button onclick="submitSubjectRename()" class="bg-primary text-on-primary px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:opacity-90 transition-all shadow-xs">
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+

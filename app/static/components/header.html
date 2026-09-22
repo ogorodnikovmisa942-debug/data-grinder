@@ -1,0 +1,31 @@
+        <!-- Верхняя панель управления -->
+        <div class="w-full flex justify-between items-center font-mono text-xs py-2.5 border-b border-neutral-200/60 dark:border-neutral-800 shrink-0 select-none">
+            <div class="relative max-w-[68%] flex items-center gap-1.5 overflow-hidden border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs">
+                <div class="relative overflow-hidden flex-1 min-w-0">
+                    <select id="subject-selector" class="w-full bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate">
+                        <option value="all">[ВСЕ ПРЕДМЕТЫ]</option>
+                    </select>
+                    <span class="material-symbols-outlined absolute right-0 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none text-outline">expand_more</span>
+                </div>
+                <button onclick="openSubjectsManagerModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Управление предметами" aria-label="Управление предметами">
+                    <span class="material-symbols-outlined text-[16px]">tune</span>
+                </button>
+                <button onclick="openKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Каркас знаний и Граф" aria-label="Каркас знаний и Граф">
+                    <span class="material-symbols-outlined text-[16px]">account_tree</span>
+                </button>
+                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика" aria-label="Интерактивная практика">
+                    <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
+                </button>
+            </div>
+            
+            <!-- Правый блок: Таймер и иконка фокуса интегрированы в общую линию -->
+            <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-xs text-outline font-mono text-xs font-bold select-none border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs" id="session-timer-container">
+                    <span id="session-timer">52:00</span>
+                </div>
+                <button id="focus-toggle" class="text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Режим фокуса">
+                    <span class="material-symbols-outlined text-[20px]">center_focus_strong</span>
+                </button>
+            </div>
+        </div>
+

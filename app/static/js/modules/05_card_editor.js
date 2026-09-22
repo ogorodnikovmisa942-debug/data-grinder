@@ -284,6 +284,7 @@ function deactivateSelectionMode() {
     });
     updateBulkActionBar();
 }
+window.exitBulkMode = deactivateSelectionMode;
 
 function updateBulkActionBar() {
     const checkedBoxes = document.querySelectorAll('.card-checkbox:checked');

@@ -203,3 +203,118 @@ function formatClozePlain(rawText, showAnswer = false) {
     });
 }
 
+// ============================================================================
+// ГЛОБАЛЬНАЯ НАВИГАЦИЯ С КЛАВИАТУРЫ (Accessibility & Keyboard Hotkeys - Phase 11)
+// ============================================================================
+window.isAnswerRevealed = false;
+
+window.addEventListener('keydown', (e) => {
+    // Check if input element is focused
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if (document.activeElement?.isContentEditable) return;
+
+    // Escape key
+    if (e.key === 'Escape' || e.code === 'Escape') {
+        const practiceModal = document.getElementById('practice-modal');
+        if (practiceModal && !practiceModal.classList.contains('hidden')) {
+            if (typeof window.closePracticeModal === 'function') window.closePracticeModal();
+            return;
+        }
+        const kgModal = document.getElementById('kg-modal') || document.getElementById('knowledge-graph-modal');
+        if (kgModal && !kgModal.classList.contains('hidden')) {
+            if (typeof window.closeKnowledgeGraphModal === 'function') window.closeKnowledgeGraphModal();
+            return;
+        }
+        const cardEditorModal = document.getElementById('card-editor-modal');
+        if (cardEditorModal && !cardEditorModal.classList.contains('hidden')) {
+            if (typeof window.closeCardEditorModal === 'function') window.closeCardEditorModal();
+            return;
+        }
+        const subjectsModal = document.getElementById('subjects-modal') || document.getElementById('subjects-manager-modal');
+        if (subjectsModal && !subjectsModal.classList.contains('hidden')) {
+            if (typeof window.closeSubjectsManagerModal === 'function') window.closeSubjectsManagerModal();
+            return;
+        }
+        const filterModal = document.getElementById('filter-modal') || document.getElementById('cards-filter-modal');
+        if (filterModal && !filterModal.classList.contains('hidden')) {
+            if (typeof window.closeFilterModal === 'function') window.closeFilterModal();
+            return;
+        }
+        const bulkActionBar = document.getElementById('bulk-action-bar');
+        if (bulkActionBar && !bulkActionBar.classList.contains('hidden')) {
+            if (typeof window.exitBulkMode === 'function') window.exitBulkMode();
+            return;
+        }
+        return;
+    }
+
+    // Space or Enter key
+    if (e.code === 'Space' || e.key === ' ' || e.key === 'Enter' || e.code === 'Enter') {
+        const screenTrain = document.getElementById('screen-train');
+        const isTrainActive = screenTrain && !screenTrain.classList.contains('hidden') && (typeof currentTab === 'undefined' || currentTab === 'train');
+        if (isTrainActive) {
+            const isAnswerHidden = (document.getElementById('train-answer')?.classList.contains('hidden')) ?? (!window.isAnswerRevealed);
+            if (isAnswerHidden) {
+                e.preventDefault();
+                if (typeof window.flipCard === 'function') {
+                    window.flipCard();
+                } else if (typeof window.showAnswer === 'function') {
+                    window.showAnswer();
+                }
+            }
+        }
+        return;
+    }
+
+    // Number keys ('1', '2', '3', '4')
+    if (['1', '2', '3', '4'].includes(e.key) || ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(e.code)) {
+        const keyNum = parseInt(e.key, 10) || parseInt(e.code.replace('Digit', '').replace('Numpad', ''), 10);
+        
+        const practiceModal = document.getElementById('practice-modal');
+        if (practiceModal && !practiceModal.classList.contains('hidden')) {
+            const optionBtns = document.querySelectorAll('#practice-container button.practice-option-btn, #practice-container button, #practice-options-list button');
+            const targetBtn = optionBtns[keyNum - 1];
+            if (targetBtn && !targetBtn.disabled) {
+                e.preventDefault();
+                targetBtn.click();
+            }
+            return;
+        }
+
+        const screenTrain = document.getElementById('screen-train');
+        const isTrainActive = screenTrain && !screenTrain.classList.contains('hidden') && (typeof currentTab === 'undefined' || currentTab === 'train');
+        if (isTrainActive) {
+            const isAnswerVisible = (window.isAnswerRevealed === true) 
+                || (document.getElementById('flashcard')?.classList.contains('rotate-y-180'))
+                || (document.getElementById('action-buttons') && !document.getElementById('action-buttons').classList.contains('hidden'));
+            
+            if (isAnswerVisible) {
+                e.preventDefault();
+                if (typeof window.rateCard === 'function') {
+                    window.rateCard(keyNum);
+                } else if (typeof window.submitCardRating === 'function') {
+                    window.submitCardRating(keyNum);
+                }
+            }
+        }
+    }
+});
+
+if (typeof window.closeFilterModal !== 'function') {
+    window.closeFilterModal = function() {
+        const fm = document.getElementById('filter-modal');
+        if (fm) fm.classList.add('hidden');
+    };
+}
+if (typeof window.exitBulkMode !== 'function') {
+    window.exitBulkMode = function() {
+        if (typeof deactivateSelectionMode === 'function') {
+            deactivateSelectionMode();
+        } else {
+            const bar = document.getElementById('bulk-action-bar');
+            if (bar) bar.classList.add('hidden');
+        }
+    };
+}
+
+

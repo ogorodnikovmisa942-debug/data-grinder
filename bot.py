@@ -17,7 +17,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from sqlalchemy import select
 
 from app.database.session import AsyncSessionLocal
-from app.database.models import UserSession, UserSetting, InviteCode
+from app.database.models import UserSession, UserSetting, InviteCode, utc_now
 from app.services.card_db_sync import save_cards_to_database, append_or_sync_cards_to_database
 from app.services.generation_worker import generation_worker_loop
 from app.core.config import settings
@@ -96,7 +96,7 @@ async def cmd_start(message: types.Message):
                             inv.is_used = True
                             inv.used_by_user_id = user_id_str
                             inv.used_by_username = f"@{username}" if username else user_id_str
-                            inv.used_at = datetime.utcnow()
+                            inv.used_at = utc_now()
 
                             session.is_experiment_participant = True
                             session.experiment_phase = 1
@@ -218,7 +218,7 @@ async def pomodoro_push_observer():
         expired_data = []
         try:
             async with AsyncSessionLocal() as db:
-                now = datetime.utcnow()
+                now = utc_now()
                 result = await db.execute(
                     select(UserSession).filter(
                         UserSession.is_resting == True,

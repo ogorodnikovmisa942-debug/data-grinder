@@ -24,6 +24,18 @@ class TestV2Features(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        async def cleanup():
+            async with AsyncSessionLocal() as db:
+                for uid in [cls.user_id, "user_sibling"]:
+                    await db.execute(delete(Card).filter(Card.user_id == uid))
+                    await db.execute(delete(Phrase).filter(Phrase.user_id == uid))
+                    await db.execute(delete(ReviewLog).filter(ReviewLog.user_id == uid))
+                    await db.execute(delete(GenerationJob).filter(GenerationJob.user_id == uid))
+                await db.commit()
+        try:
+            asyncio.run(cleanup())
+        except Exception:
+            pass
         cls.client_cm.__exit__(None, None, None)
 
     def run_async(self, coro):

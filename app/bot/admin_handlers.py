@@ -15,7 +15,7 @@ from sqlalchemy import select, update, func, text, delete
 
 from app.database.session import AsyncSessionLocal
 from app.database.models import (
-    UserSession, GenerationJob, UserSetting, InviteCode, Card, ReviewLog, AiTelemetryLog, Phrase
+    UserSession, GenerationJob, UserSetting, InviteCode, Card, ReviewLog, AiTelemetryLog, Phrase, utc_now
 )
 from app.services.card_db_sync import save_cards_to_database, append_or_sync_cards_to_database
 from app.core.config import settings
@@ -176,7 +176,7 @@ async def cmd_export(message: types.Message):
         payload = {
             "phrase_title": phrase_title,
             "subject_slug": subject_slug,
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": utc_now().isoformat(),
             "total_cards": len(cards),
             "cards": [
                 {
@@ -190,12 +190,14 @@ async def cmd_export(message: types.Message):
             ]
         }
 
-        save_preset_path = Path("app/static/presets/sudoustroystvo.json")
+        presets = list(Path("app/static/presets").glob("*.json"))
+        preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "sudoustroystvo.json")
+        save_preset_path = Path("app/static/presets") / preset_filename
         save_preset_path.parent.mkdir(parents=True, exist_ok=True)
         save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-    now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+    now_tag = utc_now().strftime('%Y%m%d_%H%M')
     file_obj = BufferedInputFile(json_bytes, filename=f"deck_{subject_slug}_{len(cards)}_cards_{now_tag}.json")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -210,7 +212,7 @@ async def cmd_export(message: types.Message):
             f"📤 <b>Ваша колода карточек ({len(cards)} шт.) успешно выгружена!</b>\n\n"
             f"• <b>Предмет:</b> <code>{subject_slug}</code>\n"
             f"• <b>Тема:</b> «{phrase_title}»\n"
-            f"• <b>Файл сохранен на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
+            f"• <b>Файл сохранен на сервере:</b> <code>{save_preset_path.as_posix()}</code>\n\n"
             f"Вы можете сохранить этот JSON-файл к себе или сразу раздать его всем участникам кнопками ниже:"
         ),
         reply_markup=kb,
@@ -368,7 +370,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             writer.writerow(dict(row))
 
         csv_bytes = output.getvalue().encode("utf-8-sig")
-        now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+        now_tag = utc_now().strftime('%Y%m%d_%H%M')
         file_obj = BufferedInputFile(csv_bytes, filename=f"experiment_dataset_{now_tag}.csv")
         await callback.message.answer_document(
             document=file_obj,
@@ -414,7 +416,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             })
 
         csv_bytes = output.getvalue().encode("utf-8-sig")
-        now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+        now_tag = utc_now().strftime('%Y%m%d_%H%M')
         file_obj = BufferedInputFile(csv_bytes, filename=f"ai_telemetry_{now_tag}.csv")
         await callback.message.answer_document(
             document=file_obj,
@@ -453,7 +455,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             payload = {
                 "phrase_title": phrase_title,
                 "subject_slug": subject_slug,
-                "exported_at": datetime.utcnow().isoformat(),
+                "exported_at": utc_now().isoformat(),
                 "total_cards": len(cards),
                 "cards": [
                     {
@@ -467,12 +469,14 @@ async def handle_admin_callbacks(callback: CallbackQuery):
                 ]
             }
 
-            save_preset_path = Path("app/static/presets/sudoustroystvo.json")
+            presets = list(Path("app/static/presets").glob("*.json"))
+            preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "sudoustroystvo.json")
+            save_preset_path = Path("app/static/presets") / preset_filename
             save_preset_path.parent.mkdir(parents=True, exist_ok=True)
             save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
         json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-        now_tag = datetime.utcnow().strftime('%Y%m%d_%H%M')
+        now_tag = utc_now().strftime('%Y%m%d_%H%M')
         file_obj = BufferedInputFile(json_bytes, filename=f"deck_{subject_slug}_{len(cards)}_cards_{now_tag}.json")
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -487,7 +491,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
                 f"📤 <b>Ваша колода карточек ({len(cards)} шт.) успешно выгружена!</b>\n\n"
                 f"• <b>Предмет:</b> <code>{subject_slug}</code>\n"
                 f"• <b>Тема:</b> «{phrase_title}»\n"
-                f"• <b>Файл сохранен на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
+                f"• <b>Файл сохранен на сервере:</b> <code>{save_preset_path.as_posix()}</code>\n\n"
                 f"Вы можете сохранить этот JSON-файл к себе или сразу раздать его всем участникам кнопками ниже:"
             ),
             reply_markup=kb,
@@ -536,9 +540,10 @@ async def handle_admin_callbacks(callback: CallbackQuery):
 
     elif action == "admin_distribute_append":
         await callback.answer("Синхронизирую и дозагружаю карточки...")
-        preset_path = Path("app/static/presets/sudoustroystvo.json")
+        presets = list(Path("app/static/presets").glob("*.json"))
+        preset_path = presets[0] if presets else Path("app/static/presets/sudoustroystvo.json")
         if not preset_path.exists():
-            await callback.message.answer("❌ Файл <code>app/static/presets/sudoustroystvo.json</code> не найден на сервере!", parse_mode="HTML")
+            await callback.message.answer(f"❌ Файл <code>{preset_path.as_posix()}</code> не найден на сервере!", parse_mode="HTML")
             return
 
         try:
@@ -605,9 +610,10 @@ async def handle_admin_callbacks(callback: CallbackQuery):
 
     elif action == "admin_distribute_overwrite":
         await callback.answer("Сбрасываю и перезаписываю колоду...")
-        preset_path = Path("app/static/presets/sudoustroystvo.json")
+        presets = list(Path("app/static/presets").glob("*.json"))
+        preset_path = presets[0] if presets else Path("app/static/presets/sudoustroystvo.json")
         if not preset_path.exists():
-            await callback.message.answer("❌ Файл <code>app/static/presets/sudoustroystvo.json</code> не найден на сервере!", parse_mode="HTML")
+            await callback.message.answer(f"❌ Файл <code>{preset_path.as_posix()}</code> не найден на сервере!", parse_mode="HTML")
             return
 
         try:
@@ -745,7 +751,7 @@ async def handle_admin_document_upload(message: types.Message):
 
     doc = message.document
     if not doc.file_name or not doc.file_name.endswith(".json"):
-        await message.answer("ℹ️ Для загрузки базы карточек отправьте файл в формате <code>.json</code> (например, <code>sudoustroystvo.json</code>).", parse_mode="HTML")
+        await message.answer("ℹ️ Для загрузки базы карточек отправьте файл в формате <code>.json</code>.", parse_mode="HTML")
         return
 
     try:
@@ -759,11 +765,12 @@ async def handle_admin_document_upload(message: types.Message):
             await message.answer("❌ В переданном JSON-файле не найден массив <code>cards</code>.", parse_mode="HTML")
             return
 
-        save_path = Path("app/static/presets/sudoustroystvo.json")
+        subject_slug = parsed_json.get("subject_slug") or (doc.file_name.rsplit(".", 1)[0] if doc.file_name else "sudoustroystvo")
+        save_path = Path(f"app/static/presets/{subject_slug}.json")
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(parsed_json, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        phrase_title = parsed_json.get("phrase_title", "Судоустройство: Основной курс")
+        phrase_title = parsed_json.get("phrase_title", subject_slug.replace("_", " ").title())
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"➕ Дозагрузить ({len(cards)} карт, без сброса)", callback_data="admin_distribute_append")],
             [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать всем", callback_data="admin_distribute_overwrite_confirm")],
@@ -774,7 +781,7 @@ async def handle_admin_document_upload(message: types.Message):
             f"📥 <b>Файл карточек успешно принят и сохранен!</b>\n\n"
             f"• <b>Тема:</b> «{phrase_title}»\n"
             f"• <b>Количество карточек:</b> {len(cards)}\n"
-            f"• <b>Файл на сервере:</b> <code>app/static/presets/sudoustroystvo.json</code>\n\n"
+            f"• <b>Файл на сервере:</b> <code>{save_path.as_posix()}</code>\n\n"
             f"Все новые студенты будут автоматически получать этот набор при переходе по инвайту.\n"
             f"Чтобы загрузить его уже зарегистрированным участникам, выберите действие:",
             reply_markup=kb,

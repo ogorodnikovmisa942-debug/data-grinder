@@ -12,7 +12,7 @@ from sqlalchemy import select, func, delete, update
 
 from app.database.session import get_db
 from app.database.models import (
-    Card, ReviewLog, Phrase, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob
+    Card, ReviewLog, Phrase, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob, utc_now
 )
 from app.services.ai_gateway import regenerate_card_mnemonic
 from app.services.graph_service import (
@@ -232,7 +232,7 @@ async def share_cards_deck(
         "phrase_title": found_title,
         "subject_slug": canonical,
         "created_by": current_user,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": utc_now().isoformat(),
         "total_cards": len(cards),
         "cards": [
             {
@@ -312,7 +312,7 @@ async def create_manual_card(
         stability=1.5 if mnemonic_json else 1.0,
         state=0,
         mnemonic=mnemonic_json,
-        next_review=datetime.utcnow()
+        next_review=utc_now()
     )
     db.add(card)
     await db.flush()
@@ -724,7 +724,7 @@ async def delete_subject_all(
             c_nodes, c_edges = clean_graph_data(new_nodes, new_edges)
             okg.graph_data = {"nodes": c_nodes, "edges": c_edges}
             okg.tree_data = build_hierarchical_tree(c_nodes, c_edges, root_title=okg.subject)
-            okg.updated_at = datetime.utcnow()
+            okg.updated_at = utc_now()
 
     # 5. Очищаем лимиты из UserSetting по всем алиасам
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

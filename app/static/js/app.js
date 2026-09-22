@@ -204,6 +204,121 @@ function formatClozePlain(rawText, showAnswer = false) {
 }
 
 // ============================================================================
+// ГЛОБАЛЬНАЯ НАВИГАЦИЯ С КЛАВИАТУРЫ (Accessibility & Keyboard Hotkeys - Phase 11)
+// ============================================================================
+window.isAnswerRevealed = false;
+
+window.addEventListener('keydown', (e) => {
+    // Check if input element is focused
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if (document.activeElement?.isContentEditable) return;
+
+    // Escape key
+    if (e.key === 'Escape' || e.code === 'Escape') {
+        const practiceModal = document.getElementById('practice-modal');
+        if (practiceModal && !practiceModal.classList.contains('hidden')) {
+            if (typeof window.closePracticeModal === 'function') window.closePracticeModal();
+            return;
+        }
+        const kgModal = document.getElementById('kg-modal') || document.getElementById('knowledge-graph-modal');
+        if (kgModal && !kgModal.classList.contains('hidden')) {
+            if (typeof window.closeKnowledgeGraphModal === 'function') window.closeKnowledgeGraphModal();
+            return;
+        }
+        const cardEditorModal = document.getElementById('card-editor-modal');
+        if (cardEditorModal && !cardEditorModal.classList.contains('hidden')) {
+            if (typeof window.closeCardEditorModal === 'function') window.closeCardEditorModal();
+            return;
+        }
+        const subjectsModal = document.getElementById('subjects-modal') || document.getElementById('subjects-manager-modal');
+        if (subjectsModal && !subjectsModal.classList.contains('hidden')) {
+            if (typeof window.closeSubjectsManagerModal === 'function') window.closeSubjectsManagerModal();
+            return;
+        }
+        const filterModal = document.getElementById('filter-modal') || document.getElementById('cards-filter-modal');
+        if (filterModal && !filterModal.classList.contains('hidden')) {
+            if (typeof window.closeFilterModal === 'function') window.closeFilterModal();
+            return;
+        }
+        const bulkActionBar = document.getElementById('bulk-action-bar');
+        if (bulkActionBar && !bulkActionBar.classList.contains('hidden')) {
+            if (typeof window.exitBulkMode === 'function') window.exitBulkMode();
+            return;
+        }
+        return;
+    }
+
+    // Space or Enter key
+    if (e.code === 'Space' || e.key === ' ' || e.key === 'Enter' || e.code === 'Enter') {
+        const screenTrain = document.getElementById('screen-train');
+        const isTrainActive = screenTrain && !screenTrain.classList.contains('hidden') && (typeof currentTab === 'undefined' || currentTab === 'train');
+        if (isTrainActive) {
+            const isAnswerHidden = (document.getElementById('train-answer')?.classList.contains('hidden')) ?? (!window.isAnswerRevealed);
+            if (isAnswerHidden) {
+                e.preventDefault();
+                if (typeof window.flipCard === 'function') {
+                    window.flipCard();
+                } else if (typeof window.showAnswer === 'function') {
+                    window.showAnswer();
+                }
+            }
+        }
+        return;
+    }
+
+    // Number keys ('1', '2', '3', '4')
+    if (['1', '2', '3', '4'].includes(e.key) || ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(e.code)) {
+        const keyNum = parseInt(e.key, 10) || parseInt(e.code.replace('Digit', '').replace('Numpad', ''), 10);
+        
+        const practiceModal = document.getElementById('practice-modal');
+        if (practiceModal && !practiceModal.classList.contains('hidden')) {
+            const optionBtns = document.querySelectorAll('#practice-container button.practice-option-btn, #practice-container button, #practice-options-list button');
+            const targetBtn = optionBtns[keyNum - 1];
+            if (targetBtn && !targetBtn.disabled) {
+                e.preventDefault();
+                targetBtn.click();
+            }
+            return;
+        }
+
+        const screenTrain = document.getElementById('screen-train');
+        const isTrainActive = screenTrain && !screenTrain.classList.contains('hidden') && (typeof currentTab === 'undefined' || currentTab === 'train');
+        if (isTrainActive) {
+            const isAnswerVisible = (window.isAnswerRevealed === true) 
+                || (document.getElementById('flashcard')?.classList.contains('rotate-y-180'))
+                || (document.getElementById('action-buttons') && !document.getElementById('action-buttons').classList.contains('hidden'));
+            
+            if (isAnswerVisible) {
+                e.preventDefault();
+                if (typeof window.rateCard === 'function') {
+                    window.rateCard(keyNum);
+                } else if (typeof window.submitCardRating === 'function') {
+                    window.submitCardRating(keyNum);
+                }
+            }
+        }
+    }
+});
+
+if (typeof window.closeFilterModal !== 'function') {
+    window.closeFilterModal = function() {
+        const fm = document.getElementById('filter-modal');
+        if (fm) fm.classList.add('hidden');
+    };
+}
+if (typeof window.exitBulkMode !== 'function') {
+    window.exitBulkMode = function() {
+        if (typeof deactivateSelectionMode === 'function') {
+            deactivateSelectionMode();
+        } else {
+            const bar = document.getElementById('bulk-action-bar');
+            if (bar) bar.classList.add('hidden');
+        }
+    };
+}
+
+
+// ============================================================================
 // НАСТРОЙКА АДАПТИВНЫХ ПОДСКАЗОК FSRS
 // ============================================================================
 const FSRS_LABELS = {
@@ -629,28 +744,7 @@ function bindDOMPointers() {
             if (!card) return;
             
             // В режиме знакомства клик по телу карточки плавно продвигает этап обучения
-            if (card.state === 0 && !card.has_seen_intro) {
-                const phase = card.intro_phase || 0;
-                if (phase === 0) {
-                    advanceIntroduction();
-                } else if (!card._recall_checked) {
-                    if (typeof window.toggleIntroRecall === 'function') {
-                        window.toggleIntroRecall();
-                    }
-                } else {
-                    advanceIntroduction();
-                }
-                triggerHaptic('light');
-                return;
-            }
-            
-            if (cardsQueue.length === 0 || isFlipped) return;
-            isFlipped = true; 
-            triggerHaptic('light');
-            if (flashcard) flashcard.classList.add('rotate-y-180');
-            if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
-            executeVoiceSynthesis(cardsQueue[currentIndex].text);
-            if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
+            window.flipCard();
         };
     }
 
@@ -659,10 +753,7 @@ function bindDOMPointers() {
             if (e.target.closest('button, select, input, textarea, a')) return; 
             if (trainDrag && trainDrag.hasMoved) return;
             if (cardsQueue.length === 0 || !isFlipped) return;
-            isFlipped = false; 
-            triggerHaptic('light');
-            if (flashcard) flashcard.classList.remove('rotate-y-180');
-            if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
+            window.flipCard();
         };
     }
 
@@ -711,44 +802,58 @@ async function initApplicationLifecycle() {
         updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
     }
     if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
-
-    window.addEventListener('keydown', (e) => {
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-        if (currentTab !== 'train') return;
-        if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
-        const card = cardsQueue[currentIndex];
-        if (!card || (card.state === 0 && !card.has_seen_intro)) return;
-
-        if (e.code === 'Space') {
-            e.preventDefault();
-            triggerHaptic('light');
-            if (!isFlipped) {
-                isFlipped = true;
-                if (flashcard) flashcard.classList.add('rotate-y-180');
-                if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
-                executeVoiceSynthesis(card.text);
-                if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
-            } else {
-                isFlipped = false;
-                if (flashcard) flashcard.classList.remove('rotate-y-180');
-                if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
-            }
-        } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'].includes(e.code)) {
-            if (isFlipped) {
-                e.preventDefault();
-                const ratingMap = {
-                    'Digit1': 1, 'Numpad1': 1,
-                    'Digit2': 2, 'Numpad2': 2,
-                    'Digit3': 3, 'Numpad3': 3,
-                    'Digit4': 4, 'Numpad4': 4
-                };
-                if (typeof window.submitCardRating === 'function') {
-                    window.submitCardRating(ratingMap[e.code]);
-                }
-            }
-        }
-    });
 }
+
+window.flipCard = function() {
+    const starter = document.getElementById('session-starter');
+    if (starter && !starter.classList.contains('hidden')) return;
+    if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+    const card = cardsQueue[currentIndex];
+    if (!card) return;
+
+    if (card.state === 0 && !card.has_seen_intro) {
+        const phase = card.intro_phase || 0;
+        if (phase === 0) {
+            advanceIntroduction();
+        } else if (!card._recall_checked) {
+            if (typeof window.toggleIntroRecall === 'function') {
+                window.toggleIntroRecall();
+            }
+        } else {
+            advanceIntroduction();
+        }
+        triggerHaptic('light');
+        return;
+    }
+
+    triggerHaptic('light');
+    if (!isFlipped) {
+        isFlipped = true;
+        window.isAnswerRevealed = true;
+        if (flashcard) flashcard.classList.add('rotate-y-180');
+        if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
+        const trainAns = document.getElementById('train-answer');
+        if (trainAns) trainAns.classList.remove('hidden');
+        executeVoiceSynthesis(card.text);
+        if (typeof window.startGlobalPomodoro === 'function') { window.startGlobalPomodoro(); }
+    } else {
+        isFlipped = false;
+        window.isAnswerRevealed = false;
+        if (flashcard) flashcard.classList.remove('rotate-y-180');
+        if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
+        const trainAns = document.getElementById('train-answer');
+        if (trainAns) trainAns.classList.add('hidden');
+    }
+};
+window.showAnswer = window.flipCard;
+
+window.rateCard = function(rating) {
+    if (typeof window.submitCardRating === 'function') {
+        return window.submitCardRating(rating);
+    } else if (typeof submitCardRating === 'function') {
+        return submitCardRating(rating);
+    }
+};
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApplicationLifecycle);
@@ -4507,6 +4612,7 @@ function deactivateSelectionMode() {
     });
     updateBulkActionBar();
 }
+window.exitBulkMode = deactivateSelectionMode;
 
 function updateBulkActionBar() {
     const checkedBoxes = document.querySelectorAll('.card-checkbox:checked');
@@ -5118,6 +5224,27 @@ function getKgNodeColor(category) {
     return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
 }
 
+function getKgRelationLinkColor(relation, isHovered, isDark) {
+    const key = (relation || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    if (isHovered) {
+        const style = getKgRelationStyle(key);
+        return style.color || (isDark ? '#38bdf8' : '#0284c7');
+    }
+    if (key === 'subject_to_jurisdiction') {
+        return isDark ? 'rgba(59, 130, 246, 0.45)' : 'rgba(37, 99, 235, 0.45)';
+    }
+    if (key === 'demarcated_from') {
+        return isDark ? 'rgba(245, 158, 11, 0.50)' : 'rgba(217, 119, 6, 0.50)';
+    }
+    if (key === 'appealed_to') {
+        return isDark ? 'rgba(6, 182, 212, 0.50)' : 'rgba(8, 145, 178, 0.50)';
+    }
+    if (key === 'excludes_application') {
+        return isDark ? 'rgba(244, 63, 94, 0.50)' : 'rgba(225, 29, 72, 0.50)';
+    }
+    return isDark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)';
+}
+
 function getCleanGraphData() {
     if (!currentKgGraphData || !currentKgGraphData.nodes || currentKgGraphData.nodes.length === 0) {
         return null;
@@ -5159,10 +5286,44 @@ function getCleanGraphData() {
                 source: s,
                 target: t,
                 relation: e.relation || '',
-                label: e.label || ''
+                label: e.label || '',
+                __key: getGraphLinkKey(s, t)
             };
         })
         .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target) && e.source !== e.target);
+
+    // Compute __curvature for reciprocal or parallel links
+    const pairMap = new Map();
+    links.forEach(l => {
+        const pairKey = l.source < l.target ? `${l.source}~${l.target}` : `${l.target}~${l.source}`;
+        if (!pairMap.has(pairKey)) {
+            pairMap.set(pairKey, []);
+        }
+        pairMap.get(pairKey).push(l);
+    });
+
+    pairMap.forEach(group => {
+        if (group.length === 1) {
+            group[0].__curvature = 0;
+        } else if (group.length === 2) {
+            const [l1, l2] = group;
+            if (l1.source === l2.target && l1.target === l2.source) {
+                // Reciprocal edges A->B and B->A bow away from each other
+                l1.__curvature = 0.2;
+                l2.__curvature = 0.2;
+            } else {
+                // Parallel edges in the same direction A->B and A->B
+                l1.__curvature = 0.2;
+                l2.__curvature = -0.2;
+            }
+        } else {
+            group.forEach((l, idx) => {
+                const sign = (idx % 2 === 0) ? 1 : -1;
+                const factor = Math.ceil((idx + 1) / 2);
+                l.__curvature = sign * factor * 0.18;
+            });
+        }
+    });
 
     // 3. Fallback: If any level 2 concept lacks parent_id, infer it from connecting edge to a level 1 institute
     links.forEach(l => {
@@ -5304,16 +5465,43 @@ window.loadKnowledgeGraph = async function(subject) {
             }
         }
     }
-    if (!sub || sub === 'all') sub = 'sudoustr';
-    currentKgSubject = sub;
 
     const badge = document.getElementById('kg-subject-badge');
-    if (badge) badge.textContent = sub.toUpperCase();
-
     const loading = document.getElementById('kg-loading');
     const emptyState = document.getElementById('kg-empty-state');
     const treeView = document.getElementById('kg-tree-view');
     const countBadge = document.getElementById('kg-node-count-badge');
+
+    if (!sub || sub === 'all') {
+        if (loading) loading.classList.add('hidden');
+        if (emptyState) {
+            emptyState.classList.remove('hidden');
+            const h4 = emptyState.querySelector('h4');
+            if (h4) h4.textContent = 'Колоды пока отсутствуют';
+            const p = emptyState.querySelector('p');
+            if (p) {
+                p.textContent = 'У вас пока нет колод для построения графа знаний. Загрузите учебный материал в профиле или откройте демонстрационный курс.';
+            }
+            const actions = emptyState.querySelector('#kg-empty-actions') || emptyState.querySelector('.flex.flex-col, .flex.gap-2') || emptyState.querySelector('div:last-child');
+            if (actions) {
+                actions.innerHTML = `
+                    <button onclick="window.loadKnowledgeGraph('sudoustroystvo')" class="px-4 py-2 bg-primary text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-[16px]">play_lesson</span>
+                        <span>[ Открыть демо-курс (Судоустройство РФ) ]</span>
+                    </button>
+                `;
+            }
+        }
+        if (treeView) treeView.innerHTML = '';
+        if (countBadge) countBadge.textContent = '0 узлов';
+        if (badge) badge.textContent = '—';
+        currentKgGraphData = null;
+        currentKgTreeData = null;
+        return;
+    }
+
+    currentKgSubject = sub;
+    if (badge) badge.textContent = sub.toUpperCase();
 
     if (loading) loading.classList.remove('hidden');
     if (emptyState) emptyState.classList.add('hidden');
@@ -5340,7 +5528,7 @@ window.loadKnowledgeGraph = async function(subject) {
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
         if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
 
-        if (nodesCount === 0) {
+        if (data.is_empty || nodesCount === 0) {
             if (emptyState) emptyState.classList.remove('hidden');
             if (treeView) treeView.innerHTML = '';
             return;
@@ -5376,7 +5564,18 @@ window.loadKnowledgeGraph = async function(subject) {
 
 window.loadSeedOrDemoGraph = async function() {
     let sub = currentKgSubject || getActiveDeckSubject();
-    if (!sub || sub === 'all') sub = 'sudoustr';
+    if (!sub || sub === 'all') {
+        const sel = document.getElementById('subject-selector');
+        if (sel && sel.options) {
+            for (let i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value && sel.options[i].value !== 'all') {
+                    sub = sel.options[i].value;
+                    break;
+                }
+            }
+        }
+    }
+    if (!sub || sub === 'all') sub = 'sudoustroystvo';
     currentKgSubject = sub;
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
@@ -5396,7 +5595,12 @@ window.rebuildKnowledgeGraph = async function() {
             }
         }
     }
-    if (!sub || sub === 'all') sub = 'sudoustr';
+    if (!sub || sub === 'all') {
+        if (window.showNotification) {
+            window.showNotification('Сначала выберите предмет для построения графа.', 'warning');
+        }
+        return;
+    }
 
     const loading = document.getElementById('kg-loading');
     const rebuildIcon = document.getElementById('kg-rebuild-icon');
@@ -5572,7 +5776,19 @@ let searchBackboneLinkKeys = new Set();
 let activeSearchTargetId = null;
 let currentLinksFilter = 'all';
 
+let hoveredNode = null;
+let hoveredLink = null;
+let hoveredLinkKeys = new Set();
+let hoveredNeighborNodeIds = new Set();
+let kgResizeHandler = null;
+
 function getGraphLinkKey(source, target) {
+    const s = String((typeof source === 'object' && source !== null) ? source.id : source);
+    const t = String((typeof target === 'object' && target !== null) ? target.id : target);
+    return `${s}->${t}`;
+}
+
+function getUndirectedLinkKey(source, target) {
     const s = String((typeof source === 'object' && source !== null) ? source.id : source);
     const t = String((typeof target === 'object' && target !== null) ? target.id : target);
     return s < t ? `${s}--${t}` : `${t}--${s}`;
@@ -5680,9 +5896,9 @@ function applyLayoutForces(graphInstance, layoutType) {
         graphInstance.d3Force('collide', window.d3.forceCollide()
             .radius(node => {
                 const lvl = (node.level !== undefined) ? node.level : 2;
-                if (lvl === 0) return 42;
-                if (lvl === 1) return 26;
-                return 16;
+                if (lvl === 0) return 55;
+                if (lvl === 1) return 42;
+                return 34;
             })
             .strength(0.85)
             .iterations(2)
@@ -6000,6 +6216,11 @@ window.clearKgSearch = function() {
     searchBackboneLinkKeys.clear();
     activeSearchTargetId = null;
 
+    hoveredNode = null;
+    hoveredLink = null;
+    hoveredLinkKeys.clear();
+    hoveredNeighborNodeIds.clear();
+
     closeKgNodeDrawer();
 
     if (currentForceGraphInstance) {
@@ -6118,7 +6339,7 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     allLinks.forEach(edge => {
         const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
         const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
-        const lKey = getGraphLinkKey(sId, tId);
+        const lKey = edge.__key || getGraphLinkKey(sId, tId);
 
         // Ребро магистрали (Корень <-> Институт или Институт <-> Целевой узел)
         const isBackbone = 
@@ -6249,7 +6470,7 @@ window.highlightSessionInGraph = function(cards) {
     allLinks.forEach(edge => {
         const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
         const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
-        const lKey = getGraphLinkKey(sId, tId);
+        const lKey = edge.__key || getGraphLinkKey(sId, tId);
 
         if (searchBackboneNodes.has(sId) && searchBackboneNodes.has(tId)) {
             searchBackboneLinkKeys.add(lKey);
@@ -6320,8 +6541,15 @@ window.initForceGraph = function(graphData) {
         .nodeId('id')
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
+        .linkDirectionalArrowLength(link => 6)
+        .linkDirectionalArrowRelPos(0.88)
+        .linkCurvature(link => link.__curvature || 0)
         .linkColor(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
+            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+            const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
+            if (isHovered) {
+                return getKgRelationLinkColor(link.relation, true, isDark);
+            }
             if (searchHighlightNodes.size > 0) {
                 if (searchBackboneLinkKeys.has(lKey)) {
                     // Яркая контрастная магистраль к активному понятию (Sky Blue)
@@ -6333,19 +6561,155 @@ window.initForceGraph = function(graphData) {
                 }
                 return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
             }
-            // Спокойный нейтральный монохром без пестроты
-            return isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)';
+            if (hoveredNode || hoveredLink) {
+                return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+            }
+            return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
-            const lKey = getGraphLinkKey(link.source, link.target);
+            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+            const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
+            if (isHovered) return 2.8;
             if (searchHighlightNodes.size > 0) {
                 if (searchBackboneLinkKeys.has(lKey)) return 3.2; // Четкая контрастная магистраль
                 if (searchHighlightLinkKeys.has(lKey)) return 1.8;
                 return 0.5;
             }
-            return 0.8;
+            return 0.9;
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
+        .linkCanvasObjectMode(() => 'after')
+        .linkCanvasObject((link, ctx, globalScale) => {
+            if (!link.source || !link.target) return;
+            const sx = typeof link.source.x === 'number' ? link.source.x : null;
+            const sy = typeof link.source.y === 'number' ? link.source.y : null;
+            const tx = typeof link.target.x === 'number' ? link.target.x : null;
+            const ty = typeof link.target.y === 'number' ? link.target.y : null;
+            if (sx === null || sy === null || tx === null || ty === null) return;
+
+            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+            const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
+
+            // Only render label text if globalScale >= 1.25 (to avoid clutter when zoomed out) or if directly hovered
+            if (globalScale < 1.25 && !isHovered) return;
+
+            const relStyle = getKgRelationStyle(link.relation);
+            const label = link.label || relStyle.label;
+            if (!label) return;
+
+            let midX = (sx + tx) / 2;
+            let midY = (sy + ty) / 2;
+
+            const curvature = link.__curvature || 0;
+            if (curvature !== 0) {
+                const dx = tx - sx;
+                const dy = ty - sy;
+                midX += -dy * curvature * 0.5;
+                midY += dx * curvature * 0.5;
+            }
+
+            ctx.save();
+            if (!isHovered && globalScale < 1.40) {
+                ctx.globalAlpha = Math.min(1.0, Math.max(0.1, (globalScale - 1.25) / 0.15));
+            }
+            if (searchHighlightNodes.size > 0 && !searchHighlightLinkKeys.has(lKey)) {
+                ctx.globalAlpha = 0.05;
+            } else if ((hoveredNode || hoveredLink) && !isHovered) {
+                ctx.globalAlpha = 0.15;
+            }
+
+            const fontSize = 9;
+            ctx.font = `500 ${fontSize}px Inter, "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const textWidth = ctx.measureText(label).width;
+            const padX = 4.5;
+            const padY = 2.5;
+            const pillW = textWidth + padX * 2;
+            const pillH = fontSize + padY * 2;
+
+            // Background chip
+            ctx.beginPath();
+            const pillR = 3.5;
+            if (ctx.roundRect) {
+                ctx.roundRect(midX - pillW / 2, midY - pillH / 2, pillW, pillH, pillR);
+            } else {
+                ctx.rect(midX - pillW / 2, midY - pillH / 2, pillW, pillH);
+            }
+            ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.88)' : 'rgba(255, 255, 255, 0.94)';
+            ctx.fill();
+
+            // Chip border
+            ctx.strokeStyle = isHovered
+                ? (relStyle.color || (isDark ? '#38bdf8' : '#0284c7'))
+                : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)');
+            ctx.lineWidth = isHovered ? 1.4 : 0.6;
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = isDark ? '#f1f5f9' : '#0f172a';
+            ctx.fillText(label, midX, midY);
+
+            ctx.restore();
+        })
+        .onNodeHover(node => {
+            if ((!node && !hoveredNode) || (node && hoveredNode && node.id === hoveredNode.id)) return;
+            hoveredNode = node || null;
+            hoveredLinkKeys.clear();
+            hoveredNeighborNodeIds.clear();
+
+            if (node) {
+                wrapper.style.cursor = 'pointer';
+                const nId = String(node.id);
+                hoveredNeighborNodeIds.add(nId);
+                const gData = currentForceGraphInstance.graphData ? currentForceGraphInstance.graphData() : getCleanGraphData();
+                if (gData && gData.links) {
+                    gData.links.forEach(l => {
+                        const sId = String((typeof l.source === 'object' && l.source !== null) ? l.source.id : l.source);
+                        const tId = String((typeof l.target === 'object' && l.target !== null) ? l.target.id : l.target);
+                        if (sId === nId || tId === nId) {
+                            hoveredLinkKeys.add(l.__key || getGraphLinkKey(sId, tId));
+                            hoveredNeighborNodeIds.add(sId);
+                            hoveredNeighborNodeIds.add(tId);
+                        }
+                    });
+                }
+            } else {
+                wrapper.style.cursor = hoveredLink ? 'pointer' : null;
+                if (hoveredLink) {
+                    const sId = String((typeof hoveredLink.source === 'object' && hoveredLink.source !== null) ? hoveredLink.source.id : hoveredLink.source);
+                    const tId = String((typeof hoveredLink.target === 'object' && hoveredLink.target !== null) ? hoveredLink.target.id : hoveredLink.target);
+                    hoveredNeighborNodeIds.add(sId);
+                    hoveredNeighborNodeIds.add(tId);
+                    hoveredLinkKeys.add(hoveredLink.__key || getGraphLinkKey(sId, tId));
+                }
+            }
+            if (currentForceGraphInstance) {
+                currentForceGraphInstance.refresh();
+            }
+        })
+        .onLinkHover(link => {
+            if ((!link && !hoveredLink) || (link && hoveredLink && link === hoveredLink)) return;
+            hoveredLink = link || null;
+            if (link) {
+                wrapper.style.cursor = 'pointer';
+                const sId = String((typeof link.source === 'object' && link.source !== null) ? link.source.id : link.source);
+                const tId = String((typeof link.target === 'object' && link.target !== null) ? link.target.id : link.target);
+                hoveredNeighborNodeIds.add(sId);
+                hoveredNeighborNodeIds.add(tId);
+                hoveredLinkKeys.add(link.__key || getGraphLinkKey(sId, tId));
+            } else {
+                wrapper.style.cursor = hoveredNode ? 'pointer' : null;
+                if (!hoveredNode) {
+                    hoveredNeighborNodeIds.clear();
+                    hoveredLinkKeys.clear();
+                }
+            }
+            if (currentForceGraphInstance) {
+                currentForceGraphInstance.refresh();
+            }
+        })
         .warmupTicks(15)
         .cooldownTicks(70)
         .d3VelocityDecay(0.42) // Быстрый и плавный разогрев на мобильных устройствах
@@ -6373,8 +6737,18 @@ window.initForceGraph = function(graphData) {
             const currentDark = isDark;
 
             ctx.save();
-            if (hasActiveSelection && !isHighlighted) {
-                ctx.globalAlpha = 0.05; // Мягкое затемнение фона
+            const isHoverActive = Boolean(hoveredNode || hoveredLink);
+            const isHovered = (hoveredNode && String(hoveredNode.id) === String(node.id));
+            const isHoverNeighbor = hoveredNeighborNodeIds.has(String(node.id));
+
+            if (hasActiveSelection) {
+                if (!isHighlighted) {
+                    ctx.globalAlpha = 0.05; // Мягкое затемнение фона
+                } else if (isHoverActive && !isHoverNeighbor) {
+                    ctx.globalAlpha = 0.25;
+                }
+            } else if (isHoverActive && !isHoverNeighbor) {
+                ctx.globalAlpha = 0.20; // Мягкое затемнение несвязанных узлов при наведении
             }
 
             // 1. Цвет узлов в зависимости от роли, фокуса и FSRS-статуса изучения
@@ -6484,26 +6858,44 @@ window.initForceGraph = function(graphData) {
                 ctx.stroke();
             }
 
+            // 3.2. Акцентный ореол наведенного узла
+            if (!isTarget && isHovered) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 3.8, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = currentDark ? '#38bdf8' : '#0284c7';
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+            }
+
             // 4. Текстовая плашка-метка узла (Obsidian-Style Semantic Zoom LOD)
             let shouldShowLabel = false;
-            if (isTarget || isBackboneNode) {
-                // Выделенный узел и его опорная магистраль (родитель и корень) видны всегда
+            let labelAlpha = 1.0;
+            if (isTarget || isBackboneNode || isHovered || isHoverNeighbor) {
+                // Выделенный узел и его опорная магистраль (родитель и корень) или наведенный узел/сосед видны всегда
                 shouldShowLabel = true;
+                labelAlpha = 1.0;
             } else if (hasActiveSelection && isHighlighted) {
                 // Соседние понятия активной ветки показываются при комфортном масштабе
                 shouldShowLabel = globalScale >= 0.70;
+                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 0.65) / 0.15));
             } else if (node.level === 0) {
                 // Заголовок курса (корень) виден всегда
                 shouldShowLabel = true;
+                labelAlpha = 1.0;
             } else if (node.level === 1) {
                 // Институты появляются при приближении (когда в кадре несколько институтов)
                 shouldShowLabel = globalScale >= 0.85;
+                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 0.75) / 0.15));
             } else {
-                // Понятия появляются при глубоком приближении
-                shouldShowLabel = globalScale >= 1.35;
+                // Понятия появляются при глубоком приближении с плавным переходом 1.1 - 1.4
+                shouldShowLabel = globalScale >= 1.10;
+                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 1.10) / 0.30));
             }
 
-            if (isHighlighted && shouldShowLabel) {
+            if (isHighlighted && shouldShowLabel && labelAlpha > 0.02) {
+                const prevLabelAlpha = ctx.globalAlpha;
+                ctx.globalAlpha = prevLabelAlpha * labelAlpha;
+
                 // Фиксированный размер шрифта в мировых координатах (без раздувания при отдалении!)
                 const baseFontSize = isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8));
                 ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${baseFontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
@@ -6580,6 +6972,8 @@ window.initForceGraph = function(graphData) {
                     }
                     ctx.fillText(line, node.x, lineY);
                 });
+
+                ctx.globalAlpha = prevLabelAlpha;
             }
 
             ctx.restore();
@@ -6645,14 +7039,18 @@ window.initForceGraph = function(graphData) {
 
     setGraphLayout(currentKgLayout || 'force');
 
-    // Resize on window resize
-    window.addEventListener('resize', () => {
+    // Resize on window resize (remove previous listener to prevent memory leak and duplicate events)
+    if (kgResizeHandler) {
+        window.removeEventListener('resize', kgResizeHandler);
+    }
+    kgResizeHandler = () => {
         if (currentForceGraphInstance && currentKgView === 'graph') {
             const w = wrapper.clientWidth || (wrapper.parentElement ? wrapper.parentElement.clientWidth : 0) || window.innerWidth;
             const h = wrapper.clientHeight || (wrapper.parentElement ? wrapper.parentElement.clientHeight : 0) || (window.innerHeight - 150);
             currentForceGraphInstance.width(w).height(h);
         }
-    });
+    };
+    window.addEventListener('resize', kgResizeHandler);
 };
 
 window.zoomGraph = function(factor) {
@@ -6727,9 +7125,10 @@ window.showKgNodeDrawer = function(node) {
     if (summary) summary.textContent = node.summary || 'Детальное описание и законодательное основание отсутствуют.';
 
     // Рендер связей и разграничений
-    if (linksContainer && currentKgGraphData && currentKgGraphData.edges) {
+    if (linksContainer && currentKgGraphData) {
         linksContainer.innerHTML = '';
-        const connectedEdges = (currentKgGraphData.edges || []).filter(e => {
+        const allEdges = currentKgGraphData ? (currentKgGraphData.edges || currentKgGraphData.links || []) : [];
+        const connectedEdges = allEdges.filter(e => {
             const s = (typeof e.source === 'object' && e.source !== null) ? String(e.source.id) : String(e.source);
             const t = (typeof e.target === 'object' && e.target !== null) ? String(e.target.id) : String(e.target);
             return s === String(node.id) || t === String(node.id);
@@ -6867,12 +7266,26 @@ let practiceFailedItems = [];
 let practiceCurrentIndex = 0;
 let practiceScore = 0;
 let practiceAnswerSubmitted = false;
+let isRetrySession = false;
+let currentPracticeSubject = '';
+
+function normalizeAnswer(str) {
+    if (!str) return '';
+    return str
+        .replace(/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, ' ')
+        .trim()
+        .replace(/[.!?,;:]+$/g, '')
+        .trim()
+        .toLowerCase();
+}
 
 window.openPracticeModal = function(targetSubject) {
     const modal = document.getElementById('practice-modal');
     if (!modal) return;
 
-    const sub = targetSubject || getActiveDeckSubject();
+    currentPracticeSubject = targetSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    window.currentPracticeSubject = currentPracticeSubject;
+    const sub = currentPracticeSubject;
     const badge = document.getElementById('practice-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();
 
@@ -6886,7 +7299,10 @@ window.closePracticeModal = function() {
 };
 
 window.startPracticeSession = async function(customSub) {
-    const sub = customSub || getActiveDeckSubject();
+    isRetrySession = false;
+    currentPracticeSubject = customSub || currentPracticeSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    window.currentPracticeSubject = currentPracticeSubject;
+    const sub = currentPracticeSubject;
     
     const loading = document.getElementById('practice-loading');
     const cardContainer = document.getElementById('practice-card-container');
@@ -7000,6 +7416,21 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
 
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
+    const handleVerifyFailure = () => {
+        const spinner = clickedBtn.querySelector('.animate-spin');
+        if (spinner) spinner.remove();
+        allButtons.forEach(b => {
+            b.disabled = false;
+            b.classList.add('hover:border-neutral-400', 'cursor-pointer');
+        });
+        practiceAnswerSubmitted = false;
+        if (typeof window.showNotification === 'function') {
+            window.showNotification("Ошибка проверки ответа. Попробуйте еще раз.", "error");
+        } else {
+            alert("Ошибка проверки ответа. Попробуйте еще раз.");
+        }
+    };
+
     try {
         const res = await apiFetch('/api/practice/verify', {
             method: 'POST',
@@ -7011,7 +7442,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         });
 
         if (!res.ok) {
-            alert("Ошибка верификации ответа.");
+            handleVerifyFailure();
             return;
         }
 
@@ -7040,7 +7471,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             // Highlight authoritative correct answer button
             allButtons.forEach(b => {
                 const textSpan = b.querySelectorAll('span')[1];
-                if (textSpan && textSpan.textContent.trim() === data.correct_answer.trim()) {
+                if (textSpan && normalizeAnswer(textSpan.textContent) === normalizeAnswer(data.correct_answer)) {
                     b.classList.add('practice-option-correct');
                 }
             });
@@ -7083,7 +7514,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
 
     } catch (e) {
         console.error("Сбой проверки ответа:", e);
-        alert("Ошибка сети при проверке ответа.");
+        handleVerifyFailure();
     }
 }
 
@@ -7097,6 +7528,7 @@ function showPracticeFinish() {
     const finishScreen = document.getElementById('practice-finish-screen');
     const scoreEl = document.getElementById('practice-finish-score');
     const msgEl = document.getElementById('practice-finish-message');
+    const savedBadge = document.getElementById('practice-saved-badge');
 
     if (cardContainer) cardContainer.classList.add('hidden');
     if (finishScreen) finishScreen.classList.remove('hidden');
@@ -7109,7 +7541,9 @@ function showPracticeFinish() {
     }
 
     if (msgEl) {
-        if (percent >= 80) {
+        if (isRetrySession) {
+            msgEl.textContent = "Ошибки успешно проработаны! Спорные узлы и критерии закреплены в памяти.";
+        } else if (percent >= 80) {
             msgEl.textContent = "Превосходно! Вы безошибочно различаете правовые режимы, звенья инстанций и водоразделы.";
         } else if (percent >= 50) {
             msgEl.textContent = "Хороший результат. Рекомендуем повторить спорные узлы через Каркас знаний или колоду FSRS.";
@@ -7118,21 +7552,30 @@ function showPracticeFinish() {
         }
     }
 
-    // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране
-    const curSub = getActiveDeckSubject();
-    apiFetch('/api/practice/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            subject: curSub,
-            score: practiceScore,
-            total: total
-        })
-    }).then(() => {
-        if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
-    }).catch(err => {
-        console.warn("Сбой фиксации результатов практики:", err);
-    });
+    // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране (только для основных сессий)
+    const curSub = currentPracticeSubject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    if (isRetrySession) {
+        if (savedBadge) {
+            savedBadge.innerHTML = `<span class="material-symbols-outlined text-sm">task_alt</span><span>Ошибки успешно проработаны!</span>`;
+        }
+    } else {
+        if (savedBadge) {
+            savedBadge.innerHTML = `<span class="material-symbols-outlined text-sm">check_circle</span><span>Результат практики зафиксирован в профиле</span>`;
+        }
+        apiFetch('/api/practice/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                subject: curSub,
+                score: practiceScore,
+                total: total
+            })
+        }).then(() => {
+            if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
+        }).catch(err => {
+            console.warn("Сбой фиксации результатов практики:", err);
+        });
+    }
 
     // Настройка кнопки повторения ошибок
     const retryBtn = document.getElementById('practice-retry-errors-btn');
@@ -7145,10 +7588,18 @@ function showPracticeFinish() {
             retryBtn.classList.add('hidden');
         }
     }
+
+    // Настройка кнопки прохождения новой сессии
+    const newSessionBtn = document.getElementById('practice-new-session-btn');
+    if (newSessionBtn) {
+        newSessionBtn.onclick = () => startPracticeSession(currentPracticeSubject);
+    }
 }
 
 window.retryPracticeErrors = function() {
     if (!practiceFailedItems || practiceFailedItems.length === 0) return;
+
+    isRetrySession = true;
 
     const cardContainer = document.getElementById('practice-card-container');
     const finishScreen = document.getElementById('practice-finish-screen');

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 
 from app.database.models import (
-    Card, Phrase, UserSession, TopicKnowledgeGraph, PracticeItem
+    Card, Phrase, UserSession, TopicKnowledgeGraph, PracticeItem, utc_now
 )
 from app.services.graph_service import (
     resolve_subject_alias, get_all_subject_aliases, synthesize_graph_from_cards
@@ -76,7 +76,7 @@ async def save_cards_to_database(
     phrase_cache = {p.text.strip(): p for p in res_phrases.scalars().all() if p.text}
 
     cards_created = 0
-    now = datetime.utcnow()
+    now = utc_now()
     for c in cards_data:
         c_text = (c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")) or ""
         c_trans = (c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")) or ""
@@ -201,7 +201,7 @@ async def append_or_sync_cards_to_database(
 
     cards_created = 0
     cards_updated = 0
-    now = datetime.utcnow()
+    now = utc_now()
 
     for c in cards_data:
         c_text = (c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")) or ""
@@ -307,7 +307,7 @@ async def sync_subject_knowledge_and_practice(
     )
 
     # 2. Формируем актуальный граф знаний
-    now = datetime.utcnow()
+    now = utc_now()
     graph_data = None
     tree_data = None
 

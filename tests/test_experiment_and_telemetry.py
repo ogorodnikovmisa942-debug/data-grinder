@@ -376,23 +376,31 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         )
         self.assertEqual(r_blocked.status_code, 403)
 
-        # Переключаем фазу на 2
-        r_switch = self.client.post(
-            "/api/admin/experiment/switch-phase",
-            headers=headers_admin,
-            json={"phase": 2}
-        )
-        self.assertEqual(r_switch.status_code, 200)
-        self.assertEqual(r_switch.json()["phase"], 2)
+        try:
+            # Переключаем фазу на 2
+            r_switch = self.client.post(
+                "/api/admin/experiment/switch-phase",
+                headers=headers_admin,
+                json={"phase": 2}
+            )
+            self.assertEqual(r_switch.status_code, 200)
+            self.assertEqual(r_switch.json()["phase"], 2)
 
-        # После переключения в фазу 2 блокировка снята (не 403)
-        r_allowed = self.client.post(
-            "/api/management/cards",
-            headers=headers_user,
-            json={"subject": "sudoustroystvo", "text": "Свободная карта", "translation": "Определение"}
-        )
-        self.assertEqual(r_allowed.status_code, 200)
-        self.assertEqual(r_allowed.json()["status"], "success")
+            # После переключения в фазу 2 блокировка снята (не 403)
+            r_allowed = self.client.post(
+                "/api/management/cards",
+                headers=headers_user,
+                json={"subject": "sudoustroystvo", "text": "Свободная карта", "translation": "Определение"}
+            )
+            self.assertEqual(r_allowed.status_code, 200)
+            self.assertEqual(r_allowed.json()["status"], "success")
+        finally:
+            # Всегда возвращаем систему в исходную фазу 1
+            self.client.post(
+                "/api/admin/experiment/switch-phase",
+                headers=headers_admin,
+                json={"phase": 1}
+            )
 
     def test_08_admin_export_ai_telemetry(self):
         """Проверка выгрузки инженерной телеметрии ИИ в форматах JSON и CSV."""

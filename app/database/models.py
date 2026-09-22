@@ -1,7 +1,11 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database.session import Base
+
+def utc_now() -> datetime:
+    """Возвращает текущее время UTC в виде наивного datetime (для совместимости с SQLite)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class Category(Base):
     __tablename__ = "categories"
@@ -96,7 +100,7 @@ class ReviewLog(Base):
     response_time = Column(Integer, nullable=True)    # время в миллисекундах от показа до ответа
     stability = Column(Float, nullable=True)          # стабильность FSRS после повторения
     difficulty = Column(Float, nullable=True)         # сложность FSRS после повторения
-    timestamp = Column(DateTime, default=datetime.utcnow) # точное время повторения
+    timestamp = Column(DateTime, default=utc_now) # точное время повторения
     is_outlier = Column(Boolean, default=False, nullable=False) # фильтрация невалидных задержек / мисскликов
     is_cram = Column(Boolean, default=False, nullable=False) # флаг сессии режима штурма
 
@@ -143,7 +147,7 @@ class DailySession(Base):
     association_utility = Column(Integer, nullable=False) # Польза ассоциаций
     perceived_retention = Column(Integer, nullable=False) # Субъективная уверенность
     
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utc_now)
 
 
 class UserSetting(Base):
@@ -186,7 +190,7 @@ class GenerationJob(Base):
     execution_time_ms = Column(Integer, nullable=True)
     error_trace = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     processed_at = Column(DateTime, nullable=True)
 
 
@@ -209,7 +213,7 @@ class AiTelemetryLog(Base):
     duration_ms = Column(Integer, default=0, nullable=False)
     status = Column(String(32), default="success", nullable=False)  # success, json_parse_error, rate_limit, fallback_cascade, failed
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
 class InviteCode(Base):
@@ -222,7 +226,7 @@ class InviteCode(Base):
     used_by_user_id = Column(String(64), nullable=True)  # telegram_id участника
     used_by_username = Column(String(64), nullable=True) # @username участника
     is_used = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
     used_at = Column(DateTime, nullable=True)
 
 
@@ -242,8 +246,8 @@ class TopicKnowledgeGraph(Base):
     subject = Column(String, nullable=False, index=True)
     graph_data = Column(JSON, nullable=False)
     tree_data = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
-    updated_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now, server_default=func.now())
+    updated_at = Column(DateTime, default=utc_now, server_default=func.now(), onupdate=utc_now)
 
     def to_dict(self) -> dict:
         return {
@@ -277,7 +281,7 @@ class PracticeItem(Base):
     correct_answer = Column(Text, nullable=False)
     explanation = Column(Text, nullable=True)
     gold_standard = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    created_at = Column(DateTime, default=utc_now, server_default=func.now())
 
     def to_dict(self, include_answer: bool = False) -> dict:
         data = {
@@ -310,7 +314,7 @@ class PracticeSessionLog(Base):
     score = Column(Integer, nullable=False, default=0)
     total = Column(Integer, nullable=False, default=10)
     percentage = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
+    created_at = Column(DateTime, default=utc_now, server_default=func.now())
 
     def to_dict(self) -> dict:
         return {
