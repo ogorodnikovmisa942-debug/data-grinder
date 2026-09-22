@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from jinja2 import Template
 
 from app.api.endpoints import train, management, admin, graph, practice
@@ -85,6 +85,12 @@ async def read_index():
             "Expires": "0"
         }
     )
+
+
+# Фавикон (204 No Content, чтобы не засорять логи 404-ми)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 
 # Веб-страница панели администратора
