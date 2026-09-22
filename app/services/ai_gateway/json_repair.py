@@ -272,6 +272,13 @@ def unpack_minified_cards(raw_data: any, fallback_subject: str = "generic") -> d
 
         cards.append(c_obj)
 
+    # Дедупликация карточек внутри распарсенного пакета
+    try:
+        from app.services.card_db_sync import deduplicate_cards_batch
+        cards = deduplicate_cards_batch(cards)
+    except Exception:
+        pass
+
     # Топологическое ранжирование (Curriculum-First / "Graph in engine, playlist in UI"):
     # Упорядочиваем карточки строго от фундамента к частностям:
     # 1. По порядку появления органов/модулей (organ_slug)

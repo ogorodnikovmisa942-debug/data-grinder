@@ -220,6 +220,35 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
         if re.search(p, combined_card_text):
             return True, "clerical_bureaucratic_trivia"
 
+    # 8. Пустая схоластика и вода
+    scholastic_fluff = [
+        r'объективно-субъективн.*характер',
+        r'субъективно-объективн',
+        r'правовые\s+нормы\s+как\s+регулятор\s+правосудия',
+        r'теоретико-методологическ.*сущност',
+        r'методологическ.*основ.*курса',
+    ]
+    for p in scholastic_fluff:
+        if re.search(p, combined_card_text):
+            return True, "scholastic_empty_fluff"
+
+    # 9. Неатомарность: требования перечислить списки или ответы с 3+ нумерованными пунктами
+    if re.search(r'^(?:перечислите|назовите\s+(?:все\s+)?(?:\d+|несколько)|укажите\s+(?:все\s+)?(?:\d+|несколько))\b', front_lower):
+        return True, "list_enumeration_request"
+    if len(re.findall(r'(?:^|\s)(?:\d+[\.\)]|[a-dа-г][\.\)])\s+', back_lower)) >= 3:
+        return True, "multi_item_enumeration"
+
+    # 10. Грубые ошибки общей теории процесса и конституционных гарантий
+    if any(h in subject_domain.lower() for h in ("law", "право", "судо", "юриспруд", "процесс")):
+        gross_errors = [
+            r'суд\s+(?:сам\s+)?возбуждает\s+уголовн',
+            r'презумпци[яи]\s+невиновности.*не\s+является\s+принципом',
+            r'презумпци[яи]\s+невиновности.*не\s+принцип',
+        ]
+        for p in gross_errors:
+            if re.search(p, combined_card_text):
+                return True, "gross_procedural_error"
+
     return False, ""
 
 

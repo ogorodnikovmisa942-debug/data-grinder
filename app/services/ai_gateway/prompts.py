@@ -27,16 +27,16 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
     3. Clerical office paperwork dispatch deadlines (e.g. "в течение 5 дней направить копию решения в архив").
     4. Administrative retake intervals for exams (e.g. "повторная сдача экзамена через 6 месяцев").
     5. Internal departmental registry, stationery, and record-keeping protocols.
-    PRESERVE ONLY substantive legal standards, jurisdictional boundaries, constitutional guarantees, statutes of limitation, and material sanctions.
+    PRESERVE ONLY substantive operative standards, institutional boundaries, definitive criteria, and material sanctions or invariants.
 - Rule 2: High-Yield Concept Synthesis, Decision Trees & Situational Forks:
   * STRICT BAN ON PASSIVE GLOSSARY FLUFF: NEVER ask naive dictionary questions ("Что такое диалог?", "Дайте определение права вообще", "Опишите институт Z своими словами"). Such cards cause the cognitive illusion of competence without functional recall.
   * MANDATORY HIGH-YIELD CONCEPT SYNTHESIS (Preserve Core Conceptual Anchors):
-    Foundational concepts, statutory definitions, and key legal institutions MUST be included using the 3 high-retrieval cognitive patterns:
-    1. Hallmark-to-Concept Subsumption (From Hallmarks to Institution): Describe the exhaustive factual elements, legal conditions, or constitutional purpose -> demand the exact legal concept, status, or institution (e.g. "Какая ветвь государственной власти осуществляется исключительно судами посредством правосудия? -> Судебная власть").
+    Foundational concepts, domain definitions, and key structural institutions/components MUST be included using the 3 high-retrieval cognitive patterns:
+    1. Hallmark-to-Concept Subsumption (From Hallmarks to Entity): Describe the exhaustive factual elements, operational conditions, or constitutional/system purpose -> demand the exact concept, status, or institution (e.g. "Какая ветвь государственной власти осуществляется исключительно судами посредством правосудия? -> Судебная власть").
     2. Genus + Specific Difference (Род + Видовое отличие): Ask for the generic category and the decisive boundary distinguishing this concept from related ones (e.g. "К какому родовому институту относится виндикация и каково ее видовое отличие от негаторного иска?").
-    3. Normative Defining Criteria: Test the exact constituent legal standard or threshold, never dictionary wordiness.
-  * Decision Vignettes: For procedural rules, jurisdiction, and appeals, construct a situational decision point: Given factual status A and conflict B, which instance, authority, deadline, or remedy applies?
-  * The back ('d') delivers the exact concept, definition core, or procedural verdict in 1 grammatically complete sentence with statutory article.
+    3. Operative Defining Criteria: Test the exact constituent standard, condition, or threshold, never dictionary wordiness.
+  * Decision Vignettes: For procedural rules, clinical protocols, algorithm selections, or jurisdictional forks, construct a situational decision point: Given factual status A and conflict B, which instance, protocol, method, deadline, or remedy applies?
+  * The back ('d') delivers the exact concept, definition core, or procedural/technical verdict in 1 grammatically complete sentence.
   * ANTI-GIVEAWAY DIRECTIVE (Stem-to-Answer Root & Synonym Leakage Prohibition):
     The question stem 't' MUST NEVER contain the root, morphological stem, obvious synonym, or literal definition of the target answer 'd'.
     - FORBIDDEN GIVEAWAY: Mentioning the answer's root or key defining term in 't' (e.g. "Какая теория утверждает, что государство создано Богом? -> Теологическая" — "Богом" gives away "Тео-"; "Какой принцип гарантирует независимость судей? -> Принцип независимости судей"; "Какая функция права отвечает за охрану правопорядка? -> Охранительная функция").
@@ -50,7 +50,7 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
     4) Normative Conditions & Exceptions (e.g. "При наличии каких обязательных условий закон допускает...", "В каком единственном случае норма X имеет обратную силу?").
   * ANTI-TAUTOLOGY & ZERO-SEMANTIC-ECHO LAW:
     - ABSOLUTELY FORBIDDEN to generate tautological pseudo-questions where the answer 'd' merely echoes or repeats terms from the question 't' (e.g. NEVER ask "Что в системе X определяет характер Y? -> Их взаимодействие в системе X" or "Какой уровень правосознания выступает целью? -> Уровень правосознания").
-    - The answer ('d') must introduce the actual decisive standard, substantive hallmark, distinct institution, or statutory qualification.
+    - The answer ('d') must introduce the actual decisive standard, substantive hallmark, distinct institution, or operative domain qualification.
     - Never create double-barreled questions ("Сколько X и какой Y?"). Strictly one atomic target per card.
 - Rule 3: The Contrast-Pair Differentiation Law (Comparison Prompts):
   * The human brain understands structure strictly through boundaries and differences.
@@ -133,7 +133,7 @@ CORE PHILOSOPHY: Deconstruct complex texts into minimal, indivisible, non-interf
 - When input contains multiple photos, scanned pages, or mixed book chapters:
   * Semantically cluster and group related concepts into their respective topics/themes.
   * Set 'h' on each card to its specific thematic cluster name. NEVER prepend the cluster name or chapter title into 't'. Card front 't' must remain clean, direct, and unpolluted.
-  * PARETO BALANCED EXTRACTION (Zero-Inflation Filter): Ensure balanced coverage across all provided text/pages, but strictly apply Pareto high-yield filtering. Extract only foundational legal institutions, decision trees, and boundary tests.
+  * PARETO BALANCED EXTRACTION (Zero-Inflation Filter): Ensure balanced coverage across all provided text/pages, but strictly apply Pareto high-yield filtering. Extract only foundational domain institutions, decision trees, and boundary tests.
   * If an entire page or section contains solely administrative bureaucracy, clerical paperwork instructions, quorums, or routine office schedules, GENERATE ZERO CARDS for that section. Never fabricate cards from clerical noise just to artificially cover a page.
 
 4. STRICT MINIFIED JSON SCHEMA SPECIFICATION:
@@ -147,7 +147,7 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
       {
         "id": "slug_id",
         "name": "Concise Entity Name",
-        "category": "authority|instance|condition|exception|legal_status",
+        "category": "authority|instance|condition|exception|legal_status|concept|component",
         "summary": "1 factual sentence summary without fluff",
         "parent_id": null,
         "level": 0
@@ -157,7 +157,7 @@ Output ONLY a valid raw JSON object matching this exact minified key structure:
       {
         "source": "source_node_id",
         "target": "target_node_id",
-        "relation": "appealed_to|excludes_application|demarcated_from|subject_to_jurisdiction",
+        "relation": "appealed_to|excludes_application|demarcated_from|subject_to_jurisdiction|depends_on|part_of",
         "label": "Связка на русском"
       }
     ]
@@ -244,10 +244,10 @@ CONTRAST CASE 4 (Law - Binary Trivia vs Boundary Contrast Pair):
 
 ✅ CORRECT CONTRAST PAIR (Gold Standard Discriminative Criterion):
 {
-  "t": "По какому решающему признаку процессуальная роль народных заседателей разграничивается с судом присяжных заседателей?",
+  "t": "По какому решающему признаку процессуальная роль народных заседателей отличается от присяжных при вынесении решения?",
   "s": "Судопроизводство | Составы судов",
-  "d": "Народные заседатели голосуют наравне с судьёй по всем вопросам права и факта, а присяжные заседатели выносят отдельный вердикт исключительно по вопросам факта и виновности.",
-  "e": "В коллегии с народными заседателями судья не может единолично преодолеть их консолидированное большинство.",
+  "d": "Народные заседатели голосуют наравне с судьёй и по праву, и по факту.",
+  "e": "Присяжные заседатели выносят вердикт исключительно по вопросам факта.",
   "l": "medium",
   "h": "Судебные составы"
 }
@@ -264,7 +264,7 @@ CONTRAST CASE 5 (Law - Academic Padding vs High-Yield Functional Taxonomy):
 {
   "t": "На какие 2 основных типа разделяются конституционные предписания по способу нормативного воздействия на участников правоотношений?",
   "s": "Конституционное право | Метод правового регулирования",
-  "d": "Императивные (категорические предписания и абсолютные запреты) и диспозитивные (допускающие выбор варианта правомерного поведения).",
+  "d": "Императивные (категорический запрет/обязанность) и диспозитивные (допускающие выбор поведения).",
   "e": "Положение о том, что никто не может быть признан виновным иначе как по приговору суда, носит абсолютно императивный характер.",
   "l": "easy",
   "h": "Нормы права"
@@ -424,7 +424,7 @@ def build_granularity_prompt(granularity_mode: str, custom_instruction: str, den
     else: # atomic / standard
         modifiers.append("GRANULARITY DIRECTIVE: Standard atomic card decomposition. Break down distinct concepts into separate standalone cards (one question -> one direct fact).")
         if volume in ("auto", "balanced"):
-            modifiers.append("CARD VOLUME: STRICT HIGH-YIELD PARETO LIMIT. Extract strictly 2 to 4 high-yield situational cards from this text chunk (~60–80 total cards for a typical textbook). Focus exclusively on Decision Trees, Contrast Pairs, and High-Yield Taxonomy. Zero 'Что такое X', zero 'Да/Нет'. If this chunk contains solely clerical paperwork, bylaw procedures, or committee quorums, return 0 cards.")
+            modifiers.append("CARD VOLUME: STRICT HIGH-YIELD PARETO LIMIT. Extract strictly 2 to 4 high-yield situational cards from this text chunk (~60–80 total cards for a typical textbook). Focus exclusively on Decision Trees, Contrast Pairs, and High-Yield Taxonomy. Zero 'Что такое X', zero 'Да/Нет'. If this chunk contains solely clerical paperwork, routine administrative procedures, or committee quorums, return 0 cards.")
         elif volume in ("low", "low_5"):
             modifiers.append("LIMIT: Maximum 3 to 4 cards.")
         elif volume == "med_10":

@@ -11,6 +11,7 @@ from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, TopicKnowledgeGraph, utc_now
 from app.services.ai_gateway import parse_raw_text, split_text_into_chunks, is_blacklisted_card, semantic_normalize_front, extract_curriculum_skeleton, analyze_source_density
 from app.services.graph_service import consolidate_knowledge_graphs, resolve_subject_alias, get_all_subject_aliases
+from app.services.card_db_sync import deduplicate_cards_batch
 from app.services.practice_service import generate_practice_session
 from app.core.config import settings
 from aiogram import Bot
@@ -335,6 +336,9 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                     stratified_cards.extend(overflow_pool[:target_budget - len(stratified_cards)])
 
                 all_collected_cards = stratified_cards
+
+        # Сквозная дедупликация карточек перед ранжированием
+        all_collected_cards = deduplicate_cards_batch(all_collected_cards)
 
         # Топологическая пересортировка и сквозное ранжирование деки ("Graph in engine, playlist in UI"):
         # 1. Порядок глав / смысловых блоков книги (source_chunk_idx)

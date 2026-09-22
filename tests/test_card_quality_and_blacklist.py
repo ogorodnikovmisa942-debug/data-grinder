@@ -142,6 +142,93 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertTrue(any("Глава 2" in ch for ch in chunks))
         self.assertTrue(any("Глава 3" in ch for ch in chunks))
 
+    def test_11_filter_scholastic_fluff(self):
+        """Проверка отсева пустой абстрактной схоластики (Дефект 3)."""
+        card_scholastic = {
+            "text": "В чем выражается объективно-субъективный характер компетенции суда?",
+            "secondary_text": "Теория судоустройства",
+            "translation": "Компетенция объективна по источнику и субъективна по реализации.",
+            "example": ""
+        }
+        is_bl, reason = is_blacklisted_card(card_scholastic, subject_domain="law")
+        self.assertTrue(is_bl)
+        self.assertEqual(reason, "scholastic_empty_fluff")
+
+    def test_12_filter_multi_item_enumeration(self):
+        """Проверка отсева неатомарных списков и перечислений (Дефект 1)."""
+        card_list_req = {
+            "text": "Перечислите все 5 основных задач прокуратуры в процессе.",
+            "secondary_text": "Прокурорский надзор",
+            "translation": "Надзор за соблюдением законов, поддержание обвинения, защита прав.",
+            "example": ""
+        }
+        is_bl, reason = is_blacklisted_card(card_list_req, subject_domain="law")
+        self.assertTrue(is_bl)
+        self.assertEqual(reason, "list_enumeration_request")
+
+        card_multi_points = {
+            "text": "Какие категории дел рассматривает районный суд?",
+            "secondary_text": "Подсудность",
+            "translation": "1) Уголовные дела 2) Гражданские споры 3) Административные дела 4) Дела об усыновлении.",
+            "example": ""
+        }
+        is_bl2, reason2 = is_blacklisted_card(card_multi_points, subject_domain="law")
+        self.assertTrue(is_bl2)
+        self.assertEqual(reason2, "multi_item_enumeration")
+
+    def test_13_filter_gross_procedural_error(self):
+        """Проверка отсева грубых нарушений состязательности и конституционных принципов (Дефект 4)."""
+        card_err = {
+            "text": "В каком случае суд сам возбуждает уголовное дело?",
+            "secondary_text": "УПК РФ",
+            "translation": "Суд сам возбуждает уголовные дела при обнаружении признаков преступления в заседании.",
+            "example": ""
+        }
+        is_bl, reason = is_blacklisted_card(card_err, subject_domain="law")
+        self.assertTrue(is_bl)
+        self.assertEqual(reason, "gross_procedural_error")
+
+    def test_14_batch_deduplication(self):
+        """Проверка программного устранения точных и нечетких дубликатов (Дефект 5)."""
+        from app.services.card_db_sync import deduplicate_cards_batch
+        cards = [
+            {"text": "Что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."},
+            {"text": "1. Что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."},  # нумерация
+            {"text": "Что проверяет суд кассационной инстанции", "translation": "Законность судебных актов."},   # без знака
+            {"text": "Каковы полномочия кассации: что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."}, # схожий вопрос + одинаковый ответ
+            {"text": "Какой орган назначает судей Конституционного Суда?", "translation": "Совет Федерации."}     # уникальная карточка
+        ]
+        deduped = deduplicate_cards_batch(cards)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0]["text"], "Что проверяет суд кассационной инстанции?")
+        self.assertEqual(deduped[1]["text"], "Какой орган назначает судей Конституционного Суда?")
+
+    def test_15_domain_gated_constitutional_guardrails(self):
+        """Проверка изоляции правовых чекпоинтов: активны только для law, отключены для кода и медицины."""
+        import asyncio
+        from unittest.mock import patch, AsyncMock
+        from app.services.ai_gateway import parse_raw_text
+
+        async def _check():
+            with patch("app.services.ai_gateway.client._get_call_deepseek") as mock_getter:
+                mock_ds = AsyncMock(return_value=({"cards": []}, {}))
+                mock_getter.return_value = mock_ds
+
+                # 1. Запрос по праву -> должен содержать CONSTITUTIONAL ACCURACY CHECKPOINT
+                await parse_raw_text("Статья 118. Правосудие осуществляется только судом.", target_subject="law")
+                law_prompt = mock_ds.call_args[0][0]
+                self.assertIn("CONSTITUTIONAL ACCURACY CHECKPOINT", law_prompt)
+
+                # 2. Запрос по Python / коду -> НЕ должен содержать конституционных чекпоинтов
+                mock_ds.reset_mock()
+                await parse_raw_text("async def fetch_data(): await asyncio.sleep(1)", target_subject="python_code")
+                code_prompt = mock_ds.call_args[0][0]
+                self.assertNotIn("CONSTITUTIONAL ACCURACY CHECKPOINT", code_prompt)
+                self.assertIn("HARD ATOMICITY & RETRIEVAL LATENCY CONSTRAINT", code_prompt)
+                self.assertIn("OPERATIVE VALUE FILTER", code_prompt)
+
+        asyncio.run(_check())
+
 
 if __name__ == "__main__":
     unittest.main()

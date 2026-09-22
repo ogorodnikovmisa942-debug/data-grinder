@@ -1,4 +1,5 @@
 # app/services/card_db_sync.py
+import re
 from datetime import datetime
 from typing import Optional, List, Tuple
 from fastapi import HTTPException, status
@@ -13,6 +14,88 @@ from app.services.graph_service import (
 )
 from app.services.practice_service import generate_practice_session
 from app.core.config import settings
+
+
+def normalize_card_text_for_dedup(txt: str) -> str:
+    """Нормализует текст вопроса/ответа для строгого и нечеткого сравнения дубликатов."""
+    t = re.sub(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', r'\1', str(txt or ""))
+    t = re.sub(r'^\s*(?:\d+[\.\)]|[-•*])\s*', '', t)  # отсекаем нумерацию "1. " или "1) "
+    t = re.sub(r'[^\w\s]', '', t.lower())  # удаляем знаки препинания
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def deduplicate_cards_batch(cards_data: list) -> list:
+    """
+    Устраняет дубликаты и квазидубликаты внутри списка карточек:
+    1. Исключает точные совпадения нормализованного текста вопроса.
+    2. Исключает семантические дубликаты (одинаковый semantic fingerprint вопросов при совпадении/схожести ответов).
+    3. Исключает карточки с идентичным ответом при высокой схожести вопроса (>0.70).
+    4. Исключает квазидубликаты длинных вопросов (>25 симв, sim >= 0.92) при схожих ответах.
+    """
+    if not cards_data or len(cards_data) <= 1:
+        return cards_data
+
+    from difflib import SequenceMatcher
+    from app.services.ai_gateway.blacklist import semantic_normalize_front
+
+    deduped = []
+    seen_norm_questions = set()
+    seen_semantic_fingerprints = set()
+    seen_qa_pairs = []  # list of tuples: (norm_q, norm_a, sem_key, original_card)
+
+    for c in cards_data:
+        c_text = (c.get("text", "") if isinstance(c, dict) else getattr(c, "text", "")) or ""
+        c_trans = (c.get("translation", "") if isinstance(c, dict) else getattr(c, "translation", "")) or ""
+        if not c_text.strip() or not c_trans.strip():
+            continue
+
+        norm_q = normalize_card_text_for_dedup(c_text)
+        norm_a = normalize_card_text_for_dedup(c_trans)
+
+        if not norm_q:
+            continue
+
+        # 1. Прямое совпадение нормализованного вопроса
+        if norm_q in seen_norm_questions:
+            continue
+
+        sem_key = semantic_normalize_front(c_text)
+
+        is_duplicate = False
+        for prev_q, prev_a, prev_sem, _ in seen_qa_pairs:
+            # 2. Одинаковый семантический отпечаток вопроса при совпадении/схожести ответов:
+            if sem_key and prev_sem and sem_key == prev_sem:
+                sim_a = SequenceMatcher(None, norm_a, prev_a).ratio() if (norm_a and prev_a) else 1.0
+                if norm_a == prev_a or sim_a >= 0.70:
+                    is_duplicate = True
+                    break
+
+            # 3. Идентичный ответ (norm_a == prev_a) при схожести вопросов >= 0.70:
+            if norm_a and prev_a and norm_a == prev_a:
+                sim_q = SequenceMatcher(None, norm_q, prev_q).ratio()
+                if sim_q >= 0.70:
+                    is_duplicate = True
+                    break
+
+            # 4. Почти идентичные длинные вопросы (>25 симв) со схожестью >= 0.92 и схожим ответом:
+            if len(norm_q) > 25 and len(prev_q) > 25:
+                sim_q = SequenceMatcher(None, norm_q, prev_q).ratio()
+                if sim_q >= 0.92:
+                    sim_a = SequenceMatcher(None, norm_a, prev_a).ratio() if (norm_a and prev_a) else 1.0
+                    if sim_a >= 0.60:
+                        is_duplicate = True
+                        break
+
+        if is_duplicate:
+            continue
+
+        seen_norm_questions.add(norm_q)
+        if sem_key:
+            seen_semantic_fingerprints.add(sem_key)
+        seen_qa_pairs.append((norm_q, norm_a, sem_key, c))
+        deduped.append(c)
+
+    return deduped
 
 
 def is_admin_or_dev(user_id: str) -> bool:
@@ -63,12 +146,13 @@ async def save_cards_to_database(
         all_aliases.append(canonical)
 
     clean_title = phrase_title.strip() or "Новый блок знаний"
+    cards_data = deduplicate_cards_batch(cards_data)
 
     # Кэш существующих карточек пользователя по всем алиасам для исключения дубликатов
     stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject.in_(all_aliases))
     res_existing = await db.execute(stmt_existing)
     existing_cards = res_existing.scalars().all()
-    existing_map = {c.text.strip().lower(): c for c in existing_cards if c.text}
+    existing_map = {normalize_card_text_for_dedup(c.text): c for c in existing_cards if c.text}
 
     # Кэш тем (Phrases) для поддержки мульти-тематической кластеризации в одном пакете карточек
     stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject.in_(all_aliases))
@@ -84,7 +168,7 @@ async def save_cards_to_database(
             continue
 
         c_text_clean = c_text.strip()
-        c_key = c_text_clean.lower()
+        c_key = normalize_card_text_for_dedup(c_text_clean)
         c_theme = ((c.get("theme", "") if isinstance(c, dict) else getattr(c, "theme", "")) or "").strip() or clean_title
 
         if c_theme not in phrase_cache:
@@ -187,12 +271,13 @@ async def append_or_sync_cards_to_database(
         all_aliases.append(canonical)
 
     clean_title = phrase_title.strip() or "Новый блок знаний"
+    cards_data = deduplicate_cards_batch(cards_data)
 
     # Загружаем существующие карточки пользователя по всем алиасам данного предмета
     stmt_existing = select(Card).filter(Card.user_id == user_id, Card.subject.in_(all_aliases))
     res_existing = await db.execute(stmt_existing)
     existing_cards = res_existing.scalars().all()
-    existing_map = {c.text.strip().lower(): c for c in existing_cards if c.text}
+    existing_map = {normalize_card_text_for_dedup(c.text): c for c in existing_cards if c.text}
 
     # Кэш тем (Phrases)
     stmt_phrases = select(Phrase).filter(Phrase.user_id == user_id, Phrase.subject.in_(all_aliases))
@@ -210,7 +295,7 @@ async def append_or_sync_cards_to_database(
             continue
 
         c_text_clean = c_text.strip()
-        c_key = c_text_clean.lower()
+        c_key = normalize_card_text_for_dedup(c_text_clean)
         c_sec = (c.get("secondary_text", "") if isinstance(c, dict) else getattr(c, "secondary_text", "")) or ""
         c_ex = (c.get("example", "") if isinstance(c, dict) else getattr(c, "example", "")) or ""
         c_tier = (c.get("initial_difficulty_tier", "medium") if isinstance(c, dict) else getattr(c, "initial_difficulty_tier", "medium"))

@@ -270,12 +270,12 @@ async def parse_raw_text(
             "Extract 10 to 14 master conceptual cards from this section (proportionate to its substantive weight, targeting ~140–180 cards for an entire multi-chapter course). "
             "Do NOT exceed 15 cards. "
             "Ensure diverse, natural phrasing across 4 universal cognitive archetypes: "
-            "1) Situational Cases / Problem Vignettes (concrete factual conflict/scenario -> statutory qualification or solution), "
+            "1) Situational Cases / Problem Vignettes (concrete factual conflict/scenario -> domain qualification, protocol, or solution), "
             "2) Contrast Pairs (distinguishing confusing concepts via gold standard criteria), "
             "3) Doctrinal Principles & Causal Mechanisms (substantive tenets, arguments of thinkers, and operational mechanisms), "
             "4) Normative Conditions & Exceptions (exact threshold, qualification, or consequence, 'если-то'). "
             "Strictly avoid robotic boilerplate question openers (do NOT repeat 'Какое понятие обозначает...' or 'Чем принципиально отличается...'). "
-            "Absolute prohibition of clerical trivia (quorums, paperwork deadlines, routine office intervals), naive dictionary definitions ('Что такое X'), and binary 'Да/Нет'. "
+            "Absolute prohibition of internal administrative minutiae (quorums, routine paperwork deadlines, office intervals), naive dictionary definitions ('Что такое X'), and binary 'Да/Нет'. "
             "If this chunk contains solely clerical paperwork or administrative procedures, return 0 cards."
         )
     elif volume in ("low", "low_5"):
@@ -300,8 +300,47 @@ async def parse_raw_text(
     user_directives.append(
         "ANTI-TAUTOLOGY & ZERO-ECHO DIRECTIVE: Under NO circumstances generate tautological pseudo-questions where the answer 'd' merely echoes or repeats words from the question 't' "
         "(e.g. NEVER ask 'Что в системе социального регулирования определяет характер взаимодействия? -> Их взаимодействие...' or 'Какой уровень правосознания выступает целью? -> Уровень правосознания...'). "
-        "The answer must state the decisive substantive rule, criterion, classification, or statutory qualification."
+        "The answer must state the decisive substantive rule, criterion, classification, or domain qualification."
     )
+    user_directives.append(
+        "HARD ATOMICITY & RETRIEVAL LATENCY CONSTRAINT (NON-NEGOTIABLE ACROSS ALL DISCIPLINES):\n"
+        "• Field length limits (strictly count words before outputting):\n"
+        "  - 'd' (Back): strictly 1 to 12 words (max 1 short, punchy sentence) for law and generic subjects; strictly up to 15 words for code and medicine; strictly 1 to 5 words for foreign language translations.\n"
+        "  - 't' (Front): strictly up to 30 words. If the question requires >30 words to avoid giveaways, rephrase it as a direct situational vignette rather than an essay.\n"
+        "  - 'e' (Example): strictly 1 vivid sentence, maximum 15 words. Zero multi-sentence essays.\n"
+        "• ABSOLUTE BAN ON COMPOUND ANSWERS: Under NO circumstances join two distinct rules or contrast sides in 'd' using conjunctions ('а ... в то время как ...', 'however ... whereas ...', 'но при этом ...'). One card tests ONE rule.\n"
+        "• ABSOLUTE BAN ON RECITING MULTI-ITEM LISTS: If the source contains 3 or more elements, duties, categories, or requirements, NEVER ask to list or enumerate them. Formulate a card testing ONLY the single decisive hallmark, or split across separate atomic cards.\n"
+        "• RETRIEVAL LATENCY SELF-CHECK: Every card must be mentally retrievable and verifiable in 1.5–3.5 seconds. If recalling 'd' requires pausing to remember a 3-part enumeration or paragraph, it is a latency-killer — narrow or split the question immediately."
+    )
+    user_directives.append(
+        "OPERATIVE VALUE FILTER (Practical Utility Gate):\n"
+        "• Apply the universal practitioner utility test before generating each card:\n"
+        "  Will a student or practitioner (lawyer, engineer, clinician, linguist) be able to make a concrete decision, avoid an error, or solve a problem by knowing this exact fact?\n"
+        "• DISCARD empty academic scholasticism and abstract philosophical filler that carries zero operative or exam utility "
+        "(e.g. 'объективно-субъективный характер компетенции', 'нормы как регулятор сами по себе', 'теоретико-методологическая сущность института'). "
+        "Extract ONLY concrete criteria, mechanisms, thresholds, boundaries, and actionable rules."
+    )
+    user_directives.append(
+        "ZERO-DUPLICATE SELF-SCANNING DIRECTIVE:\n"
+        "• Before finalizing the card array, perform an active deduplication scan across all generated cards in 'c':\n"
+        "  - Verify that no two cards test the same underlying statutory article, formula, or distinction from trivially varied angles.\n"
+        "  - Absolutely never generate duplicate cards where 't' or 'd' are functionally identical or paraphrase each other.\n"
+        "  - If two cards target the same concept, keep only the sharper, more situational one and discard the other."
+    )
+
+    # Domain-gated factual guardrails (activated only for legal and judicial subjects)
+    law_domain_markers = ("law", "право", "судо", "юриспруд", "процесс", "кодекс", "норма", "арбитраж", "криминалист", "legal", "court")
+    combined_domain_context = f"{clean_sub} {text[:400]}".lower()
+    if any(marker in combined_domain_context for marker in law_domain_markers):
+        user_directives.append(
+            "CONSTITUTIONAL ACCURACY CHECKPOINT (Law Discipline Guard):\n"
+            "Foundational constitutional and procedural principles are IMMUTABLE. Never generate cards with factual inversions:\n"
+            "1. Состязательность (ст. 123 Конституции РФ): Суд НЕ возбуждает уголовные дела по собственной инициативе (это функция стороны обвинения / следствия / прокурора).\n"
+            "2. Презумпция невиновности (ст. 49 Конституции РФ) — фундаментальный конституционный принцип судопроизводства.\n"
+            "3. Правосудие осуществляется ТОЛЬКО судом (ст. 118 Конституции РФ).\n"
+            "4. Независимость судей (ст. 120 Конституции РФ): Никакие органы или должностные лица не вправе давать судьям указания по существу рассматриваемых дел.\n"
+            "If the source text contains an erroneous or obsolete doctrinal claim contradicting these, do NOT replicate the factual error in flashcards."
+        )
     source_count = (
         text.count("=== МАТЕРИАЛ")
         + text.count("=== СТРАНИЦА")
@@ -313,7 +352,7 @@ async def parse_raw_text(
             "MULTI-SOURCE THEMATIC CLUSTERING & PARETO FILTER: The source contains multiple photos, pages, or separate documents. "
             "Group cards into their respective thematic clusters, assign 'h' (topic name) to each card, "
             "keep all cards in the single root 'c' array (do NOT create nested 'clusters' objects). "
-            "PARETO PRIORITY: Select high-yield conceptual nodes across the material, skipping clerical minutiae, quorums, or paperwork intervals."
+            "PARETO PRIORITY: Select high-yield conceptual nodes across the material, skipping clerical minutiae, quorums, paperwork intervals, or routine administrative procedures."
         )
     elif source_count == 1:
         user_directives.append(
