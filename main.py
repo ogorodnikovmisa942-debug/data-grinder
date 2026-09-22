@@ -32,8 +32,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Frontend Bundler Warning] {e}")
 
-    # 1. Автоматический снапшот базы данных перед стартом (гарантия сохранности карточек)
-    await asyncio.to_thread(backup_sqlite_database, "data_grinder.db")
+    # 1. Автоматический снапшот базы данных перед стартом (только для SQLite)
+    if "sqlite" in engine.url.drivername:
+        await asyncio.to_thread(backup_sqlite_database, "data_grinder.db")
 
     # 2. Создаем новые таблицы, если они не существуют
     async with engine.begin() as conn:

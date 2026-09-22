@@ -35,7 +35,8 @@ def create_db_engine(url: str = None, debug: bool = None):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
             cursor.close()
 
         return eng

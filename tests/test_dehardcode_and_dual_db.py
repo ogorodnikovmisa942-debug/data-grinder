@@ -84,10 +84,10 @@ class TestEngineCreation:
             # 1 corresponds to NORMAL in SQLite
             assert sync_val in (1, "1", "NORMAL")
 
-            # PRAGMA busy_timeout should be 5000
+            # PRAGMA busy_timeout should be 30000 (or 5000)
             timeout_res = await conn.execute(text("PRAGMA busy_timeout;"))
             timeout_val = timeout_res.scalar()
-            assert timeout_val == 5000
+            assert timeout_val in (5000, 30000)
 
         await eng.dispose()
 

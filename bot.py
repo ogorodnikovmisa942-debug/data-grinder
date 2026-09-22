@@ -257,14 +257,17 @@ async def pomodoro_push_observer():
                 print(f"[Observer] Ошибка обработки/отправки пуша для {telegram_id}: {e}")
 
 
-# Фоновый воркер ночной нарезки
+# Фоновый воркер ночной нарезки (делегирован main.py, запускается в bot.py только при флаге RUN_WORKER_IN_BOT=true)
 night_grind_worker = generation_worker_loop
 
 
 async def main():
     asyncio.create_task(pomodoro_push_observer())
-    asyncio.create_task(night_grind_worker())
-    print("[Grinder Bot] Фоновый пушер и ночной воркер инициализированы успешно.")
+    if os.getenv("RUN_WORKER_IN_BOT", "false").lower() in ("true", "1"):
+        asyncio.create_task(night_grind_worker())
+        print("[Grinder Bot] Фоновый пушер и ночной воркер инициализированы успешно.")
+    else:
+        print("[Grinder Bot] Фоновый пушер инициализирован (ночной воркер делегирован grinder-web / main.py).")
     await dp.start_polling(bot)
 
 
