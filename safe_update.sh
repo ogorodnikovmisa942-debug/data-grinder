@@ -1,23 +1,73 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== DATA GRINDER SAFE UPDATE ==="
+# === DATA GRINDER SAFE UPDATE ===
 
-# 0. Определение пути к Python и виртуальному окружению
-PYTHON_BIN="python3"
-if [ -f "venv/bin/python" ]; then
-    PYTHON_BIN="venv/bin/python"
-elif [ -f ".venv/bin/python" ]; then
-    PYTHON_BIN=".venv/bin/python"
-elif [ -f "venv/Scripts/python.exe" ]; then
-    PYTHON_BIN="venv/Scripts/python.exe"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
+# Фаза 1: При первом запуске синхронизируем код с Git и перезапускаем обновленный скрипт
+if [ -z "$GRINDER_UPDATE_PHASE2" ]; then
+    echo "=== [1/2] DATA GRINDER SAFE UPDATE: Загрузка свежего кода ==="
+    
+    # Резервная копия БД перед операциями с Git
+    if [ -f "data_grinder.db" ]; then
+        mkdir -p backups
+        cp data_grinder.db "backups/data_grinder_prepull_$(date +%Y%m%d_%H%M%S).db" 2>/dev/null || true
+    fi
+
+    # Исключаем БД из индекса Git, если попала
+    git rm --cached data_grinder.db 2>/dev/null || true
+
+    echo "[...] Синхронизация с Git origin/main..."
+    git fetch origin main
+    git reset --hard origin/main
+
+    echo "[OK] Актуальный коммит: $(git log -1 --oneline)"
+
+    # Передаем управление обновленному коду скрипта
+    export GRINDER_UPDATE_PHASE2=1
+    exec bash safe_update.sh
 fi
 
-# 1. Автоматический безопасный бэкап текущей базы данных перед обновлением (Native SQLite API)
+echo "=== [2/2] DATA GRINDER SAFE UPDATE: Применение обновлений ==="
+
+# 1. Автоматический поиск нужного интерпретатора Python и виртуального окружения
+PYTHON_BIN=""
+
+# 1.1. Определение пути к Python из рабочей конфигурации systemd сервиса grinder-web
+if command -v systemctl >/dev/null 2>&1; then
+    SERVICE_CMD=$(systemctl show grinder-web -p ExecStart --value 2>/dev/null || true)
+    EXEC_FILE=$(echo "$SERVICE_CMD" | tr ' ' '\n' | grep -E '(uvicorn|python)' | head -n 1 | sed 's/path=//' | sed 's/;.*//')
+    if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+        EXEC_DIR=$(dirname "$EXEC_FILE")
+        if [ -f "$EXEC_DIR/python" ]; then
+            PYTHON_BIN="$EXEC_DIR/python"
+        elif [ -f "$EXEC_DIR/python3" ]; then
+            PYTHON_BIN="$EXEC_DIR/python3"
+        fi
+    fi
+fi
+
+# 1.2. Если через systemctl не нашли, ищем по стандартным путям виртуальных окружений
+if [ -z "$PYTHON_BIN" ] || [ ! -f "$PYTHON_BIN" ]; then
+    if [ -f "venv/bin/python" ]; then
+        PYTHON_BIN="venv/bin/python"
+    elif [ -f ".venv/bin/python" ]; then
+        PYTHON_BIN=".venv/bin/python"
+    elif [ -f "/root/GRINDER/venv/bin/python" ]; then
+        PYTHON_BIN="/root/GRINDER/venv/bin/python"
+    elif [ -f "venv/Scripts/python.exe" ]; then
+        PYTHON_BIN="venv/Scripts/python.exe"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
+
+echo "[i] Используется интерпретатор Python: $PYTHON_BIN"
+
+# 2. Безопасный бэкап текущей базы данных (Native SQLite API + файловая копия)
 if [ -f "data_grinder.db" ]; then
     mkdir -p backups
     BACKUP_NAME="backups/data_grinder_$(date +%Y%m%d_%H%M%S).db"
@@ -25,28 +75,16 @@ if [ -f "data_grinder.db" ]; then
     # Попытка безопасного нативного снимка через SQLite API без риска повреждения WAL
     $PYTHON_BIN -c "from app.database.migrations import backup_sqlite_database; backup_sqlite_database('data_grinder.db')" 2>/dev/null || true
     
-    # Резервная копия с временной меткой
     cp data_grinder.db "$BACKUP_NAME" 2>/dev/null || true
     cp data_grinder.db backups/data_grinder.latest.bak 2>/dev/null || true
     echo "[OK] Резервная копия базы сохранена в $BACKUP_NAME"
 
-    # Автоматическая ротация: оставляем только последние 5 копий, чтобы диск не переполнялся
+    # Автоматическая ротация: оставляем только последние 5 копий
     ls -t backups/data_grinder_*.db 2>/dev/null | tail -n +6 | xargs -r rm -f 2>/dev/null || true
     ls -t backups/*.bak 2>/dev/null | tail -n +6 | xargs -r rm -f 2>/dev/null || true
 fi
 
-# 2. Убираем из кэша git БД, если попала
-git rm --cached data_grinder.db 2>/dev/null || true
-
-# 3. Принудительно подтягиваем свежий код из репозитория
-echo "[...] Загрузка обновлений из Git..."
-git fetch origin main
-git reset --hard origin/main
-
-echo "[OK] Текущий коммит репозитория:"
-git log -1 --oneline
-
-# 4. Проверка переменных окружения в .env
+# 3. Проверка переменных окружения в .env
 if [ -f ".env" ]; then
     if ! grep -q "DEEPSEEK_API_KEY" .env || grep -q "DEEPSEEK_API_KEY=$" .env || grep -q 'DEEPSEEK_API_KEY=""' .env; then
         echo ""
@@ -61,15 +99,25 @@ else
     echo "[!] Файл .env не найден! Создайте его из .env.example"
 fi
 
-# 5. Проверка и установка зависимостей Python
-echo "[...] Проверка и обновление зависимостей (pip)..."
-$PYTHON_BIN -m pip install -r requirements.txt --quiet || true
+# 4. Проверка и установка зависимостей Python
+PIP_FLAGS=""
+if $PYTHON_BIN -m pip install --help 2>&1 | grep -q -- "--break-system-packages"; then
+    PIP_FLAGS="--break-system-packages"
+fi
 
-# 6. Применение миграций базы данных через Alembic
+echo "[...] Проверка и установка зависимостей (pip)..."
+$PYTHON_BIN -m pip install -r requirements.txt $PIP_FLAGS
+
+# Проверка критических библиотек
+echo "[...] Проверка критических импортов..."
+$PYTHON_BIN -c "import fastapi, uvicorn; print('[OK] FastAPI и Uvicorn готовы к работе.')"
+$PYTHON_BIN -c "import slowapi; print('[OK] Модуль rate-limiting (slowapi) активен.')" 2>/dev/null || echo "[i] slowapi работает в режиме встроенного fallback."
+
+# 5. Применение миграций базы данных через Alembic
 echo "[...] Применение миграций базы данных (Alembic)..."
 $PYTHON_BIN -m alembic upgrade head || true
 
-# 7. Автоматическая сборка ассетов фронтенда (HTML и JS модули)
+# 6. Автоматическая сборка ассетов фронтенда (HTML и JS модули)
 echo "[...] Сборка статических файлов фронтенда..."
 $PYTHON_BIN -c "from app.services.frontend_bundler import bundle_all; bundle_all()" || true
 
@@ -78,7 +126,7 @@ if command -v npx >/dev/null 2>&1 && [ -f "tailwind.config.js" ]; then
     npx -y tailwindcss@3.4.17 -i ./app/static/css/tailwind.input.css -o ./app/static/css/tailwind.min.css --minify 2>/dev/null || true
 fi
 
-# 8. Автоматическая проверка лимитов Nginx (снятие ограничения 1 МБ)
+# 7. Автоматическая проверка лимитов Nginx (снятие ограничения 1 МБ)
 if command -v nginx >/dev/null 2>&1 && [ -f "/etc/nginx/nginx.conf" ]; then
     if ! grep -rq "client_max_body_size" /etc/nginx/ 2>/dev/null; then
         echo "[...] Автоматическая настройка Nginx (увеличение лимита загрузки до 100 МБ)..."
@@ -86,9 +134,35 @@ if command -v nginx >/dev/null 2>&1 && [ -f "/etc/nginx/nginx.conf" ]; then
     fi
 fi
 
-# 9. Перезапуск сервисов
+# 8. Перезапуск сервисов
 echo "[...] Перезапуск сервисов..."
 systemctl restart grinder-web
 systemctl restart grinder-bot 2>/dev/null || true
 
-echo "=== ОБНОВЛЕНИЕ УСПЕШНО ЗАВЕРШЕНО ==="
+# 9. Проверка доступности и работоспособности сервисов
+echo "[...] Проверка статуса сервисов..."
+sleep 2
+
+WEB_RUNNING=false
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet grinder-web; then
+        WEB_RUNNING=true
+        echo "[SUCCESS] Сервис grinder-web успешно запущен и работает!"
+    else
+        echo "[ERROR] Ошибка запуска grinder-web! Журнал ошибок (последние 25 строк):"
+        journalctl -u grinder-web -n 25 --no-pager || true
+    fi
+
+    if systemctl is-active --quiet grinder-bot; then
+        echo "[SUCCESS] Сервис grinder-bot успешно запущен и работает!"
+    else
+        echo "[i] Сервис grinder-bot сейчас не активен (проверьте настройки бота при необходимости)."
+    fi
+fi
+
+if [ "$WEB_RUNNING" = true ] || ! command -v systemctl >/dev/null 2>&1; then
+    echo "=== ОБНОВЛЕНИЕ УСПЕШНО ЗАВЕРШЕНО ==="
+else
+    echo "=== ОБНОВЛЕНИЕ ЗАВЕРШИЛОСЬ С ОШИБКОЙ ==="
+    exit 1
+fi

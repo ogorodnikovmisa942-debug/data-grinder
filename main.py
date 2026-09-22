@@ -16,9 +16,7 @@ from app.services.notifications import notification_scheduler_loop
 from app.services.generation_worker import generation_worker_loop
 from app.services.frontend_bundler import bundle_modules, bundle_html
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+from app.core.limiter import limiter, RateLimitExceeded, _rate_limit_exceeded_handler, HAS_SLOWAPI
 
 ADMIN_TEMPLATE_PATH = Path("app/templates/admin.html")
 
@@ -53,7 +51,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Data Grinder Движок", lifespan=lifespan)
 
 # Rate limiting для защиты от abuse
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
