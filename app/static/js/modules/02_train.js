@@ -441,14 +441,19 @@ function bindDOMPointers() {
 }
 
 async function initApplicationLifecycle() {
+    // 1. Немедленная синхронная привязка интерфейса и навигации (не ждёт сеть!)
     try {
         bindDOMPointers();
-        await loadDynamicSubjects(); 
-        if (subjectSelector) subjectSelector.value = currentSubject;
-        showSessionStarter(); initPomodoroEngine(); initNavigation();
-        initArchiveFilters(); updateGlobalBadges();
-        
-        // Инициализация кнопки массового выбора
+        initNavigation();
+        showSessionStarter();
+        initPomodoroEngine();
+        initArchiveFilters();
+    } catch (uiSyncErr) {
+        console.error("[UI Sync Init Warning]", uiSyncErr);
+    }
+
+    // 2. Инициализация обработчиков кнопок
+    try {
         const toggleBtn = document.getElementById('bulk-select-toggle');
         if (toggleBtn) {
             toggleBtn.onclick = () => {
@@ -460,7 +465,6 @@ async function initApplicationLifecycle() {
             };
         }
         
-        // Привязываем обработчик отправки опроса
         const surveySubmitBtn = document.getElementById('survey-submit-btn');
         if (surveySubmitBtn) {
             surveySubmitBtn.onclick = (e) => {
@@ -472,6 +476,16 @@ async function initApplicationLifecycle() {
         if (currentTab !== 'train' && focusToggle) {
             focusToggle.classList.add('hidden');
         }
+    } catch (btnErr) {
+        console.warn("[Button Init Warning]", btnErr);
+    }
+
+    // 3. Фоновая асинхронная загрузка данных (не блокирует переключение вкладок!)
+    try {
+        await loadDynamicSubjects(); 
+        if (subjectSelector) subjectSelector.value = currentSubject;
+        updateGlobalBadges();
+        
         if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
         if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
         if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
@@ -484,11 +498,7 @@ async function initApplicationLifecycle() {
         }
         if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
     } catch (lifecycleErr) {
-        console.error("Ошибка при инициализации жизненного цикла приложения:", lifecycleErr);
-        try {
-            showSessionStarter();
-            if (typeof initNavigation === 'function') initNavigation();
-        } catch (_) {}
+        console.error("Ошибка при фоновой загрузке данных:", lifecycleErr);
     }
 }
 
