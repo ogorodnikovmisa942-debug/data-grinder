@@ -835,6 +835,13 @@ async function initApplicationLifecycle() {
 
     // 2. Инициализация обработчиков кнопок
     try {
+        const btnNew = document.getElementById('btn-session-new');
+        if (btnNew) btnNew.onclick = (e) => { e.preventDefault(); startSession('new'); };
+        const btnRev = document.getElementById('btn-session-review');
+        if (btnRev) btnRev.onclick = (e) => { e.preventDefault(); startSession('review'); };
+        const btnCram = document.getElementById('btn-session-cram');
+        if (btnCram) btnCram.onclick = (e) => { e.preventDefault(); startSession('cram'); };
+
         const toggleBtn = document.getElementById('bulk-select-toggle');
         if (toggleBtn) {
             toggleBtn.onclick = () => {
@@ -1370,6 +1377,8 @@ window.exitToSessionMenu = function() {
     renderTopCounters();
     updateGlobalBadges();
 };
+
+window.startSession = function(mode) { return startSession(mode); };
 
 async function startSession(mode) {
     currentSessionMode = mode;
