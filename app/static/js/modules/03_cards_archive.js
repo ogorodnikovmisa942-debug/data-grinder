@@ -429,13 +429,15 @@ async function loadDynamicSubjects() {
         };
 
         // 1. Селекторы фильтрации карточек/тренировок
+        const getSubSlug = (sub) => typeof sub === 'string' ? sub : (sub?.slug || sub?.name || String(sub || ''));
         const selectors = document.querySelectorAll('#subject-selector');
         selectors.forEach(sel => {
             sel.innerHTML = '<option value="all">[ВСЕ ПРЕДМЕТЫ]</option>';
             subjects.forEach(sub => {
+                const subStr = getSubSlug(sub);
                 const option = document.createElement('option'); 
-                option.value = sub;
-                option.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`; 
+                option.value = subStr;
+                option.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`; 
                 sel.appendChild(option);
             });
         });
@@ -446,9 +448,10 @@ async function loadDynamicSubjects() {
             const currentVal = importSel.value;
             importSel.innerHTML = '<option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>';
             subjects.forEach(sub => {
+                const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
-                opt.value = sub;
-                opt.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`;
+                opt.value = subStr;
+                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
                 importSel.appendChild(opt);
             });
             const newOpt = document.createElement('option');
@@ -458,16 +461,17 @@ async function loadDynamicSubjects() {
 
             const tipEl = document.getElementById('subject-status-tip');
             const inputNew = document.getElementById('import-new-subject-input');
-            if (currentVal && (subjects.includes(currentVal) || currentVal === '__new__')) {
+            const subSlugs = subjects.map(getSubSlug);
+            if (currentVal && (subSlugs.includes(currentVal) || currentVal === '__new__')) {
                 importSel.value = currentVal;
                 if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
-            } else if (currentSubject && currentSubject !== 'all' && subjects.includes(currentSubject)) {
+            } else if (currentSubject && currentSubject !== 'all' && subSlugs.includes(currentSubject)) {
                 importSel.value = currentSubject;
                 if (tipEl) tipEl.textContent = `[ВЫБРАН: ${currentSubject.toUpperCase()}]`;
                 if (inputNew) inputNew.classList.add('hidden');
-            } else if (subjects.length > 0) {
-                importSel.value = subjects[0];
-                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subjects[0].toUpperCase()}]`;
+            } else if (subSlugs.length > 0) {
+                importSel.value = subSlugs[0];
+                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subSlugs[0].toUpperCase()}]`;
                 if (inputNew) inputNew.classList.add('hidden');
             } else {
                 importSel.value = '__new__';
@@ -481,9 +485,10 @@ async function loadDynamicSubjects() {
         if (stagingSel) {
             stagingSel.innerHTML = '';
             subjects.forEach(sub => {
+                const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
-                opt.value = sub;
-                opt.textContent = `[${subjectNames[sub] || sub.toUpperCase()}]`;
+                opt.value = subStr;
+                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
                 stagingSel.appendChild(opt);
             });
             if (typeof stagingSubject !== 'undefined' && stagingSubject) {

@@ -1041,7 +1041,7 @@ function showSessionStarter() {
     updateGlobalBadges();
     if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(currentSubject);
 }
-window.showSessionStarter = function() { showSessionStarter(); };
+window.showSessionStarter = showSessionStarter;
 
 window.exitToSessionMenu = function() {
     cardsQueue = [];
@@ -1055,8 +1055,8 @@ window.exitToSessionMenu = function() {
     updateGlobalBadges();
 };
 
-window.startSession = function(mode) { return startSession(mode); };
-window.fetchActiveSession = function(mode) { return fetchActiveSession(mode); };
+window.startSession = startSession;
+window.fetchActiveSession = fetchActiveSession;
 
 async function startSession(mode) {
     try {
