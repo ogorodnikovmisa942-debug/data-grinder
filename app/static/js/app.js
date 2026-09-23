@@ -885,11 +885,26 @@ async function initApplicationLifecycle() {
     // 2. Инициализация обработчиков кнопок
     try {
         const btnNew = document.getElementById('btn-session-new');
-        if (btnNew) btnNew.onclick = (e) => { e.preventDefault(); startSession('new'); };
+        if (btnNew) {
+            btnNew.onclick = (e) => { 
+                if (e) { e.preventDefault(); e.stopPropagation(); } 
+                startSession('new'); 
+            };
+        }
         const btnRev = document.getElementById('btn-session-review');
-        if (btnRev) btnRev.onclick = (e) => { e.preventDefault(); startSession('review'); };
+        if (btnRev) {
+            btnRev.onclick = (e) => { 
+                if (e) { e.preventDefault(); e.stopPropagation(); } 
+                startSession('review'); 
+            };
+        }
         const btnCram = document.getElementById('btn-session-cram');
-        if (btnCram) btnCram.onclick = (e) => { e.preventDefault(); startSession('cram'); };
+        if (btnCram) {
+            btnCram.onclick = (e) => { 
+                if (e) { e.preventDefault(); e.stopPropagation(); } 
+                startSession('cram'); 
+            };
+        }
 
         const toggleBtn = document.getElementById('bulk-select-toggle');
         if (toggleBtn) {
@@ -1240,6 +1255,12 @@ function resetCardDOM() {
         actionBtns.classList.add('hidden');
         actionBtns.classList.remove('flex');
     }
+    const hintEl = document.getElementById('card-front-hint');
+    if (hintEl) {
+        hintEl.classList.add('hidden');
+        hintEl.innerHTML = '';
+        hintEl.className = 'text-xs font-semibold font-mono text-primary bg-primary/10 mt-2 px-3 py-1 rounded-full border border-primary/20 hidden';
+    }
 }
 
 window.showSessionDebrief = async function() {
@@ -1430,6 +1451,7 @@ function showSessionStarter() {
     updateGlobalBadges();
     if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(currentSubject);
 }
+window.showSessionStarter = function() { showSessionStarter(); };
 
 window.exitToSessionMenu = function() {
     cardsQueue = [];
@@ -1444,29 +1466,34 @@ window.exitToSessionMenu = function() {
 };
 
 window.startSession = function(mode) { return startSession(mode); };
+window.fetchActiveSession = function(mode) { return fetchActiveSession(mode); };
 
 async function startSession(mode) {
-    currentSessionMode = mode;
-    currentSessionStats = {
-        totalAnswered: 0,
-        correctCount: 0,
-        lapsedCount: 0,
-        newCount: 0,
-        startTime: Date.now(),
-        reviewedCards: []
-    };
-    resetCardDOM();
-    const starter = document.getElementById('session-starter');
-    const flashcard = document.getElementById('flashcard');
-    const progressBar = document.getElementById('progress-bar');
-    const sessionCounters = document.getElementById('train-session-counters');
-    
-    if (starter) starter.classList.add('hidden');
-    if (flashcard) flashcard.classList.remove('hidden');
-    if (progressBar) progressBar.classList.remove('hidden');
-    if (sessionCounters) sessionCounters.classList.remove('hidden');
-    
-    await fetchActiveSession(mode);
+    try {
+        currentSessionMode = mode;
+        currentSessionStats = {
+            totalAnswered: 0,
+            correctCount: 0,
+            lapsedCount: 0,
+            newCount: 0,
+            startTime: Date.now(),
+            reviewedCards: []
+        };
+        resetCardDOM();
+        const starter = document.getElementById('session-starter');
+        const flashcard = document.getElementById('flashcard');
+        const progressBar = document.getElementById('progress-bar');
+        const sessionCounters = document.getElementById('train-session-counters');
+        
+        if (starter) starter.classList.add('hidden');
+        if (flashcard) flashcard.classList.remove('hidden');
+        if (progressBar) progressBar.classList.remove('hidden');
+        if (sessionCounters) sessionCounters.classList.remove('hidden');
+        
+        await fetchActiveSession(mode);
+    } catch (e) {
+        console.error("[startSession Error]", e);
+    }
 }
 
 async function fetchActiveSession(mode = 'mixed') {
@@ -1482,16 +1509,22 @@ async function fetchActiveSession(mode = 'mixed') {
                 cardText.classList.remove('hidden');
                 cardText.textContent = response.status === 401 ? "Требуется авторизация" : "Ошибка сессии";
             }
-            if (cardMainText) {
-                cardMainText.textContent = response.status === 401
-                    ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу."
-                    : "Не удалось загрузить карточки. Проверьте подключение к серверу.";
-            }
-            if (cardSecondaryText) {
-                cardSecondaryText.innerHTML = `
-                    <button onclick="fetchActiveSession('${mode}')" class="mt-4 px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                        [ ПОВТОРИТЬ ПОПЫТКУ ]
-                    </button>
+            const frontHint = document.getElementById('card-front-hint');
+            if (frontHint) {
+                frontHint.classList.remove('hidden');
+                frontHint.className = "mt-4 flex flex-col items-center gap-2";
+                frontHint.innerHTML = `
+                    <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
+                        ${response.status === 401 ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу." : "Не удалось загрузить карточки. Проверьте подключение к серверу."}
+                    </p>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
+                            [ ПОВТОРИТЬ ПОПЫТКУ ]
+                        </button>
+                        <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
+                            [ В МЕНЮ СЕССИЙ ]
+                        </button>
+                    </div>
                 `;
             }
             currentSessionCounters = { new: 0, learning: 0, review: 0 };
@@ -1510,37 +1543,38 @@ async function fetchActiveSession(mode = 'mixed') {
         const surveyContainer = document.getElementById('survey-container');
         if (cardsQueue.length === 0) {
             resetCardDOM();
-            if (surveyContainer && !window.surveyCompletedToday) {
-                surveyContainer.classList.remove('hidden');
-                if (cardText) cardText.classList.add('hidden');
-                if (cardCounter) cardCounter.classList.add('hidden');
-            } else {
-                if (surveyContainer) surveyContainer.classList.add('hidden');
-                if (cardText) {
-                    cardText.classList.remove('hidden');
-                    cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : (mode === 'cram' ? "Штурм недоступен" : "Очередь пуста"));
-                }
+            if (surveyContainer) surveyContainer.classList.add('hidden');
+            if (cardText) {
+                cardText.classList.remove('hidden');
+                cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : (mode === 'cram' ? "Штурм недоступен" : "Очередь пуста"));
             }
-            if (cardSecondaryText) {
-                cardSecondaryText.innerHTML = `
-                    <button onclick="showSessionStarter()" class="mt-4 px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                        [ В МЕНЮ СЕССИЙ ]
-                    </button>
-                `;
-            }
-            if (cardMainText) {
-                cardMainText.textContent = mode === 'review' 
+            const frontHint = document.getElementById('card-front-hint');
+            if (frontHint) {
+                frontHint.classList.remove('hidden');
+                frontHint.className = "mt-4 flex flex-col items-center gap-2";
+                const emptyMsg = mode === 'review' 
                     ? "На данный момент нет карточек, требующих повторения." 
                     : (mode === 'new' 
-                        ? "Вы изучили все новые карточки на сегодня или дневной лимит исчерпан." 
+                        ? "Все новые карточки в текущей колоде уже находятся в процессе изучения." 
                         : (mode === 'cram'
-                            ? "В режиме штурма повторяются только пройденные сложные карточки. Сначала изучите новые карточки в режиме «Учить новое»."
+                            ? "В режиме штурма повторяются только пройденные карточки. Сначала изучите новые карточки в режиме «Учить новое»."
                             : "Все задачи решены."));
+                frontHint.innerHTML = `
+                    <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
+                        ${emptyMsg}
+                    </p>
+                    <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-sm flex items-center gap-1.5 cursor-pointer">
+                        <span class="material-symbols-outlined text-sm">arrow_back</span>
+                        <span>В меню сессий</span>
+                    </button>
+                `;
             }
             if (cardCounter) cardCounter.textContent = "";
             if (progressFill) progressFill.style.width = "100%"; 
             currentSessionCounters = { new: 0, learning: 0, review: 0 };
-            renderTopCounters(); updateGlobalBadges(); return;
+            renderTopCounters(); 
+            updateGlobalBadges(); 
+            return;
         }
         
         if (surveyContainer) {
@@ -1836,6 +1870,7 @@ function advanceIntroduction() {
         renderIntroductionCard(card);
     }
 }
+window.advanceIntroduction = advanceIntroduction;
 
 function completeIntroduction() {
     const card = cardsQueue[currentIndex];
@@ -1866,6 +1901,7 @@ function completeIntroduction() {
     recalculateQueueCounters();
     renderCurrentCard();
 }
+window.completeIntroduction = completeIntroduction;
 
 window.fastTrackIntroduction = function() {
     const card = cardsQueue[currentIndex];
@@ -2418,29 +2454,37 @@ function renderSessionStarterButtons(data) {
             btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
             btnReviewBadge.textContent = `${dueCount} КАРТ`;
             btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary text-white shadow-xs animate-pulse";
-            btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md";
+            btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md cursor-pointer";
         } else {
             btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
             btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО)";
             btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
+            btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
         }
     }
 
     // 2. Учить новое (new_remaining_today с учетом дневного лимита)
-    const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : data.cards_new;
+    const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
     const dailyLimit = data.daily_new_limit || 20;
+    const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
     if (btnNew && btnNewBadge && btnNewText) {
         if (newRemaining > 0) {
             btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
             btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
             btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs";
+            btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
+        } else if (totalNew > 0) {
+            // Дневной лимит исчерпан, но новые карточки в колоде ЕСТЬ — разрешаем учить дальше (over-limit study)
+            btnNewText.textContent = "[ УЧИТЬ ЕЩЕ ]";
+            btnNewBadge.textContent = `+${totalNew} В КОЛОДЕ`;
+            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
+            btnNew.className = "w-full flex items-center justify-between px-4 border border-amber-500/60 text-amber-600 dark:text-amber-400 py-2.5 font-bold tracking-wide hover:bg-amber-500 hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
         } else {
+            // Карточек со state == 0 в базе действительно 0
             btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = "ЛИМИТ ИСЧЕРПАН";
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75";
+            btnNewBadge.textContent = "0 НОВЫХ";
+            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
+            btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
         }
     }
 
@@ -2461,7 +2505,7 @@ function renderSessionStarterButtons(data) {
             btnCramBadge.textContent = "0 (НЕТ ИЗУЧЕННЫХ)";
             btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
             if (btnCram) {
-                btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed";
+                btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed cursor-pointer";
             }
         }
     }

@@ -13,7 +13,7 @@ from app.database.models import (
 )
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import is_admin_or_dev
-from app.core.auth import get_current_user_id
+from app.core.auth import get_current_user_id, ensure_user_has_starter_deck
 from app.core.config import settings
 
 router = APIRouter()
@@ -40,6 +40,12 @@ async def get_analytics(
     card_res = await db.execute(card_stmt)
     cards = card_res.scalars().all()
     
+    # Страховочный онбординг для числовых пользователей Telegram, если колода пуста
+    if current_user and current_user.isdigit() and len(cards) == 0:
+        await ensure_user_has_starter_deck(current_user, db)
+        card_res = await db.execute(card_stmt)
+        cards = card_res.scalars().all()
+
     states_dict = {0: 0, 1: 0, 2: 0, 3: 0}
     for c in cards: 
         states_dict[c.state if c.state in states_dict else 0] += 1

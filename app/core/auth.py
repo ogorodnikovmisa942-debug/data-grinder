@@ -90,16 +90,14 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
         return
 
     try:
-        # Проверяем UserSetting: если пользователь уже проходил онбординг, никогда не клонируем повторно
-        setting_stmt = select(UserSetting).filter(UserSetting.user_id == user_id)
-        user_setting = (await db.execute(setting_stmt)).scalar_one_or_none()
-        if user_setting and user_setting.subject_limits and user_setting.subject_limits.get("_onboarded"):
-            return
-
         user_cards_count = (await db.execute(
             select(func.count(Card.id)).filter(Card.user_id == user_id)
         )).scalar() or 0
 
+        setting_stmt = select(UserSetting).filter(UserSetting.user_id == user_id)
+        user_setting = (await db.execute(setting_stmt)).scalar_one_or_none()
+
+        # Если у пользователя уже есть карточки (> 0), фиксируем завершение онбординга и выходим
         if user_cards_count > 0:
             if user_setting:
                 limits = dict(user_setting.subject_limits or {})
@@ -122,7 +120,9 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
             # Если карточек в БД нет вообще, загружаем встроенные пресеты
             from pathlib import Path
             from app.services.card_db_sync import append_or_sync_cards_to_database, sync_subject_knowledge_and_practice
-            presets_dir = Path("app/static/presets")
+            presets_dir = Path(__file__).resolve().parents[2] / "app" / "static" / "presets"
+            if not presets_dir.exists():
+                presets_dir = Path("app/static/presets").resolve()
             preset_files = [
                 presets_dir / "sudoustroystvo.json",
                 presets_dir / "python.json",
@@ -146,12 +146,12 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
                     except Exception as pe:
                         print(f"[Auth Onboarding Preset Error] {pf}: {pe}")
 
-            if user_setting:
+            if total_loaded > 0 and user_setting:
                 limits = dict(user_setting.subject_limits or {})
                 limits["_onboarded"] = True
                 user_setting.subject_limits = limits
+                await db.commit()
 
-            await db.commit()
             print(f"[Auth Onboarding] Загружено {total_loaded} карточек из встроенных пресетов для {user_id}")
             return
 

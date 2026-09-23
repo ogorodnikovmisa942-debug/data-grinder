@@ -3,13 +3,13 @@ import asyncio
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel
 from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, utc_now
 from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
-from app.core.auth import get_current_user_id
+from app.core.auth import get_current_user_id, ensure_user_has_starter_deck
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from datetime import datetime
@@ -135,6 +135,14 @@ async def get_session_cards(
         active_sub = res.scalar()
         subject = active_sub or "sudoustroystvo"
 
+    # Страховочный онбординг для числовых пользователей Telegram, если колода пуста
+    if current_user and current_user.isdigit():
+        total_user_cards = (await db.execute(
+            select(func.count(Card.id)).filter(Card.user_id == current_user)
+        )).scalar() or 0
+        if total_user_cards == 0:
+            await ensure_user_has_starter_deck(current_user, db)
+
     now = utc_now()
     
     # Проверяем участие в научном эксперименте
@@ -212,6 +220,19 @@ async def get_session_cards(
         new_stmt = new_stmt.order_by(Card.layer.asc(), Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
+    elif mode == "new":
+        # Если пользователь ЯВНО нажал "Учить новое/еще", но дневная квота исчерпана —
+        # не блокируем экран, выдаем дополнительную порцию новых карт (Over-limit study)
+        extra_limit = limit or 10
+        extra_stmt = select(Card).filter(
+            Card.user_id == current_user,
+            Card.state == 0
+        )
+        if subject != 'all':
+            extra_stmt = extra_stmt.filter(Card.subject.in_(sub_aliases))
+        extra_stmt = extra_stmt.order_by(Card.layer.asc(), Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(extra_limit)
+        extra_res = await db.execute(extra_stmt)
+        new_cards = extra_res.scalars().all()
 
     if mode == "new":
         # Режим "Учить новое": СТРОГО только новые карточки (state == 0), ни одной старой
