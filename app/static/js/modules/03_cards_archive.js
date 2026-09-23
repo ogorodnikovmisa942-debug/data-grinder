@@ -1,10 +1,28 @@
 async function loadDataTab() {
     const container = document.getElementById('data-container'); 
-    if (container) container.innerHTML = '<div class="text-sm font-mono text-outline py-md">Загрузка архива...</div>';
+    if (container) container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Загрузка архива...</div>';
     try {
-        const res = await apiFetch(`/api/data/cards?subject=${currentSubject}`); const data = await res.json();
-        localCardsArchive = data.cards; renderFilteredArchiveDOM();
-    } catch (e) { if (container) container.innerHTML = '<div class="text-sm font-mono text-error py-md">Ошибка архива</div>'; }
+        const res = await apiFetch(`/api/data/cards?subject=${currentSubject}`); 
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        localCardsArchive = Array.isArray(data.cards) ? data.cards : []; 
+        renderFilteredArchiveDOM();
+    } catch (e) { 
+        console.error("[Archive Load Error]", e);
+        if (container) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-lg text-center gap-2 font-mono">
+                    <div class="text-xs text-error font-bold">${escapeHTML(e.message || 'Ошибка загрузки архива')}</div>
+                    <button onclick="loadDataTab()" class="mt-2 px-3 py-1.5 border border-primary text-primary text-xs rounded-xl hover:bg-primary/10 transition-colors uppercase font-bold">
+                        Повторить попытку
+                    </button>
+                </div>
+            `;
+        }
+    }
 }
 
 function initArchiveFilters() {
@@ -13,7 +31,8 @@ function initArchiveFilters() {
         btn.addEventListener('click', () => {
             filterButtons.forEach(b => { b.className = "px-xs py-0.5 text-outline hover:text-primary border border-transparent"; });
             btn.className = "px-xs py-0.5 bg-primary text-on-primary border border-primary";
-            currentDataFilter = btn.getAttribute('data-filter'); renderFilteredArchiveDOM();
+            currentDataFilter = btn.getAttribute('data-filter'); 
+            renderFilteredArchiveDOM();
         });
     });
 }
@@ -22,12 +41,17 @@ function initArchiveFilters() {
 function renderFilteredArchiveDOM() {
     const container = document.getElementById('data-container');
     if (!container) return;
-    const filtered = localCardsArchive.filter(c => {
-        if (currentDataFilter === 'all') return true; if (currentDataFilter === 'new') return c.state === 0; if (currentDataFilter === 'review') return c.state > 0; return true;
+    const cards = Array.isArray(localCardsArchive) ? localCardsArchive : [];
+    const filtered = cards.filter(c => {
+        if (!c) return false;
+        if (currentDataFilter === 'all') return true; 
+        if (currentDataFilter === 'new') return c.state === 0; 
+        if (currentDataFilter === 'review') return c.state > 0; 
+        return true;
     });
     
-    const totalCount = localCardsArchive ? localCardsArchive.length : 0;
-    const filteredCount = filtered ? filtered.length : 0;
+    const totalCount = cards.length;
+    const filteredCount = filtered.length;
     const countBadge = document.getElementById('archive-count');
     if (countBadge) {
         if (filteredCount === totalCount) {
@@ -37,7 +61,10 @@ function renderFilteredArchiveDOM() {
         }
     }
     
-    if (filtered.length === 0) { container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Категория пуста</div>'; return; }
+    if (filtered.length === 0) { 
+        container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Категория пуста</div>'; 
+        return; 
+    }
     
     container.innerHTML = filtered.map(c => {
         const labels = ['NEW', 'LRN', 'REV', 'REL'];

@@ -51,14 +51,25 @@ if (window.Telegram && window.Telegram.WebApp) {
     }
 }
 
-// Проверяем явный параметр из URL (для отладки в браузере или прямого доступа)
-try {
-    const urlParams = new URLSearchParams(window.location.search);
-    const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
-    if (queryTgId) {
-        tgId = queryTgId.trim();
+// Динамическое получение активного ID пользователя (Telegram SDK или URL параметр)
+function getActiveUserId() {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        const uid = window.Telegram.WebApp.initDataUnsafe.user.id;
+        if (uid) {
+            tgId = uid.toString();
+            return tgId;
+        }
     }
-} catch (_) {}
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
+        if (queryTgId) {
+            tgId = queryTgId.trim();
+            return tgId;
+        }
+    } catch (_) {}
+    return tgId || 'default_user';
+}
 
 // Универсальная обертка для HTTP-запросов с передачей авторизации Telegram
 async function apiFetch(url, options = {}) {
@@ -69,7 +80,7 @@ async function apiFetch(url, options = {}) {
         opts.headers['Authorization'] = `tma ${window.Telegram.WebApp.initData}`;
         opts.headers['X-Telegram-Init-Data'] = window.Telegram.WebApp.initData;
     }
-    opts.headers['X-User-Id'] = tgId;
+    opts.headers['X-User-Id'] = getActiveUserId();
 
     // Защита от вечного зависания сети на смартфонах (12 секунд таймаут)
     if (!opts.signal && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
@@ -2389,60 +2400,94 @@ function renderSessionStarterButtons(data) {
     }
 }
 
+window.switchTab = function(targetTab) {
+    if (!targetTab) return;
+    currentTab = targetTab;
+    
+    if (typeof body !== 'undefined' && body) {
+        if (targetTab !== 'train') {
+            body.classList.remove('focus-active');
+        }
+    }
+
+    const focusToggleBtn = document.getElementById('focus-toggle');
+    if (focusToggleBtn) {
+        if (targetTab === 'train') {
+            focusToggleBtn.classList.remove('hidden');
+        } else {
+            focusToggleBtn.classList.add('hidden');
+        }
+    }
+    
+    const navButtons = document.querySelectorAll('.nav-link');
+    navButtons.forEach(b => { 
+        if (b.getAttribute('data-tab') === targetTab) {
+            b.classList.remove('text-outline'); 
+            b.classList.add('text-primary'); 
+        } else {
+            b.classList.remove('text-primary'); 
+            b.classList.add('text-outline'); 
+        }
+    });
+    
+    document.querySelectorAll('.app-screen').forEach(screen => { 
+        screen.classList.add('hidden'); 
+        screen.classList.remove('flex-1', 'flex', 'flex-col'); 
+    });
+    
+    const targetScreen = document.getElementById(`screen-${targetTab}`);
+    if (targetScreen) {
+        targetScreen.classList.remove('hidden');
+        targetScreen.classList.add('flex-1', 'flex', 'flex-col'); 
+    }
+    
+    try {
+        if (targetTab === 'data' && typeof loadDataTab === 'function') loadDataTab(); 
+        if (targetTab === 'stats' && typeof loadStatsTab === 'function') loadStatsTab(); 
+        if (targetTab === 'config' && typeof loadConfigTab === 'function') loadConfigTab();
+    } catch (tabSwitchErr) {
+        console.error("[Tab Content Load Error]", tabSwitchErr);
+    }
+};
+
 function initNavigation() {
     const navButtons = document.querySelectorAll('.nav-link');
-    const focusToggleBtn = document.getElementById('focus-toggle');
-    
     navButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.preventDefault(); 
             const targetTab = btn.getAttribute('data-tab'); 
-            currentTab = targetTab;
-            
-            if (targetTab !== 'train') {
-                body.classList.remove('focus-active');
+            if (targetTab && typeof window.switchTab === 'function') {
+                window.switchTab(targetTab);
             }
-
-            if (focusToggleBtn) {
-                if (targetTab === 'train') {
-                    focusToggleBtn.classList.remove('hidden');
-                } else {
-                    focusToggleBtn.classList.add('hidden');
-                }
-            }
-            
-            navButtons.forEach(b => { 
-                b.classList.remove('text-primary'); 
-                b.classList.add('text-outline'); 
-            });
-            btn.classList.remove('text-outline');
-            btn.classList.add('text-primary');
-            
-            document.querySelectorAll('.app-screen').forEach(screen => { 
-                screen.classList.add('hidden'); 
-                screen.classList.remove('flex-1', 'flex', 'flex-col'); 
-            });
-            
-            const targetScreen = document.getElementById(`screen-${targetTab}`);
-            if (targetScreen) {
-                targetScreen.classList.remove('hidden');
-                targetScreen.classList.add('flex-1', 'flex', 'flex-col'); 
-            }
-            
-            if (targetTab === 'data') loadDataTab(); 
-            if (targetTab === 'stats') loadStatsTab(); 
-            if (targetTab === 'config') loadConfigTab();
         });
     });
 }
 
 async function loadDataTab() {
     const container = document.getElementById('data-container'); 
-    if (container) container.innerHTML = '<div class="text-sm font-mono text-outline py-md">Загрузка архива...</div>';
+    if (container) container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Загрузка архива...</div>';
     try {
-        const res = await apiFetch(`/api/data/cards?subject=${currentSubject}`); const data = await res.json();
-        localCardsArchive = data.cards; renderFilteredArchiveDOM();
-    } catch (e) { if (container) container.innerHTML = '<div class="text-sm font-mono text-error py-md">Ошибка архива</div>'; }
+        const res = await apiFetch(`/api/data/cards?subject=${currentSubject}`); 
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        localCardsArchive = Array.isArray(data.cards) ? data.cards : []; 
+        renderFilteredArchiveDOM();
+    } catch (e) { 
+        console.error("[Archive Load Error]", e);
+        if (container) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-lg text-center gap-2 font-mono">
+                    <div class="text-xs text-error font-bold">${escapeHTML(e.message || 'Ошибка загрузки архива')}</div>
+                    <button onclick="loadDataTab()" class="mt-2 px-3 py-1.5 border border-primary text-primary text-xs rounded-xl hover:bg-primary/10 transition-colors uppercase font-bold">
+                        Повторить попытку
+                    </button>
+                </div>
+            `;
+        }
+    }
 }
 
 function initArchiveFilters() {
@@ -2451,7 +2496,8 @@ function initArchiveFilters() {
         btn.addEventListener('click', () => {
             filterButtons.forEach(b => { b.className = "px-xs py-0.5 text-outline hover:text-primary border border-transparent"; });
             btn.className = "px-xs py-0.5 bg-primary text-on-primary border border-primary";
-            currentDataFilter = btn.getAttribute('data-filter'); renderFilteredArchiveDOM();
+            currentDataFilter = btn.getAttribute('data-filter'); 
+            renderFilteredArchiveDOM();
         });
     });
 }
@@ -2460,12 +2506,17 @@ function initArchiveFilters() {
 function renderFilteredArchiveDOM() {
     const container = document.getElementById('data-container');
     if (!container) return;
-    const filtered = localCardsArchive.filter(c => {
-        if (currentDataFilter === 'all') return true; if (currentDataFilter === 'new') return c.state === 0; if (currentDataFilter === 'review') return c.state > 0; return true;
+    const cards = Array.isArray(localCardsArchive) ? localCardsArchive : [];
+    const filtered = cards.filter(c => {
+        if (!c) return false;
+        if (currentDataFilter === 'all') return true; 
+        if (currentDataFilter === 'new') return c.state === 0; 
+        if (currentDataFilter === 'review') return c.state > 0; 
+        return true;
     });
     
-    const totalCount = localCardsArchive ? localCardsArchive.length : 0;
-    const filteredCount = filtered ? filtered.length : 0;
+    const totalCount = cards.length;
+    const filteredCount = filtered.length;
     const countBadge = document.getElementById('archive-count');
     if (countBadge) {
         if (filteredCount === totalCount) {
@@ -2475,7 +2526,10 @@ function renderFilteredArchiveDOM() {
         }
     }
     
-    if (filtered.length === 0) { container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Категория пуста</div>'; return; }
+    if (filtered.length === 0) { 
+        container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Категория пуста</div>'; 
+        return; 
+    }
     
     container.innerHTML = filtered.map(c => {
         const labels = ['NEW', 'LRN', 'REV', 'REL'];

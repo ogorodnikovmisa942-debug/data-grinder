@@ -12,7 +12,7 @@ load_dotenv(dotenv_path=env_path)
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, MenuButtonWebApp
 from aiogram.client.session.aiohttp import AiohttpSession  
 from sqlalchemy import select
 
@@ -268,6 +268,16 @@ async def main():
         print("[Grinder Bot] Фоновый пушер и ночной воркер инициализированы успешно.")
     else:
         print("[Grinder Bot] Фоновый пушер инициализирован (ночной воркер делегирован grinder-web / main.py).")
+    
+    # Автоматическая настройка кнопки меню WebApp для запуска приложения в Telegram
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="[ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))
+        )
+        print(f"[Grinder Bot] Кнопка меню WebApp успешно настроена: {WEBAPP_URL}")
+    except Exception as mb_err:
+        print(f"[Grinder Bot WARN] Ошибка установки MenuButtonWebApp: {mb_err}")
+
     await dp.start_polling(bot)
 
 

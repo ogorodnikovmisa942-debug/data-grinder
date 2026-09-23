@@ -2008,49 +2008,65 @@ function renderSessionStarterButtons(data) {
     }
 }
 
+window.switchTab = function(targetTab) {
+    if (!targetTab) return;
+    currentTab = targetTab;
+    
+    if (typeof body !== 'undefined' && body) {
+        if (targetTab !== 'train') {
+            body.classList.remove('focus-active');
+        }
+    }
+
+    const focusToggleBtn = document.getElementById('focus-toggle');
+    if (focusToggleBtn) {
+        if (targetTab === 'train') {
+            focusToggleBtn.classList.remove('hidden');
+        } else {
+            focusToggleBtn.classList.add('hidden');
+        }
+    }
+    
+    const navButtons = document.querySelectorAll('.nav-link');
+    navButtons.forEach(b => { 
+        if (b.getAttribute('data-tab') === targetTab) {
+            b.classList.remove('text-outline'); 
+            b.classList.add('text-primary'); 
+        } else {
+            b.classList.remove('text-primary'); 
+            b.classList.add('text-outline'); 
+        }
+    });
+    
+    document.querySelectorAll('.app-screen').forEach(screen => { 
+        screen.classList.add('hidden'); 
+        screen.classList.remove('flex-1', 'flex', 'flex-col'); 
+    });
+    
+    const targetScreen = document.getElementById(`screen-${targetTab}`);
+    if (targetScreen) {
+        targetScreen.classList.remove('hidden');
+        targetScreen.classList.add('flex-1', 'flex', 'flex-col'); 
+    }
+    
+    try {
+        if (targetTab === 'data' && typeof loadDataTab === 'function') loadDataTab(); 
+        if (targetTab === 'stats' && typeof loadStatsTab === 'function') loadStatsTab(); 
+        if (targetTab === 'config' && typeof loadConfigTab === 'function') loadConfigTab();
+    } catch (tabSwitchErr) {
+        console.error("[Tab Content Load Error]", tabSwitchErr);
+    }
+};
+
 function initNavigation() {
     const navButtons = document.querySelectorAll('.nav-link');
-    const focusToggleBtn = document.getElementById('focus-toggle');
-    
     navButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.preventDefault(); 
             const targetTab = btn.getAttribute('data-tab'); 
-            currentTab = targetTab;
-            
-            if (targetTab !== 'train') {
-                body.classList.remove('focus-active');
+            if (targetTab && typeof window.switchTab === 'function') {
+                window.switchTab(targetTab);
             }
-
-            if (focusToggleBtn) {
-                if (targetTab === 'train') {
-                    focusToggleBtn.classList.remove('hidden');
-                } else {
-                    focusToggleBtn.classList.add('hidden');
-                }
-            }
-            
-            navButtons.forEach(b => { 
-                b.classList.remove('text-primary'); 
-                b.classList.add('text-outline'); 
-            });
-            btn.classList.remove('text-outline');
-            btn.classList.add('text-primary');
-            
-            document.querySelectorAll('.app-screen').forEach(screen => { 
-                screen.classList.add('hidden'); 
-                screen.classList.remove('flex-1', 'flex', 'flex-col'); 
-            });
-            
-            const targetScreen = document.getElementById(`screen-${targetTab}`);
-            if (targetScreen) {
-                targetScreen.classList.remove('hidden');
-                targetScreen.classList.add('flex-1', 'flex', 'flex-col'); 
-            }
-            
-            if (targetTab === 'data') loadDataTab(); 
-            if (targetTab === 'stats') loadStatsTab(); 
-            if (targetTab === 'config') loadConfigTab();
         });
     });
 }

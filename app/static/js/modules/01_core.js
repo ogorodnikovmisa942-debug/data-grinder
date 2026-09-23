@@ -51,14 +51,25 @@ if (window.Telegram && window.Telegram.WebApp) {
     }
 }
 
-// Проверяем явный параметр из URL (для отладки в браузере или прямого доступа)
-try {
-    const urlParams = new URLSearchParams(window.location.search);
-    const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
-    if (queryTgId) {
-        tgId = queryTgId.trim();
+// Динамическое получение активного ID пользователя (Telegram SDK или URL параметр)
+function getActiveUserId() {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        const uid = window.Telegram.WebApp.initDataUnsafe.user.id;
+        if (uid) {
+            tgId = uid.toString();
+            return tgId;
+        }
     }
-} catch (_) {}
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
+        if (queryTgId) {
+            tgId = queryTgId.trim();
+            return tgId;
+        }
+    } catch (_) {}
+    return tgId || 'default_user';
+}
 
 // Универсальная обертка для HTTP-запросов с передачей авторизации Telegram
 async function apiFetch(url, options = {}) {
@@ -69,7 +80,7 @@ async function apiFetch(url, options = {}) {
         opts.headers['Authorization'] = `tma ${window.Telegram.WebApp.initData}`;
         opts.headers['X-Telegram-Init-Data'] = window.Telegram.WebApp.initData;
     }
-    opts.headers['X-User-Id'] = tgId;
+    opts.headers['X-User-Id'] = getActiveUserId();
 
     // Защита от вечного зависания сети на смартфонах (12 секунд таймаут)
     if (!opts.signal && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {

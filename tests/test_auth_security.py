@@ -104,3 +104,35 @@ def test_telegram_init_data_with_signature_accepted():
         settings.TESTING = orig_testing
         settings.TELEGRAM_BOT_TOKEN = orig_token
 
+
+def test_numeric_telegram_user_id_accepted_in_prod():
+    """Telegram MiniApp launched via Menu Button or Reply Keyboard sends numeric Telegram ID."""
+    orig_debug = settings.DEBUG
+    orig_testing = settings.TESTING
+    orig_token = settings.TELEGRAM_BOT_TOKEN
+
+    try:
+        settings.DEBUG = False
+        settings.TESTING = False
+        settings.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+
+        with TestClient(app) as client:
+            # Numeric Telegram ID (e.g. from initDataUnsafe or tg_id URL param)
+            res = client.get(
+                "/api/practice/session?subject=sudoustr",
+                headers={"X-User-Id": "1222282942"}
+            )
+            assert res.status_code != 401
+
+            # Default guest user
+            res_def = client.get(
+                "/api/practice/session?subject=sudoustr",
+                headers={"X-User-Id": "default_user"}
+            )
+            assert res_def.status_code != 401
+    finally:
+        settings.DEBUG = orig_debug
+        settings.TESTING = orig_testing
+        settings.TELEGRAM_BOT_TOKEN = orig_token
+
+

@@ -33,11 +33,14 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
         secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
 
-        if hmac.compare_digest(calculated_hash, hash_check):
+        if hmac.compare_digest(calculated_hash.lower(), hash_check.lower()):
             user_raw = parsed.get("user")
             if user_raw:
                 if isinstance(user_raw, str):
-                    return json.loads(user_raw)
+                    try:
+                        return json.loads(user_raw)
+                    except Exception:
+                        return {"raw_user": user_raw}
                 return user_raw
             return parsed
         return None
@@ -179,29 +182,49 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
     auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
     init_data_header = request.headers.get("x-telegram-init-data") or request.headers.get("X-Telegram-Init-Data")
     custom_user_header = request.headers.get("x-user-id") or request.headers.get("X-User-Id")
-    query_tg_id = request.query_params.get("tg_id")
+    query_tg_id = request.query_params.get("tg_id") or request.query_params.get("user_id")
 
     user_id = None
 
-    # Пробуем разобрать tma <initData>
+    # 1. Пробуем разобрать и верифицировать tma <initData>
     init_data_str = None
     if auth_header and auth_header.startswith("tma "):
         init_data_str = auth_header[4:].strip()
     elif init_data_header:
         init_data_str = init_data_header.strip()
 
+    init_data_verified = False
     if init_data_str:
         verified_data = parse_and_verify_telegram_init_data(init_data_str, settings.TELEGRAM_BOT_TOKEN)
-        if verified_data and "id" in verified_data:
-            user_id = str(verified_data["id"])
-        elif settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_BOT_TOKEN != "placeholder_bot_token":
-            # Токен настроен, но подпись не сошлась — отклоняем запрос
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, 
-                detail="Недействительная криптографическая подпись Telegram WebApp."
-            )
+        if verified_data:
+            init_data_verified = True
+            if isinstance(verified_data, dict):
+                if "id" in verified_data:
+                    user_id = str(verified_data["id"])
+                elif "user" in verified_data:
+                    u = verified_data["user"]
+                    if isinstance(u, dict) and "id" in u:
+                        user_id = str(u["id"])
+                    elif isinstance(u, str):
+                        try:
+                            user_id = str(json.loads(u).get("id"))
+                        except Exception:
+                            pass
+        else:
+            print(f"[Auth WARN] Не удалось верифицировать HMAC подпись Telegram initData")
 
-    # Фолбэк для прямого браузерного доступа, разработки и тестов
+    # 2. Определяем кандидата из заголовков/параметров
+    candidate = None
+    if custom_user_header and custom_user_header.strip():
+        candidate = custom_user_header.strip()
+    elif query_tg_id and query_tg_id.strip():
+        candidate = query_tg_id.strip()
+
+    # Если криптографическая подпись Telegram валидна, но user_id еще не извлечен из payload
+    if init_data_verified and not user_id and candidate:
+        user_id = candidate
+
+    # 3. Фолбэк для прямого браузерного доступа, запуска по кнопке Меню / KeyboardButton, разработки и тестов
     if not user_id:
         is_dev_mode = (
             settings.DEBUG
@@ -210,18 +233,29 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
             or settings.TELEGRAM_BOT_TOKEN == "placeholder_bot_token"
         )
         if is_dev_mode:
-            if custom_user_header:
-                user_id = custom_user_header.strip()
-            elif query_tg_id:
-                user_id = query_tg_id.strip()
-            else:
-                user_id = "dev_user"
+            user_id = candidate or "dev_user"
         else:
-            # Для внешнего прямого браузерного доступа без Telegram:
-            # Разрешаем безопасный гостевой/демо доступ только для "default_user",
-            # предотвращая несанкционированную подмену чужого числового ID
-            if custom_user_header == "default_user":
+            if candidate == "default_user":
                 user_id = "default_user"
+            elif candidate and candidate.isdigit():
+                # Проверяем наличие сессии Telegram или разрешаем числовой Telegram ID пользователя
+                session_stmt = select(UserSession).filter(
+                    (UserSession.telegram_id == candidate) | (UserSession.user_id == candidate)
+                )
+                session_res = await db.execute(session_stmt)
+                existing_session = session_res.scalar_one_or_none()
+                if existing_session or not init_data_str:
+                    user_id = candidate
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Недействительная криптографическая подпись Telegram WebApp."
+                    )
+            elif init_data_str and not init_data_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Недействительная криптографическая подпись Telegram WebApp."
+                )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
