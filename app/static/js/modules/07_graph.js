@@ -1333,8 +1333,6 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     // Показываем карточку найденного понятия
     showKgNodeDrawer(targetNode);
 };
-    showKgNodeDrawer(targetNode);
-};
 
 window.focusNodeInGraph = function(nodeId) {
     const cleanData = getCleanGraphData();
