@@ -5,6 +5,44 @@ let currentKgView = 'tree'; // 'tree' | 'graph'
 let currentKgLayout = 'force'; // 'force' | 'radial' | 'tree'
 let currentForceGraphInstance = null;
 
+// Динамический асинхронный загрузчик библиотек физики графа (D3 & ForceGraph)
+let graphVendorLoadingPromise = null;
+function ensureGraphVendorLoaded() {
+    if (window.ForceGraph && window.d3) {
+        return Promise.resolve();
+    }
+    if (graphVendorLoadingPromise) {
+        return graphVendorLoadingPromise;
+    }
+    graphVendorLoadingPromise = new Promise((resolve, reject) => {
+        const loadScript = (src) => new Promise((res, rej) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                res();
+                return;
+            }
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = false;
+            s.onload = () => res();
+            s.onerror = (e) => rej(new Error(`Failed to load ${src}`));
+            document.head.appendChild(s);
+        });
+
+        loadScript('/vendor/d3.min.js')
+            .then(() => loadScript('/vendor/force-graph.min.js'))
+            .then(() => {
+                console.log('[Graph] Библиотеки D3 и ForceGraph успешно загружены в фоновом режиме');
+                resolve();
+            })
+            .catch(err => {
+                console.error('[Graph Vendor Load Error]', err);
+                graphVendorLoadingPromise = null;
+                reject(err);
+            });
+    });
+    return graphVendorLoadingPromise;
+}
+
 // Цвета категорий узлов (Neon Dark Cyber theme)
 const KG_CATEGORY_COLORS = {
     'authority': '#f59e0b',     // Amber / Gold
@@ -210,6 +248,11 @@ function getCleanGraphData() {
 window.openKnowledgeGraphModal = function(targetSubject) {
     const sub = targetSubject || getActiveDeckSubject();
     currentKgSubject = sub;
+
+    // Фоновая предварительная загрузка библиотек физики графа
+    if (!window.ForceGraph || !window.d3) {
+        ensureGraphVendorLoaded().catch(() => {});
+    }
 
     const modal = document.getElementById('knowledge-graph-modal');
     if (!modal) return;
@@ -1377,24 +1420,37 @@ window.highlightSessionInGraph = function(cards) {
     }
 };
 
-window.initForceGraph = function(graphData) {
+window.initForceGraph = async function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
     if (!wrapper) return;
 
-    if (!window.ForceGraph) {
+    if (!window.ForceGraph || !window.d3) {
         wrapper.innerHTML = `
             <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
-                <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
-                <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
-                <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не загрузился из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
-                <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
-                    <span class="material-symbols-outlined text-[16px]">account_tree</span>
-                    <span>[ Открыть Mindmap (Дерево) ]</span>
-                </button>
+                <span class="material-symbols-outlined text-4xl text-primary animate-spin mb-2">sync</span>
+                <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">Загрузка 2D-движка графа...</p>
+                <p class="text-xs text-neutral-500">Инициализация физической модели D3 и холста...</p>
             </div>
         `;
-        return;
+        try {
+            await ensureGraphVendorLoaded();
+        } catch (err) {
+            wrapper.innerHTML = `
+                <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
+                    <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
+                    <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
+                    <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не смог загрузиться из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
+                    <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[16px]">account_tree</span>
+                        <span>[ Открыть Mindmap (Дерево) ]</span>
+                    </button>
+                </div>
+            `;
+            return;
+        }
     }
+
+    if (!window.ForceGraph) return;
 
     const container = wrapper.parentElement || wrapper;
     const width = wrapper.clientWidth || container.clientWidth || window.innerWidth;
@@ -1481,9 +1537,14 @@ window.initForceGraph = function(graphData) {
 
                 const lKey = link.__key || getGraphLinkKey(link.source, link.target);
                 const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
+                const isBackbone = searchBackboneLinkKeys.has(lKey) || searchHighlightLinkKeys.has(lKey);
+                const sId = (typeof link.source === 'object' && link.source !== null) ? String(link.source.id) : String(link.source);
+                const tId = (typeof link.target === 'object' && link.target !== null) ? String(link.target.id) : String(link.target);
+                const isTargetEdge = activeSearchTargetId && (sId === activeSearchTargetId || tId === activeSearchTargetId);
 
-                // Only render label text if globalScale >= 1.25 (to avoid clutter when zoomed out) or if directly hovered
-                if (globalScale < 1.25 && !isHovered) return;
+                // Подписи отображаются ТОЛЬКО для активных, наведенных связей или связей выбранного понятия.
+                // Ни в коем случае не рендерим подписи для сотен фоновых связей подряд при зуме!
+                if (!isHovered && !isBackbone && !isTargetEdge) return;
 
                 const relStyle = getKgRelationStyle(link.relation);
                 const label = link.label || relStyle.label;
@@ -1500,6 +1561,14 @@ window.initForceGraph = function(graphData) {
                     midY += dx * curvature * 0.5;
                 }
                 if (!Number.isFinite(midX) || !Number.isFinite(midY)) return;
+
+                // Viewport Culling для подписи связи: отсекаем связи вне экрана
+                const transform = ctx.getTransform();
+                const screenMidX = transform.a * midX + transform.e;
+                const screenMidY = transform.d * midY + transform.f;
+                if (screenMidX < -60 || screenMidX > ctx.canvas.width + 60 || screenMidY < -60 || screenMidY > ctx.canvas.height + 60) {
+                    return;
+                }
 
                 ctx.save();
                 if (!isHovered && globalScale < 1.40) {
@@ -1630,6 +1699,17 @@ window.initForceGraph = function(graphData) {
         .nodeCanvasObject((node, ctx, globalScale) => {
             try {
                 if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+
+                // 0. Viewport Culling: мгновенно отсекаем узлы за пределами видимого экрана
+                const transform = ctx.getTransform();
+                const screenX = transform.a * node.x + transform.e;
+                const screenY = transform.d * node.y + transform.f;
+                const canvasW = ctx.canvas.width;
+                const canvasH = ctx.canvas.height;
+                if (screenX < -80 || screenX > canvasW + 80 || screenY < -80 || screenY > canvasH + 80) {
+                    return;
+                }
+
                 const hasActiveSelection = searchHighlightNodes.size > 0;
                 const isHighlighted = !hasActiveSelection || searchHighlightNodes.has(String(node.id));
                 const isTarget = activeSearchTargetId === String(node.id);
@@ -1887,32 +1967,23 @@ window.initForceGraph = function(graphData) {
         .nodePointerAreaPaint((node, color, ctx) => {
             try {
                 if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+
+                // Viewport Culling для offscreen хит-теста холста
+                const transform = ctx.getTransform();
+                const screenX = transform.a * node.x + transform.e;
+                const screenY = transform.d * node.y + transform.f;
+                if (screenX < -50 || screenX > ctx.canvas.width + 50 || screenY < -50 || screenY > ctx.canvas.height + 50) {
+                    return;
+                }
+
                 const baseR = Math.max(3.0, (node.val || 4) * 0.75);
-                // Увеличиваем сенсорный радиус касания для мобильных пальцев (минимум 26px)
-                const radius = Math.max(26, baseR + 10);
+                // Комфортный сенсорный радиус для мобильных пальцев (28px),
+                // покрывающий узел и зону плашки под ним
+                const radius = Math.max(28, baseR + 14);
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
                 ctx.fill();
-
-                // Также регистрируем область текстовой плашки понятия под узлом,
-                // чтобы нажатие на текст на телефоне не считалось фоновым кликом!
-                const label = node.name || node.id;
-                if (label) {
-                    const baseFontSize = (node.level === 0 ? 12 : (node.level === 1 ? 9.5 : 8));
-                    const lineHeight = baseFontSize + 3.0;
-                    const lines = node.__lines || wrapNodeText(label, node.level === 0 ? 22 : 16);
-                    const startY = node.y + (baseR * 1.4) + 4.5 + (lineHeight / 2);
-                    
-                    lines.forEach((line, i) => {
-                        const lineY = startY + (i * lineHeight);
-                        const pillW = Math.max(60, line.length * (baseFontSize * 0.7) + 20);
-                        const pillH = baseFontSize + 9.0;
-                        ctx.beginPath();
-                        ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
-                        ctx.fill();
-                    });
-                }
             } catch (_) {
                 // Предотвращаем падение при сбоях сенсорного хит-теста
             }

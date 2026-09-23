@@ -12,12 +12,12 @@ import os
 # Add project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.frontend_bundler import bundle_modules, split_app_js
+from app.services.frontend_bundler import bundle_all, split_app_js
 
 if __name__ == "__main__":
     if "--split" in sys.argv:
         split_app_js()
         print("Frontend modules generated in app/static/js/modules/")
     else:
-        bundle_modules()
-        print("Frontend modules bundled successfully into app/static/js/app.js")
+        bundle_all()
+        print("Frontend modules and HTML bundled successfully.")

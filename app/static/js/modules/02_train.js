@@ -440,7 +440,27 @@ function bindDOMPointers() {
     initTrainGestures();
 }
 
+let isAppLifecycleInitialized = false;
+
+async function syncActiveAppState() {
+    try {
+        await loadDynamicSubjects(); 
+        if (subjectSelector) subjectSelector.value = currentSubject;
+        updateGlobalBadges();
+        if (typeof updateTariffBanner === 'function') { updateTariffBanner(); }
+        if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); }
+        if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+    } catch (err) {
+        console.warn("[App State Sync Error]", err);
+    }
+}
+
 async function initApplicationLifecycle() {
+    if (isAppLifecycleInitialized) {
+        return syncActiveAppState();
+    }
+    isAppLifecycleInitialized = true;
+
     // 1. Немедленная синхронная привязка интерфейса и навигации (не ждёт сеть!)
     try {
         bindDOMPointers();
@@ -489,13 +509,11 @@ async function initApplicationLifecycle() {
 
     // 3. Фоновая асинхронная загрузка данных (не блокирует переключение вкладок!)
     try {
-        await loadDynamicSubjects(); 
-        if (subjectSelector) subjectSelector.value = currentSubject;
-        updateGlobalBadges();
+        await syncActiveAppState();
         
         if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
-        if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
-        if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
+        if (typeof updateTariffBanner === 'function') { setInterval(updateTariffBanner, 60000); }
+        if (typeof checkNightQueueStatus === 'function') { setInterval(checkNightQueueStatus, 30000); }
         if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
         window.addEventListener('hashchange', () => {
             if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
@@ -503,7 +521,6 @@ async function initApplicationLifecycle() {
         if (typeof updateAssocPreferenceUI === 'function') {
             updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
         }
-        if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
     } catch (lifecycleErr) {
         console.error("Ошибка при фоновой загрузке данных:", lifecycleErr);
     }
@@ -565,6 +582,25 @@ if (document.readyState === 'loading') {
 } else {
     initApplicationLifecycle();
 }
+
+// Восстановление из BFCache при повторном запуске через другую кнопку в Telegram
+window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+        if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.expand === 'function') {
+            try { window.Telegram.WebApp.expand(); } catch (_) {}
+        }
+        initApplicationLifecycle();
+    }
+});
+
+// Автоматическое расширение окна при возврате на экран
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.expand === 'function') {
+            try { window.Telegram.WebApp.expand(); } catch (_) {}
+        }
+    }
+});
 
 function isLanguageCard(card) {
     if (!card) return false;

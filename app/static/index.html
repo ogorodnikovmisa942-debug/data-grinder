@@ -10,9 +10,6 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Локальные скрипты физики графа (defer - не блокируют парсинг и запуск приложения) -->
-    <script src="/vendor/d3.min.js" defer></script>
-    <script src="/vendor/force-graph.min.js" defer></script>
     <link rel="stylesheet" href="/css/tailwind.min.css?v=1">
     <style>
         #data-container.selection-mode-active .card-checkbox {
@@ -51,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=10">
+    <link rel="stylesheet" href="/css/main.css?v=11">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -1258,7 +1255,7 @@
 
                 <!-- ВИД 2: 2D Obsidian Force Graph -->
                 <div id="kg-graph-view" class="hidden flex-1 relative w-full h-full min-h-0 overflow-hidden">
-                    <div id="kg-graph-canvas-wrapper" class="w-full h-full min-h-0"></div>
+                    <div id="kg-graph-canvas-wrapper" data-engine="force-graph" class="w-full h-full min-h-0"></div>
 
                     <!-- Панель переключения геометрии и поиска по связям (компактная на мобильных устройствах) -->
                     <div class="absolute top-2.5 left-2.5 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 max-w-[calc(100%-20px)] flex-nowrap">
@@ -1534,6 +1531,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=73"></script>
+    <script src="/js/app.js?v=74"></script>
 </body>
 </html>

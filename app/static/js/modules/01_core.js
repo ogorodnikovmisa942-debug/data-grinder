@@ -11,13 +11,6 @@ if (window.Telegram && window.Telegram.WebApp) {
             try { tg.disableVerticalSwipes(); } catch (_) {}
         }
         
-        if (typeof tg.requestFullscreen === 'function') {
-            try { 
-                const p = tg.requestFullscreen(); 
-                if (p && typeof p.catch === 'function') p.catch(() => {});
-            } catch (_) {}
-        }
-        
         try {
             if (typeof tg.setHeaderColor === 'function') tg.setHeaderColor('#fbfbfb'); 
             if (typeof tg.setBackgroundColor === 'function') tg.setBackgroundColor('#fbfbfb');
