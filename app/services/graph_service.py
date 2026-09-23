@@ -826,12 +826,14 @@ def get_all_subject_aliases(subject_slug: str) -> list[str]:
     s = (subject_slug or "").strip().lower()
     if not s:
         return []
-    if s == "sudoustr":
-        return ["sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"]
-    if s == "sudoustroystvo":
-        return ["sudoustroystvo", "sudoustr", "court_system", "судоустройство", "sud", "суд"]
-    if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право"):
-        aliases = ["civil_law", "гражданское", "гк_рф", "гражданское_право"]
+    if s in ("sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство", "sud", "суд"):
+        aliases = ["sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство", "sud", "суд"]
+        if s in aliases:
+            aliases.remove(s)
+            aliases.insert(0, s)
+        return aliases
+    if s in ("civil_law", "гражданское", "гк_рф", "гражданское_право", "law_civil", "law_civil_rb"):
+        aliases = ["civil_law", "гражданское", "гк_рф", "гражданское_право", "law_civil", "law_civil_rb"]
         if s in aliases:
             aliases.remove(s)
             aliases.insert(0, s)
@@ -842,21 +844,33 @@ def get_all_subject_aliases(subject_slug: str) -> list[str]:
             aliases.remove(s)
             aliases.insert(0, s)
         return aliases
+    if s in ("chinese", "chinese_hsk3", "hsk3", "китайский", "китайский_язык"):
+        aliases = ["chinese", "chinese_hsk3", "hsk3", "китайский", "китайский_язык"]
+        if s in aliases:
+            aliases.remove(s)
+            aliases.insert(0, s)
+        return aliases
+    if s in ("python", "python_pro", "python_advanced"):
+        aliases = ["python", "python_pro", "python_advanced"]
+        if s in aliases:
+            aliases.remove(s)
+            aliases.insert(0, s)
+        return aliases
     return [s]
 
 
 def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
     """Returns the pre-computed seed knowledge graph for standard preset decks."""
     s = (subject_slug or "").strip().lower()
-    if s in ("sudoustr", "sudoustroystvo", "court_system", "судоустройство", "sud", "суд"):
+    if s in ("sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство", "sud", "суд"):
         res = generate_sudoustroystvo_seed_graph()
         res["subject"] = subject_slug
-        if s == "sudoustr":
+        if s in ("sudoustr", "sudoust"):
             if res.get("graph_data", {}).get("nodes"):
-                res["graph_data"]["nodes"][0]["name"] = "SUDOUSTR"
-                res["graph_data"]["nodes"][0]["label"] = "SUDOUSTR"
+                res["graph_data"]["nodes"][0]["name"] = s.upper()
+                res["graph_data"]["nodes"][0]["label"] = s.upper()
             if res.get("tree_data"):
-                res["tree_data"]["name"] = "SUDOUSTR"
+                res["tree_data"]["name"] = s.upper()
         return res
     return None
 
@@ -887,7 +901,7 @@ def normalize_institute_name(raw: str, canonical_subject: str = "") -> str:
     if 'нормативн' in low_full and ('акт' in low_full or 'нпа' in low_full):
         return 'Законодательство об НПА'
     if 'констит' in low_full:
-        if canonical_subject in ("sudoustr", "sudoustroystvo", "court_system"):
+        if canonical_subject in ("sudoustr", "sudoustroystvo", "sudoust", "court_system"):
             return 'Конституционные основы правосудия'
         return 'Конституционные основы'
 
@@ -1072,13 +1086,13 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
 
     # Определяем презентабельное название корня дисциплины
     root_id = normalize_id(clean_title)
-    if clean_title.lower() == "sudoustr":
-        root_name = "SUDOUSTR"
+    if clean_title.lower() in ("sudoustr", "sudoust"):
+        root_name = clean_title.upper()
     elif canonical.lower() in ("onshteorpravo", "teoriya_prava"):
         root_name = "Общая теория права"
-    elif canonical.lower() == "civil_law":
+    elif canonical.lower() in ("civil_law", "law_civil"):
         root_name = "Гражданское право"
-    elif canonical.lower() == "sudoustroystvo":
+    elif canonical.lower() in ("sudoustroystvo", "sudoust", "sudoustr"):
         root_name = "Судоустройство"
     else:
         # Проверяем наличие общего phrase_title в карточках

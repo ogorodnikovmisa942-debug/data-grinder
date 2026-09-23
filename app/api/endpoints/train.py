@@ -17,12 +17,14 @@ from datetime import datetime
 router = APIRouter()
 
 KNOWN_SUBJECT_NAMES = {
+    "sudoust": "Судоустройство РФ",
     "sudoustr": "Судоустройство РФ",
     "sudoustroystvo": "Судоустройство РФ",
     "constitutional_law": "Конституционное право",
     "constitution": "Конституционное право",
     "law": "Юриспруденция",
     "law_civil": "Гражданское право",
+    "civil_law": "Гражданское право",
     "ugolovnoe": "Уголовное право",
     "upk": "Уголовный процесс",
     "gpk": "Гражданский процесс",
@@ -46,7 +48,7 @@ async def get_subject_display_name(slug: str, user_id: str, db: AsyncSession) ->
     p_text = (await db.execute(stmt_p)).scalar()
     if p_text:
         return p_text
-    if slug.lower() in ("sudoustr", "sudoustroystvo"):
+    if slug.lower() in ("sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство"):
         return "Судоустройство РФ"
     return slug.replace('_', ' ').replace('-', ' ').title()
 

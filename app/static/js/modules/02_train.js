@@ -40,7 +40,7 @@ function renderFSRSButtons(cardSubject) {
     if (FSRS_LABELS[subject]) {
         labelsKey = subject;
     } else {
-        if (subject.startsWith('law_')) {
+        if (subject.startsWith('law_') || subject.startsWith('sudou') || subject === 'court_system' || subject === 'civil_law') {
             labelsKey = 'law_civil';
         } else if (subject.startsWith('python_')) {
             labelsKey = 'python_pro';

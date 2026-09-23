@@ -157,7 +157,7 @@ async def export_cards_json(
         cards = res_def.scalars().all()
 
     canonical = resolve_subject_alias(subject)
-    phrase_title = "Судоустройство: Основной курс" if canonical == "sudoustroystvo" else f"Курс: {canonical}"
+    phrase_title = "Судоустройство: Основной курс" if canonical in ("sudoustroystvo", "sudoustr", "sudoust") else f"Курс: {canonical}"
     if cards:
         p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
         if subject != "all":

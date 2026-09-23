@@ -167,5 +167,41 @@ class TestTrainSessionFlow(unittest.IsolatedAsyncioTestCase):
         # Убеждаемся, что при mode === 'new' карточки больше не перемешиваются вслепую
         self.assertIn("if (mode === 'cram')", js)
 
+    async def test_04_session_cards_sudoust_alias_matching(self):
+        """Проверка того, что карточки с subject='sudoustr' корректно находятся при запросе subject='sudoust'."""
+        test_user = "test_alias_user_04"
+        now = datetime.utcnow()
+        async with AsyncSessionLocal() as db:
+            phrase = Phrase(text="Органы правосудия", subject="sudoustr", user_id=test_user)
+            db.add(phrase)
+            await db.flush()
+
+            card = Card(
+                phrase_id=phrase.id,
+                user_id=test_user,
+                subject="sudoustr",
+                text="Что такое подсудность?",
+                translation="Распределение дел между судами определенной компетенции.",
+                topological_rank=1,
+                layer=0,
+                state=0,
+                next_review=now
+            )
+            db.add(card)
+            await db.commit()
+
+        try:
+            async with AsyncSessionLocal() as db:
+                cards = await get_session_cards(subject="sudoust", mode="new", current_user=test_user, db=db)
+                self.assertEqual(len(cards), 1)
+                self.assertEqual(cards[0]["text"], "Что такое подсудность?")
+                self.assertEqual(cards[0]["subject_title"], "Судоустройство РФ")
+        finally:
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import delete
+                await db.execute(delete(Card).where(Card.user_id == test_user))
+                await db.execute(delete(Phrase).where(Phrase.user_id == test_user))
+                await db.commit()
+
 if __name__ == "__main__":
     unittest.main()

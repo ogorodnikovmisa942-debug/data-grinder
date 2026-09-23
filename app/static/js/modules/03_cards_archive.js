@@ -418,6 +418,11 @@ async function loadDynamicSubjects() {
         const subjectNames = { 
             'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
             'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 
+            'civil_law': 'ГРАЖДАНСКОЕ ПРАВО',
+            'sudoust': 'СУДОУСТРОЙСТВО РФ',
+            'sudoustr': 'СУДОУСТРОЙСТВО РФ',
+            'sudoustroystvo': 'СУДОУСТРОЙСТВО РФ',
+            'court_system': 'СУДОУСТРОЙСТВО РФ',
             'python_pro': 'PYTHON ADVANCED', 
             'geometry': 'ГЕОМЕТРИЯ (ФОРМУЛЫ)', 
             'law_civil_rb': 'ГРАЖДАНСКОЕ ПРАВО РБ' 
