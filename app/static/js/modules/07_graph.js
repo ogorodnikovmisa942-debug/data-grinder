@@ -678,6 +678,8 @@ function wrapNodeText(text, maxChars = 16) {
 }
 
 let isInitialLayoutFit = true;
+let isInitializingGraph = false;
+let kgViewportBounds = { minX: -1e6, maxX: 1e6, minY: -1e6, maxY: 1e6 };
 let searchHighlightNodes = new Set();
 let searchHighlightLinkKeys = new Set();
 let searchBackboneNodes = new Set();
@@ -1424,45 +1426,14 @@ window.initForceGraph = async function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
     if (!wrapper) return;
 
-    if (!window.ForceGraph || !window.d3) {
-        wrapper.innerHTML = `
-            <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
-                <span class="material-symbols-outlined text-4xl text-primary animate-spin mb-2">sync</span>
-                <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">Загрузка 2D-движка графа...</p>
-                <p class="text-xs text-neutral-500">Инициализация физической модели D3 и холста...</p>
-            </div>
-        `;
-        try {
-            await ensureGraphVendorLoaded();
-        } catch (err) {
-            wrapper.innerHTML = `
-                <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
-                    <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
-                    <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
-                    <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не смог загрузиться из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
-                    <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
-                        <span class="material-symbols-outlined text-[16px]">account_tree</span>
-                        <span>[ Открыть Mindmap (Дерево) ]</span>
-                    </button>
-                </div>
-            `;
-            return;
-        }
-    }
-
-    if (!window.ForceGraph) return;
-
     const container = wrapper.parentElement || wrapper;
     const width = wrapper.clientWidth || container.clientWidth || window.innerWidth;
     const height = wrapper.clientHeight || container.clientHeight || (window.innerHeight - 150);
 
-    const cleanData = getCleanGraphData();
-    if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
-
     const isDark = document.documentElement.classList.contains('dark');
     const bgColor = isDark ? '#0e0e0e' : '#fbfbfb';
 
-    // If graph already initialized, resize, update styling, and re-apply current layout
+    // 1. Если граф уже инициализирован, только обновляем размеры и возобновляем анимацию
     if (currentForceGraphInstance) {
         currentForceGraphInstance
             .width(width)
@@ -1475,11 +1446,48 @@ window.initForceGraph = async function(graphData) {
         return;
     }
 
-    wrapper.innerHTML = '';
-    isInitialLayoutFit = true;
-    wrapper.addEventListener('pointerdown', () => { isInitialLayoutFit = false; }, { passive: true });
-    wrapper.addEventListener('touchstart', () => { isInitialLayoutFit = false; }, { passive: true });
-    wrapper.addEventListener('wheel', () => { isInitialLayoutFit = false; }, { passive: true });
+    // 2. Защита от параллельного двойного запуска конструктора
+    if (isInitializingGraph) return;
+    isInitializingGraph = true;
+
+    try {
+        if (!window.ForceGraph || !window.d3) {
+            wrapper.innerHTML = `
+                <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
+                    <span class="material-symbols-outlined text-4xl text-primary animate-spin mb-2">sync</span>
+                    <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">Загрузка 2D-движка графа...</p>
+                    <p class="text-xs text-neutral-500">Инициализация физической модели D3 и холста...</p>
+                </div>
+            `;
+            try {
+                await ensureGraphVendorLoaded();
+            } catch (err) {
+                wrapper.innerHTML = `
+                    <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
+                        <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
+                        <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
+                        <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не смог загрузиться из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
+                        <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">account_tree</span>
+                            <span>[ Открыть Mindmap (Дерево) ]</span>
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+        }
+
+        if (!window.ForceGraph) return;
+        if (currentForceGraphInstance) return;
+
+        const cleanData = getCleanGraphData();
+        if (!cleanData || !cleanData.nodes || cleanData.nodes.length === 0) return;
+
+        wrapper.innerHTML = '';
+        isInitialLayoutFit = true;
+        wrapper.addEventListener('pointerdown', () => { isInitialLayoutFit = false; }, { passive: true });
+        wrapper.addEventListener('touchstart', () => { isInitialLayoutFit = false; }, { passive: true });
+        wrapper.addEventListener('wheel', () => { isInitialLayoutFit = false; }, { passive: true });
 
     currentForceGraphInstance = ForceGraph()(wrapper)
         .width(width)
@@ -1525,6 +1533,23 @@ window.initForceGraph = async function(graphData) {
             return 0.9;
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
+        .onRenderFramePre((ctx, globalScale) => {
+            try {
+                const t = ctx.getTransform();
+                const pad = 80;
+                const invA = 1 / t.a;
+                const invD = 1 / t.d;
+                kgViewportBounds.minX = (-pad - t.e) * invA;
+                kgViewportBounds.maxX = (ctx.canvas.width + pad - t.e) * invA;
+                kgViewportBounds.minY = (-pad - t.f) * invD;
+                kgViewportBounds.maxY = (ctx.canvas.height + pad - t.f) * invD;
+            } catch (_) {
+                kgViewportBounds.minX = -1e6;
+                kgViewportBounds.maxX = 1e6;
+                kgViewportBounds.minY = -1e6;
+                kgViewportBounds.maxY = 1e6;
+            }
+        })
         .linkCanvasObjectMode(() => 'after')
         .linkCanvasObject((link, ctx, globalScale) => {
             try {
@@ -1562,11 +1587,9 @@ window.initForceGraph = async function(graphData) {
                 }
                 if (!Number.isFinite(midX) || !Number.isFinite(midY)) return;
 
-                // Viewport Culling для подписи связи: отсекаем связи вне экрана
-                const transform = ctx.getTransform();
-                const screenMidX = transform.a * midX + transform.e;
-                const screenMidY = transform.d * midY + transform.f;
-                if (screenMidX < -60 || screenMidX > ctx.canvas.width + 60 || screenMidY < -60 || screenMidY > ctx.canvas.height + 60) {
+                // Viewport Culling для подписи связи без вызова getTransform()
+                if (midX < kgViewportBounds.minX || midX > kgViewportBounds.maxX ||
+                    midY < kgViewportBounds.minY || midY > kgViewportBounds.maxY) {
                     return;
                 }
 
@@ -1700,13 +1723,9 @@ window.initForceGraph = async function(graphData) {
             try {
                 if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
 
-                // 0. Viewport Culling: мгновенно отсекаем узлы за пределами видимого экрана
-                const transform = ctx.getTransform();
-                const screenX = transform.a * node.x + transform.e;
-                const screenY = transform.d * node.y + transform.f;
-                const canvasW = ctx.canvas.width;
-                const canvasH = ctx.canvas.height;
-                if (screenX < -80 || screenX > canvasW + 80 || screenY < -80 || screenY > canvasH + 80) {
+                // 0. Viewport Culling: мгновенно отсекаем узлы за пределами видимого экрана (0 DOMMatrix allocations)
+                if (node.x < kgViewportBounds.minX || node.x > kgViewportBounds.maxX ||
+                    node.y < kgViewportBounds.minY || node.y > kgViewportBounds.maxY) {
                     return;
                 }
 
@@ -1870,9 +1889,10 @@ window.initForceGraph = async function(graphData) {
                 shouldShowLabel = globalScale >= 0.85;
                 labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 0.75) / 0.15));
             } else {
-                // Понятия появляются при глубоком приближении с плавным переходом 1.1 - 1.4
-                shouldShowLabel = globalScale >= 1.10;
-                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 1.10) / 0.30));
+                // Понятия появляются при глубоком приближении с плавным переходом 1.80 - 2.10
+                // Это предотвращает отрисовку 200+ текстовых плашек одновременно на мобильных экранах
+                shouldShowLabel = globalScale >= 1.80;
+                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 1.80) / 0.30));
             }
 
             if (isHighlighted && shouldShowLabel && labelAlpha > 0.02) {
@@ -1967,19 +1987,13 @@ window.initForceGraph = async function(graphData) {
         .nodePointerAreaPaint((node, color, ctx) => {
             try {
                 if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
-
-                // Viewport Culling для offscreen хит-теста холста
-                const transform = ctx.getTransform();
-                const screenX = transform.a * node.x + transform.e;
-                const screenY = transform.d * node.y + transform.f;
-                if (screenX < -50 || screenX > ctx.canvas.width + 50 || screenY < -50 || screenY > ctx.canvas.height + 50) {
+                if (node.x < kgViewportBounds.minX || node.x > kgViewportBounds.maxX ||
+                    node.y < kgViewportBounds.minY || node.y > kgViewportBounds.maxY) {
                     return;
                 }
 
                 const baseR = Math.max(3.0, (node.val || 4) * 0.75);
-                // Комфортный сенсорный радиус для мобильных пальцев (28px),
-                // покрывающий узел и зону плашки под ним
-                const radius = Math.max(28, baseR + 14);
+                const radius = Math.max(26, baseR + 10);
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
@@ -2033,6 +2047,9 @@ window.initForceGraph = async function(graphData) {
         }
     };
     window.addEventListener('resize', kgResizeHandler);
+    } finally {
+        isInitializingGraph = false;
+    }
 };
 
 window.zoomGraph = function(factor) {
