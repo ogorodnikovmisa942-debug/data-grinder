@@ -14,6 +14,7 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
     """
     Проверяет криптографическую подпись initData от Telegram WebApp.
     Возвращает словарь данных пользователя при успехе, либо None.
+    Поддерживает Telegram Bot API 7.0+ (автоматически исключает hash и signature перед проверкой).
     """
     if not init_data or not bot_token or bot_token == "placeholder_bot_token":
         return None
@@ -21,6 +22,7 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
     try:
         parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         hash_check = parsed.pop("hash", None)
+        parsed.pop("signature", None)  # В Bot API 7.0+ Telegram добавляет signature третьих сторон, не входящую в hash
         if not hash_check:
             return None
 
@@ -34,7 +36,9 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
         if hmac.compare_digest(calculated_hash, hash_check):
             user_raw = parsed.get("user")
             if user_raw:
-                return json.loads(user_raw)
+                if isinstance(user_raw, str):
+                    return json.loads(user_raw)
+                return user_raw
             return parsed
         return None
     except Exception as e:
@@ -197,7 +201,7 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
                 detail="Недействительная криптографическая подпись Telegram WebApp."
             )
 
-    # Фолбэк для разработки и прямого браузерного доступа
+    # Фолбэк для прямого браузерного доступа, разработки и тестов
     if not user_id:
         is_dev_mode = (
             settings.DEBUG
@@ -213,10 +217,16 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
             else:
                 user_id = "dev_user"
         else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Требуется авторизация через Telegram WebApp."
-            )
+            # Для внешнего прямого браузерного доступа без Telegram:
+            # Разрешаем безопасный гостевой/демо доступ только для "default_user",
+            # предотвращая несанкционированную подмену чужого числового ID
+            if custom_user_header == "default_user":
+                user_id = "default_user"
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Требуется авторизация через Telegram WebApp."
+                )
 
     # Гарантируем наличие UserSetting и UserSession для этого пользователя
     try:

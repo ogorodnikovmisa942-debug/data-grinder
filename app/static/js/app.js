@@ -48,6 +48,15 @@ if (window.Telegram && window.Telegram.WebApp) {
     }
 }
 
+// Проверяем явный параметр из URL (для отладки в браузере или прямого доступа)
+try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
+    if (queryTgId) {
+        tgId = queryTgId.trim();
+    }
+} catch (_) {}
+
 // Универсальная обертка для HTTP-запросов с передачей авторизации Telegram
 async function apiFetch(url, options = {}) {
     const opts = { ...options };
@@ -761,47 +770,55 @@ function bindDOMPointers() {
 }
 
 async function initApplicationLifecycle() {
-    bindDOMPointers();
-    await loadDynamicSubjects(); 
-    if (subjectSelector) subjectSelector.value = currentSubject;
-    showSessionStarter(); initPomodoroEngine(); initNavigation();
-    initArchiveFilters(); updateGlobalBadges();
-    
-    // Инициализация кнопки массового выбора
-    const toggleBtn = document.getElementById('bulk-select-toggle');
-    if (toggleBtn) {
-        toggleBtn.onclick = () => {
-            if (isSelectionMode) {
-                deactivateSelectionMode();
-            } else {
-                activateSelectionMode();
-            }
-        };
+    try {
+        bindDOMPointers();
+        await loadDynamicSubjects(); 
+        if (subjectSelector) subjectSelector.value = currentSubject;
+        showSessionStarter(); initPomodoroEngine(); initNavigation();
+        initArchiveFilters(); updateGlobalBadges();
+        
+        // Инициализация кнопки массового выбора
+        const toggleBtn = document.getElementById('bulk-select-toggle');
+        if (toggleBtn) {
+            toggleBtn.onclick = () => {
+                if (isSelectionMode) {
+                    deactivateSelectionMode();
+                } else {
+                    activateSelectionMode();
+                }
+            };
+        }
+        
+        // Привязываем обработчик отправки опроса
+        const surveySubmitBtn = document.getElementById('survey-submit-btn');
+        if (surveySubmitBtn) {
+            surveySubmitBtn.onclick = (e) => {
+                e.stopPropagation();
+                submitDailySessionSurvey();
+            };
+        }
+        
+        if (currentTab !== 'train' && focusToggle) {
+            focusToggle.classList.add('hidden');
+        }
+        if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
+        if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
+        if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
+        if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
+        window.addEventListener('hashchange', () => {
+            if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
+        });
+        if (typeof updateAssocPreferenceUI === 'function') {
+            updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
+        }
+        if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+    } catch (lifecycleErr) {
+        console.error("Ошибка при инициализации жизненного цикла приложения:", lifecycleErr);
+        try {
+            showSessionStarter();
+            if (typeof initNavigation === 'function') initNavigation();
+        } catch (_) {}
     }
-    
-    // Привязываем обработчик отправки опроса
-    const surveySubmitBtn = document.getElementById('survey-submit-btn');
-    if (surveySubmitBtn) {
-        surveySubmitBtn.onclick = (e) => {
-            e.stopPropagation();
-            submitDailySessionSurvey();
-        };
-    }
-    
-    if (currentTab !== 'train' && focusToggle) {
-        focusToggle.classList.add('hidden');
-    }
-    if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
-    if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
-    if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
-    if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
-    window.addEventListener('hashchange', () => {
-        if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
-    });
-    if (typeof updateAssocPreferenceUI === 'function') {
-        updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
-    }
-    if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
 }
 
 window.flipCard = function() {
@@ -1321,7 +1338,26 @@ async function fetchActiveSession(mode = 'mixed') {
         currentSessionMode = mode;
         const targetSub = (mode === 'cram') ? 'all' : currentSubject;
         const response = await apiFetch(`/api/session?subject=${targetSub}&mode=${mode}`);
-        cardsQueue = await response.json();
+        if (!response.ok) {
+            console.error("[Data Grinder] Сбой ответа сессии:", response.status);
+            cardsQueue = [];
+            resetCardDOM();
+            if (cardText) {
+                cardText.classList.remove('hidden');
+                cardText.textContent = response.status === 401 ? "Требуется авторизация" : "Ошибка сессии";
+            }
+            if (cardMainText) {
+                cardMainText.textContent = response.status === 401
+                    ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу."
+                    : "Не удалось загрузить карточки. Проверьте подключение к серверу.";
+            }
+            currentSessionCounters = { new: 0, learning: 0, review: 0 };
+            renderTopCounters();
+            updateGlobalBadges();
+            return;
+        }
+        const data = await response.json();
+        cardsQueue = Array.isArray(data) ? data : [];
         
         // ВНИМАНИЕ: Для 'new' и 'review' не перемешиваем!
         // Сохраняется дидактический порядок: слой (layer) -> topological_rank -> phrase_id
@@ -2171,12 +2207,15 @@ if (document.getElementById('action-buttons')) {
 
 async function updateGlobalBadges() {
     try {
-        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || typeof data !== 'object') return;
         window.surveyCompletedToday = data.survey_completed || false;
         window.eveningDueCount = data.due_evening || 0;
         
-        const totalCards = data.cards_new + data.cards_learning + data.cards_review;
-        const dueCount = cardsQueue.length - currentIndex;
+        const totalCards = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
+        const dueCount = (Array.isArray(cardsQueue) ? cardsQueue.length : 0) - currentIndex;
         
         // Если опрос сегодня пройден, и очредь пуста/завершена, скрываем его
         if (window.surveyCompletedToday && (cardsQueue.length === 0 || currentIndex >= cardsQueue.length)) {
@@ -5251,11 +5290,17 @@ function getCleanGraphData() {
     }
 
     // 1. Clean nodes: preserve parent_id, hierarchy levels, and real-time FSRS learning states
-    const nodes = currentKgGraphData.nodes.map(n => {
+    const seenNodeIds = new Set();
+    const nodes = [];
+    for (const n of currentKgGraphData.nodes) {
+        if (!n || !n.id) continue;
+        const nId = String(n.id);
+        if (seenNodeIds.has(nId)) continue;
+        seenNodeIds.add(nId);
         const lvl = n.level !== undefined ? Number(n.level) : (n.parent_id ? 2 : 1);
         const cardState = n.card_state !== undefined ? n.card_state : (n.is_learned ? 2 : 0);
-        return {
-            id: String(n.id),
+        nodes.push({
+            id: nId,
             name: n.name || n.id,
             category: n.category || 'authority',
             summary: n.summary || '',
@@ -5269,11 +5314,11 @@ function getCleanGraphData() {
             learned_count: n.learned_count || 0,
             total_leaves: n.total_leaves || 0,
             mastered_count: n.mastered_count || 0
-        };
-    });
+        });
+    }
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
-    const nodeIds = new Set(nodes.map(n => n.id));
+    const nodeIds = seenNodeIds;
 
     // 2. Clean links: D3 converts source/target to node object references.
     // We always extract the underlying ID string to prevent object-in-Set lookup failures.
@@ -5836,7 +5881,7 @@ function applyLayoutForces(graphInstance, layoutType) {
         }
     });
 
-    // 1. Сила отталкивания (Charge Repulsion)
+    // 1. Сила отталкивания (Charge Repulsion) с адаптивным масштабированием для защиты от зависания и взрыва координат
     if (graphInstance.d3Force('charge')) {
         graphInstance.d3Force('charge')
             .strength(node => {
@@ -5844,12 +5889,17 @@ function applyLayoutForces(graphInstance, layoutType) {
                 if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
                     return -25; // Деликатное отталкивание в геометрических режимах
                 }
-                // Органический режим: мощное распределение веток от центра
-                if (lvl === 0) return -2500;
-                if (lvl === 1) return -600;
-                return -150;
+                // Органический режим: для больших графов (>50 узлов) используем сбалансированное отталкивание
+                if (isLarge) {
+                    if (lvl === 0) return -800;
+                    if (lvl === 1) return -250;
+                    return -60;
+                }
+                if (lvl === 0) return -1800;
+                if (lvl === 1) return -450;
+                return -120;
             })
-            .distanceMax(2200);
+            .distanceMax(isLarge ? Math.min(850, 400 + nodeCount * 1.5) : 1600);
     }
 
     // 2. Сила связей (Link Force)
@@ -5868,12 +5918,12 @@ function applyLayoutForces(graphInstance, layoutType) {
 
                 // Органический режим (Force)
                 if (sLvl === 0 || tLvl === 0) {
-                    return Math.max(300, Math.min(480, 220 + branchCount * 3.5));
+                    return Math.max(260, Math.min(420, 200 + branchCount * 3.0));
                 }
                 if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
-                    return 75;
+                    return 70;
                 }
-                return 120;
+                return 110;
             })
             .strength(link => {
                 const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
@@ -5885,23 +5935,28 @@ function applyLayoutForces(graphInstance, layoutType) {
                     return 0.12; // Мягкая связность, геометрия управляется целевыми позициями
                 }
 
-                if (sLvl === 0 || tLvl === 0) return 0.90;
-                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) return 0.85;
+                if (sLvl === 0 || tLvl === 0) return 0.85;
+                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) return 0.75;
                 return 0.04; // Деликатные кросс-связи
             });
     }
 
-    // 3. Сила коллизии (Collide) — полное исключение наложения кружков
+    // 3. Сила коллизии (Collide) — 1 итерация для плавной производительности на мобильных WebView
     if (window.d3 && window.d3.forceCollide) {
         graphInstance.d3Force('collide', window.d3.forceCollide()
             .radius(node => {
                 const lvl = (node.level !== undefined) ? node.level : 2;
-                if (lvl === 0) return 55;
-                if (lvl === 1) return 42;
-                return 34;
+                if (isLarge) {
+                    if (lvl === 0) return 36;
+                    if (lvl === 1) return 26;
+                    return 18;
+                }
+                if (lvl === 0) return 50;
+                if (lvl === 1) return 38;
+                return 28;
             })
-            .strength(0.85)
-            .iterations(2)
+            .strength(isLarge ? 0.45 : 0.75)
+            .iterations(1)
         );
     }
 
@@ -6503,7 +6558,22 @@ window.highlightSessionInGraph = function(cards) {
 
 window.initForceGraph = function(graphData) {
     const wrapper = document.getElementById('kg-graph-canvas-wrapper');
-    if (!wrapper || !window.ForceGraph) return;
+    if (!wrapper) return;
+
+    if (!window.ForceGraph) {
+        wrapper.innerHTML = `
+            <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
+                <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
+                <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
+                <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не загрузился из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
+                <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[16px]">account_tree</span>
+                    <span>[ Открыть Mindmap (Дерево) ]</span>
+                </button>
+            </div>
+        `;
+        return;
+    }
 
     const container = wrapper.parentElement || wrapper;
     const width = wrapper.clientWidth || container.clientWidth || window.innerWidth;
@@ -6580,78 +6650,88 @@ window.initForceGraph = function(graphData) {
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
         .linkCanvasObjectMode(() => 'after')
         .linkCanvasObject((link, ctx, globalScale) => {
-            if (!link.source || !link.target) return;
-            const sx = typeof link.source.x === 'number' ? link.source.x : null;
-            const sy = typeof link.source.y === 'number' ? link.source.y : null;
-            const tx = typeof link.target.x === 'number' ? link.target.x : null;
-            const ty = typeof link.target.y === 'number' ? link.target.y : null;
-            if (sx === null || sy === null || tx === null || ty === null) return;
+            try {
+                if (!link.source || !link.target) return;
+                const sx = Number.isFinite(link.source.x) ? link.source.x : null;
+                const sy = Number.isFinite(link.source.y) ? link.source.y : null;
+                const tx = Number.isFinite(link.target.x) ? link.target.x : null;
+                const ty = Number.isFinite(link.target.y) ? link.target.y : null;
+                if (sx === null || sy === null || tx === null || ty === null) return;
 
-            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
-            const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
+                const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+                const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
 
-            // Only render label text if globalScale >= 1.25 (to avoid clutter when zoomed out) or if directly hovered
-            if (globalScale < 1.25 && !isHovered) return;
+                // Only render label text if globalScale >= 1.25 (to avoid clutter when zoomed out) or if directly hovered
+                if (globalScale < 1.25 && !isHovered) return;
 
-            const relStyle = getKgRelationStyle(link.relation);
-            const label = link.label || relStyle.label;
-            if (!label) return;
+                const relStyle = getKgRelationStyle(link.relation);
+                const label = link.label || relStyle.label;
+                if (!label) return;
 
-            let midX = (sx + tx) / 2;
-            let midY = (sy + ty) / 2;
+                let midX = (sx + tx) / 2;
+                let midY = (sy + ty) / 2;
 
-            const curvature = link.__curvature || 0;
-            if (curvature !== 0) {
-                const dx = tx - sx;
-                const dy = ty - sy;
-                midX += -dy * curvature * 0.5;
-                midY += dx * curvature * 0.5;
+                const curvature = link.__curvature || 0;
+                if (curvature !== 0) {
+                    const dx = tx - sx;
+                    const dy = ty - sy;
+                    midX += -dy * curvature * 0.5;
+                    midY += dx * curvature * 0.5;
+                }
+                if (!Number.isFinite(midX) || !Number.isFinite(midY)) return;
+
+                ctx.save();
+                if (!isHovered && globalScale < 1.40) {
+                    ctx.globalAlpha = Math.min(1.0, Math.max(0.1, (globalScale - 1.25) / 0.15));
+                }
+                if (searchHighlightNodes.size > 0 && !searchHighlightLinkKeys.has(lKey)) {
+                    ctx.globalAlpha = 0.05;
+                } else if ((hoveredNode || hoveredLink) && !isHovered) {
+                    ctx.globalAlpha = 0.15;
+                }
+
+                const fontSize = 9;
+                ctx.font = `500 ${fontSize}px Inter, "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Кэширование измерений текста на ребре для ликвидации просадок FPS (0 повторных measureText в кадре)
+                if (link.__cachedLabel !== label || !link.__pillW) {
+                    link.__cachedLabel = label;
+                    const textWidth = ctx.measureText(label).width;
+                    link.__textWidth = textWidth;
+                    link.__pillW = textWidth + 9.0;
+                    link.__pillH = fontSize + 5.0;
+                }
+                const pillW = link.__pillW;
+                const pillH = link.__pillH;
+
+                // Background chip
+                ctx.beginPath();
+                const pillR = 3.5;
+                if (ctx.roundRect) {
+                    ctx.roundRect(midX - pillW / 2, midY - pillH / 2, pillW, pillH, pillR);
+                } else {
+                    ctx.rect(midX - pillW / 2, midY - pillH / 2, pillW, pillH);
+                }
+                ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.88)' : 'rgba(255, 255, 255, 0.94)';
+                ctx.fill();
+
+                // Chip border
+                ctx.strokeStyle = isHovered
+                    ? (relStyle.color || (isDark ? '#38bdf8' : '#0284c7'))
+                    : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)');
+                ctx.lineWidth = isHovered ? 1.4 : 0.6;
+                ctx.stroke();
+
+                // Text
+                ctx.fillStyle = isDark ? '#f1f5f9' : '#0f172a';
+                ctx.fillText(label, midX, midY);
+
+                ctx.restore();
+            } catch (_) {
+                // Предотвращаем падение всего цикла анимации при специфичных сбоях холста
             }
-
-            ctx.save();
-            if (!isHovered && globalScale < 1.40) {
-                ctx.globalAlpha = Math.min(1.0, Math.max(0.1, (globalScale - 1.25) / 0.15));
-            }
-            if (searchHighlightNodes.size > 0 && !searchHighlightLinkKeys.has(lKey)) {
-                ctx.globalAlpha = 0.05;
-            } else if ((hoveredNode || hoveredLink) && !isHovered) {
-                ctx.globalAlpha = 0.15;
-            }
-
-            const fontSize = 9;
-            ctx.font = `500 ${fontSize}px Inter, "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-
-            const textWidth = ctx.measureText(label).width;
-            const padX = 4.5;
-            const padY = 2.5;
-            const pillW = textWidth + padX * 2;
-            const pillH = fontSize + padY * 2;
-
-            // Background chip
-            ctx.beginPath();
-            const pillR = 3.5;
-            if (ctx.roundRect) {
-                ctx.roundRect(midX - pillW / 2, midY - pillH / 2, pillW, pillH, pillR);
-            } else {
-                ctx.rect(midX - pillW / 2, midY - pillH / 2, pillW, pillH);
-            }
-            ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.88)' : 'rgba(255, 255, 255, 0.94)';
-            ctx.fill();
-
-            // Chip border
-            ctx.strokeStyle = isHovered
-                ? (relStyle.color || (isDark ? '#38bdf8' : '#0284c7'))
-                : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)');
-            ctx.lineWidth = isHovered ? 1.4 : 0.6;
-            ctx.stroke();
-
-            // Text
-            ctx.fillStyle = isDark ? '#f1f5f9' : '#0f172a';
-            ctx.fillText(label, midX, midY);
-
-            ctx.restore();
         })
         .onNodeHover(node => {
             if ((!node && !hoveredNode) || (node && hoveredNode && node.id === hoveredNode.id)) return;
@@ -6710,9 +6790,9 @@ window.initForceGraph = function(graphData) {
                 currentForceGraphInstance.refresh();
             }
         })
-        .warmupTicks(15)
-        .cooldownTicks(70)
-        .d3VelocityDecay(0.42) // Быстрый и плавный разогрев на мобильных устройствах
+        .warmupTicks(0)
+        .cooldownTicks(45)
+        .d3VelocityDecay(0.45) // Быстрый и плавный разогрев на мобильных устройствах без блокировки UI-потока
         .onDagError(() => false)
         .onEngineStop(() => {
             if (isInitialLayoutFit && currentForceGraphInstance && currentKgView === 'graph') {
@@ -6727,16 +6807,18 @@ window.initForceGraph = function(graphData) {
             isInitialLayoutFit = false;
         })
         .nodeCanvasObject((node, ctx, globalScale) => {
-            const hasActiveSelection = searchHighlightNodes.size > 0;
-            const isHighlighted = !hasActiveSelection || searchHighlightNodes.has(String(node.id));
-            const isTarget = activeSearchTargetId === String(node.id);
-            const isBackboneNode = searchBackboneNodes.has(String(node.id));
-            const label = node.name || node.id;
-            const baseR = Math.max(3.0, (node.val || 4) * 0.75);
-            const radius = baseR * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
-            const currentDark = isDark;
+            try {
+                if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+                const hasActiveSelection = searchHighlightNodes.size > 0;
+                const isHighlighted = !hasActiveSelection || searchHighlightNodes.has(String(node.id));
+                const isTarget = activeSearchTargetId === String(node.id);
+                const isBackboneNode = searchBackboneNodes.has(String(node.id));
+                const label = node.name || node.id;
+                const baseR = Math.max(3.0, (node.val || 4) * 0.75);
+                const radius = baseR * (isTarget ? 1.4 : (isBackboneNode ? 1.15 : 1.0));
+                const currentDark = isDark;
 
-            ctx.save();
+                ctx.save();
             const isHoverActive = Boolean(hoveredNode || hoveredLink);
             const isHovered = (hoveredNode && String(hoveredNode.id) === String(node.id));
             const isHoverNeighbor = hoveredNeighborNodeIds.has(String(node.id));
@@ -6977,33 +7059,41 @@ window.initForceGraph = function(graphData) {
             }
 
             ctx.restore();
+            } catch (_) {
+                // Предотвращаем срыв отрисовки холста
+            }
         })
         .nodePointerAreaPaint((node, color, ctx) => {
-            const baseR = Math.max(3.0, (node.val || 4) * 0.75);
-            // Увеличиваем сенсорный радиус касания для мобильных пальцев (минимум 26px)
-            const radius = Math.max(26, baseR + 10);
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-            ctx.fill();
+            try {
+                if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+                const baseR = Math.max(3.0, (node.val || 4) * 0.75);
+                // Увеличиваем сенсорный радиус касания для мобильных пальцев (минимум 26px)
+                const radius = Math.max(26, baseR + 10);
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+                ctx.fill();
 
-            // Также регистрируем область текстовой плашки понятия под узлом,
-            // чтобы нажатие на текст на телефоне не считалось фоновым кликом!
-            const label = node.name || node.id;
-            if (label) {
-                const baseFontSize = (node.level === 0 ? 12 : (node.level === 1 ? 9.5 : 8));
-                const lineHeight = baseFontSize + 3.0;
-                const lines = node.__lines || wrapNodeText(label, node.level === 0 ? 22 : 16);
-                const startY = node.y + (baseR * 1.4) + 4.5 + (lineHeight / 2);
-                
-                lines.forEach((line, i) => {
-                    const lineY = startY + (i * lineHeight);
-                    const pillW = Math.max(60, line.length * (baseFontSize * 0.7) + 20);
-                    const pillH = baseFontSize + 9.0;
-                    ctx.beginPath();
-                    ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
-                    ctx.fill();
-                });
+                // Также регистрируем область текстовой плашки понятия под узлом,
+                // чтобы нажатие на текст на телефоне не считалось фоновым кликом!
+                const label = node.name || node.id;
+                if (label) {
+                    const baseFontSize = (node.level === 0 ? 12 : (node.level === 1 ? 9.5 : 8));
+                    const lineHeight = baseFontSize + 3.0;
+                    const lines = node.__lines || wrapNodeText(label, node.level === 0 ? 22 : 16);
+                    const startY = node.y + (baseR * 1.4) + 4.5 + (lineHeight / 2);
+                    
+                    lines.forEach((line, i) => {
+                        const lineY = startY + (i * lineHeight);
+                        const pillW = Math.max(60, line.length * (baseFontSize * 0.7) + 20);
+                        const pillH = baseFontSize + 9.0;
+                        ctx.beginPath();
+                        ctx.rect(node.x - pillW / 2, lineY - pillH / 2, pillW, pillH);
+                        ctx.fill();
+                    });
+                }
+            } catch (_) {
+                // Предотвращаем падение при сбоях сенсорного хит-теста
             }
         })
         .onNodeClick(node => {

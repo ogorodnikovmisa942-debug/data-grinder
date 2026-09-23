@@ -48,6 +48,15 @@ if (window.Telegram && window.Telegram.WebApp) {
     }
 }
 
+// Проверяем явный параметр из URL (для отладки в браузере или прямого доступа)
+try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryTgId = urlParams.get('tg_id') || urlParams.get('user_id');
+    if (queryTgId) {
+        tgId = queryTgId.trim();
+    }
+} catch (_) {}
+
 // Универсальная обертка для HTTP-запросов с передачей авторизации Telegram
 async function apiFetch(url, options = {}) {
     const opts = { ...options };

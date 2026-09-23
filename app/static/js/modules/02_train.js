@@ -441,47 +441,55 @@ function bindDOMPointers() {
 }
 
 async function initApplicationLifecycle() {
-    bindDOMPointers();
-    await loadDynamicSubjects(); 
-    if (subjectSelector) subjectSelector.value = currentSubject;
-    showSessionStarter(); initPomodoroEngine(); initNavigation();
-    initArchiveFilters(); updateGlobalBadges();
-    
-    // Инициализация кнопки массового выбора
-    const toggleBtn = document.getElementById('bulk-select-toggle');
-    if (toggleBtn) {
-        toggleBtn.onclick = () => {
-            if (isSelectionMode) {
-                deactivateSelectionMode();
-            } else {
-                activateSelectionMode();
-            }
-        };
+    try {
+        bindDOMPointers();
+        await loadDynamicSubjects(); 
+        if (subjectSelector) subjectSelector.value = currentSubject;
+        showSessionStarter(); initPomodoroEngine(); initNavigation();
+        initArchiveFilters(); updateGlobalBadges();
+        
+        // Инициализация кнопки массового выбора
+        const toggleBtn = document.getElementById('bulk-select-toggle');
+        if (toggleBtn) {
+            toggleBtn.onclick = () => {
+                if (isSelectionMode) {
+                    deactivateSelectionMode();
+                } else {
+                    activateSelectionMode();
+                }
+            };
+        }
+        
+        // Привязываем обработчик отправки опроса
+        const surveySubmitBtn = document.getElementById('survey-submit-btn');
+        if (surveySubmitBtn) {
+            surveySubmitBtn.onclick = (e) => {
+                e.stopPropagation();
+                submitDailySessionSurvey();
+            };
+        }
+        
+        if (currentTab !== 'train' && focusToggle) {
+            focusToggle.classList.add('hidden');
+        }
+        if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
+        if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
+        if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
+        if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
+        window.addEventListener('hashchange', () => {
+            if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
+        });
+        if (typeof updateAssocPreferenceUI === 'function') {
+            updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
+        }
+        if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+    } catch (lifecycleErr) {
+        console.error("Ошибка при инициализации жизненного цикла приложения:", lifecycleErr);
+        try {
+            showSessionStarter();
+            if (typeof initNavigation === 'function') initNavigation();
+        } catch (_) {}
     }
-    
-    // Привязываем обработчик отправки опроса
-    const surveySubmitBtn = document.getElementById('survey-submit-btn');
-    if (surveySubmitBtn) {
-        surveySubmitBtn.onclick = (e) => {
-            e.stopPropagation();
-            submitDailySessionSurvey();
-        };
-    }
-    
-    if (currentTab !== 'train' && focusToggle) {
-        focusToggle.classList.add('hidden');
-    }
-    if (typeof updateImportExplanation === 'function') { updateImportExplanation(); }
-    if (typeof updateTariffBanner === 'function') { updateTariffBanner(); setInterval(updateTariffBanner, 60000); }
-    if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); setInterval(checkNightQueueStatus, 30000); }
-    if (typeof checkDeepLinkOrHash === 'function') { await checkDeepLinkOrHash(); }
-    window.addEventListener('hashchange', () => {
-        if (typeof checkDeepLinkOrHash === 'function') checkDeepLinkOrHash();
-    });
-    if (typeof updateAssocPreferenceUI === 'function') {
-        updateAssocPreferenceUI(localStorage.getItem('assoc_preference') || 'acoustic');
-    }
-    if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
 }
 
 window.flipCard = function() {
@@ -1001,7 +1009,26 @@ async function fetchActiveSession(mode = 'mixed') {
         currentSessionMode = mode;
         const targetSub = (mode === 'cram') ? 'all' : currentSubject;
         const response = await apiFetch(`/api/session?subject=${targetSub}&mode=${mode}`);
-        cardsQueue = await response.json();
+        if (!response.ok) {
+            console.error("[Data Grinder] Сбой ответа сессии:", response.status);
+            cardsQueue = [];
+            resetCardDOM();
+            if (cardText) {
+                cardText.classList.remove('hidden');
+                cardText.textContent = response.status === 401 ? "Требуется авторизация" : "Ошибка сессии";
+            }
+            if (cardMainText) {
+                cardMainText.textContent = response.status === 401
+                    ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу."
+                    : "Не удалось загрузить карточки. Проверьте подключение к серверу.";
+            }
+            currentSessionCounters = { new: 0, learning: 0, review: 0 };
+            renderTopCounters();
+            updateGlobalBadges();
+            return;
+        }
+        const data = await response.json();
+        cardsQueue = Array.isArray(data) ? data : [];
         
         // ВНИМАНИЕ: Для 'new' и 'review' не перемешиваем!
         // Сохраняется дидактический порядок: слой (layer) -> topological_rank -> phrase_id
@@ -1851,12 +1878,15 @@ if (document.getElementById('action-buttons')) {
 
 async function updateGlobalBadges() {
     try {
-        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); const data = await res.json();
+        const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || typeof data !== 'object') return;
         window.surveyCompletedToday = data.survey_completed || false;
         window.eveningDueCount = data.due_evening || 0;
         
-        const totalCards = data.cards_new + data.cards_learning + data.cards_review;
-        const dueCount = cardsQueue.length - currentIndex;
+        const totalCards = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
+        const dueCount = (Array.isArray(cardsQueue) ? cardsQueue.length : 0) - currentIndex;
         
         // Если опрос сегодня пройден, и очредь пуста/завершена, скрываем его
         if (window.surveyCompletedToday && (cardsQueue.length === 0 || currentIndex >= cardsQueue.length)) {

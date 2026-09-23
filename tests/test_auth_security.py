@@ -76,3 +76,31 @@ def test_dev_mode_permits_x_user_id():
     finally:
         settings.DEBUG = orig_debug
         settings.TESTING = orig_testing
+
+
+def test_telegram_init_data_with_signature_accepted():
+    """Telegram Bot API 7.0+ attaches a 'signature' query parameter which must not break HMAC validation."""
+    orig_debug = settings.DEBUG
+    orig_testing = settings.TESTING
+    orig_token = settings.TELEGRAM_BOT_TOKEN
+
+    try:
+        settings.DEBUG = False
+        settings.TESTING = False
+        settings.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+
+        valid_init_data = generate_valid_init_data(settings.TELEGRAM_BOT_TOKEN, user_id=98765432)
+        # Modern Telegram clients attach signature parameter
+        init_data_with_sig = f"{valid_init_data}&signature=third_party_bot_api_7_signature"
+
+        with TestClient(app) as client:
+            res = client.get(
+                "/api/practice/session?subject=sudoustr",
+                headers={"Authorization": f"tma {init_data_with_sig}"}
+            )
+            assert res.status_code != 401
+    finally:
+        settings.DEBUG = orig_debug
+        settings.TESTING = orig_testing
+        settings.TELEGRAM_BOT_TOKEN = orig_token
+
