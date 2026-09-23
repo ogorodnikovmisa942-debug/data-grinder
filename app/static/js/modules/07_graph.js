@@ -1038,6 +1038,12 @@ window.setGraphLayout = function(layoutType) {
 
     if (!currentForceGraphInstance) return;
 
+    // Сбрасываем зависшие сенсорные выделения связей и узлов при смене раскладки
+    hoveredNode = null;
+    hoveredLink = null;
+    hoveredLinkKeys.clear();
+    hoveredNeighborNodeIds.clear();
+
     const cleanData = getCleanGraphData();
     if (!cleanData) return;
 
@@ -1535,14 +1541,24 @@ window.initForceGraph = async function(graphData) {
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
         .onRenderFramePre((ctx, globalScale) => {
             try {
-                const t = ctx.getTransform();
-                const pad = 80;
-                const invA = 1 / t.a;
-                const invD = 1 / t.d;
-                kgViewportBounds.minX = (-pad - t.e) * invA;
-                kgViewportBounds.maxX = (ctx.canvas.width + pad - t.e) * invA;
-                kgViewportBounds.minY = (-pad - t.f) * invD;
-                kgViewportBounds.maxY = (ctx.canvas.height + pad - t.f) * invD;
+                if (currentForceGraphInstance && typeof currentForceGraphInstance.screen2GraphCoords === 'function') {
+                    const pad = 120;
+                    const w = currentForceGraphInstance.width ? currentForceGraphInstance.width() : ctx.canvas.width;
+                    const h = currentForceGraphInstance.height ? currentForceGraphInstance.height() : ctx.canvas.height;
+                    const tl = currentForceGraphInstance.screen2GraphCoords(-pad, -pad);
+                    const br = currentForceGraphInstance.screen2GraphCoords(w + pad, h + pad);
+                    if (tl && br && Number.isFinite(tl.x) && Number.isFinite(br.x)) {
+                        kgViewportBounds.minX = Math.min(tl.x, br.x);
+                        kgViewportBounds.maxX = Math.max(tl.x, br.x);
+                        kgViewportBounds.minY = Math.min(tl.y, br.y);
+                        kgViewportBounds.maxY = Math.max(tl.y, br.y);
+                        return;
+                    }
+                }
+                kgViewportBounds.minX = -1e6;
+                kgViewportBounds.maxX = 1e6;
+                kgViewportBounds.minY = -1e6;
+                kgViewportBounds.maxY = 1e6;
             } catch (_) {
                 kgViewportBounds.minX = -1e6;
                 kgViewportBounds.maxX = 1e6;
@@ -1647,6 +1663,8 @@ window.initForceGraph = async function(graphData) {
             }
         })
         .onNodeHover(node => {
+            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.Telegram && window.Telegram.WebApp);
+            if (isTouch) return; // На смартфонах узлы выбираются по клику (onNodeClick), чтобы жесты зума не вызывали ложных срабатываний
             if ((!node && !hoveredNode) || (node && hoveredNode && node.id === hoveredNode.id)) return;
             hoveredNode = node || null;
             hoveredLinkKeys.clear();
@@ -1683,8 +1701,13 @@ window.initForceGraph = async function(graphData) {
             }
         })
         .onLinkHover(link => {
+            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.Telegram && window.Telegram.WebApp);
+            if (isTouch) return; // На мобильных касания не должны зависать на связях при панорамировании
             if ((!link && !hoveredLink) || (link && hoveredLink && link === hoveredLink)) return;
             hoveredLink = link || null;
+            hoveredLinkKeys.clear();
+            hoveredNeighborNodeIds.clear();
+
             if (link) {
                 wrapper.style.cursor = 'pointer';
                 const sId = String((typeof link.source === 'object' && link.source !== null) ? link.source.id : link.source);
@@ -1694,10 +1717,27 @@ window.initForceGraph = async function(graphData) {
                 hoveredLinkKeys.add(link.__key || getGraphLinkKey(sId, tId));
             } else {
                 wrapper.style.cursor = hoveredNode ? 'pointer' : null;
-                if (!hoveredNode) {
-                    hoveredNeighborNodeIds.clear();
-                    hoveredLinkKeys.clear();
-                }
+            }
+            if (currentForceGraphInstance) {
+                currentForceGraphInstance.refresh();
+            }
+        })
+        .onLinkClick(link => {
+            if (!link) return;
+            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+            if (hoveredLink && (hoveredLink === link || hoveredLinkKeys.has(lKey))) {
+                hoveredLink = null;
+                hoveredLinkKeys.clear();
+                hoveredNeighborNodeIds.clear();
+            } else {
+                hoveredLink = link;
+                hoveredLinkKeys.clear();
+                hoveredNeighborNodeIds.clear();
+                const sId = String((typeof link.source === 'object' && link.source !== null) ? link.source.id : link.source);
+                const tId = String((typeof link.target === 'object' && link.target !== null) ? link.target.id : link.target);
+                hoveredNeighborNodeIds.add(sId);
+                hoveredNeighborNodeIds.add(tId);
+                hoveredLinkKeys.add(lKey);
             }
             if (currentForceGraphInstance) {
                 currentForceGraphInstance.refresh();
@@ -2019,6 +2059,11 @@ window.initForceGraph = async function(graphData) {
             const resBox = document.getElementById('kg-search-results');
             if (resBox) resBox.classList.add('hidden');
 
+            hoveredNode = null;
+            hoveredLink = null;
+            hoveredLinkKeys.clear();
+            hoveredNeighborNodeIds.clear();
+
             // На десктопе сбрасываем поиск кликом по фону
             if (window.innerWidth > 768) {
                 window.clearKgSearch();
@@ -2029,6 +2074,8 @@ window.initForceGraph = async function(graphData) {
                 const isDrawerOpen = drawer && !drawer.classList.contains('hidden');
                 if (!isDrawerOpen && (activeSearchTargetId || searchHighlightNodes.size > 0)) {
                     window.clearKgSearch();
+                } else if (currentForceGraphInstance) {
+                    currentForceGraphInstance.refresh();
                 }
             }
         });
