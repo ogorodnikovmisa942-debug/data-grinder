@@ -128,19 +128,20 @@ function getKgRelationLinkColor(relation, isHovered, isDark) {
         const style = getKgRelationStyle(key);
         return style.color || (isDark ? '#38bdf8' : '#0284c7');
     }
+    // Спокойный Obsidian-стиль в ненажатом состоянии: тонкие полупрозрачные линии без каши
     if (key === 'subject_to_jurisdiction') {
-        return isDark ? 'rgba(59, 130, 246, 0.45)' : 'rgba(37, 99, 235, 0.45)';
+        return isDark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(100, 116, 139, 0.22)';
     }
     if (key === 'demarcated_from') {
-        return isDark ? 'rgba(245, 158, 11, 0.50)' : 'rgba(217, 119, 6, 0.50)';
+        return isDark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(217, 119, 6, 0.28)';
     }
     if (key === 'appealed_to') {
-        return isDark ? 'rgba(6, 182, 212, 0.50)' : 'rgba(8, 145, 178, 0.50)';
+        return isDark ? 'rgba(6, 182, 212, 0.28)' : 'rgba(8, 145, 178, 0.28)';
     }
     if (key === 'excludes_application') {
-        return isDark ? 'rgba(244, 63, 94, 0.50)' : 'rgba(225, 29, 72, 0.50)';
+        return isDark ? 'rgba(244, 63, 94, 0.28)' : 'rgba(225, 29, 72, 0.28)';
     }
-    return isDark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)';
+    return isDark ? 'rgba(148, 163, 184, 0.20)' : 'rgba(100, 116, 139, 0.20)';
 }
 
 function getCleanGraphData() {
@@ -685,6 +686,8 @@ let searchHighlightLinkKeys = new Set();
 let searchBackboneNodes = new Set();
 let searchBackboneLinkKeys = new Set();
 let activeSearchTargetId = null;
+let activeSelectedLink = null;
+let lastPointerDownPos = null;
 let currentLinksFilter = 'all';
 
 let hoveredNode = null;
@@ -1126,7 +1129,7 @@ window.onKgSearchInput = function(query) {
     highlightConceptSearch(query);
 };
 
-window.clearKgSearch = function() {
+window.clearKgSearch = function(preserveCamera = false) {
     const input = document.getElementById('kg-search-input');
     if (input) input.value = '';
     const clearBtn = document.getElementById('kg-search-clear');
@@ -1142,6 +1145,7 @@ window.clearKgSearch = function() {
     searchBackboneNodes.clear();
     searchBackboneLinkKeys.clear();
     activeSearchTargetId = null;
+    activeSelectedLink = null;
 
     hoveredNode = null;
     hoveredLink = null;
@@ -1152,7 +1156,9 @@ window.clearKgSearch = function() {
 
     if (currentForceGraphInstance) {
         currentForceGraphInstance.refresh();
-        currentForceGraphInstance.zoomToFit(400, 40);
+        if (!preserveCamera) {
+            currentForceGraphInstance.zoomToFit(400, 40);
+        }
     }
     triggerHaptic('light');
 };
@@ -1222,68 +1228,76 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     if (!cleanData || !cleanData.nodes) return;
 
     activeSearchTargetId = String(targetNode.id);
+    activeSelectedLink = null;
     searchHighlightNodes.clear();
     searchHighlightLinkKeys.clear();
     searchBackboneNodes.clear();
     searchBackboneLinkKeys.clear();
 
-    const rootNode = cleanData.nodes.find(n => n.level === 0);
-    const rootId = rootNode ? String(rootNode.id) : null;
+    const targetId = activeSearchTargetId;
+    searchHighlightNodes.add(targetId);
 
-    // 1. Построение магистрали от центра: Корень -> Институт -> Искомый узел
-    searchBackboneNodes.add(activeSearchTargetId);
-    searchHighlightNodes.add(activeSearchTargetId);
-
-    let parentInstituteId = null;
-    if (targetNode.level === 2 && targetNode.parent_id) {
-        parentInstituteId = String(targetNode.parent_id);
-    } else if (targetNode.level === 1) {
-        parentInstituteId = activeSearchTargetId;
-    }
-
-    if (parentInstituteId) {
-        searchBackboneNodes.add(parentInstituteId);
-        searchHighlightNodes.add(parentInstituteId);
-
-        // Все соседние понятия этого института для сохранения контекста ветви
-        cleanData.nodes.forEach(n => {
-            if (String(n.parent_id) === parentInstituteId) {
-                searchHighlightNodes.add(String(n.id));
-            }
-        });
-    }
-
-    if (rootId) {
-        searchBackboneNodes.add(rootId);
-        searchHighlightNodes.add(rootId);
-    }
-
-    // 2. Классификация ребер по строковым ключам
     const allLinks = (cleanData.links && cleanData.links.length > 0)
         ? cleanData.links
         : ((currentKgGraphData && currentKgGraphData.edges) ? currentKgGraphData.edges : []);
 
+    const nodeMap = new Map(cleanData.nodes.map(n => [String(n.id), n]));
+    const rootNode = cleanData.nodes.find(n => n.level === 0);
+    const rootId = rootNode ? String(rootNode.id) : null;
+
+    // 1. Линия от истока: прямая цепочка предков (Исток -> Институт -> Выбранный узел)
+    let currNode = targetNode;
+    while (currNode && currNode.parent_id) {
+        const pId = String(currNode.parent_id);
+        const parentNode = nodeMap.get(pId);
+        if (!parentNode) break;
+
+        searchHighlightNodes.add(pId);
+        searchBackboneNodes.add(pId);
+
+        const cId = String(currNode.id);
+        const pEdge = allLinks.find(e => {
+            const s = String((typeof e.source === 'object' && e.source !== null) ? e.source.id : e.source);
+            const t = String((typeof e.target === 'object' && e.target !== null) ? e.target.id : e.target);
+            return (s === pId && t === cId) || (s === cId && t === pId);
+        });
+
+        if (pEdge) {
+            const lKey = pEdge.__key || getGraphLinkKey(pEdge.source, pEdge.target);
+            searchBackboneLinkKeys.add(lKey);
+            searchHighlightLinkKeys.add(lKey);
+        }
+
+        currNode = parentNode;
+    }
+
+    // Соединяем верхнего предка с корнем курса, если еще не соединен
+    if (rootId && !searchHighlightNodes.has(rootId)) {
+        const topNodeId = currNode ? String(currNode.id) : null;
+        if (topNodeId && topNodeId !== rootId) {
+            const rootEdge = allLinks.find(e => {
+                const s = String((typeof e.source === 'object' && e.source !== null) ? e.source.id : e.source);
+                const t = String((typeof e.target === 'object' && e.target !== null) ? e.target.id : e.target);
+                return (s === rootId && t === topNodeId) || (s === topNodeId && t === rootId);
+            });
+            if (rootEdge) {
+                searchHighlightNodes.add(rootId);
+                searchBackboneNodes.add(rootId);
+                const lKey = rootEdge.__key || getGraphLinkKey(rootEdge.source, rootEdge.target);
+                searchBackboneLinkKeys.add(lKey);
+                searchHighlightLinkKeys.add(lKey);
+            }
+        }
+    }
+
+    // 2. Связи, которые идут ИЗ выбранного узла (Outbound Connections) + целевые узлы
     allLinks.forEach(edge => {
         const sId = String((typeof edge.source === 'object' && edge.source !== null) ? edge.source.id : edge.source);
         const tId = String((typeof edge.target === 'object' && edge.target !== null) ? edge.target.id : edge.target);
-        const lKey = edge.__key || getGraphLinkKey(sId, tId);
-
-        // Ребро магистрали (Корень <-> Институт или Институт <-> Целевой узел)
-        const isBackbone = 
-            (searchBackboneNodes.has(sId) && searchBackboneNodes.has(tId)) &&
-            ((sId === rootId || tId === rootId) || (sId === activeSearchTargetId || tId === activeSearchTargetId));
-
-        if (isBackbone) {
-            searchBackboneLinkKeys.add(lKey);
+        if (sId === targetId) {
+            const lKey = edge.__key || getGraphLinkKey(sId, tId);
             searchHighlightLinkKeys.add(lKey);
-        } else if (searchHighlightNodes.has(sId) && searchHighlightNodes.has(tId)) {
-            // Ребро внутри ветви института
-            searchHighlightLinkKeys.add(lKey);
-        } else if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
-            // Прямое ребро связи целевого узла (например, разграничение)
-            searchHighlightNodes.add(sId);
             searchHighlightNodes.add(tId);
-            searchHighlightLinkKeys.add(lKey);
         }
     });
 
@@ -1295,17 +1309,17 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
             const liveTarget = gNodes.find(n => String(n.id) === String(targetNode.id)) || targetNode;
             if (typeof liveTarget.x === 'number' && !isNaN(liveTarget.x) && (liveTarget.x !== 0 || liveTarget.y !== 0)) {
                 const isMobile = window.innerWidth <= 768;
-                const targetZoom = isMobile ? 1.5 : 1.8;
+                const curZoom = currentForceGraphInstance.zoom ? currentForceGraphInstance.zoom() : 1.0;
+                const targetZoom = Math.max(curZoom, isMobile ? 1.35 : 1.55);
                 const wrapper = document.getElementById('kg-graph-canvas-wrapper');
                 const h = wrapper ? wrapper.clientHeight : (window.innerHeight - 150);
-                const yOffset = isMobile ? (h * 0.22 / targetZoom) : 0;
-                currentForceGraphInstance.centerAt(liveTarget.x, liveTarget.y + yOffset, 600);
-                currentForceGraphInstance.zoom(targetZoom, 600);
+                const yOffset = isMobile ? (h * 0.16 / targetZoom) : 0;
+                currentForceGraphInstance.centerAt(liveTarget.x, liveTarget.y + yOffset, 500);
+                currentForceGraphInstance.zoom(targetZoom, 500);
             }
         };
         doCenter();
-        setTimeout(doCenter, 250);
-        setTimeout(doCenter, 650);
+        setTimeout(doCenter, 200);
     }
 
     // Отображаем плавающую плашку быстрого сброса
@@ -1317,6 +1331,8 @@ window.selectSearchResult = function(targetNode, closeDropdown = true) {
     }
 
     // Показываем карточку найденного понятия
+    showKgNodeDrawer(targetNode);
+};
     showKgNodeDrawer(targetNode);
 };
 
@@ -1491,8 +1507,16 @@ window.initForceGraph = async function(graphData) {
 
         wrapper.innerHTML = '';
         isInitialLayoutFit = true;
-        wrapper.addEventListener('pointerdown', () => { isInitialLayoutFit = false; }, { passive: true });
-        wrapper.addEventListener('touchstart', () => { isInitialLayoutFit = false; }, { passive: true });
+        wrapper.addEventListener('pointerdown', (e) => {
+            isInitialLayoutFit = false;
+            lastPointerDownPos = { x: e.clientX, y: e.clientY, time: Date.now() };
+        }, { passive: true });
+        wrapper.addEventListener('touchstart', (e) => {
+            isInitialLayoutFit = false;
+            if (e.touches && e.touches[0]) {
+                lastPointerDownPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+            }
+        }, { passive: true });
         wrapper.addEventListener('wheel', () => { isInitialLayoutFit = false; }, { passive: true });
 
     currentForceGraphInstance = ForceGraph()(wrapper)
@@ -1511,32 +1535,33 @@ window.initForceGraph = async function(graphData) {
             if (isHovered) {
                 return getKgRelationLinkColor(link.relation, true, isDark);
             }
-            if (searchHighlightNodes.size > 0) {
+            if (searchHighlightNodes.size > 0 || activeSelectedLink) {
                 if (searchBackboneLinkKeys.has(lKey)) {
-                    // Яркая контрастная магистраль к активному понятию (Sky Blue)
+                    // Магистраль от истока к понятию (Sapphire / Sky Blue)
                     return isDark ? '#38bdf8' : '#0284c7';
                 }
                 if (searchHighlightLinkKeys.has(lKey)) {
-                    // Контекстная связь ветви
-                    return isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(2, 132, 199, 0.40)';
+                    // Исходящая или выбранная связь: сохраняет свой яркий семантический цвет!
+                    return getKgRelationLinkColor(link.relation, true, isDark);
                 }
                 return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
             }
             if (hoveredNode || hoveredLink) {
                 return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
             }
+            // Спокойный Obsidian в ненажатом состоянии
             return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
             const lKey = link.__key || getGraphLinkKey(link.source, link.target);
             const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
             if (isHovered) return 2.8;
-            if (searchHighlightNodes.size > 0) {
-                if (searchBackboneLinkKeys.has(lKey)) return 3.2; // Четкая контрастная магистраль
-                if (searchHighlightLinkKeys.has(lKey)) return 1.8;
+            if (searchHighlightNodes.size > 0 || activeSelectedLink) {
+                if (searchBackboneLinkKeys.has(lKey)) return 2.6; // Магистраль от истока
+                if (searchHighlightLinkKeys.has(lKey)) return 2.8; // Исходящая активная связь
                 return 0.5;
             }
-            return 0.9;
+            return 0.8; // Спокойный Obsidian
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
         .onRenderFramePre((ctx, globalScale) => {
@@ -1725,20 +1750,46 @@ window.initForceGraph = async function(graphData) {
         .onLinkClick(link => {
             if (!link) return;
             const lKey = link.__key || getGraphLinkKey(link.source, link.target);
-            if (hoveredLink && (hoveredLink === link || hoveredLinkKeys.has(lKey))) {
-                hoveredLink = null;
-                hoveredLinkKeys.clear();
-                hoveredNeighborNodeIds.clear();
-            } else {
-                hoveredLink = link;
-                hoveredLinkKeys.clear();
-                hoveredNeighborNodeIds.clear();
-                const sId = String((typeof link.source === 'object' && link.source !== null) ? link.source.id : link.source);
-                const tId = String((typeof link.target === 'object' && link.target !== null) ? link.target.id : link.target);
-                hoveredNeighborNodeIds.add(sId);
-                hoveredNeighborNodeIds.add(tId);
-                hoveredLinkKeys.add(lKey);
+            if (activeSelectedLink && (activeSelectedLink === link || (activeSelectedLink.__key && activeSelectedLink.__key === lKey))) {
+                // Повторный клик снимает выбор (toggle) с сохранением зума
+                window.clearKgSearch(true);
+                return;
             }
+
+            activeSelectedLink = link;
+            activeSearchTargetId = null;
+            searchHighlightNodes.clear();
+            searchHighlightLinkKeys.clear();
+            searchBackboneNodes.clear();
+            searchBackboneLinkKeys.clear();
+
+            hoveredLink = link;
+            hoveredLinkKeys.clear();
+            hoveredNeighborNodeIds.clear();
+
+            const sId = String((typeof link.source === 'object' && link.source !== null) ? link.source.id : link.source);
+            const tId = String((typeof link.target === 'object' && link.target !== null) ? link.target.id : link.target);
+
+            searchHighlightNodes.add(sId);
+            searchHighlightNodes.add(tId);
+            searchHighlightLinkKeys.add(lKey);
+
+            const cleanData = getCleanGraphData();
+            const sNode = cleanData ? cleanData.nodes.find(n => String(n.id) === sId) : null;
+            const tNode = cleanData ? cleanData.nodes.find(n => String(n.id) === tId) : null;
+            const sName = sNode ? (sNode.name || sId) : sId;
+            const tName = tNode ? (tNode.name || tId) : tId;
+            const relStyle = getKgRelationStyle(link.relation);
+            const relLabel = link.label || relStyle.label;
+
+            const pill = document.getElementById('kg-selection-pill');
+            const pillName = document.getElementById('kg-selection-pill-name');
+            if (pill && pillName) {
+                pillName.textContent = `${sName} → ${relLabel} → ${tName}`;
+                pill.classList.remove('hidden');
+            }
+
+            closeKgNodeDrawer();
             if (currentForceGraphInstance) {
                 currentForceGraphInstance.refresh();
             }
@@ -2046,16 +2097,21 @@ window.initForceGraph = async function(graphData) {
             if (!node || !node.id) return;
             const now = Date.now();
             if (activeSearchTargetId === String(node.id)) {
-                // Если клик повторный в пределах 600мс — это мобильный дубль тапа, не сбрасываем
-                if (now - (window.__lastKgNodeClickTime || 0) < 600) return;
-                // Иначе просто подтверждаем открытие карточки понятия
-                showKgNodeDrawer(node);
+                if (now - (window.__lastKgNodeClickTime || 0) < 400) return;
+                window.__lastKgNodeClickTime = now;
+                const drawer = document.getElementById('kg-node-drawer');
+                if (drawer && !drawer.classList.contains('hidden')) {
+                    // Повторный клик по активному узлу: toggle-сброс выделения с сохранением текущего зума
+                    window.clearKgSearch(true);
+                } else {
+                    showKgNodeDrawer(node);
+                }
                 return;
             }
             window.__lastKgNodeClickTime = now;
             focusNodeInGraph(node.id);
         })
-        .onBackgroundClick(() => {
+        .onBackgroundClick(event => {
             const resBox = document.getElementById('kg-search-results');
             if (resBox) resBox.classList.add('hidden');
 
@@ -2064,19 +2120,28 @@ window.initForceGraph = async function(graphData) {
             hoveredLinkKeys.clear();
             hoveredNeighborNodeIds.clear();
 
-            // На десктопе сбрасываем поиск кликом по фону
-            if (window.innerWidth > 768) {
-                window.clearKgSearch();
-            } else {
-                // На мобильных: если шторка понятия закрыта и есть активное выделение,
-                // касание свободного холста аккуратно сбрасывает изоляцию
-                const drawer = document.getElementById('kg-node-drawer');
-                const isDrawerOpen = drawer && !drawer.classList.contains('hidden');
-                if (!isDrawerOpen && (activeSearchTargetId || searchHighlightNodes.size > 0)) {
-                    window.clearKgSearch();
-                } else if (currentForceGraphInstance) {
-                    currentForceGraphInstance.refresh();
+            // Защита от случайного сброса при перетаскивании (pan/drag) холста
+            if (lastPointerDownPos && event) {
+                const dx = Math.abs(event.clientX - lastPointerDownPos.x);
+                const dy = Math.abs(event.clientY - lastPointerDownPos.y);
+                const dt = Date.now() - (lastPointerDownPos.time || 0);
+                if (dx > 7 || dy > 7 || dt > 650) {
+                    return; // Пользователь панорамировал или зумил карту, не сбрасываем!
                 }
+            }
+
+            // Закрываем шторку узла при клике на свободный фон
+            const drawer = document.getElementById('kg-node-drawer');
+            const isDrawerOpen = drawer && !drawer.classList.contains('hidden');
+            if (isDrawerOpen) {
+                closeKgNodeDrawer();
+            }
+
+            // Сброс выделения с сохранением зума и координат камеры (preserveCamera: true)
+            if (activeSearchTargetId || activeSelectedLink || searchHighlightNodes.size > 0) {
+                window.clearKgSearch(true);
+            } else if (currentForceGraphInstance) {
+                currentForceGraphInstance.refresh();
             }
         });
 
@@ -2107,13 +2172,20 @@ window.zoomGraph = function(factor) {
 
 window.resetGraphZoom = function() {
     if (!currentForceGraphInstance) return;
-    if (activeSearchTargetId || searchHighlightNodes.size > 0) {
-        window.clearKgSearch();
-    } else {
-        currentForceGraphInstance.zoomToFit(400, 40);
-        triggerHaptic('light');
-    }
+    currentForceGraphInstance.zoomToFit(400, 40);
+    triggerHaptic('light');
 };
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('knowledge-graph-modal');
+        if (modal && !modal.classList.contains('hidden') && currentKgView === 'graph') {
+            if (activeSearchTargetId || activeSelectedLink || searchHighlightNodes.size > 0) {
+                window.clearKgSearch(true);
+            }
+        }
+    }
+});
 
 window.showKgNodeDrawer = function(node) {
     const drawer = document.getElementById('kg-node-drawer');
