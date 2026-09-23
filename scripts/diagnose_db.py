@@ -4,6 +4,20 @@ import sys
 import subprocess
 import asyncio
 
+# Auto-detect and re-exec inside venv if running with system python
+candidate_venvs = [
+    os.path.join(os.path.dirname(__file__), "..", "venv", "bin", "python"),
+    os.path.join(os.path.dirname(__file__), "..", ".venv", "bin", "python"),
+    os.path.join(os.path.dirname(__file__), "..", "venv", "Scripts", "python.exe"),
+    "/root/GRINDER/venv/bin/python",
+]
+for venv_py in candidate_venvs:
+    if os.path.exists(venv_py) and os.path.abspath(sys.executable) != os.path.abspath(venv_py):
+        try:
+            os.execv(os.path.abspath(venv_py), [os.path.abspath(venv_py)] + sys.argv)
+        except Exception:
+            pass
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy import select, func
