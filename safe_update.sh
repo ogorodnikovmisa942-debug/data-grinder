@@ -114,8 +114,38 @@ $PYTHON_BIN -c "import fastapi, uvicorn; print('[OK] FastAPI и Uvicorn гото
 $PYTHON_BIN -c "import slowapi; print('[OK] Модуль rate-limiting (slowapi) активен.')" 2>/dev/null || echo "[i] slowapi работает в режиме встроенного fallback."
 
 # 5. Применение миграций базы данных через Alembic
-echo "[...] Применение миграций базы данных (Alembic)..."
-$PYTHON_BIN -m alembic upgrade head || true
+echo "[...] Проверка и применение миграций базы данных (Alembic)..."
+$PYTHON_BIN -c "
+import sqlite3
+from alembic.config import Config
+from alembic import command
+
+try:
+    conn = sqlite3.connect('data_grinder.db')
+    c = conn.cursor()
+    c.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='ai_telemetry_logs'\")
+    has_tables = c.fetchone() is not None
+
+    c.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'\")
+    has_alembic = c.fetchone() is not None
+    alembic_ver = None
+    if has_alembic:
+        c.execute(\"SELECT version_num FROM alembic_version\")
+        row = c.fetchone()
+        if row:
+            alembic_ver = row[0]
+    conn.close()
+
+    cfg = Config('alembic.ini')
+    if has_tables and not alembic_ver:
+        command.stamp(cfg, 'head')
+        print('[Alembic] Существующая схема базы данных синхронизирована с ревизией head.')
+    else:
+        command.upgrade(cfg, 'head')
+        print('[Alembic] Миграции успешно применены.')
+except Exception as e:
+    print(f'[Alembic Notice] {e}')
+" || true
 
 # 6. Автоматическая сборка ассетов фронтенда (HTML и JS модули)
 echo "[...] Сборка статических файлов фронтенда..."
