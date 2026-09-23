@@ -63,7 +63,8 @@ const KG_CATEGORY_NAMES = {
 
 const KG_RELATION_STYLES = {
     'subject_to_jurisdiction': {
-        color: '#3b82f6',
+        color: '#60a5fa',        // Яркий синий (структура/институт)
+        lightColor: '#2563eb',
         label: 'входит в структуру',
         icon: 'schema',
         borderClass: 'border-blue-500/30 hover:border-blue-500',
@@ -71,7 +72,8 @@ const KG_RELATION_STYLES = {
         bgClass: 'bg-blue-50/70 dark:bg-blue-950/40'
     },
     'demarcated_from': {
-        color: '#f59e0b',
+        color: '#fbbf24',        // Яркий янтарный (разграничение компетенции)
+        lightColor: '#d97706',
         label: 'разграничивается с',
         icon: 'compare_arrows',
         borderClass: 'border-amber-500/30 hover:border-amber-500',
@@ -79,7 +81,8 @@ const KG_RELATION_STYLES = {
         bgClass: 'bg-amber-50/70 dark:bg-amber-950/40'
     },
     'appealed_to': {
-        color: '#06b6d4',
+        color: '#22d3ee',        // Яркий циан (обжалование / инстанция)
+        lightColor: '#0891b2',
         label: 'обжалуется в',
         icon: 'upgrade',
         borderClass: 'border-cyan-500/30 hover:border-cyan-500',
@@ -87,7 +90,8 @@ const KG_RELATION_STYLES = {
         bgClass: 'bg-cyan-50/70 dark:bg-cyan-950/40'
     },
     'excludes_application': {
-        color: '#f43f5e',
+        color: '#fb7185',        // Яркий кораллово-розовый (исключение нормы)
+        lightColor: '#e11d48',
         label: 'исключает применение',
         icon: 'block',
         borderClass: 'border-rose-500/30 hover:border-rose-500',
@@ -95,7 +99,8 @@ const KG_RELATION_STYLES = {
         bgClass: 'bg-rose-50/70 dark:bg-rose-950/40'
     },
     'default': {
-        color: '#64748b',
+        color: '#94a3b8',        // Светло-серебристый сланец
+        lightColor: '#64748b',
         label: 'связь',
         icon: 'arrow_forward',
         borderClass: 'border-neutral-300 dark:border-neutral-700 hover:border-primary',
@@ -122,26 +127,39 @@ function getKgNodeColor(category) {
     return KG_CATEGORY_COLORS[category] || KG_CATEGORY_COLORS['default'];
 }
 
-function getKgRelationLinkColor(relation, isHovered, isDark) {
+function getKgRelationLinkColor(relation, isLit, isDark, softMultiplier = 1.0) {
     const key = (relation || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
-    if (isHovered) {
-        const style = getKgRelationStyle(key);
-        return style.color || (isDark ? '#38bdf8' : '#0284c7');
+    const style = getKgRelationStyle(key);
+
+    if (isLit) {
+        // Подсвеченное / активное состояние: сочные чистые цвета как в основном приложении
+        return isDark ? (style.color || '#38bdf8') : (style.lightColor || style.color || '#0284c7');
     }
-    // Спокойный Obsidian-стиль в ненажатом состоянии: тонкие полупрозрачные линии без каши
+
+    // Спокойное состояние: яркие, насыщенные цвета приложения без блеклости
     if (key === 'subject_to_jurisdiction') {
-        return isDark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(100, 116, 139, 0.22)';
+        return isDark
+            ? `rgba(96, 165, 250, ${Math.min(1.0, 0.52 * softMultiplier)})`
+            : `rgba(37, 99, 235, ${Math.min(1.0, 0.45 * softMultiplier)})`;
     }
     if (key === 'demarcated_from') {
-        return isDark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(217, 119, 6, 0.28)';
+        return isDark
+            ? `rgba(251, 191, 36, ${Math.min(1.0, 0.65 * softMultiplier)})`
+            : `rgba(217, 119, 6, ${Math.min(1.0, 0.55 * softMultiplier)})`;
     }
     if (key === 'appealed_to') {
-        return isDark ? 'rgba(6, 182, 212, 0.28)' : 'rgba(8, 145, 178, 0.28)';
+        return isDark
+            ? `rgba(34, 211, 238, ${Math.min(1.0, 0.65 * softMultiplier)})`
+            : `rgba(8, 145, 178, ${Math.min(1.0, 0.55 * softMultiplier)})`;
     }
     if (key === 'excludes_application') {
-        return isDark ? 'rgba(244, 63, 94, 0.28)' : 'rgba(225, 29, 72, 0.28)';
+        return isDark
+            ? `rgba(251, 113, 133, ${Math.min(1.0, 0.65 * softMultiplier)})`
+            : `rgba(225, 29, 72, ${Math.min(1.0, 0.55 * softMultiplier)})`;
     }
-    return isDark ? 'rgba(148, 163, 184, 0.20)' : 'rgba(100, 116, 139, 0.20)';
+    return isDark
+        ? `rgba(148, 163, 184, ${Math.min(1.0, 0.42 * softMultiplier)})`
+        : `rgba(100, 116, 139, ${Math.min(1.0, 0.38 * softMultiplier)})`;
 }
 
 function getCleanGraphData() {
@@ -1572,7 +1590,20 @@ window.initForceGraph = async function(graphData) {
         .nodeId('id')
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
-        .linkDirectionalArrowLength(link => 6)
+        .linkDirectionalArrowLength(link => {
+            const lKey = link.__key || getGraphLinkKey(link.source, link.target);
+            if (nodeClickStep === 2) {
+                if (searchBackboneLinkKeys.has(lKey) || searchHighlightLinkKeys.has(lKey)) return 7.5;
+                return 4.0;
+            }
+            if (nodeClickStep === 1) {
+                const sId = (typeof link.source === 'object' && link.source !== null) ? String(link.source.id) : String(link.source);
+                const tId = (typeof link.target === 'object' && link.target !== null) ? String(link.target.id) : String(link.target);
+                if (sId === activeSearchTargetId || tId === activeSearchTargetId) return 7.0;
+                return 5.0;
+            }
+            return 5.5;
+        })
         .linkDirectionalArrowRelPos(0.88)
         .linkCurvature(link => link.__curvature || 0)
         .linkColor(link => {
@@ -1587,14 +1618,20 @@ window.initForceGraph = async function(graphData) {
                     return isDark ? '#38bdf8' : '#0284c7';
                 }
                 if (searchHighlightLinkKeys.has(lKey)) {
-                    // Исходящая или входящая связь/разграничение: яркий семантический цвет!
+                    // Исходящая или входящая связь/разграничение: яркий сочный цвет из приложения!
                     return getKgRelationLinkColor(link.relation, true, isDark);
                 }
-                return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
+                return isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
             }
             if (nodeClickStep === 1) {
-                // Шаг 1: Фокус только на выбранном понятии, связи остаются спокойными
-                return isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)';
+                // Шаг 1: Фокус на выбранном понятии. Прямые связи подсвечиваются ярче!
+                const sId = (typeof link.source === 'object' && link.source !== null) ? String(link.source.id) : String(link.source);
+                const tId = (typeof link.target === 'object' && link.target !== null) ? String(link.target.id) : String(link.target);
+                if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
+                    return getKgRelationLinkColor(link.relation, true, isDark);
+                }
+                // Фоновые связи сохраняют читаемый цвет с комфортным смягчением
+                return getKgRelationLinkColor(link.relation, false, isDark, 0.45);
             }
             if (searchHighlightNodes.size > 0 || activeSelectedLink) {
                 if (searchBackboneLinkKeys.has(lKey)) {
@@ -1603,32 +1640,42 @@ window.initForceGraph = async function(graphData) {
                 if (searchHighlightLinkKeys.has(lKey)) {
                     return getKgRelationLinkColor(link.relation, true, isDark);
                 }
-                return isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)';
+                return isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
             }
             if (hoveredNode || hoveredLink) {
-                return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+                return isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
             }
-            // Спокойный Obsidian в ненажатом состоянии
+            // Обычное состояние: яркие, четкие линии с цветами основного приложения
             return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
             const lKey = link.__key || getGraphLinkKey(link.source, link.target);
             const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
-            if (isHovered) return 2.8;
+            if (isHovered) return 3.0;
             if (nodeClickStep === 2) {
-                if (searchBackboneLinkKeys.has(lKey)) return 2.8; // Магистраль от истока
-                if (searchHighlightLinkKeys.has(lKey)) return 2.6; // Связи и разграничения
-                return 0.4;
+                if (searchBackboneLinkKeys.has(lKey)) return 3.2; // Магистраль от истока
+                if (searchHighlightLinkKeys.has(lKey)) return 2.8; // Связи и разграничения
+                return 0.5;
             }
             if (nodeClickStep === 1) {
-                return 0.7; // Спокойный ненавязчивый вид на Шаге 1
+                const sId = (typeof link.source === 'object' && link.source !== null) ? String(link.source.id) : String(link.source);
+                const tId = (typeof link.target === 'object' && link.target !== null) ? String(link.target.id) : String(link.target);
+                if (sId === activeSearchTargetId || tId === activeSearchTargetId) {
+                    return 2.4; // Прямые связи выбранного понятия выделены заметно
+                }
+                return 0.8;
             }
             if (searchHighlightNodes.size > 0 || activeSelectedLink) {
-                if (searchBackboneLinkKeys.has(lKey)) return 2.6;
+                if (searchBackboneLinkKeys.has(lKey)) return 3.0;
                 if (searchHighlightLinkKeys.has(lKey)) return 2.8;
                 return 0.5;
             }
-            return 0.8; // Спокойный Obsidian
+            // Обычное состояние: 1.2px для структурных связей, 1.6px для разграничений и исключений
+            const rel = (link.relation || '').toLowerCase();
+            if (rel === 'demarcated_from' || rel === 'excludes_application' || rel === 'appealed_to') {
+                return 1.6;
+            }
+            return 1.2;
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
         .onRenderFramePre((ctx, globalScale) => {
@@ -1737,10 +1784,11 @@ window.initForceGraph = async function(graphData) {
                 ctx.fill();
 
                 // Chip border
-                ctx.strokeStyle = isHovered
-                    ? (relStyle.color || (isDark ? '#38bdf8' : '#0284c7'))
-                    : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.10)');
-                ctx.lineWidth = isHovered ? 1.4 : 0.6;
+                const isEdgeLit = (nodeClickStep === 2 && (isBackbone || isHighlightEdge)) || isHovered;
+                ctx.strokeStyle = isEdgeLit
+                    ? (isBackbone ? (isDark ? '#38bdf8' : '#0284c7') : (isDark ? (relStyle.color || '#38bdf8') : (relStyle.lightColor || '#0284c7')))
+                    : (isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.15)');
+                ctx.lineWidth = isEdgeLit ? 1.6 : 0.8;
                 ctx.stroke();
 
                 // Text
@@ -1870,6 +1918,7 @@ window.initForceGraph = async function(graphData) {
 
             } else if (hasActiveSelection && isHighlighted) {
                 // Соседние понятия ветви
+                const catColor = getKgNodeColor(node.category);
                 if (cardState === 2) {
                     nodeFill = currentDark ? '#059669' : '#10b981';
                     nodeStroke = currentDark ? '#34d399' : '#047857';
@@ -1877,47 +1926,49 @@ window.initForceGraph = async function(graphData) {
                     nodeFill = currentDark ? '#1d4ed8' : '#3b82f6';
                     nodeStroke = currentDark ? '#60a5fa' : '#1d4ed8';
                 } else {
-                    nodeFill = currentDark ? '#94a3b8' : '#64748b';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.15)';
+                    nodeFill = currentDark ? '#181e29' : '#f8fafc';
+                    nodeStroke = catColor;
                 }
-                strokeWidth = 1.2;
+                strokeWidth = 1.5;
 
             } else {
                 // ОБЫЧНОЕ СОСТОЯНИЕ
                 if (node.level === 0) {
-                    nodeFill = currentDark ? '#f8fafc' : '#0f172a';
-                    nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.6)' : '#ffffff';
-                    strokeWidth = 1.8;
+                    nodeFill = currentDark ? '#ffffff' : '#0f172a';
+                    nodeStroke = currentDark ? '#38bdf8' : '#0284c7';
+                    strokeWidth = 2.4;
                 } else if (node.level === 1) {
                     if (cardState === 2) {
                         nodeFill = currentDark ? '#065f46' : '#059669';
                         nodeStroke = '#10b981';
-                        strokeWidth = 1.6;
+                        strokeWidth = 2.0;
                     } else if (cardState === 1 || cardState === 3) {
                         nodeFill = currentDark ? '#1e3a8a' : '#2563eb';
                         nodeStroke = '#3b82f6';
-                        strokeWidth = 1.6;
+                        strokeWidth = 2.0;
                     } else {
-                        nodeFill = currentDark ? '#94a3b8' : '#475569';
-                        nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.12)';
-                        strokeWidth = 1.0;
+                        // Неизученный институт: золотисто-янтарный цвет категории authority (как в приложении)
+                        nodeFill = currentDark ? '#292524' : '#fef3c7';
+                        nodeStroke = currentDark ? '#fbbf24' : '#d97706';
+                        strokeWidth = 1.8;
                     }
                 } else {
+                    const catColor = getKgNodeColor(node.category);
                     if (cardState === 2) {
                         // Изучено (Mastered): выразительный изумрудный цвет
                         nodeFill = currentDark ? '#059669' : '#10b981';
                         nodeStroke = currentDark ? '#34d399' : '#047857';
-                        strokeWidth = 1.2;
+                        strokeWidth = 1.4;
                     } else if (cardState === 1 || cardState === 3) {
                         // В процессе изучения: выразительный синий цвет
                         nodeFill = currentDark ? '#1d4ed8' : '#3b82f6';
                         nodeStroke = currentDark ? '#60a5fa' : '#1d4ed8';
-                        strokeWidth = 1.2;
+                        strokeWidth = 1.4;
                     } else {
-                        // Новое понятие: нейтральный спокойный цвет
-                        nodeFill = currentDark ? '#475569' : '#94a3b8';
-                        nodeStroke = currentDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
-                        strokeWidth = 0.6;
+                        // Новое понятие: темная сердцевина и окантовка цвета категории из приложения!
+                        nodeFill = currentDark ? '#181e29' : '#f8fafc';
+                        nodeStroke = catColor;
+                        strokeWidth = 1.4;
                     }
                 }
             }
@@ -1956,6 +2007,15 @@ window.initForceGraph = async function(graphData) {
                 ctx.arc(node.x, node.y, radius + 3.8, 0, 2 * Math.PI, false);
                 ctx.strokeStyle = currentDark ? '#38bdf8' : '#0284c7';
                 ctx.lineWidth = 1.8;
+                ctx.stroke();
+            }
+
+            // 3.3. Акцентный ореол ядра курса (корень графа)
+            if (node.level === 0 && !isTarget) {
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, radius + 4.2, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = currentDark ? 'rgba(56, 189, 248, 0.40)' : 'rgba(2, 132, 199, 0.35)';
+                ctx.lineWidth = 1.6;
                 ctx.stroke();
             }
 
