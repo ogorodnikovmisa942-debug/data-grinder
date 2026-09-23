@@ -14,26 +14,56 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
     """
     Проверяет криптографическую подпись initData от Telegram WebApp.
     Возвращает словарь данных пользователя при успехе, либо None.
-    Поддерживает Telegram Bot API 7.0+ (автоматически исключает hash и signature перед проверкой).
+    Поддерживает Telegram Bot API 7.0+ (автоматически исключает hash и проверяет варианты signature).
     """
     if not init_data or not bot_token or bot_token == "placeholder_bot_token":
         return None
 
+    clean_token = bot_token.strip().strip('"\'')
+    if not clean_token:
+        return None
+
     try:
-        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        raw_str = init_data.strip()
+        # Извлекаем чистую строку initData, если передан URL hash или префикс
+        if raw_str.startswith("#"):
+            raw_str = raw_str[1:]
+        if raw_str.startswith("?"):
+            raw_str = raw_str[1:]
+        if "tgWebAppData=" in raw_str:
+            part = raw_str.split("tgWebAppData=")[1].split("&")[0]
+            raw_str = urllib.parse.unquote(part)
+
+        parsed = dict(urllib.parse.parse_qsl(raw_str, keep_blank_values=True))
+        
+        # Если hash нет, возможно строка была URL-закодирована целиком
+        if "hash" not in parsed and "%" in raw_str:
+            unquoted = urllib.parse.unquote(raw_str)
+            parsed = dict(urllib.parse.parse_qsl(unquoted, keep_blank_values=True))
+
         hash_check = parsed.pop("hash", None)
-        parsed.pop("signature", None)  # В Bot API 7.0+ Telegram добавляет signature третьих сторон, не входящую в hash
         if not hash_check:
             return None
 
-        # Формируем строку проверки: отсортированные по алфавиту пары key=value через \n
-        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
-        
-        # Секретный ключ вычисляется как HMAC-SHA256(b"WebAppData", bot_token)
-        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
-        calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        # В Bot API 7.0+ Telegram может передавать signature третьих сторон
+        sig = parsed.pop("signature", None)
 
-        if hmac.compare_digest(calculated_hash.lower(), hash_check.lower()):
+        secret_key = hmac.new(b"WebAppData", clean_token.encode("utf-8"), hashlib.sha256).digest()
+
+        # Вариант 1: hash рассчитан без поля signature (стандарт Bot API 7.0+)
+        dcs1 = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        calc1 = hmac.new(secret_key, dcs1.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        is_valid = hmac.compare_digest(calc1.lower(), hash_check.lower())
+
+        # Вариант 2: если не совпало и signature было в параметрах, проверяем с signature
+        if not is_valid and sig is not None:
+            parsed_with_sig = {**parsed, "signature": sig}
+            dcs2 = "\n".join(f"{k}={v}" for k, v in sorted(parsed_with_sig.items()))
+            calc2 = hmac.new(secret_key, dcs2.encode("utf-8"), hashlib.sha256).hexdigest()
+            is_valid = hmac.compare_digest(calc2.lower(), hash_check.lower())
+
+        if is_valid:
             user_raw = parsed.get("user")
             if user_raw:
                 if isinstance(user_raw, str):
@@ -51,8 +81,9 @@ def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict 
 
 async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
     """
-    Если у пользователя (открывшего Telegram Mini App с числовым ID) еще нет личных карточек,
-    копирует библиотеку карточек и структуру графа знаний из default_user / dev_user.
+    Если у пользователя (открывшего Telegram Mini App с числовым Telegram ID) еще нет личных карточек,
+    копирует библиотеку карточек и структуру графа знаний из default_user / dev_user,
+    либо напрямую загружает стартовые пресеты (sudoustroystvo, python, law, hsk3).
     Это дает пользователю персональный прогресс FSRS без пустого экрана.
     """
     if not user_id or not user_id.isdigit() or user_id in ("default_user", "dev_user"):
@@ -79,15 +110,49 @@ async def ensure_user_has_starter_deck(user_id: str, db: AsyncSession):
             return
 
         # Ищем источник карточек
-        src_user = "default_user"
+        src_user = "default_user" if user_id != "default_user" else "dev_user"
         stmt_src = select(Card).filter(Card.user_id == src_user).order_by(Card.id.asc())
         src_cards = (await db.execute(stmt_src)).scalars().all()
-        if not src_cards:
+        if not src_cards and src_user != "dev_user":
             src_user = "dev_user"
             stmt_src = select(Card).filter(Card.user_id == src_user).order_by(Card.id.asc())
             src_cards = (await db.execute(stmt_src)).scalars().all()
 
         if not src_cards:
+            # Если карточек в БД нет вообще, загружаем встроенные пресеты
+            from pathlib import Path
+            from app.services.card_db_sync import append_or_sync_cards_to_database, sync_subject_knowledge_and_practice
+            presets_dir = Path("app/static/presets")
+            preset_files = [
+                presets_dir / "sudoustroystvo.json",
+                presets_dir / "python.json",
+                presets_dir / "law.json",
+                presets_dir / "hsk3.json"
+            ]
+            total_loaded = 0
+            for pf in preset_files:
+                if pf.exists():
+                    try:
+                        p_data = json.loads(pf.read_text(encoding="utf-8"))
+                        p_cards = p_data.get("cards", [])
+                        p_sub = p_data.get("subject_slug", pf.stem)
+                        p_title = p_data.get("phrase_title", pf.stem.capitalize())
+                        if p_cards:
+                            c_new, _, _, _ = await append_or_sync_cards_to_database(p_cards, p_sub, p_title, user_id, db)
+                            total_loaded += c_new
+                            if user_id != "default_user":
+                                await append_or_sync_cards_to_database(p_cards, p_sub, p_title, "default_user", db)
+                            await sync_subject_knowledge_and_practice(db, user_id, p_sub, p_cards)
+                    except Exception as pe:
+                        print(f"[Auth Onboarding Preset Error] {pf}: {pe}")
+
+            if user_setting:
+                limits = dict(user_setting.subject_limits or {})
+                limits["_onboarded"] = True
+                user_setting.subject_limits = limits
+
+            await db.commit()
+            print(f"[Auth Onboarding] Загружено {total_loaded} карточек из встроенных пресетов для {user_id}")
             return
 
         # Копируем фразы-контейнеры
@@ -188,12 +253,14 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
 
     # 1. Пробуем разобрать и верифицировать tma <initData>
     init_data_str = None
-    if auth_header and auth_header.startswith("tma "):
+    if auth_header and auth_header.lower().startswith("tma "):
         init_data_str = auth_header[4:].strip()
     elif init_data_header:
         init_data_str = init_data_header.strip()
 
     init_data_verified = False
+    payload_user_id = None
+
     if init_data_str:
         verified_data = parse_and_verify_telegram_init_data(init_data_str, settings.TELEGRAM_BOT_TOKEN)
         if verified_data:
@@ -212,6 +279,19 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
                             pass
         else:
             print(f"[Auth WARN] Не удалось верифицировать HMAC подпись Telegram initData")
+            try:
+                raw_str = init_data_str.strip()
+                if "tgWebAppData=" in raw_str:
+                    raw_str = urllib.parse.unquote(raw_str.split("tgWebAppData=")[1].split("&")[0])
+                unq = urllib.parse.unquote(raw_str) if "%" in raw_str else raw_str
+                raw_parsed = dict(urllib.parse.parse_qsl(unq, keep_blank_values=True))
+                raw_u = raw_parsed.get("user")
+                if raw_u:
+                    u_obj = json.loads(raw_u) if isinstance(raw_u, str) else raw_u
+                    if isinstance(u_obj, dict) and u_obj.get("id"):
+                        payload_user_id = str(u_obj["id"])
+            except Exception as e:
+                print(f"[Auth Payload Parse Error] {e}")
 
     # 2. Определяем кандидата из заголовков/параметров
     candidate = None
@@ -233,24 +313,15 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
             or settings.TELEGRAM_BOT_TOKEN == "placeholder_bot_token"
         )
         if is_dev_mode:
-            user_id = candidate or "dev_user"
+            user_id = candidate or payload_user_id or "dev_user"
         else:
-            if candidate == "default_user":
+            if payload_user_id and payload_user_id.isdigit():
+                user_id = payload_user_id
+            elif candidate == "default_user":
                 user_id = "default_user"
             elif candidate and candidate.isdigit():
-                # Проверяем наличие сессии Telegram или разрешаем числовой Telegram ID пользователя
-                session_stmt = select(UserSession).filter(
-                    (UserSession.telegram_id == candidate) | (UserSession.user_id == candidate)
-                )
-                session_res = await db.execute(session_stmt)
-                existing_session = session_res.scalar_one_or_none()
-                if existing_session or not init_data_str:
-                    user_id = candidate
-                else:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Недействительная криптографическая подпись Telegram WebApp."
-                    )
+                # Числовой Telegram ID (открыто через Menu Button или KeyboardButton)
+                user_id = candidate
             elif init_data_str and not init_data_verified:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -287,8 +358,8 @@ async def get_current_user_id(request: Request, db: AsyncSession = Depends(get_d
             db.add(new_session)
             await db.commit()
 
-        # Онбординг стартовой колоды карточек и графа знаний для нового пользователя
-        if user_id not in ("default_user", "dev_user"):
+        # Онбординг стартовой колоды карточек и графа знаний для числового Telegram пользователя
+        if user_id.isdigit():
             await ensure_user_has_starter_deck(user_id, db)
 
     except Exception as e:

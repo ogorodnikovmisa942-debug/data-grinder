@@ -53,11 +53,26 @@ if (window.Telegram && window.Telegram.WebApp) {
 
 // Динамическое получение активного ID пользователя (Telegram SDK или URL параметр)
 function getActiveUserId() {
-    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-        const uid = window.Telegram.WebApp.initDataUnsafe.user.id;
-        if (uid) {
-            tgId = uid.toString();
-            return tgId;
+    if (window.Telegram && window.Telegram.WebApp) {
+        if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+            const uid = window.Telegram.WebApp.initDataUnsafe.user.id;
+            if (uid) {
+                tgId = uid.toString();
+                return tgId;
+            }
+        }
+        if (window.Telegram.WebApp.initData) {
+            try {
+                const params = new URLSearchParams(window.Telegram.WebApp.initData);
+                const userRaw = params.get('user');
+                if (userRaw) {
+                    const uObj = JSON.parse(userRaw);
+                    if (uObj && uObj.id) {
+                        tgId = uObj.id.toString();
+                        return tgId;
+                    }
+                }
+            } catch (_) {}
         }
     }
     try {
@@ -77,8 +92,11 @@ async function apiFetch(url, options = {}) {
     opts.headers = { ...(opts.headers || {}) };
     
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
-        opts.headers['Authorization'] = `tma ${window.Telegram.WebApp.initData}`;
-        opts.headers['X-Telegram-Init-Data'] = window.Telegram.WebApp.initData;
+        const initDataTrimmed = window.Telegram.WebApp.initData.trim();
+        if (initDataTrimmed) {
+            opts.headers['Authorization'] = `tma ${initDataTrimmed}`;
+            opts.headers['X-Telegram-Init-Data'] = initDataTrimmed;
+        }
     }
     opts.headers['X-User-Id'] = getActiveUserId();
 

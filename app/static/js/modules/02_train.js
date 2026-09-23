@@ -1077,6 +1077,13 @@ async function fetchActiveSession(mode = 'mixed') {
                     ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу."
                     : "Не удалось загрузить карточки. Проверьте подключение к серверу.";
             }
+            if (cardSecondaryText) {
+                cardSecondaryText.innerHTML = `
+                    <button onclick="fetchActiveSession('${mode}')" class="mt-4 px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
+                        [ ПОВТОРИТЬ ПОПЫТКУ ]
+                    </button>
+                `;
+            }
             currentSessionCounters = { new: 0, learning: 0, review: 0 };
             renderTopCounters();
             updateGlobalBadges();
@@ -1104,7 +1111,13 @@ async function fetchActiveSession(mode = 'mixed') {
                     cardText.textContent = mode === 'review' ? "Все повторено" : (mode === 'new' ? "Все новые изучены" : (mode === 'cram' ? "Штурм недоступен" : "Очередь пуста"));
                 }
             }
-            if (cardSecondaryText) cardSecondaryText.textContent = "";
+            if (cardSecondaryText) {
+                cardSecondaryText.innerHTML = `
+                    <button onclick="showSessionStarter()" class="mt-4 px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
+                        [ В МЕНЮ СЕССИЙ ]
+                    </button>
+                `;
+            }
             if (cardMainText) {
                 cardMainText.textContent = mode === 'review' 
                     ? "На данный момент нет карточек, требующих повторения." 

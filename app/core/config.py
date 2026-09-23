@@ -1,7 +1,11 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения из .env
+# Загружаем переменные окружения из .env (по абсолютному пути от корня проекта и cwd)
+_root_env = Path(__file__).resolve().parents[2] / ".env"
+if _root_env.exists():
+    load_dotenv(dotenv_path=_root_env)
 load_dotenv()
 
 def normalize_database_url(url: str) -> str:

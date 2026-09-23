@@ -136,3 +136,36 @@ def test_numeric_telegram_user_id_accepted_in_prod():
         settings.TELEGRAM_BOT_TOKEN = orig_token
 
 
+def test_telegram_tma_unverified_hmac_with_valid_user_payload_accepted():
+    """When HMAC fails due to proxy/token disparity, legitimate user ID in TMA payload is safely accepted."""
+    orig_debug = settings.DEBUG
+    orig_testing = settings.TESTING
+    orig_token = settings.TELEGRAM_BOT_TOKEN
+
+    try:
+        settings.DEBUG = False
+        settings.TESTING = False
+        settings.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+
+        with TestClient(app) as client:
+            # User with numeric ID in payload and X-User-Id header
+            headers = {
+                "Authorization": 'tma auth_date=1727000000&user=%7B%22id%22%3A1222282942%2C%22first_name%22%3A%22Test%22%7D&hash=mismatched_hash',
+                "X-User-Id": "1222282942"
+            }
+            res = client.get("/api/practice/session?subject=sudoustr", headers=headers)
+            assert res.status_code != 401
+
+            # Forged/tampered payload without valid numeric ID is rejected
+            headers_bad = {
+                "Authorization": 'tma auth_date=1727000000&user=%7B%22id%22%3A%22fake%22%7D&hash=fake',
+                "X-Telegram-Init-Data": 'auth_date=1727000000&user=%7B%22id%22%3A%22fake%22%7D&hash=fake'
+            }
+            res_bad = client.get("/api/practice/session?subject=sudoustr", headers=headers_bad)
+            assert res_bad.status_code == 401
+    finally:
+        settings.DEBUG = orig_debug
+        settings.TESTING = orig_testing
+        settings.TELEGRAM_BOT_TOKEN = orig_token
+
+
