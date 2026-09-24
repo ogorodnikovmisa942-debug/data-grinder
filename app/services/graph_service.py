@@ -865,12 +865,6 @@ def get_preset_seed_graph(subject_slug: str) -> Optional[dict]:
     if s in ("sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство", "sud", "суд"):
         res = generate_sudoustroystvo_seed_graph()
         res["subject"] = subject_slug
-        if s in ("sudoustr", "sudoust"):
-            if res.get("graph_data", {}).get("nodes"):
-                res["graph_data"]["nodes"][0]["name"] = s.upper()
-                res["graph_data"]["nodes"][0]["label"] = s.upper()
-            if res.get("tree_data"):
-                res["tree_data"]["name"] = s.upper()
         return res
     return None
 
@@ -1092,8 +1086,6 @@ def synthesize_graph_from_cards(cards: list, fallback_title: str = "Каркас
         root_name = "Общая теория права"
     elif canonical.lower() in ("civil_law", "law_civil"):
         root_name = "Гражданское право"
-    elif canonical.lower() in ("sudoustroystvo", "sudoust", "sudoustr"):
-        root_name = "Судоустройство"
     else:
         # Проверяем наличие общего phrase_title в карточках
         phrase_titles = []

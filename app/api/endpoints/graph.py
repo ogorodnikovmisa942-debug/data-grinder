@@ -245,7 +245,7 @@ async def get_knowledge_graph(
     result = await db.execute(stmt)
     records = result.scalars().all()
 
-    # Fallback на пресетный сид-граф только для тестовых профилей или первого знакомства при отсутствии колод
+    # Fallback на пресетный сид-граф только для тестовых профилей или dev_user при отсутствии колод
     if not records and not user_cards:
         if current_user in ("default_user", "dev_user") or not current_user.isdigit():
             seed = get_preset_seed_graph(clean_sub)
@@ -514,11 +514,6 @@ async def rebuild_knowledge_graph(
         res = await db.execute(top_stmt)
         active_sub = res.scalar()
         clean_sub = active_sub
-        if not clean_sub:
-            def_stmt = select(Card.subject).where(
-                Card.user_id.in_(["default_user", "dev_user"])
-            ).order_by(Card.next_review.desc()).limit(1)
-            clean_sub = (await db.execute(def_stmt)).scalar()
 
     if not clean_sub:
         raise HTTPException(
@@ -538,12 +533,18 @@ async def rebuild_knowledge_graph(
     user_cards = cards_res.scalars().all()
 
     if not user_cards:
-        if current_user in ("default_user", "dev_user"):
-            stmt_def = select(Card).options(selectinload(Card.phrase)).where(Card.subject.in_(all_aliases))
-            res_def = await db.execute(stmt_def)
-            user_cards = res_def.scalars().all()
-
-    if not user_cards:
+        if current_user in ("default_user", "dev_user") or not current_user.isdigit():
+            seed = get_preset_seed_graph(clean_sub)
+            if seed:
+                g_data = seed.get("graph_data", {"nodes": [], "edges": []})
+                t_data = seed.get("tree_data")
+                return KnowledgeGraphResponse(
+                    subject=clean_sub,
+                    graph_data=g_data,
+                    tree_data=t_data,
+                    updated_at=None,
+                    is_seed=True
+                )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Нет карточек для перестроения графа по предмету '{clean_sub}'."

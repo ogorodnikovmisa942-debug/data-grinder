@@ -43,12 +43,16 @@ async def get_admin_dashboard_data() -> dict:
         )).scalar_one_or_none()
         current_phase = sess_sample.experiment_phase if sess_sample else 1
         
+        total_users = (await db.execute(
+            select(func.count(UserSession.id))
+        )).scalar() or 0
+
         part_count = (await db.execute(
             select(func.count(UserSession.id)).filter(UserSession.is_experiment_participant == True)
         )).scalar() or 0
         
         cards_count = (await db.execute(
-            select(func.count(Card.id)).filter(Card.subject == "sudoustroystvo")
+            select(func.count(Card.id))
         )).scalar() or 0
         
         reviews_count = (await db.execute(select(func.count(ReviewLog.id)))).scalar() or 0
@@ -71,6 +75,7 @@ async def get_admin_dashboard_data() -> dict:
         
         return {
             "phase": current_phase,
+            "total_users": total_users,
             "participants": part_count,
             "cards": cards_count,
             "reviews": reviews_count,
@@ -153,9 +158,6 @@ async def cmd_export(message: types.Message):
     async with AsyncSessionLocal() as db:
         stmt = select(Card).filter(Card.user_id == user_id_str).order_by(Card.id.asc())
         cards = (await db.execute(stmt)).scalars().all()
-        if not cards:
-            stmt_def = select(Card).filter(Card.user_id == "default_user").order_by(Card.id.asc())
-            cards = (await db.execute(stmt_def)).scalars().all()
 
         if not cards:
             await message.answer(
@@ -165,8 +167,8 @@ async def cmd_export(message: types.Message):
             )
             return
 
-        phrase_title = "Судоустройство: Основной курс"
-        subject_slug = cards[0].subject if cards else "sudoustroystvo"
+        phrase_title = "Основной курс"
+        subject_slug = cards[0].subject if cards else "deck"
 
         p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
         found_title = (await db.execute(p_stmt)).scalar()
@@ -191,7 +193,7 @@ async def cmd_export(message: types.Message):
         }
 
         presets = list(Path("app/static/presets").glob("*.json"))
-        preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "sudoustroystvo.json")
+        preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "deck.json")
         save_preset_path = Path("app/static/presets") / preset_filename
         save_preset_path.parent.mkdir(parents=True, exist_ok=True)
         save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -238,30 +240,149 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         )
         await callback.answer("Сводка обновлена")
 
-    elif action == "admin_participants":
+    elif action in ("admin_participants", "admin_users") or action.startswith("admin_users_page:"):
+        filter_type = "part" if action == "admin_participants" else ("all" if action == "admin_users" else action.split(":")[2])
+        page = int(action.split(":")[1]) if action.startswith("admin_users_page:") else 0
+        page_size = 10
+        offset = page * page_size
+
         async with AsyncSessionLocal() as db:
-            stmt = select(UserSession).filter(UserSession.is_experiment_participant == True).order_by(UserSession.id.asc())
+            total_all = (await db.execute(select(func.count(UserSession.id)))).scalar() or 0
+            total_part = (await db.execute(select(func.count(UserSession.id)).filter(UserSession.is_experiment_participant == True))).scalar() or 0
+            
+            stmt = select(UserSession)
+            if filter_type == "part":
+                stmt = stmt.filter(UserSession.is_experiment_participant == True)
+            
+            total_current = total_part if filter_type == "part" else total_all
+            stmt = stmt.order_by(UserSession.id.desc()).offset(offset).limit(page_size)
             users = (await db.execute(stmt)).scalars().all()
             
-            lines = ["👥 <b>УЧАСТНИКИ НАУЧНОГО ЭКСПЕРИМЕНТА:</b>\n"]
-            for idx, u in enumerate(users, 1):
-                uname = f"@{u.username}" if u.username else "<i>(без юзернейма)</i>"
+            mode_title = "ТОЛЬКО УЧАСТНИКИ" if filter_type == "part" else "ВСЕ ПОЛЬЗОВАТЕЛИ"
+            lines = [f"👥 <b>ПОЛЬЗОВАТЕЛИ СИСТЕМЫ ({mode_title}):</b>\n"]
+            lines.append(f"📊 <i>Всего в базе: {total_all} | В эксперименте: {total_part}</i>")
+            if total_current > 0:
+                lines.append(f"<i>Показано: {offset + 1}–{min(offset + page_size, total_current)} из {total_current}</i>\n")
+            else:
+                lines.append("<i>Нет пользователей для отображения.</i>\n")
+
+            toggle_buttons = []
+            for idx, u in enumerate(users, start=offset + 1):
+                uname = f"@{u.username}" if u.username else "<i>(без @username)</i>"
                 fname = f" — {u.full_name}" if u.full_name else ""
                 
                 c_cnt = (await db.execute(select(func.count(Card.id)).filter(Card.user_id == u.user_id))).scalar() or 0
                 r_cnt = (await db.execute(select(func.count(ReviewLog.id)).filter(ReviewLog.user_id == u.user_id))).scalar() or 0
+                status_icon = f"🔬 Эксперимент (Фаза {u.experiment_phase})" if u.is_experiment_participant else "👤 Обычный"
                 
-                lines.append(f"<b>{idx}. {uname}</b>{fname}\n   ID: <code>{u.telegram_id}</code> | Фаза: {u.experiment_phase} | Карт: {c_cnt} | Логов: {r_cnt}")
-            
-            if not users:
-                lines.append("<i>Пока нет зарегистрированных участников. Создайте инвайт ниже.</i>")
-                
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🎟 Создать инвайт", callback_data="admin_create_invite")],
-                [InlineKeyboardButton(text="🔙 Назад в меню", callback_data="admin_menu")]
+                lines.append(
+                    f"<b>{idx}. {uname}</b>{fname}\n"
+                    f"   ID: <code>{u.telegram_id}</code> | {status_icon}\n"
+                    f"   🗂 Карт: <b>{c_cnt}</b> | 📝 Ответов: <b>{r_cnt}</b>"
+                )
+                btn_label = f"❌ Исключить #{idx}" if u.is_experiment_participant else f"➕ В эксперимент #{idx}"
+                toggle_buttons.append(InlineKeyboardButton(text=btn_label, callback_data=f"admin_toggle_user:{u.user_id}:{page}:{filter_type}"))
+
+            kb_rows = []
+            # Переключатель фильтра Все / Участники
+            if filter_type == "part":
+                kb_rows.append([InlineKeyboardButton(text="👥 Показать ВСЕХ пользователей", callback_data=f"admin_users_page:0:all")])
+            else:
+                kb_rows.append([InlineKeyboardButton(text="🔬 Показать ТОЛЬКО участников", callback_data=f"admin_users_page:0:part")])
+
+            # Кнопки быстрого переключения статуса (по 2 в ряд)
+            if toggle_buttons:
+                for i in range(0, min(len(toggle_buttons), 6), 2):
+                    kb_rows.append(toggle_buttons[i:i+2])
+
+            # Пагинация
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_users_page:{page-1}:{filter_type}"))
+            max_page = (total_current - 1) // page_size if total_current > 0 else 0
+            if total_current > page_size:
+                nav_buttons.append(InlineKeyboardButton(text=f"Стр. {page+1}/{max_page+1}", callback_data="admin_noop"))
+            if offset + page_size < total_current:
+                nav_buttons.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"admin_users_page:{page+1}:{filter_type}"))
+            if nav_buttons:
+                kb_rows.append(nav_buttons)
+
+            # Выгрузка CSV и меню
+            kb_rows.append([InlineKeyboardButton(text="📥 Скачать базу юзеров (CSV)", callback_data="admin_export_users_csv")])
+            kb_rows.append([
+                InlineKeyboardButton(text="🎟 Создать инвайт", callback_data="admin_create_invite"),
+                InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")
             ])
-            await callback.message.edit_text("\n".join(lines), reply_markup=kb, parse_mode="HTML")
+
+            await callback.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
             await callback.answer()
+
+    elif action.startswith("admin_toggle_user:"):
+        parts = action.split(":")
+        target_uid = parts[1]
+        back_page = int(parts[2]) if len(parts) > 2 else 0
+        back_filter = parts[3] if len(parts) > 3 else "all"
+
+        async with AsyncSessionLocal() as db:
+            sess = (await db.execute(select(UserSession).filter(UserSession.user_id == target_uid))).scalar_one_or_none()
+            user_set = (await db.execute(select(UserSetting).filter(UserSetting.user_id == target_uid))).scalar_one_or_none()
+            if sess:
+                new_status = not sess.is_experiment_participant
+                sess.is_experiment_participant = new_status
+                if new_status:
+                    sess.experiment_phase = 1
+                if user_set:
+                    user_set.is_experiment_participant = new_status
+                    if new_status:
+                        user_set.experiment_phase = 1
+                await db.commit()
+                status_txt = "включен в эксперимент (Фаза 1)" if new_status else "переведен в обычный режим"
+                await callback.answer(f"Пользователь {target_uid} {status_txt}!", show_alert=True)
+            else:
+                await callback.answer("Пользователь не найден", show_alert=True)
+        # Перерисовываем список
+        callback.data = f"admin_users_page:{back_page}:{back_filter}"
+        return await handle_admin_callbacks(callback)
+
+    elif action == "admin_export_users_csv":
+        await callback.answer("Формирую список пользователей CSV...")
+        async with AsyncSessionLocal() as db:
+            stmt = select(UserSession).order_by(UserSession.id.asc())
+            users = (await db.execute(stmt)).scalars().all()
+
+            output = io.StringIO()
+            output.write('\ufeff')
+            fieldnames = [
+                "id", "telegram_id", "user_id", "username", "full_name",
+                "is_experiment_participant", "experiment_phase", "cards_count",
+                "reviews_count", "is_resting"
+            ]
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            for u in users:
+                c_cnt = (await db.execute(select(func.count(Card.id)).filter(Card.user_id == u.user_id))).scalar() or 0
+                r_cnt = (await db.execute(select(func.count(ReviewLog.id)).filter(ReviewLog.user_id == u.user_id))).scalar() or 0
+                writer.writerow({
+                    "id": u.id,
+                    "telegram_id": u.telegram_id,
+                    "user_id": u.user_id,
+                    "username": u.username or "",
+                    "full_name": u.full_name or "",
+                    "is_experiment_participant": 1 if u.is_experiment_participant else 0,
+                    "experiment_phase": u.experiment_phase,
+                    "cards_count": c_cnt,
+                    "reviews_count": r_cnt,
+                    "is_resting": 1 if u.is_resting else 0
+                })
+
+        csv_bytes = output.getvalue().encode("utf-8-sig")
+        now_tag = utc_now().strftime('%Y%m%d_%H%M')
+        file_obj = BufferedInputFile(csv_bytes, filename=f"users_database_{now_tag}.csv")
+        await callback.message.answer_document(
+            document=file_obj,
+            caption=f"👥 <b>База пользователей Data Grinder</b>\nВсего пользователей: {len(users)}\nФормат: CSV (UTF-8 BOM для Excel/Pandas)",
+            parse_mode="HTML"
+        )
 
     elif action == "admin_invites":
         async with AsyncSessionLocal() as db:
@@ -433,10 +554,6 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             cards = res.scalars().all()
 
             if not cards:
-                stmt_def = select(Card).filter(Card.user_id == "default_user").order_by(Card.id.asc())
-                cards = (await db.execute(stmt_def)).scalars().all()
-
-            if not cards:
                 await callback.message.answer(
                     "ℹ️ В вашей личной базе пока нет карточек.\n\n"
                     "Создайте или импортируйте карточки в веб-приложении, после чего нажмите эту кнопку повторно.",
@@ -444,8 +561,8 @@ async def handle_admin_callbacks(callback: CallbackQuery):
                 )
                 return
 
-            phrase_title = "Судоустройство: Основной курс"
-            subject_slug = cards[0].subject if cards else "sudoustroystvo"
+            phrase_title = "Основной курс"
+            subject_slug = cards[0].subject if cards else "deck"
 
             p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
             found_title = (await db.execute(p_stmt)).scalar()
@@ -470,7 +587,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             }
 
             presets = list(Path("app/static/presets").glob("*.json"))
-            preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "sudoustroystvo.json")
+            preset_filename = f"{subject_slug}.json" if subject_slug else (presets[0].name if presets else "deck.json")
             save_preset_path = Path("app/static/presets") / preset_filename
             save_preset_path.parent.mkdir(parents=True, exist_ok=True)
             save_preset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -523,84 +640,192 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             pass
 
     elif action == "admin_distribute_deck":
+        presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
+        deck_items = []
+        for p in presets:
+            try:
+                content = json.loads(p.read_text(encoding="utf-8"))
+                c_list = content.get("cards", [])
+                p_title = content.get("phrase_title", p.stem)
+                s_slug = content.get("subject_slug", p.stem)
+                deck_items.append((p.name, p_title, s_slug, len(c_list)))
+            except Exception:
+                continue
+
+        if not deck_items:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Экспорт моей колоды", callback_data="admin_export_my_deck")],
+                [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+            ])
+            await callback.message.edit_text(
+                "❌ <b>В папке пресетов нет файлов колод!</b>\n\n"
+                "Выгрузите свою колоду кнопкой «📤 Моя колода (JSON)» или отправьте .json файл боту документом.",
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+            return
+
+        kb_rows = []
+        for fname, p_title, s_slug, count in deck_items:
+            kb_rows.append([
+                InlineKeyboardButton(text=f"📦 {p_title} ({count} карт)", callback_data=f"admin_dist_deck_sel:{fname}")
+            ])
+        kb_rows.append([InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")])
+
+        await callback.message.edit_text(
+            "📦 <b>ВЫБОР КОЛОДЫ ДЛЯ РАЗДАЧИ</b>\n\n"
+            "Выберите курс / пакет карточек, который хотите синхронизировать:\n"
+            "<i>(Вы также можете выгрузить свою колоду через /export или отправить .json файл боту)</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+
+    elif action.startswith("admin_dist_deck_sel:"):
+        fname = action.split(":", 1)[1]
+        p_path = Path("app/static/presets") / fname
+        if not p_path.exists():
+            await callback.answer("Файл колоды не найден", show_alert=True)
+            return
+        try:
+            content = json.loads(p_path.read_text(encoding="utf-8"))
+            p_title = content.get("phrase_title", p_path.stem)
+            s_slug = content.get("subject_slug", p_path.stem)
+            cards_count = len(content.get("cards", []))
+        except Exception as e:
+            await callback.answer(f"Ошибка файла: {e}", show_alert=True)
+            return
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Дозагрузить новые (сохранить прогресс)", callback_data="admin_distribute_append")],
-            [InlineKeyboardButton(text="⚠️ Полный сброс и перезапись", callback_data="admin_distribute_overwrite_confirm")],
-            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+            [
+                InlineKeyboardButton(text="➕ Дозагрузить участникам (Append)", callback_data=f"admin_dist_run:append:part:{fname}"),
+            ],
+            [
+                InlineKeyboardButton(text="➕ Дозагрузить ВСЕМ юзерам базы (Append)", callback_data=f"admin_dist_run:append:all:{fname}"),
+            ],
+            [
+                InlineKeyboardButton(text="⚠️ Сброс и перезапись участникам", callback_data=f"admin_dist_run:overwrite:part:{fname}"),
+            ],
+            [
+                InlineKeyboardButton(text="⚠️ Сброс и перезапись ВСЕМ юзерам", callback_data=f"admin_dist_run:overwrite:all:{fname}"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 К выбору колод", callback_data="admin_distribute_deck"),
+                InlineKeyboardButton(text="🏠 Меню", callback_data="admin_menu")
+            ]
         ])
         await callback.message.edit_text(
-            "📦 <b>РАЗДАЧА КАРТОЧЕК УЧАСТНИКАМ ЭКСПЕРИМЕНТА</b>\n\n"
-            "Выберите способ применения эталонного пакета судоустройства:\n\n"
-            "1. <b>Дозагрузить (Append)</b> — <i>РЕКОМЕНДУЕТСЯ</i>. Добавляет только новые карточки и обновляет формулировки существующих. Весь прогресс студентов (FSRS интервалы, стабильность, статистика повторений) полностью сохраняется.\n\n"
-            "2. <b>Полный сброс (Overwrite)</b> — полностью удаляет текущие карточки и заново загружает колоду со сбросом прогресса.",
+            f"📦 <b>РАЗДАЧА КОЛОДЫ: «{p_title}»</b>\n\n"
+            f"• <b>Предмет:</b> <code>{s_slug}</code>\n"
+            f"• <b>Карточек:</b> {cards_count} шт.\n"
+            f"• <b>Файл:</b> <code>{fname}</code>\n\n"
+            f"<b>Режимы применения:</b>\n"
+            f"1. <b>Дозагрузить (Append)</b> — <i>РЕКОМЕНДУЕТСЯ</i>. Добавит новые карты и обновит формулировки, сохраняя весь FSRS-прогресс студентов.\n"
+            f"2. <b>Перезапись (Overwrite)</b> — сбросит прогресс и создаст колоду с нуля.\n\n"
+            f"Кому применить пакет?",
             reply_markup=kb,
             parse_mode="HTML"
         )
         await callback.answer()
 
-    elif action == "admin_distribute_append":
-        await callback.answer("Синхронизирую и дозагружаю карточки...")
-        presets = list(Path("app/static/presets").glob("*.json"))
-        preset_path = presets[0] if presets else Path("app/static/presets/sudoustroystvo.json")
-        if not preset_path.exists():
-            await callback.message.answer(f"❌ Файл <code>{preset_path.as_posix()}</code> не найден на сервере!", parse_mode="HTML")
+    elif action.startswith("admin_dist_run:"):
+        parts = action.split(":")
+        mode = parts[1]      # append | overwrite
+        target = parts[2]    # part | all
+        fname = parts[3]
+        await callback.answer("Синхронизирую колоду...")
+
+        p_path = Path("app/static/presets") / fname
+        if not p_path.exists():
+            await callback.message.answer(f"❌ Файл колоды {fname} не найден на сервере.")
             return
 
         try:
-            content = json.loads(preset_path.read_text(encoding="utf-8"))
+            content = json.loads(p_path.read_text(encoding="utf-8"))
             cards_to_distribute = content.get("cards", [])
-            phrase_title = content.get("phrase_title", "Судоустройство: Основной курс")
-            subject_slug = content.get("subject_slug", "sudoustroystvo")
+            phrase_title = content.get("phrase_title", p_path.stem)
+            subject_slug = content.get("subject_slug", p_path.stem)
         except Exception as e:
             await callback.message.answer(f"❌ Ошибка чтения файла карточек: {e}")
             return
 
         async with AsyncSessionLocal() as db:
-            stmt = select(UserSession).filter(UserSession.is_experiment_participant == True)
+            if target == "all":
+                stmt = select(UserSession)
+            else:
+                stmt = select(UserSession).filter(UserSession.is_experiment_participant == True)
             users = (await db.execute(stmt)).scalars().all()
             if not users:
-                await callback.message.answer("⚠️ В базе пока нет зарегистрированных участников исследования!")
+                await callback.message.answer("⚠️ В базе нет целевых пользователей для раздачи!")
                 return
 
             affected = 0
             total_created = 0
             total_updated = 0
             for u in users:
-                created, updated, _, _ = await append_or_sync_cards_to_database(
-                    cards_data=cards_to_distribute,
-                    subject_slug=subject_slug,
-                    phrase_title=phrase_title,
-                    user_id=u.user_id,
-                    db=db
-                )
-                total_created += created
-                total_updated += updated
+                if mode == "overwrite":
+                    await db.execute(delete(Card).filter(Card.user_id == u.user_id, Card.subject == subject_slug))
+                    await db.execute(delete(Phrase).filter(Phrase.user_id == u.user_id, Phrase.subject == subject_slug))
+                    await db.commit()
+
+                    created, _, _ = await save_cards_to_database(
+                        cards_data=cards_to_distribute,
+                        subject_slug=subject_slug,
+                        phrase_title=phrase_title,
+                        user_id=u.user_id,
+                        db=db
+                    )
+                    total_created += created
+                else:
+                    created, updated, _, _ = await append_or_sync_cards_to_database(
+                        cards_data=cards_to_distribute,
+                        subject_slug=subject_slug,
+                        phrase_title=phrase_title,
+                        user_id=u.user_id,
+                        db=db
+                    )
+                    total_created += created
+                    total_updated += updated
                 affected += 1
             await db.commit()
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
         ])
+        target_str = "всем пользователям базы" if target == "all" else "участникам эксперимента"
+        mode_str = "дозагружена (Append, прогресс сохранен)" if mode == "append" else "перезаписана с нуля (Overwrite)"
         await callback.message.edit_text(
-            f"✅ <b>Колода успешно синхронизирована (Append)!</b>\n\n"
-            f"• <b>Предмет:</b> {phrase_title}\n"
-            f"• <b>Всего в эталонном пакете:</b> {len(cards_to_distribute)} шт.\n"
+            f"✅ <b>Колода успешно {mode_str}!</b>\n\n"
+            f"• <b>Предмет:</b> {phrase_title} (<code>{subject_slug}</code>)\n"
+            f"• <b>Всего в файле:</b> {len(cards_to_distribute)} шт.\n"
             f"• <b>Добавлено новых карточек:</b> {total_created} шт.\n"
             f"• <b>Обновлено формулировок:</b> {total_updated} шт.\n"
-            f"• <b>Участников затронуто:</b> {affected} чел.\n\n"
-            f"<i>💡 FSRS-метрики (интервалы, стабильность, история повторений) участников сохранены без изменений.</i>",
+            f"• <b>Получатели:</b> {target_str} ({affected} чел.)\n",
             reply_markup=kb,
             parse_mode="HTML"
         )
 
+    elif action == "admin_distribute_append":
+        presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
+        if not presets:
+            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
+            return
+        callback.data = f"admin_dist_run:append:part:{presets[0].name}"
+        return await handle_admin_callbacks(callback)
+
     elif action == "admin_distribute_overwrite_confirm":
+        presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
+        if not presets:
+            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
+            return
+        fname = presets[0].name
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="‼️ ДА, СБРОСИТЬ ПРОГРЕСС И ПЕРЕЗАПИСАТЬ", callback_data="admin_distribute_overwrite")],
+            [InlineKeyboardButton(text="‼️ ДА, СБРОСИТЬ ПРОГРЕСС И ПЕРЕЗАПИСАТЬ", callback_data=f"admin_dist_run:overwrite:part:{fname}")],
             [InlineKeyboardButton(text="🔙 Отмена (Главное меню)", callback_data="admin_menu")]
         ])
         await callback.message.edit_text(
-            "⚠️ <b>ВНИМАНИЕ: ОПАСНОЕ ДЕЙСТВИЕ</b>\n\n"
-            "Вы собираетесь удалить все текущие карточки по судоустройству у всех участников исследования и создать их заново.\n\n"
+            f"⚠️ <b>ВНИМАНИЕ: ОПАСНОЕ ДЕЙСТВИЕ</b>\n\n"
+            f"Вы собираетесь удалить все текущие карточки по колоде <code>{fname}</code> у участников исследования и создать их заново.\n\n"
             "Все интервалы повторений и история будут <b>безвозвратно удалены</b> для данного предмета.\n\n"
             "Вы уверены?",
             reply_markup=kb,
@@ -609,59 +834,12 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         await callback.answer()
 
     elif action == "admin_distribute_overwrite":
-        await callback.answer("Сбрасываю и перезаписываю колоду...")
-        presets = list(Path("app/static/presets").glob("*.json"))
-        preset_path = presets[0] if presets else Path("app/static/presets/sudoustroystvo.json")
-        if not preset_path.exists():
-            await callback.message.answer(f"❌ Файл <code>{preset_path.as_posix()}</code> не найден на сервере!", parse_mode="HTML")
+        presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
+        if not presets:
+            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
             return
-
-        try:
-            content = json.loads(preset_path.read_text(encoding="utf-8"))
-            cards_to_distribute = content.get("cards", [])
-            phrase_title = content.get("phrase_title", "Судоустройство: Основной курс")
-            subject_slug = content.get("subject_slug", "sudoustroystvo")
-        except Exception as e:
-            await callback.message.answer(f"❌ Ошибка чтения файла карточек: {e}")
-            return
-
-        async with AsyncSessionLocal() as db:
-            stmt = select(UserSession).filter(UserSession.is_experiment_participant == True)
-            users = (await db.execute(stmt)).scalars().all()
-            if not users:
-                await callback.message.answer("⚠️ В базе пока нет зарегистрированных участников исследования!")
-                return
-
-            affected = 0
-            total_created = 0
-            for u in users:
-                await db.execute(delete(Card).filter(Card.user_id == u.user_id, Card.subject == subject_slug))
-                await db.execute(delete(Phrase).filter(Phrase.user_id == u.user_id, Phrase.subject == subject_slug))
-                await db.commit()
-
-                created, _, _ = await save_cards_to_database(
-                    cards_data=cards_to_distribute,
-                    subject_slug=subject_slug,
-                    phrase_title=phrase_title,
-                    user_id=u.user_id,
-                    db=db
-                )
-                total_created += created
-                affected += 1
-            await db.commit()
-
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
-        ])
-        await callback.message.edit_text(
-            f"✅ <b>Колода полностью перезаписана (Overwrite)!</b>\n\n"
-            f"• <b>Тема:</b> {phrase_title}\n"
-            f"• <b>Создано карточек:</b> {total_created} шт.\n"
-            f"• <b>Участников:</b> {affected} чел.\n\n"
-            f"<i>Все студенты начинают с нулевой очереди FSRS.</i>",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
+        callback.data = f"admin_dist_run:overwrite:part:{presets[0].name}"
+        return await handle_admin_callbacks(callback)
 
     elif action == "admin_phase_2":
         async with AsyncSessionLocal() as db:
@@ -765,25 +943,27 @@ async def handle_admin_document_upload(message: types.Message):
             await message.answer("❌ В переданном JSON-файле не найден массив <code>cards</code>.", parse_mode="HTML")
             return
 
-        subject_slug = parsed_json.get("subject_slug") or (doc.file_name.rsplit(".", 1)[0] if doc.file_name else "sudoustroystvo")
+        subject_slug = parsed_json.get("subject_slug") or (doc.file_name.rsplit(".", 1)[0] if doc.file_name else "custom_deck")
         save_path = Path(f"app/static/presets/{subject_slug}.json")
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(parsed_json, ensure_ascii=False, indent=2), encoding="utf-8")
 
         phrase_title = parsed_json.get("phrase_title", subject_slug.replace("_", " ").title())
+        fname = f"{subject_slug}.json"
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"➕ Дозагрузить ({len(cards)} карт, без сброса)", callback_data="admin_distribute_append")],
-            [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать всем", callback_data="admin_distribute_overwrite_confirm")],
+            [InlineKeyboardButton(text=f"➕ Дозагрузить участникам ({len(cards)} карт)", callback_data=f"admin_dist_run:append:part:{fname}")],
+            [InlineKeyboardButton(text=f"➕ Дозагрузить ВСЕМ пользователям ({len(cards)} карт)", callback_data=f"admin_dist_run:append:all:{fname}")],
+            [InlineKeyboardButton(text="⚠️ Сбросить и перезаписать участникам", callback_data=f"admin_dist_run:overwrite:part:{fname}")],
             [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
         ])
 
         await message.answer(
             f"📥 <b>Файл карточек успешно принят и сохранен!</b>\n\n"
             f"• <b>Тема:</b> «{phrase_title}»\n"
+            f"• <b>Предмет:</b> <code>{subject_slug}</code>\n"
             f"• <b>Количество карточек:</b> {len(cards)}\n"
             f"• <b>Файл на сервере:</b> <code>{save_path.as_posix()}</code>\n\n"
-            f"Все новые студенты будут автоматически получать этот набор при переходе по инвайту.\n"
-            f"Чтобы загрузить его уже зарегистрированным участникам, выберите действие:",
+            f"Выберите, кому и как раздать этот набор карточек:",
             reply_markup=kb,
             parse_mode="HTML"
         )

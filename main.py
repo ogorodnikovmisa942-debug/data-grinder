@@ -9,8 +9,9 @@ from jinja2 import Template
 
 from app.api.endpoints import train, management, admin, graph, practice
 from app.core.config import settings
-from app.database.session import engine
-from app.database.models import Base
+from sqlalchemy import select, func
+from app.database.session import engine, AsyncSessionLocal
+from app.database.models import Base, UserSession, Card, ReviewLog
 from app.database.migrations import backup_sqlite_database, run_sqlite_pragma_migrations
 from app.services.notifications import notification_scheduler_loop
 from app.services.generation_worker import generation_worker_loop
@@ -106,12 +107,26 @@ async def admin_web_page():
         else '<span style="color:#f59e0b;">⚠️ Ключ не задан (.env)</span>'
     )
 
+    total_users, part_users, total_cards, total_reviews = 0, 0, 0, 0
+    try:
+        async with AsyncSessionLocal() as db:
+            total_users = (await db.execute(select(func.count(UserSession.id)))).scalar() or 0
+            part_users = (await db.execute(select(func.count(UserSession.id)).filter(UserSession.is_experiment_participant == True))).scalar() or 0
+            total_cards = (await db.execute(select(func.count(Card.id)))).scalar() or 0
+            total_reviews = (await db.execute(select(func.count(ReviewLog.id)))).scalar() or 0
+    except Exception as e:
+        print(f"[Admin Web Notice] {e}")
+
     template_str = ADMIN_TEMPLATE_PATH.read_text(encoding="utf-8")
     rendered_html = Template(template_str).render(
         curr_model=curr_model,
         admin_token=admin_token,
         ds_key_badge=ds_key_badge,
-        base_url=settings.DEEPSEEK_BASE_URL
+        base_url=settings.DEEPSEEK_BASE_URL,
+        total_users=total_users,
+        part_users=part_users,
+        total_cards=total_cards,
+        total_reviews=total_reviews
     )
     return HTMLResponse(rendered_html)
 

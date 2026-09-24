@@ -195,7 +195,7 @@ class TestTrainSessionFlow(unittest.IsolatedAsyncioTestCase):
                 cards = await get_session_cards(subject="sudoust", mode="new", current_user=test_user, db=db)
                 self.assertEqual(len(cards), 1)
                 self.assertEqual(cards[0]["text"], "Что такое подсудность?")
-                self.assertEqual(cards[0]["subject_title"], "Судоустройство РФ")
+                self.assertEqual(cards[0]["subject_title"], "Органы правосудия")
         finally:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import delete

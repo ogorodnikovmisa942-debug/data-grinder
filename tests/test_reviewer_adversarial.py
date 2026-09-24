@@ -15,9 +15,35 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+        async with AsyncSessionLocal() as db:
+            c_cnt = (await db.execute(select(func.count(Card.id)).where(Card.user_id == "dev_user", Card.subject == "sudoustr"))).scalar() or 0
+            if c_cnt < 25:
+                p = Phrase(user_id="dev_user", subject="sudoustr", text="Основы судоустройства")
+                db.add(p)
+                await db.flush()
+                now = datetime.utcnow()
+                for i in range(30):
+                    c = Card(
+                        phrase_id=p.id,
+                        user_id="dev_user",
+                        subject="sudoustr",
+                        text=f"Институт правосудия {i}?",
+                        translation=f"Полномочия {i}",
+                        secondary_text=f"Раздел {i} | Полномочия инстанции {i}",
+                        topological_rank=i,
+                        layer=i % 3,
+                        next_review=now
+                    )
+                    db.add(c)
+                await db.commit()
 
     async def asyncTearDown(self):
         await self.client.aclose()
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Card).where(Card.user_id == "dev_user"))
+            await db.execute(delete(Phrase).where(Phrase.user_id == "dev_user"))
+            await db.execute(delete(TopicKnowledgeGraph).where(TopicKnowledgeGraph.user_id == "dev_user"))
+            await db.commit()
 
     async def test_1_knowledge_graph_endpoints_and_node_count(self):
         """Проверяет эндпоинты GET и POST /rebuild: каркас 25-45 узлов и канонический алиас."""
@@ -332,6 +358,13 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
         now = datetime.utcnow()
 
         async with AsyncSessionLocal() as db:
+            await db.execute(delete(Card).where(Card.user_id == test_user))
+            await db.execute(delete(Phrase).where(Phrase.user_id == test_user))
+            await db.execute(delete(TopicKnowledgeGraph).where(TopicKnowledgeGraph.user_id == test_user))
+            await db.execute(delete(PracticeItem).where(PracticeItem.user_id == test_user))
+            await db.execute(delete(PracticeSessionLog).where(PracticeSessionLog.user_id == test_user))
+            await db.commit()
+
             p = Phrase(text="Тема переименования", subject="old_course", user_id=test_user)
             db.add(p)
             await db.flush()
@@ -344,7 +377,7 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
             await db.commit()
 
         res = await self.client.post("/api/data/subjects/rename", json={"old_subject": "old_course", "new_subject": "new_course"}, headers={"X-User-Id": test_user})
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 200, f"Error: {res.text}")
 
         async with AsyncSessionLocal() as db:
             cards = (await db.execute(select(Card).where(Card.user_id == test_user))).scalars().all()

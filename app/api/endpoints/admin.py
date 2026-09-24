@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import text, select, update, delete
+from sqlalchemy import text, select, update, delete, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 import secrets
@@ -27,26 +27,30 @@ class SetParticipantIn(BaseModel):
     phase: int = 1
 
 def verify_admin_token(request: Request):
-    """Проверка административного токена из заголовка X-Admin-Token."""
-    header_token = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
-    if not header_token or header_token != settings.ADMIN_TOKEN:
+    """Проверка административного токена из заголовка X-Admin-Token или параметра ?token=."""
+    token = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
+    if not token:
+        token = request.query_params.get("token") or request.query_params.get("admin_token")
+    if not token or token != settings.ADMIN_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Доступ запрещен: недействительный или отсутствующий X-Admin-Token"
         )
-    return header_token
+    return token
 
 # --- 5.1. ВЫГРУЗКА ДАТАСЕТА ЭКСПЕРИМЕНТА В CSV ДЛЯ PANDAS / R ---
 @router.get("/export/experiment-dataset")
 async def export_experiment_dataset(
+    all_users: bool = Query(False, description="Выгрузить данные всех пользователей, а не только участников эксперимента"),
     token: str = Depends(verify_admin_token),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Формирует и отдает потоковый CSV-датасет участников научного эксперимента (Фаза 1).
+    Формирует и отдает потоковый CSV-датасет участников научного эксперимента (Фаза 1) или всех пользователей.
     Кодировка: UTF-8 с BOM (\ufeff) для безупречной загрузки в pandas.read_csv() и Excel без битых символов.
     """
-    sql_query = text("""
+    where_clause = "" if all_users else "WHERE u.is_experiment_participant = 1"
+    sql_query = text(f"""
         SELECT 
             u.user_id AS user_id,
             r.id AS log_id,
@@ -67,10 +71,10 @@ async def export_experiment_dataset(
             r.timestamp AS review_time
         FROM review_logs r
         JOIN user_sessions u ON r.user_id = u.user_id
-        JOIN cards c ON r.card_id = c.id
+        LEFT JOIN cards c ON r.card_id = c.id
         LEFT JOIN daily_sessions d ON r.user_id = d.user_id 
              AND DATE(r.timestamp) = DATE(d.timestamp)
-        WHERE u.is_experiment_participant = 1
+        {where_clause}
         ORDER BY r.user_id, r.timestamp ASC;
     """)
 
@@ -364,10 +368,10 @@ async def list_participants(
     participants_data = []
     for u in users:
         # Считаем карточки и логи повторений
-        c_stmt = select(text("count(*)")).select_from(Card).filter(Card.user_id == u.user_id)
+        c_stmt = select(func.count(Card.id)).filter(Card.user_id == u.user_id)
         c_count = (await db.execute(c_stmt)).scalar() or 0
 
-        r_stmt = select(text("count(*)")).select_from(ReviewLog).filter(ReviewLog.user_id == u.user_id)
+        r_stmt = select(func.count(ReviewLog.id)).filter(ReviewLog.user_id == u.user_id)
         r_count = (await db.execute(r_stmt)).scalar() or 0
 
         participants_data.append({
@@ -375,6 +379,7 @@ async def list_participants(
             "user_id": u.user_id,
             "username": u.username,
             "full_name": u.full_name,
+            "is_experiment_participant": True,
             "experiment_phase": u.experiment_phase,
             "cards_count": c_count,
             "reviews_count": r_count
@@ -387,34 +392,152 @@ async def list_participants(
     }
 
 
+@router.get("/users")
+async def list_all_users(
+    only_participants: bool = Query(False, description="Показывать только участников эксперимента"),
+    search: Optional[str] = Query(None, description="Поиск по username, ID или имени"),
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    token: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Детальный список ВСЕХ пользователей системы (а не только по инвайтам)
+    со статистикой карточек, логов повторений и статусом участия в исследовании.
+    """
+    query = select(UserSession)
+    if only_participants:
+        query = query.filter(UserSession.is_experiment_participant == True)
+    if search:
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                UserSession.username.ilike(s),
+                UserSession.full_name.ilike(s),
+                UserSession.telegram_id.ilike(s),
+                UserSession.user_id.ilike(s)
+            )
+        )
+    query = query.order_by(UserSession.id.desc()).offset(offset).limit(limit)
+
+    users = (await db.execute(query)).scalars().all()
+
+    total_all = (await db.execute(select(func.count(UserSession.id)))).scalar() or 0
+    total_part = (await db.execute(select(func.count(UserSession.id)).filter(UserSession.is_experiment_participant == True))).scalar() or 0
+
+    users_data = []
+    for u in users:
+        c_count = (await db.execute(select(func.count(Card.id)).filter(Card.user_id == u.user_id))).scalar() or 0
+        r_count = (await db.execute(select(func.count(ReviewLog.id)).filter(ReviewLog.user_id == u.user_id))).scalar() or 0
+        users_data.append({
+            "id": u.id,
+            "telegram_id": u.telegram_id,
+            "user_id": u.user_id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "is_experiment_participant": bool(u.is_experiment_participant),
+            "experiment_phase": u.experiment_phase,
+            "is_resting": bool(u.is_resting),
+            "cards_count": c_count,
+            "reviews_count": r_count
+        })
+
+    return {
+        "status": "success",
+        "total_all": total_all,
+        "total_participants": total_part,
+        "count": len(users_data),
+        "offset": offset,
+        "limit": limit,
+        "users": users_data
+    }
+
+
+@router.get("/export/users")
+async def export_users_csv(
+    only_participants: bool = Query(False),
+    token: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """Выгружает список пользователей системы в CSV (UTF-8 BOM для Excel/Pandas)."""
+    query = select(UserSession)
+    if only_participants:
+        query = query.filter(UserSession.is_experiment_participant == True)
+    query = query.order_by(UserSession.id.asc())
+
+    users = (await db.execute(query)).scalars().all()
+
+    fields = [
+        "id", "telegram_id", "user_id", "username", "full_name",
+        "is_experiment_participant", "experiment_phase", "cards_count",
+        "reviews_count", "is_resting"
+    ]
+
+    async def csv_stream():
+        output = io.StringIO()
+        output.write("\ufeff")
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(fields)
+        yield output.getvalue().encode("utf-8")
+        output.seek(0)
+        output.truncate(0)
+
+        for u in users:
+            c_count = (await db.execute(select(func.count(Card.id)).filter(Card.user_id == u.user_id))).scalar() or 0
+            r_count = (await db.execute(select(func.count(ReviewLog.id)).filter(ReviewLog.user_id == u.user_id))).scalar() or 0
+            writer.writerow([
+                u.id,
+                u.telegram_id,
+                u.user_id,
+                u.username or "",
+                u.full_name or "",
+                1 if u.is_experiment_participant else 0,
+                u.experiment_phase,
+                c_count,
+                r_count,
+                1 if u.is_resting else 0
+            ])
+            yield output.getvalue().encode("utf-8")
+            output.seek(0)
+            output.truncate(0)
+
+    filename = "grinder_participants.csv" if only_participants else "grinder_all_users.csv"
+    return StreamingResponse(
+        csv_stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache"
+        }
+    )
+
+
 # --- 6. МАССОВАЯ РАЗДАЧА ЭТАЛОННОЙ КОЛОДЫ УЧАСТНИКАМ ---
 
 class DistributeDeckIn(BaseModel):
-    preset_name: str = "sudoustroystvo"
-    subject_slug: str = "sudoustroystvo"
-    phrase_title: str = "Судоустройство: Основной курс"
+    preset_name: Optional[str] = None
+    subject_slug: str
+    phrase_title: str
     cards: Optional[list] = None
     target_user_id: Optional[str] = None
+    distribute_to_all: Optional[bool] = False
     mode: str = "append"  # "append" (дозагрузить/обновить) или "overwrite" (полный сброс)
     overwrite_existing: Optional[bool] = None  # для обратной совместимости
 
 @router.post("/experiment/distribute-deck")
 async def distribute_deck(
-    payload: DistributeDeckIn = None,
+    payload: DistributeDeckIn,
     db: AsyncSession = Depends(get_db),
     _: None = Depends(verify_admin_token)
 ):
     """
-    Массовая раздача эталонного пакета карточек участникам научного эксперимента.
+    Массовая раздача эталонного пакета карточек участникам научного эксперимента (или всем пользователям).
     Загружает карточки из app/static/presets/{preset_name}.json (или переданного списка cards)
-    и синхронизирует/дозагружает их участникам эксперимента.
+    и синхронизирует/дозагружает их пользователям.
     Режимы:
     - mode="append" (по умолчанию): сохраняет FSRS-прогресс студентов, обновляет формулировки и добавляет новые карточки.
     - mode="overwrite": полностью удаляет карточки по предмету и создает колоду с нуля.
     """
-    if payload is None:
-        payload = DistributeDeckIn()
-
     # Определение режима с поддержкой обратной совместимости
     effective_mode = payload.mode.lower() if payload.mode else "append"
     if payload.overwrite_existing is True and (not hasattr(payload, "model_fields_set") or "mode" not in payload.model_fields_set):
@@ -424,6 +547,11 @@ async def distribute_deck(
 
     cards_to_distribute = payload.cards
     if not cards_to_distribute:
+        if not payload.preset_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Необходимо передать либо список 'cards', либо 'preset_name'."
+            )
         preset_path = Path("app/static/presets") / f"{payload.preset_name}.json"
         if not preset_path.exists():
             raise HTTPException(
@@ -446,9 +574,11 @@ async def distribute_deck(
     if not cards_to_distribute:
         raise HTTPException(status_code=400, detail="Набор карточек пуст.")
 
-    # Выбираем участников эксперимента
+    # Выбираем целевых пользователей (конкретного, всех или только участников)
     if payload.target_user_id:
         stmt = select(UserSession).filter(UserSession.user_id == payload.target_user_id)
+    elif payload.distribute_to_all:
+        stmt = select(UserSession)
     else:
         stmt = select(UserSession).filter(UserSession.is_experiment_participant == True)
     

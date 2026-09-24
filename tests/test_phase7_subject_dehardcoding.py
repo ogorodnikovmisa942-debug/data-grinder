@@ -51,8 +51,8 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(name_phrase, "Основы биохимии")
 
             # 3. Resolves known predefined titles
-            self.assertEqual(await get_subject_display_name("sudoustr", self.test_user, db), "Судоустройство РФ")
-            self.assertEqual(await get_subject_display_name("sudoustroystvo", self.test_user, db), "Судоустройство РФ")
+            self.assertEqual(await get_subject_display_name("sudoustr", self.test_user, db), "Sudoustr")
+            self.assertEqual(await get_subject_display_name("sudoustroystvo", self.test_user, db), "Sudoustroystvo")
             self.assertEqual(await get_subject_display_name("constitutional_law", self.test_user, db), "Конституционное право")
 
             # 4. Fallback to Title Case for unknown slugs
@@ -137,10 +137,60 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
 
         for code in (module_code, bundled_code):
             self.assertIn("У вас пока нет колод для построения графа знаний", code)
-            self.assertIn("window.loadKnowledgeGraph('sudoustroystvo')", code)
-            self.assertIn("[ Открыть демо-курс (Судоустройство РФ) ]", code)
+            self.assertNotIn("[ Открыть демо-курс (Судоустройство РФ) ]", code)
             self.assertIn("Сначала выберите предмет для построения графа.", code)
+
+    async def test_06_rename_subject_cleans_legacy_phrase_text_and_no_sudoust_display(self):
+        """Проверяет, что переименование очищает устаревший Phrase.text и не подставляет 'Судоустройство РФ'."""
+        headers = {"X-User-Id": self.test_user}
+        async with AsyncSessionLocal() as db:
+            p = Phrase(text="Судоустройство: Основной курс", subject="sudoust", user_id=self.test_user)
+            db.add(p)
+            await db.flush()
+            c = Card(
+                phrase_id=p.id,
+                user_id=self.test_user,
+                subject="sudoust",
+                text="Статус судей?",
+                translation="Носители судебной власти",
+                state=0,
+                next_review=datetime.utcnow()
+            )
+            db.add(c)
+            await db.commit()
+
+        # 1. Вызов rename с тем же именем (old_subject == new_subject == 'sudoust')
+        rename_res = self.client.post("/api/data/subjects/rename", json={"old_subject": "sudoust", "new_subject": "sudoust"}, headers=headers)
+        self.assertEqual(rename_res.status_code, 200)
+
+        # 2. Проверяем Phrase.text в базе: очистился от 'Судоустройство...' и стал 'sudoust'
+        async with AsyncSessionLocal() as db:
+            p_check = (await db.execute(select(Phrase).where(Phrase.user_id == self.test_user))).scalar_one_or_none()
+            self.assertIsNotNone(p_check)
+            self.assertEqual(p_check.text, "sudoust")
+
+        # 3. GET /api/session возвращает clean title, а не 'Судоустройство РФ'
+        train_res = self.client.get("/api/session?subject=sudoust&mode=new", headers=headers)
+        self.assertEqual(train_res.status_code, 200)
+        cards = train_res.json()
+        self.assertGreater(len(cards), 0)
+        self.assertNotEqual(cards[0]["subject_title"], "Судоустройство РФ")
+        self.assertEqual(cards[0]["subject_title"].lower(), "sudoust")
+
+        # 4. GET /api/stats/dashboard не содержит 'Судоустройство РФ'
+        stats_res = self.client.get("/api/stats/dashboard?subject=sudoust", headers=headers)
+        self.assertEqual(stats_res.status_code, 200)
+        breakdown = stats_res.json().get("breakdown", [])
+        self.assertGreater(len(breakdown), 0)
+        self.assertEqual(breakdown[0]["label"], "sudoust")
+
+        # 5. GET /api/data/cards/export не содержит 'Судоустройство: Основной курс'
+        export_res = self.client.get("/api/data/cards/export?subject=sudoust", headers=headers)
+        self.assertEqual(export_res.status_code, 200)
+        exp_data = export_res.json()
+        self.assertEqual(exp_data["phrase_title"], "sudoust")
 
 
 if __name__ == "__main__":
     unittest.main()
+

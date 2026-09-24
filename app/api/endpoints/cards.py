@@ -12,7 +12,7 @@ from sqlalchemy import select, func, delete, update
 
 from app.database.session import get_db
 from app.database.models import (
-    Card, ReviewLog, Phrase, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob, utc_now
+    Card, ReviewLog, Phrase, Category, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob, utc_now
 )
 from app.services.ai_gateway import regenerate_card_mnemonic
 from app.services.graph_service import (
@@ -92,17 +92,6 @@ async def get_all_cards(
     count_res = await db.execute(count_stmt)
     total = count_res.scalar_one()
 
-    if total == 0 and current_user not in ("default_user", "dev_user"):
-        stmt_def = select(Card).filter(Card.user_id.in_(["default_user", "dev_user"]))
-        if subject != 'all':
-            sub_aliases = get_all_subject_aliases(subject)
-            stmt_def = stmt_def.filter(Card.subject.in_(sub_aliases))
-        count_def_res = await db.execute(select(func.count()).select_from(stmt_def.subquery()))
-        total_def = count_def_res.scalar_one()
-        if total_def > 0:
-            stmt = stmt_def
-            total = total_def
-    
     offset = (page - 1) * limit
     stmt = stmt.offset(offset).limit(limit)
     cards_res = await db.execute(stmt)
@@ -147,17 +136,8 @@ async def export_cards_json(
     res = await db.execute(stmt)
     cards = res.scalars().all()
 
-    # Если у пользователя нет карт, но он админ/dev в браузере — проверяем default_user
-    if not cards and current_user != "default_user":
-        stmt_def = select(Card).filter(Card.user_id == "default_user")
-        if subject != "all":
-            stmt_def = stmt_def.filter(Card.subject.in_(sub_aliases))
-        stmt_def = stmt_def.order_by(Card.topological_rank.asc(), Card.id.asc())
-        res_def = await db.execute(stmt_def)
-        cards = res_def.scalars().all()
-
     canonical = resolve_subject_alias(subject)
-    phrase_title = "Судоустройство: Основной курс" if canonical in ("sudoustroystvo", "sudoustr", "sudoust") else f"Курс: {canonical}"
+    phrase_title = f"Курс: {canonical}"
     if cards:
         p_stmt = select(Phrase.text).filter(Phrase.user_id == cards[0].user_id)
         if subject != "all":
@@ -168,7 +148,7 @@ async def export_cards_json(
 
     payload = {
         "phrase_title": phrase_title,
-        "subject_slug": canonical if subject != "all" else (cards[0].subject if cards else "sudoustroystvo"),
+        "subject_slug": canonical if subject != "all" else (cards[0].subject if cards else canonical),
         "total_cards": len(cards),
         "cards": [
             {
@@ -217,9 +197,6 @@ async def share_cards_deck(
 
     stmt = select(Card).filter(Card.user_id == current_user, Card.subject.in_(sub_aliases)).order_by(Card.id.asc())
     cards = (await db.execute(stmt)).scalars().all()
-    if not cards and current_user != "default_user":
-        stmt_def = select(Card).filter(Card.user_id == "default_user", Card.subject.in_(sub_aliases)).order_by(Card.id.asc())
-        cards = (await db.execute(stmt_def)).scalars().all()
 
     if not cards:
         raise HTTPException(status_code=404, detail="В этой колоде пока нет карточек для шеринга.")
@@ -571,12 +548,11 @@ async def rename_subject(
         raise HTTPException(status_code=400, detail="Название предмета не может быть пустым.")
     if old_sub == "all" or new_sub == "all":
         raise HTTPException(status_code=400, detail="Нельзя использовать зарезервированное имя 'all'.")
-    if old_sub == new_sub:
-        return {"status": "success", "message": "Имена совпадают", "subject": new_sub, "cards_updated": 0}
-
     target_subs = get_all_subject_aliases(old_sub)
     if old_sub not in target_subs:
         target_subs.append(old_sub)
+    if new_sub not in target_subs:
+        target_subs.append(new_sub)
 
     # 1. Обновляем карточки
     card_res = await db.execute(
@@ -586,14 +562,31 @@ async def rename_subject(
     )
     cards_updated = card_res.rowcount
 
-    # 2. Обновляем темы (Phrase)
-    await db.execute(
-        update(Phrase)
-        .where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user)
-        .values(subject=new_sub)
+    # 2. Обновляем темы (Phrase): subject и text
+    phrases_res = await db.execute(
+        select(Phrase).where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user)
     )
+    phrases = phrases_res.scalars().all()
+    for p in phrases:
+        p.subject = new_sub
+        p_text_lower = (p.text or "").strip().lower()
+        if (
+            p_text_lower in target_subs
+            or "судоустройств" in p_text_lower
+            or p_text_lower in ("новый блок знаний", "пользовательские карточки", "[мигрировавшие карточки]")
+            or old_sub == new_sub
+        ):
+            p.text = new_sub
 
-    # 3. Обновляем задачи генерации (GenerationJob)
+    # 3. Обновляем категории (Category)
+    cats_res = await db.execute(
+        select(Category).where(Category.user_id == current_user)
+    )
+    for cat in cats_res.scalars().all():
+        if cat.name.strip().lower() in target_subs or "судоустройств" in cat.name.strip().lower():
+            cat.name = new_sub
+
+    # 4. Обновляем задачи генерации (GenerationJob)
     await db.execute(
         update(GenerationJob)
         .where(GenerationJob.subject.in_(target_subs), GenerationJob.user_id == current_user)

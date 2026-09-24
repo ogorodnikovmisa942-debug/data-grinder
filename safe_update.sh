@@ -138,8 +138,9 @@ try:
 
     cfg = Config('alembic.ini')
     if has_tables and not alembic_ver:
-        command.stamp(cfg, 'head')
-        print('[Alembic] Существующая схема базы данных синхронизирована с ревизией head.')
+        command.stamp(cfg, '1926b71611fb')
+        command.upgrade(cfg, 'head')
+        print('[Alembic] Существующая схема базы данных синхронизирована с 1926b71611fb и обновлена до head.')
     else:
         command.upgrade(cfg, 'head')
         print('[Alembic] Миграции успешно применены.')

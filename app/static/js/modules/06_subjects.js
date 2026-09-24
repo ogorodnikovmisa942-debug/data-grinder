@@ -169,11 +169,6 @@ window.submitSubjectRename = async function() {
         alert("Нельзя использовать имя 'all' (зарезервировано).");
         return;
     }
-    if (oldSub === newSub) {
-        closeSubjectRenameModal();
-        return;
-    }
-    
     try {
         const response = await apiFetch('/api/data/subjects/rename', {
             method: 'POST',
@@ -185,10 +180,9 @@ window.submitSubjectRename = async function() {
             const resData = await response.json();
             closeSubjectRenameModal();
             
-            if (currentSubject === oldSub) {
-                currentSubject = newSub;
-                localStorage.setItem('selected_subject', currentSubject);
-            }
+            currentSubject = newSub;
+            localStorage.setItem('selected_subject', currentSubject);
+            localStorage.removeItem('grinder_cached_subjects');
             
             await loadDynamicSubjects();
             const mainSel = document.getElementById('subject-selector');

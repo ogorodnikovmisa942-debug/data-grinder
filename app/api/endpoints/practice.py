@@ -90,7 +90,7 @@ async def get_practice_session(
         stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
         res = await db.execute(stmt)
         active_sub = res.scalar()
-        subject = active_sub or "sudoustroystvo"
+        subject = active_sub or "all"
 
     items = await generate_practice_session(user_id=current_user, subject=subject, count=count, db=db)
     return items
@@ -175,7 +175,7 @@ async def get_practice_stats(
         stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
         res = await db.execute(stmt)
         active_sub = res.scalar()
-        subject = active_sub or "sudoustroystvo"
+        subject = active_sub or "all"
 
     all_aliases = get_all_subject_aliases(subject)
     stmt = (

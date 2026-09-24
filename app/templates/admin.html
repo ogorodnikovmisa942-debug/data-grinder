@@ -7,13 +7,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
     <style>
-        body { margin: 0; padding: 24px; font-family: 'Inter', sans-serif; background: #0a0a0a; color: #f1f5f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .card { max-width: 620px; width: 100%; background: #141414; border: 1px solid #262626; border-radius: 20px; padding: 28px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+        body { margin: 0; padding: 24px; font-family: 'Inter', sans-serif; background: #0a0a0a; color: #f1f5f9; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+        .card { max-width: 820px; width: 100%; background: #141414; border: 1px solid #262626; border-radius: 20px; padding: 28px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
         h1 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
         p { font-size: 13px; color: #94a3b8; line-height: 1.6; margin: 0 0 16px; }
         .code-box { background: #0a0a0a; border: 1px solid #262626; padding: 12px 16px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #38bdf8; margin-bottom: 20px; word-break: break-all; }
-        .btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; background: #f8fafc; color: #0f172a; font-weight: 700; font-size: 13px; text-decoration: none; border-radius: 12px; transition: all 0.15s; border: none; cursor: pointer; }
+        .btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; background: #f8fafc; color: #0f172a; font-weight: 700; font-size: 12px; text-decoration: none; border-radius: 10px; transition: all 0.15s; border: none; cursor: pointer; }
         .btn:hover { background: #e2e8f0; }
+        .btn-sm { padding: 4px 8px; font-size: 11px; border-radius: 6px; }
         .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #1e293b; border-radius: 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #94a3b8; }
         .ai-panel { background: #1a1a1a; border: 1px solid #2e2e2e; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
         .ai-title { font-size: 14px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -32,6 +33,10 @@
         .toast { display: none; padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-top: 10px; text-align: center; }
         .toast.success { display: block; background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
         .toast.error { display: block; background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+        .users-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+        .users-table th, .users-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #262626; }
+        .users-table th { color: #94a3b8; font-weight: 600; background: #181818; }
+        .users-table tr:hover { background: #181818; }
     </style>
 </head>
 <body>
@@ -41,6 +46,39 @@
             <span class="badge" id="ai-active-badge" style="color:#38bdf8; font-weight:bold;">DEEPSEEK</span>
         </div>
         <h1><span class="material-symbols-outlined" style="color:#38bdf8;">admin_panel_settings</span> Панель администратора</h1>
+        
+        <!-- СТАТИСТИКА СИСТЕМЫ -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;">
+            <div style="background: #181818; border: 1px solid #2e2e2e; border-radius: 12px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Пользователи</div>
+                <div style="font-size: 20px; font-weight: 700; color: #f8fafc;" id="stat-total-users">{{ total_users }}</div>
+            </div>
+            <div style="background: #181818; border: 1px solid #2e2e2e; border-radius: 12px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">В эксперименте</div>
+                <div style="font-size: 20px; font-weight: 700; color: #38bdf8;" id="stat-part-users">{{ part_users }}</div>
+            </div>
+            <div style="background: #181818; border: 1px solid #2e2e2e; border-radius: 12px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Карточек в базе</div>
+                <div style="font-size: 20px; font-weight: 700; color: #4ade80;">{{ total_cards }}</div>
+            </div>
+            <div style="background: #181818; border: 1px solid #2e2e2e; border-radius: 12px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Ответов (логов)</div>
+                <div style="font-size: 20px; font-weight: 700; color: #a855f7;">{{ total_reviews }}</div>
+            </div>
+        </div>
+
+        <!-- КНОПКИ СКАЧИВАНИЯ ДАТАСЕТОВ -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-bottom:20px;">
+            <a href="/api/admin/export/experiment-dataset?token={{ admin_token }}" class="btn" target="_blank">
+                <span class="material-symbols-outlined" style="font-size:16px;">download</span> Датасет FSRS (CSV)
+            </a>
+            <a href="/api/admin/export/users?token={{ admin_token }}" class="btn" target="_blank">
+                <span class="material-symbols-outlined" style="font-size:16px;">group</span> Все юзеры (CSV)
+            </a>
+            <a href="/api/admin/export/ai-telemetry?format=csv&token={{ admin_token }}" class="btn" target="_blank">
+                <span class="material-symbols-outlined" style="font-size:16px;">robot_2</span> Телеметрия ИИ (CSV)
+            </a>
+        </div>
         
         <!-- СЕКЦИЯ КОНФИГУРАЦИИ DEEPSEEK -->
         <div class="ai-panel">
@@ -141,19 +179,58 @@
             </table>
         </div>
 
-        <p>Управление экспериментом, участниками, фазами и выгрузкой датасетов также доступно через Telegram-бота:</p>
+        <!-- ИНТЕРАКТИВНЫЙ СПИСОК ПОЛЬЗОВАТЕЛЕЙ СИСТЕМЫ -->
+        <div class="ai-panel">
+            <div class="ai-title">
+                <span style="display:flex; align-items:center; gap:6px;">
+                    <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">group</span>
+                    Пользователи платформы
+                </span>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm" id="btn-filter-all" onclick="loadUsers(false)" style="background:#38bdf8; color:#0f172a;">Все</button>
+                    <button class="btn btn-sm" id="btn-filter-part" onclick="loadUsers(true)" style="background:#262626; color:#f1f5f9;">Только участники</button>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+                <input type="text" id="user-search-input" placeholder="Поиск по @username, имени или ID..." oninput="handleSearchInput()" style="flex:1; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#f1f5f9; font-size:12px;">
+                <button class="btn btn-sm" onclick="loadUsers()" style="background:#262626; color:#f1f5f9;"><span class="material-symbols-outlined" style="font-size:14px;">refresh</span></button>
+            </div>
+
+            <div style="overflow-x: auto; max-height: 380px;">
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th>Пользователь</th>
+                            <th>Telegram ID</th>
+                            <th>Карточек</th>
+                            <th>Ответов</th>
+                            <th>Статус</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody">
+                        <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">Загрузка пользователей...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p>Управление экспериментом, участниками, фазами и раздачей колод также доступно через Telegram-бота:</p>
         <div class="code-box">
             /admin {{ admin_token }}
         </div>
         
         <div style="display:flex; gap:10px; margin-top:20px;">
-            <a href="/" class="btn" style="flex:1; background:#262626; color:#f1f5f9;"><span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> В консоль</a>
-            <a href="/api/admin/export/experiment-dataset" class="btn" style="flex:1;"><span class="material-symbols-outlined" style="font-size:16px;">download</span> Датасет CSV</a>
+            <a href="/" class="btn" style="flex:1; background:#262626; color:#f1f5f9;"><span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> В веб-интерфейс</a>
         </div>
     </div>
 
     <script>
         let selectedModel = "{{ curr_model }}";
+        const adminToken = "{{ admin_token }}";
+        let onlyPartFilter = false;
+        let searchTimer = null;
 
         function selectModel(modelName) {
             selectedModel = modelName;
@@ -164,7 +241,7 @@
         }
 
         async function applySwitch() {
-            const token = document.getElementById('admin-token-input').value.trim();
+            const token = document.getElementById('admin-token-input').value.trim() || adminToken;
             const modelVal = document.getElementById('model-input').value.trim() || selectedModel;
             const toast = document.getElementById('switch-toast');
             toast.className = 'toast';
@@ -215,6 +292,109 @@
                 toast.innerText = 'Сетевой сбой при переключении: ' + err.message;
             }
         }
+
+        function handleSearchInput() {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                loadUsers(onlyPartFilter);
+            }, 300);
+        }
+
+        async function loadUsers(onlyParticipants = false) {
+            onlyPartFilter = onlyParticipants;
+            const btnAll = document.getElementById('btn-filter-all');
+            const btnPart = document.getElementById('btn-filter-part');
+            if (btnAll && btnPart) {
+                if (onlyParticipants) {
+                    btnPart.style.background = '#38bdf8'; btnPart.style.color = '#0f172a';
+                    btnAll.style.background = '#262626'; btnAll.style.color = '#f1f5f9';
+                } else {
+                    btnAll.style.background = '#38bdf8'; btnAll.style.color = '#0f172a';
+                    btnPart.style.background = '#262626'; btnPart.style.color = '#f1f5f9';
+                }
+            }
+
+            const q = document.getElementById('user-search-input') ? document.getElementById('user-search-input').value.trim() : '';
+            const token = (document.getElementById('admin-token-input') ? document.getElementById('admin-token-input').value.trim() : '') || adminToken;
+            const tbody = document.getElementById('users-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">Загрузка...</td></tr>';
+
+            try {
+                let url = `/api/admin/users?only_participants=${onlyParticipants}&limit=100`;
+                if (q) url += `&search=${encodeURIComponent(q)}`;
+
+                const res = await fetch(url, {
+                    headers: { 'X-Admin-Token': token }
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="color:#ef4444; padding:12px;">Ошибка: ${data.detail || 'Не удалось загрузить'}</td></tr>`;
+                    return;
+                }
+
+                if (!data.users || data.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">Пользователи не найдены.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                data.users.forEach(u => {
+                    const tr = document.createElement('tr');
+                    const uname = u.username ? `@${u.username}` : (u.full_name || '—');
+                    const isPart = u.is_experiment_participant;
+                    const statusBadge = isPart 
+                        ? `<span class="badge" style="color:#38bdf8; background:rgba(56,189,248,0.1);">Эксперимент (Ф${u.experiment_phase})</span>`
+                        : `<span class="badge" style="color:#94a3b8;">Обычный</span>`;
+
+                    const actionBtn = isPart
+                        ? `<button class="btn btn-sm" style="background:#7f1d1d; color:#fca5a5;" onclick="toggleParticipant('${u.user_id}', false)">Исключить</button>`
+                        : `<button class="btn btn-sm" style="background:#064e3b; color:#6ee7b7;" onclick="toggleParticipant('${u.user_id}', true)">В эксперимент</button>`;
+
+                    tr.innerHTML = `
+                        <td><strong>${uname}</strong></td>
+                        <td style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#94a3b8;">${u.telegram_id}</td>
+                        <td>${u.cards_count}</td>
+                        <td>${u.reviews_count}</td>
+                        <td>${statusBadge}</td>
+                        <td>${actionBtn}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="6" style="color:#ef4444; padding:12px;">Сетевая ошибка: ${err.message}</td></tr>`;
+            }
+        }
+
+        async function toggleParticipant(userId, makeParticipant) {
+            const token = (document.getElementById('admin-token-input') ? document.getElementById('admin-token-input').value.trim() : '') || adminToken;
+            try {
+                const res = await fetch('/api/admin/experiment/set-participant', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Token': token
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        is_participant: makeParticipant,
+                        phase: 1
+                    })
+                });
+                if (res.ok) {
+                    loadUsers(onlyPartFilter);
+                } else {
+                    const data = await res.json();
+                    alert('Ошибка: ' + (data.detail || 'Не удалось обновить статус'));
+                }
+            } catch (e) {
+                alert('Сетевой сбой: ' + e.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadUsers(false);
+        });
     </script>
 </body>
 </html>

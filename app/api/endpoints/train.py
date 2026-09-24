@@ -9,7 +9,7 @@ from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, utc_now
 from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
-from app.core.auth import get_current_user_id, ensure_user_has_starter_deck
+from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from datetime import datetime
@@ -17,9 +17,6 @@ from datetime import datetime
 router = APIRouter()
 
 KNOWN_SUBJECT_NAMES = {
-    "sudoust": "Судоустройство РФ",
-    "sudoustr": "Судоустройство РФ",
-    "sudoustroystvo": "Судоустройство РФ",
     "constitutional_law": "Конституционное право",
     "constitution": "Конституционное право",
     "law": "Юриспруденция",
@@ -40,16 +37,14 @@ async def get_subject_display_name(slug: str, user_id: str, db: AsyncSession) ->
     # Try resolving from Category or Phrase
     stmt = select(Category.name).where(Category.user_id == user_id, Category.name.ilike(f"%{slug}%")).limit(1)
     cat = (await db.execute(stmt)).scalar()
-    if cat:
+    if cat and "судоустройств" not in cat.lower():
         return cat
     if slug.lower() in KNOWN_SUBJECT_NAMES:
         return KNOWN_SUBJECT_NAMES[slug.lower()]
     stmt_p = select(Phrase.text).where(Phrase.user_id == user_id, Phrase.subject == slug).limit(1)
     p_text = (await db.execute(stmt_p)).scalar()
-    if p_text:
+    if p_text and "судоустройств" not in p_text.lower():
         return p_text
-    if slug.lower() in ("sudoustr", "sudoustroystvo", "sudoust", "court_system", "судоустройство"):
-        return "Судоустройство РФ"
     return slug.replace('_', ' ').replace('-', ' ').title()
 
 class AnswerIn(BaseModel):
@@ -135,15 +130,7 @@ async def get_session_cards(
         stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
         res = await db.execute(stmt)
         active_sub = res.scalar()
-        subject = active_sub or "sudoustroystvo"
-
-    # Страховочный онбординг для числовых пользователей Telegram, если колода пуста
-    if current_user and current_user.isdigit():
-        total_user_cards = (await db.execute(
-            select(func.count(Card.id)).filter(Card.user_id == current_user)
-        )).scalar() or 0
-        if total_user_cards == 0:
-            await ensure_user_has_starter_deck(current_user, db)
+        subject = active_sub or "all"
 
     now = utc_now()
     
@@ -155,8 +142,7 @@ async def get_session_cards(
     phase = user_sess.experiment_phase if user_sess else 1
 
     if is_participant and phase == 1 and not is_admin_or_dev(current_user):
-        # Фаза 1: жесткий лок — только судоустройство, лимит 20 карт, target_retention = 0.9
-        subject = "sudoustroystvo"
+        # Фаза 1: лимит карт и target_retention для участников (предмет задается розданной колодой)
         limit = settings.EXPERIMENT_DAILY_LIMIT
         target_retention = 0.9
     else:
@@ -380,7 +366,7 @@ async def get_next_train_session(
         stmt = select(Card.subject).where(Card.user_id == current_user).order_by(Card.next_review.desc()).limit(1)
         res = await db.execute(stmt)
         active_sub = res.scalar()
-        subject = active_sub or "sudoustroystvo"
+        subject = active_sub or "all"
     return await get_session_cards(subject=subject, mode=mode, current_user=current_user, db=db)
 
 # --- 2. СПИСОК ПРЕДМЕТОВ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ---
@@ -394,12 +380,6 @@ async def get_available_subjects(
     res_cards = await db.execute(stmt_cards)
     res_phrases = await db.execute(stmt_phrases)
     raw_subjects = [s[0] for s in res_cards.all() if s[0]] + [s[0] for s in res_phrases.all() if s[0]]
-    if not raw_subjects and current_user not in ("default_user", "dev_user"):
-        stmt_def_cards = select(Card.subject).filter(Card.user_id.in_(["default_user", "dev_user"])).distinct()
-        stmt_def_phrases = select(Phrase.subject).filter(Phrase.user_id.in_(["default_user", "dev_user"])).distinct()
-        res_def_cards = await db.execute(stmt_def_cards)
-        res_def_phrases = await db.execute(stmt_def_phrases)
-        raw_subjects = [s[0] for s in res_def_cards.all() if s[0]] + [s[0] for s in res_def_phrases.all() if s[0]]
     unique_subjects = sorted(list(dict.fromkeys(raw_subjects)))
     return unique_subjects
 

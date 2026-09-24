@@ -2995,10 +2995,6 @@ async function loadDynamicSubjects() {
             'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
             'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 
             'civil_law': 'ГРАЖДАНСКОЕ ПРАВО',
-            'sudoust': 'СУДОУСТРОЙСТВО РФ',
-            'sudoustr': 'СУДОУСТРОЙСТВО РФ',
-            'sudoustroystvo': 'СУДОУСТРОЙСТВО РФ',
-            'court_system': 'СУДОУСТРОЙСТВО РФ',
             'python_pro': 'PYTHON ADVANCED', 
             'geometry': 'ГЕОМЕТРИЯ (ФОРМУЛЫ)', 
             'law_civil_rb': 'ГРАЖДАНСКОЕ ПРАВО РБ' 
@@ -5212,11 +5208,6 @@ window.submitSubjectRename = async function() {
         alert("Нельзя использовать имя 'all' (зарезервировано).");
         return;
     }
-    if (oldSub === newSub) {
-        closeSubjectRenameModal();
-        return;
-    }
-    
     try {
         const response = await apiFetch('/api/data/subjects/rename', {
             method: 'POST',
@@ -5228,10 +5219,9 @@ window.submitSubjectRename = async function() {
             const resData = await response.json();
             closeSubjectRenameModal();
             
-            if (currentSubject === oldSub) {
-                currentSubject = newSub;
-                localStorage.setItem('selected_subject', currentSubject);
-            }
+            currentSubject = newSub;
+            localStorage.setItem('selected_subject', currentSubject);
+            localStorage.removeItem('grinder_cached_subjects');
             
             await loadDynamicSubjects();
             const mainSel = document.getElementById('subject-selector');
@@ -5833,16 +5823,11 @@ window.loadKnowledgeGraph = async function(subject) {
             if (h4) h4.textContent = 'Колоды пока отсутствуют';
             const p = emptyState.querySelector('p');
             if (p) {
-                p.textContent = 'У вас пока нет колод для построения графа знаний. Загрузите учебный материал в профиле или откройте демонстрационный курс.';
+                p.textContent = 'У вас пока нет колод для построения графа знаний. Загрузите или создайте учебный материал.';
             }
             const actions = emptyState.querySelector('#kg-empty-actions') || emptyState.querySelector('.flex.flex-col, .flex.gap-2') || emptyState.querySelector('div:last-child');
             if (actions) {
-                actions.innerHTML = `
-                    <button onclick="window.loadKnowledgeGraph('sudoustroystvo')" class="px-4 py-2 bg-primary text-on-primary font-mono text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5">
-                        <span class="material-symbols-outlined text-[16px]">play_lesson</span>
-                        <span>[ Открыть демо-курс (Судоустройство РФ) ]</span>
-                    </button>
-                `;
+                actions.innerHTML = '';
             }
         }
         if (treeView) treeView.innerHTML = '';
@@ -5927,8 +5912,10 @@ window.loadSeedOrDemoGraph = async function() {
                 }
             }
         }
+    if (!sub || sub === 'all') {
+        renderEmptyKgState();
+        return;
     }
-    if (!sub || sub === 'all') sub = 'sudoustroystvo';
     currentKgSubject = sub;
     const badge = document.getElementById('kg-subject-badge');
     if (badge) badge.textContent = sub.toUpperCase();

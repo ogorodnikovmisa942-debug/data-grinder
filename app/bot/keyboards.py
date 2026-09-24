@@ -14,18 +14,22 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
     ai_toggle = InlineKeyboardButton(text=f"🤖 Модель: {model} ➔ {next_model}", callback_data="admin_ai_model_cycle")
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👥 Участники (@)", callback_data="admin_participants"),
-            InlineKeyboardButton(text="🎟 Инвайты", callback_data="admin_invites")
+            InlineKeyboardButton(text="👥 Все пользователи", callback_data="admin_users"),
+            InlineKeyboardButton(text="🔬 Участники", callback_data="admin_participants")
         ],
         [
-            InlineKeyboardButton(text="📤 Экспорт моих карточек (JSON)", callback_data="admin_export_my_deck")
+            InlineKeyboardButton(text="🎟 Инвайты", callback_data="admin_invites"),
+            InlineKeyboardButton(text="📤 Моя колода (JSON)", callback_data="admin_export_my_deck")
         ],
         [
-            InlineKeyboardButton(text="📦 Раздача колоды (дозагрузка / сброс)", callback_data="admin_distribute_deck")
+            InlineKeyboardButton(text="📦 Раздача колоды (выбор курса)", callback_data="admin_distribute_deck")
         ],
         [
-            InlineKeyboardButton(text="📥 Датасет (CSV)", callback_data="admin_export_dataset"),
-            InlineKeyboardButton(text="🤖 Телеметрия (CSV)", callback_data="admin_export_telemetry")
+            InlineKeyboardButton(text="📊 Датасет логов (CSV)", callback_data="admin_export_dataset"),
+            InlineKeyboardButton(text="👥 База юзеров (CSV)", callback_data="admin_export_users_csv")
+        ],
+        [
+            InlineKeyboardButton(text="🤖 Телеметрия ИИ (CSV)", callback_data="admin_export_telemetry")
         ],
         [ai_toggle],
         [phase_toggle],
@@ -42,15 +46,17 @@ def render_admin_dashboard_text(d: dict) -> str:
     phase_str = "Фаза 1 (Изоляция колод, лимит 20 карт)" if d['phase'] == 1 else "Фаза 2 (Свободный режим, ночная нарезка)"
     model_name = d.get('ai_model') or settings.DEEPSEEK_MODEL or "deepseek-flash"
     key_badge = "🔑 Ключ: OK" if d.get('has_key') else "⚠️ Ключ: НЕ ЗАДАН (.env)"
+    total_u = d.get('total_users', d.get('participants', 0))
+    part_u = d.get('participants', 0)
     return (
-        "🛠 <b>ПАНЕЛЬ УПРАВЛЕНИЯ ЭКСПЕРИМЕНТОМ</b>\n\n"
+        "🛠 <b>ПАНЕЛЬ УПРАВЛЕНИЯ СИСТЕМОЙ</b>\n\n"
         f"🔬 <b>Текущий режим:</b> {phase_str}\n"
         f"🤖 <b>Активный ИИ:</b> <code>DeepSeek</code> ({model_name}) [{key_badge}]\n"
-        f"👥 <b>Участников:</b> <code>{d['participants']}</code>\n"
+        f"👥 <b>Пользователей всего:</b> <code>{total_u}</code> (в эксперименте: <code>{part_u}</code>)\n"
         f"🎟 <b>Активных инвайтов:</b> <code>{d['invites_active']}</code>\n"
-        f"🗂 <b>Карточек (судоустройство):</b> <code>{d['cards']}</code>\n"
+        f"🗂 <b>Всего карточек в базе:</b> <code>{d['cards']}</code>\n"
         f"📝 <b>Повторений в логах:</b> <code>{d['reviews']}</code>\n"
         f"⚠️ <b>Выбросов (&lt;600мс / &gt;30с):</b> <code>{d['outliers']}</code>\n"
-        f"⚡ <b>Очередь ночной нарезки:</b> <code>{d['pending_jobs']}</code> в ожидании\n\n"
+        f"⚡ <b>Очередь генерации:</b> <code>{d['pending_jobs']}</code> задач\n\n"
         "<i>Выберите необходимое действие в меню ниже:</i>"
     )
