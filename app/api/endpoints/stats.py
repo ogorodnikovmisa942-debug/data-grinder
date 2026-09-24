@@ -12,7 +12,7 @@ from app.database.models import (
     Card, ReviewLog, Phrase, UserSession, DailySession, UserSetting, utc_now
 )
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
-from app.services.card_db_sync import is_admin_or_dev
+from app.services.card_db_sync import is_admin_or_dev, get_user_experiment_status
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 
@@ -158,13 +158,9 @@ async def get_analytics(
     due_reviews_now = due_res.scalar() or 0
 
     # Проверяем участие в эксперименте и рассчитываем дневную квоту новых карт
-    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
-    sess_res = await db.execute(session_stmt)
-    user_sess = sess_res.scalars().first()
-    is_participant = bool(user_sess and user_sess.is_experiment_participant)
-    phase = user_sess.experiment_phase if user_sess else 1
+    is_participant, phase = await get_user_experiment_status(current_user, db)
 
-    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
+    if is_participant and phase == 1:
         daily_new_limit = settings.EXPERIMENT_DAILY_LIMIT
     else:
         setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

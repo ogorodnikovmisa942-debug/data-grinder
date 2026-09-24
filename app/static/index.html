@@ -613,7 +613,10 @@
             <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
             <div class="flex flex-col gap-sm shrink-0">
                 <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
-                    <div>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></span>
+                        <span id="config-phase-badge" class="hidden px-2 py-0.5 text-[9px] font-mono font-bold rounded-lg bg-secondary/15 text-secondary border border-secondary/30">[ФАЗА 1: 10 КАРТ/ДЕНЬ]</span>
+                    </div>
                     <div class="flex items-center gap-1">
                         <button id="btn-share-subject" onclick="shareCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all flex items-center gap-1" title="Поделиться колодой в Telegram">
                             <span class="material-symbols-outlined text-[11px]">share</span>
@@ -703,6 +706,18 @@
                     <span class="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20" id="subject-status-tip">ИИ-генератор</span>
                 </div>
                 
+                <!-- Информационный баннер блокировки нарезки для Фазы 1 -->
+                <div id="experiment-phase1-lock-banner" class="hidden border border-secondary/40 bg-secondary/5 p-4 rounded-xl text-center font-mono my-1">
+                    <div class="flex items-center justify-center gap-1.5 text-secondary font-bold text-xs uppercase mb-1">
+                        <span class="material-symbols-outlined text-sm">lock</span>
+                        <span>Нарезка материалов заблокирована</span>
+                    </div>
+                    <p class="text-[11px] text-neutral-600 dark:text-neutral-300 font-sans leading-relaxed">
+                        В рамках <strong>Фазы 1</strong> научного эксперимента нарезка материалов и создание карточек отключены. Сейчас проводится чистое тестирование готовых колод (лимит <strong>10 карт в день</strong>). Обучайтесь во вкладке <strong>LEARN</strong>.
+                    </p>
+                </div>
+
+                <div id="slicing-controls-container" class="flex flex-col gap-sm">
                 <!-- Выбор целевого предмета -->
                 <div class="flex flex-col gap-1 mt-1">
                     <div class="flex justify-between items-center text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
@@ -842,6 +857,7 @@
                         <span class="material-symbols-outlined text-[15px]">edit_note</span>
                         <span>Создать карточку вручную</span>
                     </button>
+                </div>
                 </div>
             </div>
         </div>
@@ -1546,6 +1562,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=86"></script>
+    <script src="/js/app.js?v=87"></script>
 </body>
 </html>

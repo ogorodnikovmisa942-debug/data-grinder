@@ -450,6 +450,13 @@ async function syncActiveAppState() {
         if (typeof updateTariffBanner === 'function') { updateTariffBanner(); }
         if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); }
         if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+        try {
+            const cfgRes = await apiFetch(`/api/config?subject=${currentSubject}`);
+            if (cfgRes.ok) {
+                const cfgData = await cfgRes.json();
+                window.isExperimentPhase1 = Boolean(cfgData && cfgData.is_experiment_locked);
+            }
+        } catch (_) {}
     } catch (err) {
         console.warn("[App State Sync Error]", err);
     }

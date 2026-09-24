@@ -860,6 +860,13 @@ async function syncActiveAppState() {
         if (typeof updateTariffBanner === 'function') { updateTariffBanner(); }
         if (typeof checkNightQueueStatus === 'function') { checkNightQueueStatus(); }
         if (typeof window.syncTimerWithServer === 'function') { await window.syncTimerWithServer(); }
+        try {
+            const cfgRes = await apiFetch(`/api/config?subject=${currentSubject}`);
+            if (cfgRes.ok) {
+                const cfgData = await cfgRes.json();
+                window.isExperimentPhase1 = Boolean(cfgData && cfgData.is_experiment_locked);
+            }
+        } catch (_) {}
     } catch (err) {
         console.warn("[App State Sync Error]", err);
     }
@@ -2679,6 +2686,10 @@ function renderFilteredArchiveDOM() {
 
 // АСИНХРОННЫЙ ПЕРЕНОС КАРТОЧКИ МЕЖДУ ПРЕДМЕТАМИ
 async function requestMoveCard(cardId) {
+    if (window.isExperimentPhase1) {
+        alert("Перенос карточек заблокирован на время Фазы 1 эксперимента.");
+        return;
+    }
     const selector = document.getElementById('subject-selector');
     if (!selector) return;
 
@@ -2724,6 +2735,10 @@ async function requestMoveCard(cardId) {
 }
 
 async function requestDeleteCard(cardId) {
+    if (window.isExperimentPhase1) {
+        alert("Удаление карточек заблокировано на время Фазы 1 эксперимента.");
+        return;
+    }
     if (!confirm("Удалить эту карточку навсегда?")) return;
     try {
         const response = await apiFetch(`/api/management/cards/${cardId}`, { method: 'DELETE' });
@@ -2866,6 +2881,30 @@ async function loadConfigTab() {
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
+
+        const res = await apiFetch(`/api/config?subject=${currentSubject}`);
+        const data = await res.json();
+
+        window.isExperimentPhase1 = Boolean(data && data.is_experiment_locked);
+
+        // Индикатор Фазы 1 эксперимента в заголовке
+        const phaseBadge = document.getElementById('config-phase-badge');
+        if (phaseBadge) {
+            if (window.isExperimentPhase1) phaseBadge.classList.remove('hidden');
+            else phaseBadge.classList.add('hidden');
+        }
+
+        // Блокировка нарезки материалов
+        const lockBanner = document.getElementById('experiment-phase1-lock-banner');
+        const slicingControls = document.getElementById('slicing-controls-container');
+        if (window.isExperimentPhase1) {
+            if (lockBanner) lockBanner.classList.remove('hidden');
+            if (slicingControls) slicingControls.classList.add('hidden');
+        } else {
+            if (lockBanner) lockBanner.classList.add('hidden');
+            if (slicingControls) slicingControls.classList.remove('hidden');
+        }
+
         const shareSubBtn = document.getElementById('btn-share-subject');
         if (shareSubBtn) {
             if (currentSubject === 'all') shareSubBtn.classList.add('hidden');
@@ -2873,23 +2912,22 @@ async function loadConfigTab() {
         }
         const deleteSubBtn = document.getElementById('btn-delete-subject');
         if (deleteSubBtn) {
-            if (currentSubject === 'all') deleteSubBtn.classList.add('hidden');
+            if (currentSubject === 'all' || window.isExperimentPhase1) deleteSubBtn.classList.add('hidden');
             else deleteSubBtn.classList.remove('hidden');
         }
         const renameSubBtn = document.getElementById('btn-rename-subject');
         if (renameSubBtn) {
-            if (currentSubject === 'all') renameSubBtn.classList.add('hidden');
+            if (currentSubject === 'all' || window.isExperimentPhase1) renameSubBtn.classList.add('hidden');
             else renameSubBtn.classList.remove('hidden');
         }
         const presetContainer = document.getElementById('config-presets-container');
         const presetNotice = document.getElementById('config-presets-notice');
-        if (currentSubject === 'all') {
+        if (currentSubject === 'all' && !window.isExperimentPhase1) {
             if (presetContainer) presetContainer.classList.add('hidden');
             if (presetNotice) presetNotice.classList.remove('hidden');
         } else {
             if (presetContainer) presetContainer.classList.remove('hidden');
             if (presetNotice) presetNotice.classList.add('hidden');
-            const res = await apiFetch(`/api/config?subject=${currentSubject}`); const data = await res.json();
             renderPresetButtonsDOM(data.daily_limit);
         }
     } catch (e) { console.error("Ошибка загрузки конфига:", e); }
@@ -2899,16 +2937,32 @@ function renderPresetButtonsDOM(activeLimit) {
     [10, 20, 30, 10000].forEach(val => {
         const btn = document.getElementById(`btn-preset-${val}`);
         if (btn) {
-            if (val === activeLimit) {
-                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs";
+            if (window.isExperimentPhase1) {
+                if (val === 10) {
+                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs cursor-default";
+                    btn.title = "Фиксированный лимит эксперимента (Фаза 1: 10 карт в день)";
+                } else {
+                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-neutral-400 dark:text-neutral-600 border-neutral-200 dark:border-neutral-800 font-mono text-xs uppercase rounded-xl shadow-xs opacity-40 cursor-not-allowed pointer-events-none";
+                    btn.title = "Зафиксировано на время Фазы 1 эксперимента (10 карт в день)";
+                }
             } else {
-                btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-primary border-neutral-300 dark:border-neutral-700 font-mono text-xs uppercase rounded-xl shadow-xs hover:border-primary";
+                if (val === activeLimit) {
+                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs";
+                    btn.title = "";
+                } else {
+                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-primary border-neutral-300 dark:border-neutral-700 font-mono text-xs uppercase rounded-xl shadow-xs hover:border-primary";
+                    btn.title = "";
+                }
             }
         }
     });
 }
 
 async function setIntensityPreset(limit) {
+    if (window.isExperimentPhase1) {
+        alert("В Фазе 1 эксперимента дневной лимит зафиксирован на 10 карточек.");
+        return;
+    }
     renderPresetButtonsDOM(limit);
     try {
         await apiFetch(`/api/config?subject=${currentSubject}`, {
@@ -3435,6 +3489,10 @@ window.cancelActiveGeneration = function() {
 };
 
 async function importTextKnowledge(isDeferred = false) {
+    if (window.isExperimentPhase1) {
+        alert("Нарезка материалов заблокирована на период Фазы 1 эксперимента. Доступно только тестирование готовых карточек (10 шт/день).");
+        return;
+    }
     const textarea = document.getElementById('import-text'); 
     const btnInstant = document.getElementById('btn-import-instant'); 
     const btnDeferred = document.getElementById('btn-import-deferred'); 
@@ -3627,6 +3685,11 @@ window.handleQueuedJob = function(data, statusEl) {
 };
 
 window.handleFileUpload = async function(event) {
+    if (window.isExperimentPhase1) {
+        alert("Нарезка материалов заблокирована на период Фазы 1 эксперимента.");
+        event.target.value = '';
+        return;
+    }
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
@@ -3782,6 +3845,11 @@ async function preprocessImageForOcr(file) {
 }
 
 window.handleImageOcr = async function(event) {
+    if (window.isExperimentPhase1) {
+        alert("Нарезка материалов заблокирована на период Фазы 1 эксперимента.");
+        event.target.value = '';
+        return;
+    }
     const files = event.target.files ? Array.from(event.target.files) : [];
     if (files.length === 0) return;
 
@@ -4611,6 +4679,10 @@ window.addEventListener('keydown', (e) => {
 // МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ И РУЧНОГО СОЗДАНИЯ КАРТОЧЕК
 // ============================================================================
 window.openManualCardModal = function() {
+    if (window.isExperimentPhase1) {
+        alert("Создание карточек вручную заблокировано на период Фазы 1 эксперимента.");
+        return;
+    }
     const modal = document.getElementById('card-editor-modal');
     const title = document.getElementById('card-editor-title');
     if (title) title.textContent = "СОЗДАНИЕ НОВОЙ КАРТОЧКИ";
@@ -4629,6 +4701,10 @@ window.openManualCardModal = function() {
 };
 
 window.requestEditCard = function(cardId) {
+    if (window.isExperimentPhase1) {
+        alert("Редактирование карточек заблокировано на период Фазы 1 эксперимента (режим тестирования).");
+        return;
+    }
     const card = localCardsArchive.find(c => c.id === cardId);
     if (!card) return;
 
@@ -4938,6 +5014,10 @@ function populateBulkSubjects() {
 }
 
 window.executeBulkMove = async function() {
+    if (window.isExperimentPhase1) {
+        alert("Перенос карточек заблокирован на время Фазы 1 эксперимента.");
+        return;
+    }
     const bulkSelector = document.getElementById('bulk-target-subject');
     if (!bulkSelector) return;
     const targetSubject = bulkSelector.value;
@@ -4991,6 +5071,10 @@ window.executeBulkMove = async function() {
 };
 
 window.executeBulkDelete = async function() {
+    if (window.isExperimentPhase1) {
+        alert("Удаление карточек заблокировано на время Фазы 1 эксперимента.");
+        return;
+    }
     const checkedBoxes = document.querySelectorAll('.card-checkbox:checked');
     const cardIds = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-card-id')));
     

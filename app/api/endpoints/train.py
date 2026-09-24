@@ -12,6 +12,7 @@ from app.services.fsrs_core import calculate_intervals, calculate_adaptive_reten
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
+from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
 from datetime import datetime
 
 router = APIRouter()
@@ -135,13 +136,9 @@ async def get_session_cards(
     now = utc_now()
     
     # Проверяем участие в научном эксперименте
-    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
-    session_res = await db.execute(session_stmt)
-    user_sess = session_res.scalars().first()
-    is_participant = bool(user_sess and user_sess.is_experiment_participant)
-    phase = user_sess.experiment_phase if user_sess else 1
+    is_participant, phase = await get_user_experiment_status(current_user, db)
 
-    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
+    if is_participant and phase == 1:
         # Фаза 1: лимит карт и target_retention для участников (предмет задается розданной колодой)
         limit = settings.EXPERIMENT_DAILY_LIMIT
         target_retention = 0.9
@@ -413,13 +410,9 @@ async def handle_answer(
         effective_response_time = 15000  # безопасное значение для исключения искусственных штрафов FSRS
 
     # Получаем target_retention с учетом научного эксперимента
-    session_stmt = select(UserSession).filter(UserSession.user_id == current_user)
-    session_res = await db.execute(session_stmt)
-    user_sess = session_res.scalars().first()
-    is_participant = bool(user_sess and user_sess.is_experiment_participant)
-    phase = user_sess.experiment_phase if user_sess else 1
+    is_participant, phase = await get_user_experiment_status(current_user, db)
 
-    if is_participant and phase == 1 and not is_admin_or_dev(current_user):
+    if is_participant and phase == 1:
         target_retention = 0.9
     else:
         setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

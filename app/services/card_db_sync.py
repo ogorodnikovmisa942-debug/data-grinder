@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 
 from app.database.models import (
-    Card, Phrase, UserSession, TopicKnowledgeGraph, PracticeItem, utc_now
+    Card, Phrase, UserSession, UserSetting, TopicKnowledgeGraph, PracticeItem, utc_now
 )
 from app.services.graph_service import (
     resolve_subject_alias, get_all_subject_aliases, synthesize_graph_from_cards
@@ -113,19 +113,35 @@ def is_admin_or_dev(user_id: str) -> bool:
     return False
 
 
+async def get_user_experiment_status(current_user: str, db: AsyncSession) -> Tuple[bool, int]:
+    """Возвращает (is_participant, experiment_phase) для пользователя.
+    Проверяет как UserSession, так и UserSetting, исключая админов и dev-пользователей.
+    """
+    if is_admin_or_dev(current_user):
+        return False, 1
+    session_res = await db.execute(select(UserSession).filter(UserSession.user_id == current_user))
+    user_sess = session_res.scalars().first()
+    if user_sess and user_sess.is_experiment_participant:
+        return True, user_sess.experiment_phase
+    set_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))
+    user_set = set_res.scalar_one_or_none()
+    if user_set and user_set.is_experiment_participant:
+        return True, user_set.experiment_phase
+    return False, 1
+
+
 async def check_experiment_lock(current_user: str, db: AsyncSession):
-    """Проверяет блокировку модификации колоды и настроек для участников научного эксперимента (Фаза 1).
+    """Проверяет блокировку нарезки, модификации колоды и настроек для участников научного эксперимента (Фаза 1).
     Администраторы и тестовые пользователи освобождены от блокировки.
     """
     if is_admin_or_dev(current_user):
         return
 
-    session_res = await db.execute(select(UserSession).filter(UserSession.user_id == current_user))
-    user_sess = session_res.scalars().first()
-    if user_sess and user_sess.is_experiment_participant and user_sess.experiment_phase == 1:
+    is_part, phase = await get_user_experiment_status(current_user, db)
+    if is_part and phase == 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Действие заблокировано на период проведения научного эксперимента"
+            detail="Действие заблокировано на период проведения научного эксперимента (Фаза 1: нарезка материалов отключена, проводится тестирование карточек с лимитом 10 карт/день)."
         )
 
 

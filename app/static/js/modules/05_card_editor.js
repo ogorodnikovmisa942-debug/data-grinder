@@ -2,6 +2,10 @@
 // МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ И РУЧНОГО СОЗДАНИЯ КАРТОЧЕК
 // ============================================================================
 window.openManualCardModal = function() {
+    if (window.isExperimentPhase1) {
+        alert("Создание карточек вручную заблокировано на период Фазы 1 эксперимента.");
+        return;
+    }
     const modal = document.getElementById('card-editor-modal');
     const title = document.getElementById('card-editor-title');
     if (title) title.textContent = "СОЗДАНИЕ НОВОЙ КАРТОЧКИ";
@@ -20,6 +24,10 @@ window.openManualCardModal = function() {
 };
 
 window.requestEditCard = function(cardId) {
+    if (window.isExperimentPhase1) {
+        alert("Редактирование карточек заблокировано на период Фазы 1 эксперимента (режим тестирования).");
+        return;
+    }
     const card = localCardsArchive.find(c => c.id === cardId);
     if (!card) return;
 
@@ -329,6 +337,10 @@ function populateBulkSubjects() {
 }
 
 window.executeBulkMove = async function() {
+    if (window.isExperimentPhase1) {
+        alert("Перенос карточек заблокирован на время Фазы 1 эксперимента.");
+        return;
+    }
     const bulkSelector = document.getElementById('bulk-target-subject');
     if (!bulkSelector) return;
     const targetSubject = bulkSelector.value;
@@ -382,6 +394,10 @@ window.executeBulkMove = async function() {
 };
 
 window.executeBulkDelete = async function() {
+    if (window.isExperimentPhase1) {
+        alert("Удаление карточек заблокировано на время Фазы 1 эксперимента.");
+        return;
+    }
     const checkedBoxes = document.querySelectorAll('.card-checkbox:checked');
     const cardIds = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-card-id')));
     

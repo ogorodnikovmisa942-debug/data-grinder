@@ -47,7 +47,7 @@ class Settings:
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site").strip().strip('"\'')
     ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "").strip().strip('"\'')
     ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")
-    EXPERIMENT_DAILY_LIMIT: int = int(os.getenv("EXPERIMENT_DAILY_LIMIT", "20"))
+    EXPERIMENT_DAILY_LIMIT: int = int(os.getenv("EXPERIMENT_DAILY_LIMIT", "10"))
 
     def __setattr__(self, name, value):
         if name == "DATABASE_URL" and isinstance(value, str):

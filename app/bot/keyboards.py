@@ -43,7 +43,7 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
 
 
 def render_admin_dashboard_text(d: dict) -> str:
-    phase_str = "Фаза 1 (Изоляция колод, лимит 20 карт)" if d['phase'] == 1 else "Фаза 2 (Свободный режим, ночная нарезка)"
+    phase_str = f"Фаза 1 (Изоляция колод, лимит {settings.EXPERIMENT_DAILY_LIMIT} карт)" if d['phase'] == 1 else "Фаза 2 (Свободный режим, ночная нарезка)"
     model_name = d.get('ai_model') or settings.DEEPSEEK_MODEL or "deepseek-flash"
     key_badge = "🔑 Ключ: OK" if d.get('has_key') else "⚠️ Ключ: НЕ ЗАДАН (.env)"
     total_u = d.get('total_users', d.get('participants', 0))

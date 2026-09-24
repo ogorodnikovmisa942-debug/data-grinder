@@ -17,6 +17,7 @@ from app.api.endpoints import cards, imports, stats, settings_router
 from app.services.card_db_sync import (
     is_admin_or_dev,
     check_experiment_lock,
+    get_user_experiment_status,
     save_cards_to_database,
     append_or_sync_cards_to_database,
     sync_subject_knowledge_and_practice,

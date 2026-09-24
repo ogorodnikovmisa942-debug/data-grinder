@@ -222,8 +222,8 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         resp = self.client.get("/api/session?subject=all&mode=new", headers=headers)
         self.assertEqual(resp.status_code, 200)
         cards = resp.json()
-        # Лимит для участника Фазы 1 строго равен 20 (режим 20 карт)
-        self.assertEqual(len(cards), 20)
+        # Лимит для участника Фазы 1 строго равен settings.EXPERIMENT_DAILY_LIMIT (10 карт)
+        self.assertEqual(len(cards), settings.EXPERIMENT_DAILY_LIMIT)
         # Все карточки принадлежат исключительно предмету sudoustroystvo
         for card in cards:
             self.assertEqual(card["subject"], "sudoustroystvo")
@@ -474,8 +474,8 @@ class TestExperimentAndTelemetry(unittest.TestCase):
 
         self.assertEqual(data["due_reviews_now"], 5)
         self.assertEqual(data["total_cards"], 15)
-        self.assertEqual(data["daily_new_limit"], 20)
-        self.assertEqual(data["new_remaining_today"], 10) # 10 доступно (лимит 20)
+        self.assertEqual(data["daily_new_limit"], settings.EXPERIMENT_DAILY_LIMIT)
+        self.assertEqual(data["new_remaining_today"], settings.EXPERIMENT_DAILY_LIMIT) # 10 доступно (лимит 10)
 
     def test_10_invites_and_participants_list(self):
         """Проверка генерации инвайтов и детального списка участников с @username."""
@@ -851,6 +851,78 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         }
         is_bl4, _ = is_blacklisted_card(valid_card, "law")
         self.assertFalse(is_bl4)
+
+    def test_15_phase1_limit_10_and_slicing_lock_verification(self):
+        """Проверка фиксации лимита на 10 карт и полной блокировки нарезки материалов для участников Фазы 1."""
+        participant_id = "user_phase1_10_limit_tester"
+        headers_user = {"X-User-Id": participant_id}
+
+        async def _setup_p1():
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(UserSession).filter(UserSession.user_id == participant_id))
+                await db.execute(delete(UserSetting).filter(UserSetting.user_id == participant_id))
+                await db.commit()
+
+                sess = UserSession(
+                    telegram_id=participant_id,
+                    user_id=participant_id,
+                    is_experiment_participant=True,
+                    experiment_phase=1
+                )
+                db.add(sess)
+                setting = UserSetting(
+                    user_id=participant_id,
+                    daily_limit=10,
+                    is_experiment_participant=True,
+                    experiment_phase=1
+                )
+                db.add(setting)
+                await db.commit()
+
+        self.run_async(_setup_p1())
+
+        # 1. Проверяем /api/config: лимит строго 10, is_experiment_locked = True
+        r_cfg = self.client.get("/api/config?subject=all", headers=headers_user)
+        self.assertEqual(r_cfg.status_code, 200)
+        cfg_data = r_cfg.json()
+        self.assertEqual(cfg_data["daily_limit"], 10)
+        self.assertTrue(cfg_data["is_experiment_locked"])
+        self.assertTrue(cfg_data["is_experiment_participant"])
+        self.assertEqual(cfg_data["experiment_phase"], 1)
+
+        # 2. Попытка нарезки сырого текста через /api/config/import -> 403 Forbidden
+        r_import = self.client.post(
+            "/api/config/import",
+            headers=headers_user,
+            json={"text": "Статья 1. Конституция РФ имеет высшую юридическую силу.", "subject": "law"}
+        )
+        self.assertEqual(r_import.status_code, 403)
+        self.assertIn("Действие заблокировано на период проведения научного эксперимента", r_import.json()["detail"])
+
+        # 3. Попытка фиксации стейджинга -> 403 Forbidden
+        r_commit = self.client.post(
+            "/api/config/import/commit",
+            headers=headers_user,
+            json={"subject": "law", "theme": "Конституция", "cards": [{"text": "Вопрос", "translation": "Ответ"}]}
+        )
+        self.assertEqual(r_commit.status_code, 403)
+
+        # 4. Попытка импорта пресета -> 403 Forbidden
+        r_preset = self.client.post(
+            "/api/config/import/preset",
+            headers=headers_user,
+            json={"preset_name": "law"}
+        )
+        self.assertEqual(r_preset.status_code, 403)
+
+        # 5. Попытка изменения лимита пользователем -> 403 Forbidden
+        r_set_limit = self.client.post(
+            "/api/config",
+            headers=headers_user,
+            json={"daily_limit": 20}
+        )
+        self.assertEqual(r_set_limit.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

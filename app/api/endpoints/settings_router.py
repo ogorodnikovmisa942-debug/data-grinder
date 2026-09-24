@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.database.session import get_db
 from app.database.models import UserSetting
 from app.services.generation_worker import is_deepseek_offpeak
-from app.services.card_db_sync import check_experiment_lock
+from app.services.card_db_sync import check_experiment_lock, get_user_experiment_status
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 
@@ -44,11 +44,20 @@ async def get_config(
         target_retention = setting.target_retention or 0.9
         
     current_subject_limit = subject_limits.get(subject, daily_limit)
+
+    is_part, phase = await get_user_experiment_status(current_user, db)
+    if is_part and phase == 1:
+        current_subject_limit = settings.EXPERIMENT_DAILY_LIMIT
+        daily_limit = settings.EXPERIMENT_DAILY_LIMIT
+
     return {
         "daily_limit": current_subject_limit, 
         "focus_mode_default": False,
         "assoc_preference": assoc_pref,
-        "target_retention": target_retention
+        "target_retention": target_retention,
+        "is_experiment_participant": is_part,
+        "experiment_phase": phase,
+        "is_experiment_locked": bool(is_part and phase == 1)
     }
 
 
