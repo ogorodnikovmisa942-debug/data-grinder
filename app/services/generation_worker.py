@@ -126,13 +126,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                     "short_article": "Статья / материал"
                 }.get(density_info.get("archetype", ""), "Материал")
                 start_msg = (
-                    f"{discount_badge}"
-                    f"🚀 <b>Документ взят в обработку ИИ!</b>\n\n"
-                    f"Материал: «<b>{escaped_theme}</b>»\n"
-                    f"Формат: <b>{archetype_ru}</b>\n"
-                    f"Объем: <b>{char_count:,} знаков</b> (~{total_chunks} смысловых блоков)\n"
-                    f"Тариф: <i>{tariff_label}</i>\n\n"
-                    f"⏳ <i>ИИ нарезает карточки. По готовности пришлю кнопку для разбора в Песочнице!</i>"
+                    f"Материал «<b>{escaped_theme}</b>» взят в обработку.\n"
+                    f"ИИ формирует карточки..."
                 )
                 await send_worker_telegram_push(job_data["telegram_id"], start_msg)
             except Exception as start_push_err:
@@ -492,17 +487,12 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
 
                 graph_line = f"Каркас знаний: <b>{total_graph_nodes} концептов</b> (инстанции, условия, исключения).\n" if total_graph_nodes > 0 else ""
                 msg_text = (
-                    "<b>[DATA GRINDER: МАТЕРИАЛ ОБРАБОТАН]</b>\n\n"
-                    f"Тема: «<b>{escaped_theme}</b>»\n"
-                    f"Предмет: <code>{escaped_sub}</code>\n"
-                    f"ИИ сформировал: <b>{total_cards} ситуационных карточек</b>.\n"
-                    f"{graph_line}"
-                    f"Время обработки: <b>{execution_time_ms / 1000:.1f} сек</b>.\n\n"
-                    "Нажмите кнопку ниже, чтобы открыть Песочницу и разобрать карточки (свайпы влево/вправо)."
+                    f"Карточки по материалу «<b>{escaped_theme}</b>» готовы ({total_cards} шт.).\n\n"
+                    "Нажми кнопку ниже, чтобы разобрать их:"
                 )
                 markup = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(
-                        text=f"[◈ РАЗОБРАТЬ КАРТОЧКИ ({total_cards} ШТ.)]",
+                        text=f"[РАЗОБРАТЬ КАРТОЧКИ ({total_cards} ШТ.)]",
                         web_app=WebAppInfo(url=f"{webapp_url}#staging_job_{job_data['id']}")
                     )]
                 ])

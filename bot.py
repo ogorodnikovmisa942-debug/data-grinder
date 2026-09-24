@@ -159,50 +159,43 @@ async def cmd_start(message: types.Message):
         print(f"[Bot] Ошибка работы с БД при /start: {db_err}")
 
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="[ЗАПУСТИТЬ ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [InlineKeyboardButton(text="[ОТКРЫТЬ КАРТОЧКИ]", web_app=WebAppInfo(url=WEBAPP_URL))]
     ])
     
     if shared_deck_info:
         welcome_text = (
-            f"🎉 <b>Колода «{html.escape(shared_deck_info['title'])}» успешно подключена!</b>\n\n"
+            f"Колода «{html.escape(shared_deck_info['title'])}» подключена.\n\n"
             f"• <b>Предмет:</b> <code>{shared_deck_info['subject']}</code>\n"
-            f"• <b>Добавлено новых карточек:</b> <b>{shared_deck_info['created']} шт.</b>\n"
+            f"• <b>Новых карточек:</b> <b>{shared_deck_info['created']} шт.</b>\n"
             f"• <b>Всего в колоде:</b> {shared_deck_info['total']} шт.\n\n"
-            "Все карточки бережно добавлены в вашу очередь FSRS без сброса накопленного прогресса.\n\n"
-            "Нажмите кнопку ниже для старта:"
+            "Нажми кнопку ниже, чтобы начать:"
         )
     elif invite_status == "enrolled":
         welcome_text = (
-            "🎉 <b>Добро пожаловать в научный эксперимент Data Grinder!</b>\n\n"
-            f"Инвайт-код <code>{invite_code_clean}</code> успешно подтвержден.\n"
-            f"Вам назначен статус участника исследования:\n"
-            f"• <b>Дневной режим:</b> {settings.EXPERIMENT_DAILY_LIMIT} карточек\n"
-            f"• <b>Фаза:</b> 1 (Экспериментальная изоляция FSRS)\n\n"
-            "Нажмите кнопку ниже для запуска персональной учебной сессии:"
+            f"Инвайт <code>{invite_code_clean}</code> принят.\n\n"
+            f"Твоя норма — <b>{settings.EXPERIMENT_DAILY_LIMIT} карточек в день</b>.\n\n"
+            "Нажми кнопку ниже, чтобы начать занятие:"
         )
     elif invite_status == "already_enrolled":
         welcome_text = (
-            "ℹ️ <b>Вы уже являетесь активным участником исследования!</b>\n\n"
-            "Ваш профиль и настройки FSRS сохранены в базе.\n"
-            "Нажмите кнопку ниже для продолжения учебной сессии:"
+            f"Ты уже в списке участников.\n"
+            f"Твоя норма — <b>{settings.EXPERIMENT_DAILY_LIMIT} карточек в день</b>.\n\n"
+            "Нажми кнопку ниже, чтобы продолжить:"
         )
     elif invite_status == "already_used":
         welcome_text = (
-            "⚠️ <b>Этот инвайт-код уже был активирован ранее.</b>\n\n"
-            f"Код <code>{invite_code_clean}</code> является одноразовым и уже использован другим участником.\n"
-            "Вы можете продолжить работу в стандартном режиме:"
+            f"Инвайт-код <code>{invite_code_clean}</code> уже использован.\n\n"
+            "Нажми кнопку ниже для входа:"
         )
     elif invite_status == "not_found":
         welcome_text = (
-            "⚠️ <b>Инвайт-код не найден или устарел.</b>\n\n"
-            f"Код <code>{invite_code_clean}</code> не зарегистрирован в системе.\n"
-            "Нажмите кнопку ниже для старта:"
+            f"Инвайт-код <code>{invite_code_clean}</code> не найден.\n\n"
+            "Нажми кнопку ниже для входа:"
         )
     else:
         welcome_text = (
-            "<b>[DATA GRINDER v1.0]</b> приветствует тебя.\n\n"
-            "Интерфейс когнитивного заучивания и FSRS-интерливинга готов к работе. "
-            "Нажми кнопку ниже для старта рабочей сессии."
+            "Карточки готовы к повторению.\n\n"
+            "Нажми кнопку ниже, чтобы начать занятие:"
         )
 
     await message.answer(welcome_text, reply_markup=markup, parse_mode="HTML")
@@ -238,10 +231,10 @@ async def pomodoro_push_observer():
                 
                 await bot.send_message(
                     chat_id=target_chat_id,
-                    text="**[ТАЙМЕР: 17 МИНУТ ОТДЫХА ЗАВЕРШЕНЫ]**\n\n"
-                         "Кора головного мозга полностью восстановила ресурсы.\n"
-                         "Возвращайся в консоль Data Grinder и запускай новый 52-минутный спринт.",
-                    parse_mode="Markdown"
+                    text="Перерыв 17 минут окончен.\nМожно продолжать занятие.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="[ОТКРЫТЬ КАРТОЧКИ]", web_app=WebAppInfo(url=WEBAPP_URL))]
+                    ])
                 )
                 
                 async with AsyncSessionLocal() as db:
@@ -271,7 +264,7 @@ async def main():
     # Автоматическая настройка кнопки меню WebApp для запуска приложения в Telegram
     try:
         await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="[ГРИНДЕР]", web_app=WebAppInfo(url=WEBAPP_URL))
+            menu_button=MenuButtonWebApp(text="[КАРТОЧКИ]", web_app=WebAppInfo(url=WEBAPP_URL))
         )
         print(f"[Grinder Bot] Кнопка меню WebApp успешно настроена: {WEBAPP_URL}")
     except Exception as mb_err:

@@ -28,13 +28,13 @@ async def send_telegram_alert(chat_id: str, text: str, bot: Bot = None):
         
         # Создаем разметку с кнопкой запуска Mini App
         markup = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="[ЗАПУСТИТЬ ГРИНДЕР]", web_app=WebAppInfo(url=settings.WEBAPP_URL))]
+            [InlineKeyboardButton(text="[ОТКРЫТЬ КАРТОЧКИ]", web_app=WebAppInfo(url=settings.WEBAPP_URL))]
         ])
         
         await bot.send_message(
             chat_id=int(chat_id), 
             text=text, 
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=markup
         )
     except Exception as e:
@@ -83,8 +83,8 @@ async def check_and_send_alerts():
                         user.last_morning_sent = date_str
                         await db.commit()  # Фиксация в БД
                         text = (
-                            "**[DATA GRINDER: УТРЕННИЙ РАУНД]**\n\n"
-                            "Новые знания готовы к заучиванию. Начни день с продуктивной сессии повторения!"
+                            "Карточки на сегодня готовы к повторению.\n"
+                            "Зайди уделить 2-3 минуты."
                         )
                         await send_telegram_alert(user.telegram_id, text, bot=bot)
 
@@ -94,8 +94,8 @@ async def check_and_send_alerts():
                         user.last_evening_sent = date_str
                         await db.commit()
                         text = (
-                            "**[DATA GRINDER: ВЕЧЕРНИЙ СЕАНС]**\n\n"
-                            f"У вас осталось *{user_due_count}* карточек к повторению. Закройте хвосты перед сном!"
+                            f"Осталось повторить карточек: {user_due_count} шт.\n"
+                            "Закрой дневную норму перед сном."
                         )
                         await send_telegram_alert(user.telegram_id, text, bot=bot)
 
@@ -110,8 +110,7 @@ async def check_and_send_alerts():
                         user.last_due_notified_at = now_utc
                         await db.commit()
                         text = (
-                            "**[DATA GRINDER: ОЧЕРЕДЬ ПОВТОРЕНИЯ]**\n\n"
-                            f"В вашем пуле появились новые карты, готовые к повторению ({user_due_count} шт.)."
+                            f"Появились карточки к повторению: {user_due_count} шт."
                         )
                         await send_telegram_alert(user.telegram_id, text, bot=bot)
                 else:
