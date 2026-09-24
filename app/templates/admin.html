@@ -242,6 +242,55 @@
             </div>
         </div>
 
+        <!-- СЕКЦИЯ РАЗДАЧИ И ЗАГРУЗКИ КОЛОДЫ -->
+        <div class="ai-panel">
+            <div class="ai-title">
+                <span style="display:flex; align-items:center; gap:6px;">
+                    <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">layers</span>
+                    Загрузка и раздача колоды карточек (.JSON)
+                </span>
+                <span id="deck-status-badge" class="badge">Файл не выбран</span>
+            </div>
+            <p style="font-size:12px; color:#94a3b8; margin-bottom:12px; line-height:1.5;">
+                Загрузите эталонный JSON-файл вашей колоды. Он будет сохранен на сервере как единственный курс и роздан пользователям.
+            </p>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;">
+                <div>
+                    <label style="font-size:11px; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Файл колоды (.json):</label>
+                    <input type="file" id="deck-file-input" accept=".json" onchange="handleDeckFileSelect(event)" style="width:100%; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:6px 10px; color:#f1f5f9; font-size:12px; box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:11px; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Название курса (тема):</label>
+                    <input type="text" id="deck-phrase-title" placeholder="Например: Мой основной курс" style="width:100%; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#f1f5f9; font-size:12px; box-sizing:border-box;">
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:14px;">
+                <div>
+                    <label style="font-size:11px; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Идентификатор предмета (slug):</label>
+                    <input type="text" id="deck-subject-slug" placeholder="Например: main_course" style="width:100%; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#38bdf8; font-family:'JetBrains Mono', monospace; font-size:12px; box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:11px; color:#94a3b8; font-weight:600; display:block; margin-bottom:4px;">Кому раздать:</label>
+                    <select id="deck-target-select" style="width:100%; background:#0a0a0a; border:1px solid #2e2e2e; border-radius:8px; padding:8px 12px; color:#f1f5f9; font-size:12px; box-sizing:border-box;">
+                        <option value="part">Только участникам эксперимента (Phase 1/2)</option>
+                        <option value="all">Всем зарегистрированным пользователям</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <button class="btn" id="btn-deck-append" style="flex:1; background:#1e293b; color:#38bdf8; border:1px solid #38bdf8;" onclick="submitDeckDistribution('append')">
+                    <span class="material-symbols-outlined" style="font-size:16px;">add_circle</span> Дозагрузить / Синхронизировать (Append)
+                </button>
+                <button class="btn" id="btn-deck-overwrite" style="flex:1; background:#450a0a; color:#f87171; border:1px solid #dc2626;" onclick="submitDeckDistribution('overwrite')">
+                    <span class="material-symbols-outlined" style="font-size:16px;">restart_alt</span> Сбросить и перезаписать с нуля
+                </button>
+            </div>
+            <div id="deck-toast" class="toast"></div>
+        </div>
+
         <p>Управление экспериментом, участниками, фазами и раздачей колод также доступно через Telegram-бота:</p>
         <div class="code-box">
             /admin {{ admin_token }}
@@ -458,6 +507,95 @@
                 }
             } catch (e) {
                 alert('Сетевой сбой: ' + e.message);
+            }
+        }
+
+        let uploadedDeckCards = null;
+
+        function handleDeckFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = JSON.parse(evt.target.result);
+                    uploadedDeckCards = data.cards || (Array.isArray(data) ? data : null);
+                    if (!uploadedDeckCards || !uploadedDeckCards.length) {
+                        alert("В выбранном JSON файле не найден массив 'cards'.");
+                        uploadedDeckCards = null;
+                        return;
+                    }
+                    const count = uploadedDeckCards.length;
+                    const slug = data.subject_slug || file.name.replace(/\.json$/i, '').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+                    const title = data.phrase_title || slug.replace(/[_-]/g, ' ').toUpperCase();
+                    
+                    document.getElementById('deck-subject-slug').value = slug;
+                    document.getElementById('deck-phrase-title').value = title;
+                    const badge = document.getElementById('deck-status-badge');
+                    badge.innerText = `Готово: ${count} карт`;
+                    badge.style.color = '#4ade80';
+                } catch (err) {
+                    alert("Ошибка разбора JSON: " + err.message);
+                }
+            };
+            reader.readAsText(file, "UTF-8");
+        }
+
+        async function submitDeckDistribution(mode) {
+            const toast = document.getElementById('deck-toast');
+            toast.className = 'toast';
+            toast.style.display = 'none';
+
+            if (!uploadedDeckCards || !uploadedDeckCards.length) {
+                toast.className = 'toast error';
+                toast.innerText = "Сначала выберите .json файл колоды!";
+                return;
+            }
+
+            const slug = document.getElementById('deck-subject-slug').value.trim();
+            const title = document.getElementById('deck-phrase-title').value.trim();
+            const target = document.getElementById('deck-target-select').value;
+            const token = (document.getElementById('admin-token-input') ? document.getElementById('admin-token-input').value.trim() : '') || adminToken;
+
+            if (!slug || !title) {
+                toast.className = 'toast error';
+                toast.innerText = "Укажите название курса и slug предмета.";
+                return;
+            }
+
+            if (mode === 'overwrite' && !confirm("ВНИМАНИЕ! Режим перезаписи удалит все текущие карточки по этому курсу у пользователей и сбросит интервалы повторений. Продолжить?")) {
+                return;
+            }
+
+            const payload = {
+                subject_slug: slug,
+                phrase_title: title,
+                cards: uploadedDeckCards,
+                distribute_to_all: (target === 'all'),
+                mode: mode
+            };
+
+            try {
+                const res = await fetch('/api/admin/experiment/distribute-deck', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Token': token
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    toast.className = 'toast success';
+                    toast.innerText = `Успешно! Добавлено карт: ${data.total_cards_created || 0}, обновлено: ${data.total_cards_updated || 0}, охвачено пользователей: ${data.users_affected || 0}.`;
+                    loadUsers(onlyPartFilter);
+                } else {
+                    toast.className = 'toast error';
+                    toast.innerText = "Ошибка: " + (data.detail || JSON.stringify(data));
+                }
+            } catch (e) {
+                toast.className = 'toast error';
+                toast.innerText = "Сетевой сбой: " + e.message;
             }
         }
 

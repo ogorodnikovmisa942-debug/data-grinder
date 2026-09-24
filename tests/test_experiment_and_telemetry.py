@@ -3,6 +3,7 @@ import unittest
 import json
 import csv
 import io
+from pathlib import Path
 import asyncio
 from datetime import datetime
 from fastapi.testclient import TestClient
@@ -596,73 +597,78 @@ class TestExperimentAndTelemetry(unittest.TestCase):
             ]
         }
 
-        r_append = self.client.post(
-            "/api/admin/experiment/distribute-deck",
-            headers=headers_admin,
-            json=payload_append
-        )
-        self.assertEqual(r_append.status_code, 200)
-        data_append = r_append.json()
-        self.assertEqual(data_append["status"], "success")
-        self.assertEqual(data_append["mode"], "append")
-        self.assertEqual(data_append["total_cards_created"], 1) # Добавлена 1 новая
-        self.assertEqual(data_append["total_cards_updated"], 1) # Обновлена 1 старая
+        try:
+            r_append = self.client.post(
+                "/api/admin/experiment/distribute-deck",
+                headers=headers_admin,
+                json=payload_append
+            )
+            self.assertEqual(r_append.status_code, 200)
+            data_append = r_append.json()
+            self.assertEqual(data_append["status"], "success")
+            self.assertEqual(data_append["mode"], "append")
+            self.assertEqual(data_append["total_cards_created"], 1) # Добавлена 1 новая
+            self.assertEqual(data_append["total_cards_updated"], 1) # Обновлена 1 старая
 
-        # Проверяем в БД: существующая карточка сохранила прогресс FSRS, но обновила текст!
-        async def _verify_append():
-            async with AsyncSessionLocal() as db:
-                stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
-                res = await db.execute(stmt)
-                cards = res.scalars().all()
-                self.assertEqual(len(cards), 2)
+            # Проверяем в БД: существующая карточка сохранила прогресс FSRS, но обновила текст!
+            async def _verify_append():
+                async with AsyncSessionLocal() as db:
+                    stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
+                    res = await db.execute(stmt)
+                    cards = res.scalars().all()
+                    self.assertEqual(len(cards), 2)
 
-                cards_by_text = {c.text: c for c in cards}
-                old_c = cards_by_text["Правосудие"]
-                self.assertEqual(old_c.translation, "Новое уточненное определение правосудия")
-                self.assertEqual(old_c.secondary_text, "ст. 118 Конституции РФ")
-                # FSRS параметры полностью сохранены!
-                self.assertEqual(old_c.state, 2)
-                self.assertAlmostEqual(old_c.stability, 9.5)
-                self.assertAlmostEqual(old_c.difficulty, 3.8)
-                self.assertEqual(old_c.lapses, 1)
-                self.assertTrue(old_c.has_seen_intro)
+                    cards_by_text = {c.text: c for c in cards}
+                    old_c = cards_by_text["Правосудие"]
+                    self.assertEqual(old_c.translation, "Новое уточненное определение правосудия")
+                    self.assertEqual(old_c.secondary_text, "ст. 118 Конституции РФ")
+                    # FSRS параметры полностью сохранены!
+                    self.assertEqual(old_c.state, 2)
+                    self.assertAlmostEqual(old_c.stability, 9.5)
+                    self.assertAlmostEqual(old_c.difficulty, 3.8)
+                    self.assertEqual(old_c.lapses, 1)
+                    self.assertTrue(old_c.has_seen_intro)
 
-                new_c = cards_by_text["Судья"]
-                self.assertEqual(new_c.state, 0)
-                self.assertFalse(new_c.has_seen_intro)
-                self.assertEqual(new_c.translation, "Носитель судебной власти")
+                    new_c = cards_by_text["Судья"]
+                    self.assertEqual(new_c.state, 0)
+                    self.assertFalse(new_c.has_seen_intro)
+                    self.assertEqual(new_c.translation, "Носитель судебной власти")
 
-        self.run_async(_verify_append())
+            self.run_async(_verify_append())
 
-        # 2. Проверяем режим overwrite: полный сброс
-        payload_overwrite = {
-            "subject_slug": "sudoustroystvo",
-            "phrase_title": "Судоустройство: Сброс",
-            "target_user_id": user_id,
-            "mode": "overwrite",
-            "cards": [
-                {"text": "Новая единственная карта", "translation": "Определение"}
-            ]
-        }
-        r_over = self.client.post(
-            "/api/admin/experiment/distribute-deck",
-            headers=headers_admin,
-            json=payload_overwrite
-        )
-        self.assertEqual(r_over.status_code, 200)
-        data_over = r_over.json()
-        self.assertEqual(data_over["mode"], "overwrite")
-        self.assertEqual(data_over["total_cards_created"], 1)
+            # 2. Проверяем режим overwrite: полный сброс
+            payload_overwrite = {
+                "subject_slug": "sudoustroystvo",
+                "phrase_title": "Судоустройство: Сброс",
+                "target_user_id": user_id,
+                "mode": "overwrite",
+                "cards": [
+                    {"text": "Новая единственная карта", "translation": "Определение"}
+                ]
+            }
+            r_over = self.client.post(
+                "/api/admin/experiment/distribute-deck",
+                headers=headers_admin,
+                json=payload_overwrite
+            )
+            self.assertEqual(r_over.status_code, 200)
+            data_over = r_over.json()
+            self.assertEqual(data_over["mode"], "overwrite")
+            self.assertEqual(data_over["total_cards_created"], 1)
 
-        async def _verify_overwrite():
-            async with AsyncSessionLocal() as db:
-                stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
-                cards = (await db.execute(stmt)).scalars().all()
-                self.assertEqual(len(cards), 1)
-                self.assertEqual(cards[0].text, "Новая единственная карта")
-                self.assertEqual(cards[0].state, 0)
+            async def _verify_overwrite():
+                async with AsyncSessionLocal() as db:
+                    stmt = select(Card).filter(Card.user_id == user_id, Card.subject == "sudoustroystvo")
+                    cards = (await db.execute(stmt)).scalars().all()
+                    self.assertEqual(len(cards), 1)
+                    self.assertEqual(cards[0].text, "Новая единственная карта")
+                    self.assertEqual(cards[0].state, 0)
 
-        self.run_async(_verify_overwrite())
+            self.run_async(_verify_overwrite())
+        finally:
+            p_file = Path("app/static/presets/sudoustroystvo.json")
+            if p_file.exists():
+                p_file.unlink()
 
     def test_12_export_cards_json(self):
         """Проверка эндпоинта экспорта колоды пользователя в формате JSON пресета (/api/data/cards/export)."""
@@ -965,6 +971,85 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertEqual(r_cfg_final.status_code, 200)
         self.assertFalse(r_cfg_final.json()["is_experiment_participant"])
         self.assertFalse(r_cfg_final.json()["is_experiment_locked"])
+
+    def test_clean_presets_and_custom_deck_distribution(self):
+        """Проверка отсутствия тестовых колод-пресетов и раздачи пользовательской колоды через админку."""
+        # 1. Проверяем, что в app/static/presets нет старых тестовых колод
+        legacy_presets = ["hsk3.json", "law.json", "python.json", "sudoustroystvo.json"]
+        presets_dir = Path("app/static/presets")
+        for lp in legacy_presets:
+            self.assertFalse((presets_dir / lp).exists(), f"Пресет {lp} должен быть удален из системы")
+
+        # 2. Создаем участника эксперимента
+        target_user = "exp_exclusive_student"
+        headers_admin = {"X-Admin-Token": settings.ADMIN_TOKEN}
+        r_user = self.client.post(
+            "/api/admin/experiment/set-participant",
+            headers=headers_admin,
+            json={"user_id": target_user, "is_participant": True, "phase": 1}
+        )
+        self.assertEqual(r_user.status_code, 200)
+
+        # 3. Раздаем уникальную пользовательскую колоду
+        custom_slug = "custom_test_deck"
+        custom_title = "Уникальный авторский курс"
+        test_preset_file = presets_dir / f"{custom_slug}.json"
+        if test_preset_file.exists():
+            test_preset_file.unlink()
+
+        try:
+            payload = {
+                "subject_slug": custom_slug,
+                "phrase_title": custom_title,
+                "target_user_id": target_user,
+                "mode": "overwrite",
+                "cards": [
+                    {
+                        "text": "Ключевое понятие 1",
+                        "translation": "Точное определение 1",
+                        "secondary_text": "Комментарий 1",
+                        "mnemonic": "Ассоциация 1"
+                    },
+                    {
+                        "text": "Ключевое понятие 2",
+                        "translation": "Точное определение 2"
+                    }
+                ]
+            }
+
+            r_dist = self.client.post(
+                "/api/admin/experiment/distribute-deck",
+                headers=headers_admin,
+                json=payload
+            )
+            self.assertEqual(r_dist.status_code, 200)
+            data_dist = r_dist.json()
+            self.assertEqual(data_dist["status"], "success")
+            self.assertEqual(data_dist["total_cards_created"], 2)
+
+            # Проверяем, что файл колоды автоматически сохранился в app/static/presets/{custom_slug}.json
+            self.assertTrue(test_preset_file.exists())
+            saved_content = json.loads(test_preset_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved_content["subject_slug"], custom_slug)
+            self.assertEqual(saved_content["phrase_title"], custom_title)
+            self.assertEqual(len(saved_content["cards"]), 2)
+
+            # Проверяем, что у участника в API видны именно эти 2 карточки
+            r_cards = self.client.get(
+                f"/api/data/cards?subject={custom_slug}",
+                headers={"X-User-Id": target_user}
+            )
+            self.assertEqual(r_cards.status_code, 200)
+            cards_list = r_cards.json()["cards"]
+            self.assertEqual(len(cards_list), 2)
+            texts = [c["text"] for c in cards_list]
+            self.assertIn("Ключевое понятие 1", texts)
+            self.assertIn("Ключевое понятие 2", texts)
+
+        finally:
+            if test_preset_file.exists():
+                test_preset_file.unlink()
+
 
 
 if __name__ == "__main__":

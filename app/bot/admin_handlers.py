@@ -808,7 +808,16 @@ async def handle_admin_callbacks(callback: CallbackQuery):
     elif action == "admin_distribute_append":
         presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
         if not presets:
-            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Экспорт моей колоды", callback_data="admin_export_my_deck")],
+                [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+            ])
+            await callback.message.edit_text(
+                "❌ <b>В папке пресетов нет файлов колод!</b>\n\n"
+                "Выгрузите свою колоду кнопкой «📤 Моя колода (JSON)» или отправьте .json файл боту документом.",
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
             return
         callback.data = f"admin_dist_run:append:part:{presets[0].name}"
         return await handle_admin_callbacks(callback)
@@ -816,7 +825,16 @@ async def handle_admin_callbacks(callback: CallbackQuery):
     elif action == "admin_distribute_overwrite_confirm":
         presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
         if not presets:
-            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Экспорт моей колоды", callback_data="admin_export_my_deck")],
+                [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+            ])
+            await callback.message.edit_text(
+                "❌ <b>В папке пресетов нет файлов колод!</b>\n\n"
+                "Выгрузите свою колоду кнопкой «📤 Моя колода (JSON)» или отправьте .json файл боту документом.",
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
             return
         fname = presets[0].name
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -836,7 +854,16 @@ async def handle_admin_callbacks(callback: CallbackQuery):
     elif action == "admin_distribute_overwrite":
         presets = [p for p in Path("app/static/presets").glob("*.json") if p.is_file()]
         if not presets:
-            await callback.message.answer("❌ Файлы пресетов не найдены в <code>app/static/presets</code>!", parse_mode="HTML")
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Экспорт моей колоды", callback_data="admin_export_my_deck")],
+                [InlineKeyboardButton(text="🔙 Главное меню", callback_data="admin_menu")]
+            ])
+            await callback.message.edit_text(
+                "❌ <b>В папке пресетов нет файлов колод!</b>\n\n"
+                "Выгрузите свою колоду кнопкой «📤 Моя колода (JSON)» или отправьте .json файл боту документом.",
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
             return
         callback.data = f"admin_dist_run:overwrite:part:{presets[0].name}"
         return await handle_admin_callbacks(callback)

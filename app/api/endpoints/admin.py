@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 from app.core.config import settings
 from app.database.session import get_db
-from app.database.models import UserSession, UserSetting, AiTelemetryLog, InviteCode, Card, ReviewLog, Phrase
+from app.database.models import UserSession, UserSetting, AiTelemetryLog, InviteCode, Card, ReviewLog, Phrase, utc_now
 from app.api.endpoints.management import save_cards_to_database, append_or_sync_cards_to_database
 
 router = APIRouter()
@@ -606,6 +606,21 @@ async def distribute_deck(
 
     if not cards_to_distribute:
         raise HTTPException(status_code=400, detail="Набор карточек пуст.")
+
+    # Сохраняем эталонную колоду на диск в app/static/presets
+    if payload.cards and payload.subject_slug:
+        try:
+            save_preset_path = Path("app/static/presets") / f"{payload.subject_slug}.json"
+            save_preset_path.parent.mkdir(parents=True, exist_ok=True)
+            save_preset_path.write_text(json.dumps({
+                "subject_slug": payload.subject_slug,
+                "phrase_title": payload.phrase_title,
+                "exported_at": utc_now().isoformat(),
+                "total_cards": len(cards_to_distribute),
+                "cards": cards_to_distribute
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     # Выбираем целевых пользователей (конкретного, всех или только участников)
     if payload.target_user_id:
