@@ -40,6 +40,9 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
             InlineKeyboardButton(text="🕊 Освободить меня от эксперимента", callback_data="admin_free_me")
         ],
         [
+            InlineKeyboardButton(text="🌐 Открыть веб-админку на сайте", url=f"{settings.WEBAPP_URL.rstrip('/')}/admin")
+        ],
+        [
             InlineKeyboardButton(text="🔄 Обновить сводку", callback_data="admin_refresh")
         ]
     ])
