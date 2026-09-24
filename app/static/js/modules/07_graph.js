@@ -497,6 +497,7 @@ window.loadSeedOrDemoGraph = async function() {
                 }
             }
         }
+    }
     if (!sub || sub === 'all') {
         renderEmptyKgState();
         return;

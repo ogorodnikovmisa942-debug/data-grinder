@@ -105,3 +105,21 @@ def test_bundle_html_raises_on_missing_component(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError) as exc_info:
         bundle_html()
     assert "non_existent_component_12345.html" in str(exc_info.value)
+
+
+def test_bundled_js_has_valid_syntax():
+    """Verify bundled app.js and all constituent JS modules have valid JavaScript syntax."""
+    import shutil
+    import subprocess
+    bundle_all()
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("Node.js is not installed on this system")
+
+    js_dir = INDEX_HTML_PATH.parent / "js"
+    js_files = [js_dir / "app.js"] + list((js_dir / "modules").glob("*.js"))
+    for jf in js_files:
+        assert jf.exists(), f"JS file not found: {jf}"
+        res = subprocess.run([node_bin, "-c", str(jf)], capture_output=True, text=True)
+        assert res.returncode == 0, f"JS Syntax Error in {jf.name}:\n{res.stderr}"
+
