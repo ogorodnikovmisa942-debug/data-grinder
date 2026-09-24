@@ -243,6 +243,39 @@ async def switch_experiment_phase(
         "message": f"Фаза успешно переключена на {payload.phase} для {updated_sessions} участников."
     }
 
+# --- 5.3.1. ЗАВЕРШЕНИЕ ЭКСПЕРИМЕНТА ДЛЯ ВСЕХ УЧАСТНИКОВ ---
+@router.post("/experiment/finish")
+async def finish_experiment(
+    token: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Завершает научный эксперимент:
+    - Массово переводит всех участников в обычный свободный режим (is_experiment_participant = False).
+    - Снимает все блокировки колоды и нарезки материалов.
+    """
+    stmt_sessions = (
+        update(UserSession)
+        .where(UserSession.is_experiment_participant == True)
+        .values(is_experiment_participant=False)
+    )
+    res_sessions = await db.execute(stmt_sessions)
+    updated_sessions = res_sessions.rowcount
+
+    stmt_settings = (
+        update(UserSetting)
+        .where(UserSetting.is_experiment_participant == True)
+        .values(is_experiment_participant=False)
+    )
+    await db.execute(stmt_settings)
+    await db.commit()
+
+    return {
+        "status": "success",
+        "released_users": updated_sessions,
+        "message": f"Эксперимент успешно завершен. {updated_sessions} участников переведены в обычный режим со свободным доступом."
+    }
+
 # --- 5.4. УПРАВЛЕНИЕ СТАТУСОМ УЧАСТНИКА (ВКЛЮЧЕНИЕ / ВЫКЛЮЧЕНИЕ) ---
 @router.post("/experiment/set-participant")
 async def set_experiment_participant(

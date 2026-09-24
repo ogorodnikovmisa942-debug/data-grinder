@@ -923,6 +923,49 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         )
         self.assertEqual(r_set_limit.status_code, 403)
 
+    def test_16_admin_finish_experiment_and_switch_phase(self):
+        """Проверка работы переключения на Фазу 2 и полного завершения эксперимента через админку."""
+        headers_admin = {"X-Admin-Token": settings.ADMIN_TOKEN}
+        p_user = "user_switch_phase_tester"
+        headers_user = {"X-User-Id": p_user}
+
+        # 1. Задаем участника Фазы 1
+        r_set = self.client.post(
+            "/api/admin/experiment/set-participant",
+            headers=headers_admin,
+            json={"user_id": p_user, "is_participant": True, "phase": 1}
+        )
+        self.assertEqual(r_set.status_code, 200)
+
+        # 2. Переключаем на Фазу 2
+        r_switch2 = self.client.post(
+            "/api/admin/experiment/switch-phase",
+            headers=headers_admin,
+            json={"phase": 2}
+        )
+        self.assertEqual(r_switch2.status_code, 200)
+        self.assertEqual(r_switch2.json()["phase"], 2)
+
+        # В Фазе 2 блокировка нарезки снята (is_experiment_locked = False)
+        r_cfg2 = self.client.get("/api/config?subject=all", headers=headers_user)
+        self.assertEqual(r_cfg2.status_code, 200)
+        self.assertFalse(r_cfg2.json()["is_experiment_locked"])
+        self.assertEqual(r_cfg2.json()["experiment_phase"], 2)
+
+        # 3. Завершаем эксперимент через /api/admin/experiment/finish
+        r_finish = self.client.post(
+            "/api/admin/experiment/finish",
+            headers=headers_admin
+        )
+        self.assertEqual(r_finish.status_code, 200)
+        self.assertEqual(r_finish.json()["status"], "success")
+
+        # После завершения пользователь стал обычным (is_experiment_participant = False)
+        r_cfg_final = self.client.get("/api/config?subject=all", headers=headers_user)
+        self.assertEqual(r_cfg_final.status_code, 200)
+        self.assertFalse(r_cfg_final.json()["is_experiment_participant"])
+        self.assertFalse(r_cfg_final.json()["is_experiment_locked"])
+
 
 if __name__ == "__main__":
     unittest.main()

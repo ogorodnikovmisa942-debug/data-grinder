@@ -80,6 +80,32 @@
             </a>
         </div>
         
+        <!-- СЕКЦИЯ УПРАВЛЕНИЯ ЭКСПЕРИМЕНТОМ И ФАЗАМИ -->
+        <div class="ai-panel" style="margin-bottom: 20px;">
+            <div class="ai-title">
+                <span style="display:flex; align-items:center; gap:6px;">
+                    <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">science</span>
+                    Управление научным экспериментом
+                </span>
+            </div>
+            <p style="font-size:12px; color:#94a3b8; margin-bottom:12px; line-height:1.5;">
+                • <strong>Фаза 1:</strong> Контролируемое тестирование колод, лимит 10 карт в день, нарезка и редактирование заблокированы.<br>
+                • <strong>Фаза 2:</strong> Свободный режим со снятием блокировок (нарезка материалов через ИИ, файлы PDF/Word/PPTX, свободные лимиты) с сохранением телеметрии.<br>
+                • <strong>Завершить:</strong> Полный перевод всех пользователей в обычный статус (свободный доступ без ограничений).
+            </p>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+                <button class="btn" style="background:#1e293b; color:#38bdf8; border:1px solid #38bdf8;" onclick="switchPhaseAdmin(1)">
+                    <span class="material-symbols-outlined" style="font-size:16px;">lock</span> Фаза 1 (Изоляция)
+                </button>
+                <button class="btn" style="background:#022c22; color:#34d399; border:1px solid #059669;" onclick="switchPhaseAdmin(2)">
+                    <span class="material-symbols-outlined" style="font-size:16px;">lock_open</span> Фаза 2 (Свободная)
+                </button>
+                <button class="btn" style="background:#450a0a; color:#f87171; border:1px solid #dc2626;" onclick="finishExperimentAdmin()">
+                    <span class="material-symbols-outlined" style="font-size:16px;">flag</span> Завершить эксперимент
+                </button>
+            </div>
+        </div>
+
         <!-- СЕКЦИЯ КОНФИГУРАЦИИ DEEPSEEK -->
         <div class="ai-panel">
             <div class="ai-title">
@@ -386,6 +412,49 @@
                 } else {
                     const data = await res.json();
                     alert('Ошибка: ' + (data.detail || 'Не удалось обновить статус'));
+                }
+            } catch (e) {
+                alert('Сетевой сбой: ' + e.message);
+            }
+        }
+
+        async function switchPhaseAdmin(targetPhase) {
+            const token = (document.getElementById('admin-token-input') ? document.getElementById('admin-token-input').value.trim() : '') || adminToken;
+            if (!confirm(`Переключить всех участников эксперимента на Фазу ${targetPhase}?`)) return;
+            try {
+                const res = await fetch('/api/admin/experiment/switch-phase', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+                    body: JSON.stringify({ phase: targetPhase })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message || `Фаза ${targetPhase} активирована.`);
+                    loadUsers(onlyPartFilter);
+                } else {
+                    alert('Ошибка: ' + (data.detail || 'Не удалось переключить фазу'));
+                }
+            } catch (e) {
+                alert('Сетевой сбой: ' + e.message);
+            }
+        }
+
+        async function finishExperimentAdmin() {
+            const token = (document.getElementById('admin-token-input') ? document.getElementById('admin-token-input').value.trim() : '') || adminToken;
+            if (!confirm('Завершить эксперимент для ВСЕХ участников? Все пользователи будут переведены в обычный режим со свободным доступом к нарезке.')) return;
+            try {
+                const res = await fetch('/api/admin/experiment/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message || 'Эксперимент успешно завершен.');
+                    loadUsers(false);
+                    const partStat = document.getElementById('stat-part-users');
+                    if (partStat) partStat.textContent = '0';
+                } else {
+                    alert('Ошибка: ' + (data.detail || 'Не удалось завершить эксперимент'));
                 }
             } catch (e) {
                 alert('Сетевой сбой: ' + e.message);

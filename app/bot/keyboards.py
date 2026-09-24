@@ -34,6 +34,9 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
         [ai_toggle],
         [phase_toggle],
         [
+            InlineKeyboardButton(text="🏁 Завершить эксперимент (освободить всех)", callback_data="admin_finish_experiment")
+        ],
+        [
             InlineKeyboardButton(text="🕊 Освободить меня от эксперимента", callback_data="admin_free_me")
         ],
         [

@@ -862,6 +862,31 @@ async def handle_admin_callbacks(callback: CallbackQuery):
             parse_mode="HTML"
         )
 
+    elif action == "admin_finish_experiment":
+        async with AsyncSessionLocal() as db:
+            res_sess = await db.execute(
+                update(UserSession)
+                .where(UserSession.is_experiment_participant == True)
+                .values(is_experiment_participant=False)
+            )
+            freed_count = res_sess.rowcount
+            await db.execute(
+                update(UserSetting)
+                .where(UserSetting.is_experiment_participant == True)
+                .values(is_experiment_participant=False)
+            )
+            await db.commit()
+        await callback.answer(f"🏁 Эксперимент завершен! {freed_count} участников освобождены от всех ограничений.", show_alert=True)
+        data = await get_admin_dashboard_data()
+        try:
+            await callback.message.edit_text(
+                render_admin_dashboard_text(data),
+                reply_markup=build_admin_keyboard(data["phase"], data["ai_provider"], data["ai_model"]),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
     elif action == "admin_ai_model_cycle":
         from app.api.endpoints.admin import set_active_ai_provider
         curr = settings.DEEPSEEK_MODEL or "deepseek-flash"
