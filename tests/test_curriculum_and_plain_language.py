@@ -2,82 +2,12 @@
 import unittest
 import asyncio
 from datetime import datetime
-from app.services.ai_gateway import (
-    unpack_minified_cards,
-    is_blacklisted_card,
-    CURRICULUM_SKELETON_SYSTEM_PROMPT,
-    DEEPSEEK_CACHED_SYSTEM_PROMPT
-)
+from app.services.ai_gateway import is_blacklisted_card
 from app.database.session import AsyncSessionLocal
 from app.database.models import Card, Phrase, UserSession
 from app.api.endpoints.train import get_session_cards
 
 class TestCurriculumAndPlainLanguage(unittest.IsolatedAsyncioTestCase):
-
-    def test_01_unpack_minified_cards_with_organ_and_topological_rank(self):
-        """Проверка распаковки organ_slug, layer и автоматического топологического ранжирования."""
-        payload = {
-            "domain": "law",
-            "slug": "sudoustroystvo",
-            "title": "Судебная система",
-            "c": [
-                {
-                    "t": "Какое место занимает районный суд в судебной системе?",
-                    "s": "Судоустройство | Звенья судебной системы",
-                    "d": "Основное низовое звено судов общей юрисдикции, действующее как суд первой инстанции.",
-                    "e": "Любой гражданин подает стандартный иск о возмещении ущерба именно в районный суд.",
-                    "l": "easy",
-                    "h": "Районные суды",
-                    "o": "district_court",
-                    "y": 0
-                },
-                {
-                    "t": "В каком составе районный суд рассматривает уголовные дела несовершеннолетних?",
-                    "s": "УПК | Составы судов",
-                    "d": "Коллегия в составе судьи и двух народных заседателей.",
-                    "e": "Если 16-летний подросток обвиняется в краже, его дело слушают судья и два заседателя.",
-                    "l": "medium",
-                    "h": "Районные суды",
-                    "o": "district_court",
-                    "y": 1
-                },
-                {
-                    "t": "Куда и в какой срок обжалуются не вступившие в силу решения районного суда?",
-                    "s": "ГПК / УПК | Апелляционное производство",
-                    "d": "В областной суд в апелляционном порядке в течение 10 суток со дня вынесения.",
-                    "e": "Проигравшая сторона в 10-дневный срок направляет жалобу в областной суд.",
-                    "l": "medium",
-                    "h": "Районные суды",
-                    "o": "district_court",
-                    "y": 2
-                },
-                {
-                    "t": "В качестве каких инстанций выступает областной суд?",
-                    "s": "Судоустройство | Компетенция областного суда",
-                    "d": "Суд первой инстанции (по особо тяжким делам), суд апелляционной инстанции и надзорная инстанция (Президиум).",
-                    "e": "Областной суд проверяет решения районных судов, а сам судит за бандитизм и убийства при отягчающих.",
-                    "l": "easy",
-                    "h": "Областные суды",
-                    "o": "regional_court",
-                    "y": 0
-                }
-            ]
-        }
-        res = unpack_minified_cards(payload, fallback_subject="sudoustroystvo")
-        cards = res["cards"]
-        self.assertEqual(len(cards), 4)
-
-        # Проверяем сохранение organ_slug и layer
-        self.assertEqual(cards[0]["organ_slug"], "district_court")
-        self.assertEqual(cards[0]["layer"], 0)
-        self.assertEqual(cards[1]["organ_slug"], "district_court")
-        self.assertEqual(cards[1]["layer"], 1)
-        self.assertEqual(cards[3]["organ_slug"], "regional_court")
-        self.assertEqual(cards[3]["layer"], 0)
-
-        # Проверяем топологический ранг: от 1 до 4 строго по порядку органов и слоев
-        ranks = [c["topological_rank"] for c in cards]
-        self.assertEqual(ranks, [1, 2, 3, 4])
 
     def test_02_filter_meta_course_trivia(self):
         """Проверка отсева мета-вопросов об учебнике ('на какие три части делится курс')."""
@@ -129,14 +59,6 @@ class TestCurriculumAndPlainLanguage(unittest.IsolatedAsyncioTestCase):
         is_bl_bio, reason_bio = is_blacklisted_card(bio_card, subject_domain="philosophy")
         self.assertTrue(is_bl_bio)
         self.assertEqual(reason_bio, "biographical_trivia")
-
-    def test_04_system_prompts_contain_feynman_and_curriculum_directives(self):
-        """Проверка наличия директив Фейнмана, топологических слоев и Прохода 1 в системных промптах."""
-        self.assertIn("Rule 7: Plain Language & Intuitive Example Directive (Feynman Principle)", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("DISCIPLINE-AWARE SCOPE GOVERNANCE", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("organ_slug or module_slug", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("CHIEF EDUCATIONAL ARCHITECT", CURRICULUM_SKELETON_SYSTEM_PROMPT.upper())
-        self.assertIn("quota", CURRICULUM_SKELETON_SYSTEM_PROMPT)
 
     async def test_05_study_session_topological_rank_ordering(self):
         """Интеграционный тест: проверка выдачи новых карточек строго по возрастанию topological_rank."""

@@ -127,21 +127,6 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertIn("естес", sig1)
         self.assertIn("позит", sig1)
 
-    def test_10_chapter_aware_chunking(self):
-        """Проверка интеллектуального разбиения текста книги по границам глав."""
-        from app.services.ai_gateway import split_text_into_chunks
-        sample_book = (
-            "Предисловие к учебнику.\n\n"
-            "Глава 1\nПонятие и предмет теории права.\n" + ("Текст первой главы о сущности права. " * 300) + "\n\n"
-            "Глава 2\nМетодология науки.\n" + ("Текст второй главы о методах познания. " * 300) + "\n\n"
-            "Глава 3\nТеории происхождения государства.\n" + ("Текст третьей главы о происхождении. " * 300)
-        )
-        chunks = split_text_into_chunks(sample_book, max_chunk_chars=20000, overlap_chars=500)
-        self.assertGreaterEqual(len(chunks), 3)
-        self.assertTrue(any("Глава 1" in ch for ch in chunks))
-        self.assertTrue(any("Глава 2" in ch for ch in chunks))
-        self.assertTrue(any("Глава 3" in ch for ch in chunks))
-
     def test_11_filter_scholastic_fluff(self):
         """Проверка отсева пустой абстрактной схоластики (Дефект 3)."""
         card_scholastic = {
@@ -202,33 +187,6 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertEqual(len(deduped), 2)
         self.assertEqual(deduped[0]["text"], "Что проверяет суд кассационной инстанции?")
         self.assertEqual(deduped[1]["text"], "Какой орган назначает судей Конституционного Суда?")
-
-    def test_15_domain_gated_constitutional_guardrails(self):
-        """Проверка изоляции правовых чекпоинтов: активны только для law, отключены для кода и медицины."""
-        import asyncio
-        from unittest.mock import patch, AsyncMock
-        from app.services.ai_gateway import parse_raw_text
-
-        async def _check():
-            with patch("app.services.ai_gateway.client._get_call_deepseek") as mock_getter:
-                mock_ds = AsyncMock(return_value=({"cards": []}, {}))
-                mock_getter.return_value = mock_ds
-
-                # 1. Запрос по праву -> должен содержать CONSTITUTIONAL ACCURACY CHECKPOINT
-                await parse_raw_text("Статья 118. Правосудие осуществляется только судом.", target_subject="law")
-                law_prompt = mock_ds.call_args[0][0]
-                self.assertIn("CONSTITUTIONAL ACCURACY CHECKPOINT", law_prompt)
-
-                # 2. Запрос по Python / коду -> НЕ должен содержать конституционных чекпоинтов
-                mock_ds.reset_mock()
-                await parse_raw_text("async def fetch_data(): await asyncio.sleep(1)", target_subject="python_code")
-                code_prompt = mock_ds.call_args[0][0]
-                self.assertNotIn("CONSTITUTIONAL ACCURACY CHECKPOINT", code_prompt)
-                self.assertIn("HARD ATOMICITY & RETRIEVAL LATENCY CONSTRAINT", code_prompt)
-                self.assertIn("OPERATIVE VALUE FILTER", code_prompt)
-
-        asyncio.run(_check())
-
 
 if __name__ == "__main__":
     unittest.main()

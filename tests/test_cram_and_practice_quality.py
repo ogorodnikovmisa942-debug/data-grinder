@@ -24,12 +24,6 @@ from main import app
 from sqlalchemy import delete
 from app.database.session import AsyncSessionLocal
 from app.database.models import Card, Phrase, PracticeItem, ReviewLog
-from app.services.practice_service import (
-    create_mirror_contrast_distractor,
-    select_coherent_distractors,
-    generate_practice_session
-)
-from app.services.ai_gateway import DEEPSEEK_CACHED_SYSTEM_PROMPT
 
 
 class TestCramAndPracticeQuality(unittest.TestCase):
@@ -47,55 +41,6 @@ class TestCramAndPracticeQuality(unittest.TestCase):
 
     def run_async(self, coro):
         return asyncio.run(coro)
-
-    def test_01_mirror_contrast_distractor(self):
-        """Проверка синтеза зеркального дистрактора для контрастных пар."""
-        # Разделитель ' — а '
-        ans1 = "Виндикация — истребование вещи из чужого владения, а негаторный иск — защита от помех без лишения владения."
-        mirror1 = create_mirror_contrast_distractor(ans1)
-        self.assertIsNotNone(mirror1)
-        self.assertIn("Негаторный иск", mirror1)
-        self.assertIn("виндикация", mirror1.lower())
-
-        # Разделитель ' в то время как '
-        ans2 = "Императивная норма содержит категорический запрет, в то время как диспозитивная норма допускает выбор поведения."
-        mirror2 = create_mirror_contrast_distractor(ans2)
-        self.assertIsNotNone(mirror2)
-        self.assertIn("Диспозитивная норма", mirror2)
-
-        # Без контрастного союза — должен вернуть None
-        ans_simple = "Обеспечение верховенства права и защита законных интересов граждан."
-        self.assertIsNone(create_mirror_contrast_distractor(ans_simple))
-
-    def test_02_select_coherent_distractors_priority(self):
-        """Проверка приоритетов: mirror_distractor > cluster_candidates > general pool."""
-        target = "Статическая функция права"
-        mirror = "Динамическая функция права"
-        cluster = ["Регулятивная функция права", "Охранительная функция права"]
-        general = ["Виндикационный иск", "Презумпция невиновности", "Кассационная жалоба", "Десять суток"]
-
-        # С зеркальным дистрактором и кластером
-        chosen = select_coherent_distractors(
-            target_answer=target,
-            candidate_answers=general,
-            count=3,
-            cluster_candidates=cluster,
-            mirror_distractor=mirror
-        )
-        self.assertEqual(len(chosen), 3)
-        self.assertEqual(chosen[0], mirror, "Зеркальный дистрактор должен быть первым")
-        self.assertIn(cluster[0], chosen, "Кандидаты кластера должны иметь приоритет над общим пулом")
-        # Не должно быть несвязанных далеких дистракторов при наличии кандидатов из темы
-        self.assertNotIn("Десять суток", chosen)
-
-    def test_03_prompt_anti_giveaway_and_atomic_rules(self):
-        """Проверка наличия анти-спойлерных и атомарных директив в системном промпте DeepSeek."""
-        self.assertGreater(len(DEEPSEEK_CACHED_SYSTEM_PROMPT), 5000)
-        self.assertIn("ANTI-GIVEAWAY DIRECTIVE", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("ATOMIC ANSWER DIRECTIVE", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Minimum Information Principle", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Zero-Spoiler Law", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Pareto 80/20 Law", DEEPSEEK_CACHED_SYSTEM_PROMPT)
 
     def test_04_cram_mode_strictly_studied_cards_and_no_fsrs_mutation(self):
         """Проверка штурм-режима: только изученные карточки (state in [1, 2, 3]), state=0 исключены, FSRS не мутирует."""
@@ -183,68 +128,6 @@ class TestCramAndPracticeQuality(unittest.TestCase):
 
         self.run_async(_test())
 
-    def test_05_generate_practice_session_clustered_distractors(self):
-        """Проверка, что сессия практики подбирает дистракторы из одного смыслового кластера."""
-        async def _test():
-            uid = f"test_practice_cluster_{datetime.utcnow().timestamp()}"
-            try:
-                async with AsyncSessionLocal() as db:
-                    phrase = Phrase(text="Теория государства и права", subject="law_tgp", user_id=uid)
-                    db.add(phrase)
-                    await db.flush()
-
-                    c_static = Card(
-                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                        text="В чем заключается статическая функция права?",
-                        secondary_text="Теория права | Функции права",
-                        translation="В закреплении и стабилизации существующих общественных отношений.",
-                        state=2, next_review=datetime.utcnow()
-                    )
-                    c_dynamic = Card(
-                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                        text="В чем заключается динамическая функция права?",
-                        secondary_text="Теория права | Функции права",
-                        translation="В стимулировании развития и возникновении новых общественных связей.",
-                        state=2, next_review=datetime.utcnow()
-                    )
-                    c_protective = Card(
-                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                        text="В чем заключается охранительная функция права?",
-                        secondary_text="Теория права | Функции права",
-                        translation="В вытеснении и пресечении правонарушений и защите базовых устоев строя.",
-                        state=2, next_review=datetime.utcnow()
-                    )
-                    c_deadline = Card(
-                        phrase_id=phrase.id, user_id=uid, subject="law_tgp",
-                        text="Каков срок подачи апелляционной жалобы?",
-                        secondary_text="Процесс | Сроки",
-                        translation="В течение одного месяца со дня принятия решения.",
-                        state=2, next_review=datetime.utcnow()
-                    )
-                    db.add_all([c_static, c_dynamic, c_protective, c_deadline])
-                    await db.commit()
-
-                    items = await generate_practice_session(user_id=uid, subject="law_tgp", count=3, db=db)
-                    self.assertGreater(len(items), 0)
-
-                    # Находим задание по статической функции
-                    static_item = next((it for it in items if "статическая" in it["prompt"].lower()), None)
-                    if static_item:
-                        options = static_item["options"]
-                        # Опции должны включать правильный ответ и дистракторы из того же кластера функций
-                        opts_text = " ".join(options).lower()
-                        self.assertTrue(
-                            "динамическ" in opts_text or "стимулирован" in opts_text or "охранительн" in opts_text or "пресечени" in opts_text,
-                            "Дистракторы для функций права должны браться из кластера функций права, а не посторонних сроков"
-                        )
-            finally:
-                async with AsyncSessionLocal() as db:
-                    await db.execute(delete(Card).where(Card.user_id == uid))
-                    await db.execute(delete(Phrase).where(Phrase.user_id == uid))
-                    await db.execute(delete(PracticeItem).where(PracticeItem.user_id == uid))
-                    await db.commit()
-
-        self.run_async(_test())
 
 if __name__ == "__main__":
     unittest.main()

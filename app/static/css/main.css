@@ -235,6 +235,16 @@ html, body {
 .dark .badge-exception { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
 .dark .badge-legal_status { background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
 
+/* Статусы узлов «Пути знаний» */
+.badge-locked { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+.badge-open { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+.badge-lesson_done { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.badge-mastered { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.dark .badge-locked { background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.25); }
+.dark .badge-open { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+.dark .badge-lesson_done { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+.dark .badge-mastered { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+
 /* Связи в дровере узла: Гармоничный адаптивный дизайн (Светлая / Темная тема) */
 .chip-relation {
     display: inline-flex;
@@ -387,23 +397,6 @@ html, body {
     color: #94a3b8;
 }
 
-.tree-node-card {
-    transition: all 0.15s ease-out;
-}
-.tree-node-card:active {
-    transform: scale(0.99);
-}
-
-.tree-branch-container {
-    position: relative;
-    padding-left: 0.875rem;
-    border-left: 2px solid #e5e5e5;
-    margin-left: 0.5rem;
-}
-.dark .tree-branch-container {
-    border-left-color: #262626;
-}
-
 /* ==========================================================================
    INTERACTIVE PRACTICE MODULE (M3 & R5)
    ========================================================================== */
@@ -522,4 +515,73 @@ html, body {
     justify-content: center;
     vertical-align: middle;
     line-height: 1;
-}
+}
+
+/* ===== Урок «Пути знаний»: кот-рассказчик ===== */
+.lesson-body { padding: 20px 16px; gap: 16px; }
+.lesson-row { display: flex; align-items: flex-end; gap: 12px; }
+.lesson-text { min-height: 3.5em; }
+.lesson-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lesson-options { display: flex; flex-direction: column; gap: 8px; }
+.lesson-option { padding: 12px 16px; border: 1px solid #e5e5e5; background: #ffffff; }
+.lesson-option:hover:not(:disabled) { border-color: currentColor; }
+.dark .lesson-option { border-color: #404040; background: #171717; }
+.lesson-option-dim { opacity: 0.5; }
+.lesson-btn { padding: 10px 12px; }
+.lesson-btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.lesson-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.lesson-btn-secondary { background: #f5f5f5; }
+.lesson-btn-secondary:hover { background: #e5e5e5; }
+.dark .lesson-btn-secondary { background: #262626; }
+.lesson-dot { width: 6px; height: 6px; border-radius: 9999px; background: #d4d4d4; }
+.dark .lesson-dot { background: #404040; }
+.lesson-dot-done, .dark .lesson-dot-done { background: #1c1b1b; }
+.dark .lesson-dot-done { background: #e5e5e5; }
+.lesson-dot-current { background: #1c1b1b; transform: scale(1.35); }
+.dark .lesson-dot-current { background: #e5e5e5; }
+.lesson-cat {
+    font-size: 15px;
+    line-height: 1.15;
+    white-space: pre;
+    margin: 0;
+    transform-origin: 50% 100%;
+}
+.lesson-bubble::before {
+    content: "";
+    position: absolute;
+    left: -7px;
+    bottom: 14px;
+    width: 12px;
+    height: 12px;
+    transform: rotate(45deg);
+    background: inherit;
+    border-left: inherit;
+    border-bottom: inherit;
+}
+.cat-emo-think { transform: rotate(-4deg); }
+.cat-emo-surprised { animation: cat-pop 0.35s ease-out; }
+.cat-react-bounce { animation: cat-bounce 0.6s ease-out; }
+.cat-react-shake { animation: cat-shake 0.45s ease-in-out; }
+@keyframes cat-bounce {
+    0%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-8px); }
+    55% { transform: translateY(0); }
+    75% { transform: translateY(-3px); }
+}
+@keyframes cat-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(2px); }
+}
+@keyframes cat-pop {
+    0% { transform: scale(0.9); }
+    60% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+}
+.lesson-option-correct { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.12) !important; }
+.lesson-option-wrong { border-color: #f43f5e !important; background: rgba(244, 63, 94, 0.10) !important; }
+@media (prefers-reduced-motion: reduce) {
+    .lesson-cat { animation: none !important; transform: none !important; }
+}

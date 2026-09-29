@@ -7,7 +7,7 @@ from sqlalchemy import select, delete
 
 from main import app
 from app.database.session import AsyncSessionLocal
-from app.database.models import Card, Phrase, Category, TopicKnowledgeGraph
+from app.database.models import Card, Phrase, Category, KnowledgeNode
 from app.api.endpoints.train import get_subject_display_name, get_next_train_session, get_session_cards
 
 
@@ -20,7 +20,7 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
             await db.execute(delete(Card).where(Card.user_id == self.test_user))
             await db.execute(delete(Phrase).where(Phrase.user_id == self.test_user))
             await db.execute(delete(Category).where(Category.user_id == self.test_user))
-            await db.execute(delete(TopicKnowledgeGraph).where(TopicKnowledgeGraph.user_id == self.test_user))
+            await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == self.test_user))
             await db.commit()
 
     async def asyncTearDown(self):
@@ -28,7 +28,7 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
             await db.execute(delete(Card).where(Card.user_id == self.test_user))
             await db.execute(delete(Phrase).where(Phrase.user_id == self.test_user))
             await db.execute(delete(Category).where(Category.user_id == self.test_user))
-            await db.execute(delete(TopicKnowledgeGraph).where(TopicKnowledgeGraph.user_id == self.test_user))
+            await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == self.test_user))
             await db.commit()
 
     async def test_01_dynamic_subject_display_name_helper(self):
@@ -82,28 +82,14 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
         # Call practice session with subject=None or subject=all
         res = self.client.get("/api/practice/session", headers=headers)
         self.assertEqual(res.status_code, 200)
-        items = res.json()
-        self.assertGreater(len(items), 0)
-        # Should pick active subject 'microeconomics'
-        self.assertEqual(items[0]["subject"], "microeconomics")
+        # Практика строится только по пройденным урокам «Пути знаний»: без уроков список пуст
+        self.assertIsInstance(res.json(), list)
 
         # Call practice stats with subject=all
         res_stats = self.client.get("/api/practice/stats?subject=all", headers=headers)
         self.assertEqual(res_stats.status_code, 200)
         stats = res_stats.json()
         self.assertEqual(stats["subject"], "microeconomics")
-
-    async def test_03_knowledge_graph_empty_state_contract(self):
-        """Empty user with no cards gets is_empty=True from get_knowledge_graph."""
-        empty_uid = "empty_test_user_p7"
-        headers = {"X-User-Id": empty_uid}
-
-        res = self.client.get("/api/knowledge-graph", headers=headers)
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertTrue(data.get("is_empty"))
-        self.assertEqual(data["subject"], "")
-        self.assertEqual(data["graph_data"]["nodes"], [])
 
     async def test_04_get_next_train_session_helper(self):
         """get_next_train_session dynamically falls back to active subject."""
@@ -126,19 +112,6 @@ class TestPhase7Dehardcoding(unittest.IsolatedAsyncioTestCase):
             cards = await get_next_train_session(subject=None, mode="new", current_user=self.test_user, db=db)
             self.assertEqual(len(cards), 1)
             self.assertEqual(cards[0]["subject"], "game_theory")
-
-    def test_05_frontend_empty_state_and_demo_button_contract(self):
-        """Frontend 07_graph.js and app.js have dehardcoded empty-state and demo course button."""
-        with open("app/static/js/modules/07_graph.js", "r", encoding="utf-8") as f:
-            module_code = f.read()
-
-        with open("app/static/js/app.js", "r", encoding="utf-8") as f:
-            bundled_code = f.read()
-
-        for code in (module_code, bundled_code):
-            self.assertIn("У вас пока нет колод для построения графа знаний", code)
-            self.assertNotIn("[ Открыть демо-курс (Судоустройство РФ) ]", code)
-            self.assertIn("Сначала выберите предмет для построения графа.", code)
 
     async def test_06_rename_subject_cleans_legacy_phrase_text_and_no_sudoust_display(self):
         """Проверяет, что переименование очищает устаревший Phrase.text и не подставляет 'Судоустройство РФ'."""

@@ -12,15 +12,12 @@ from sqlalchemy import select, func, delete, update
 
 from app.database.session import get_db
 from app.database.models import (
-    Card, ReviewLog, Phrase, Category, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob, utc_now
+    Card, ReviewLog, Phrase, Category, KnowledgeNode, KnowledgeEdge, PracticeItem, PracticeSessionLog, UserSetting, GenerationJob, utc_now
 )
 from app.services.ai_gateway import regenerate_card_mnemonic
-from app.services.graph_service import (
-    resolve_subject_alias, get_all_subject_aliases, clean_graph_data, build_hierarchical_tree
-)
-from app.services.card_db_sync import (
-    check_experiment_lock, sync_subject_knowledge_and_practice
-)
+from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
+from app.services.card_db_sync import check_experiment_lock
+from app.services.knowledge_path import wipe_subject
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 
@@ -296,12 +293,6 @@ async def create_manual_card(
     saved_id = card.id
 
     # Синхронизируем граф знаний и практику для предмета (R2.2)
-    await sync_subject_knowledge_and_practice(
-        db=db,
-        user_id=current_user,
-        subject_slug=canonical,
-        fallback_title=clean_title or canonical
-    )
 
     await db.commit()
     return {"status": "success", "card_id": saved_id}
@@ -361,13 +352,9 @@ async def move_card(
         db.add(phrase)
         await db.flush()
         
-    old_sub = card.subject
     card.subject = target_sub
     card.phrase_id = phrase.id
-    await db.commit()
-    await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=target_sub)
-    if old_sub and resolve_subject_alias(old_sub) != target_sub:
-        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=old_sub)
+    card.node_id = None  # узел принадлежит пути прежнего предмета
     await db.commit()
 
     return {"status": "success", "card_id": card_id, "target_subject": target_sub}
@@ -390,7 +377,6 @@ async def delete_card(
     await db.delete(card)
     await db.commit()
     if sub:
-        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=sub)
         await db.commit()
     return None
 
@@ -440,11 +426,6 @@ async def bulk_move_cards(
     target_sub = resolve_subject_alias(payload.target_subject.strip().lower())
     target_aliases = get_all_subject_aliases(target_sub)
     
-    source_subs_res = await db.execute(
-        select(Card.subject).where(Card.id.in_(payload.card_ids), Card.user_id == current_user).distinct()
-    )
-    source_subs = [s[0] for s in source_subs_res.all() if s[0]]
-
     phrase_res = await db.execute(
         select(Phrase).filter(Phrase.text == "[МИГРИРОВАВШИЕ КАРТОЧКИ]", Phrase.subject.in_(target_aliases), Phrase.user_id == current_user)
     )
@@ -457,14 +438,9 @@ async def bulk_move_cards(
     stmt = (
         update(Card)
         .where(Card.id.in_(payload.card_ids), Card.user_id == current_user)
-        .values(subject=target_sub, phrase_id=phrase.id)
+        .values(subject=target_sub, phrase_id=phrase.id, node_id=None)  # узлы принадлежат пути прежнего предмета
     )
     await db.execute(stmt)
-    await db.commit()
-    await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=target_sub)
-    for s in source_subs:
-        if s and resolve_subject_alias(s) != target_sub:
-            await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=s)
     await db.commit()
     
     return {
@@ -485,17 +461,8 @@ async def bulk_delete_cards(
     if not payload.card_ids:
         raise HTTPException(status_code=400, detail="Список идентификаторов пуст")
     
-    card_subs_res = await db.execute(
-        select(Card.subject).where(Card.id.in_(payload.card_ids), Card.user_id == current_user).distinct()
-    )
-    affected_subs = [s[0] for s in card_subs_res.all() if s[0]]
-
     await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(payload.card_ids)))
     await db.execute(delete(Card).where(Card.id.in_(payload.card_ids), Card.user_id == current_user))
-    await db.commit()
-
-    for s in affected_subs:
-        await sync_subject_knowledge_and_practice(db=db, user_id=current_user, subject_slug=s)
     await db.commit()
     return {"status": "success", "deleted_count": len(payload.card_ids)}
 
@@ -593,12 +560,13 @@ async def rename_subject(
         .values(subject=new_sub)
     )
 
-    # 4. Обновляем граф знаний, практические задания и лог сессий (R2)
-    await db.execute(
-        update(TopicKnowledgeGraph)
-        .where(TopicKnowledgeGraph.subject.in_(target_subs), TopicKnowledgeGraph.user_id == current_user)
-        .values(subject=new_sub)
-    )
+    # 4. Обновляем путь знаний (узлы и связи), практические задания и лог сессий
+    for model in (KnowledgeNode, KnowledgeEdge):
+        await db.execute(
+            update(model)
+            .where(model.subject.in_(target_subs), model.user_id == current_user)
+            .values(subject=new_sub)
+        )
     await db.execute(
         update(PracticeItem)
         .where(PracticeItem.subject.in_(target_subs), PracticeItem.user_id == current_user)
@@ -667,57 +635,13 @@ async def delete_subject_all(
     await db.execute(delete(Phrase).where(Phrase.subject.in_(target_subs), Phrase.user_id == current_user))
     await db.execute(delete(GenerationJob).where(GenerationJob.subject.in_(target_subs), GenerationJob.user_id == current_user))
 
-    # 3. Удаляем граф знаний, практические задания и лог сессий предмета
-    await db.execute(delete(TopicKnowledgeGraph).where(
-        TopicKnowledgeGraph.subject.in_(target_subs),
-        TopicKnowledgeGraph.user_id == current_user
-    ))
-    await db.execute(delete(PracticeItem).where(
-        PracticeItem.subject.in_(target_subs),
-        PracticeItem.user_id == current_user
-    ))
+    # 3. Удаляем путь знаний (узлы, связи, прогресс), практические задания и лог сессий предмета
+    for alias in target_subs:
+        await wipe_subject(db, current_user, alias)
     await db.execute(delete(PracticeSessionLog).where(
         PracticeSessionLog.subject.in_(target_subs),
         PracticeSessionLog.user_id == current_user
     ))
-
-    # 4. Межпредметные связи (R2.1: очистка cross links в графах знаний других предметов)
-    other_kg_stmt = select(TopicKnowledgeGraph).where(
-        TopicKnowledgeGraph.user_id == current_user,
-        ~TopicKnowledgeGraph.subject.in_(target_subs)
-    )
-    other_kgs = (await db.execute(other_kg_stmt)).scalars().all()
-    for okg in other_kgs:
-        if not okg.graph_data:
-            continue
-        nodes = okg.graph_data.get("nodes", [])
-        edges = okg.graph_data.get("edges", [])
-        modified = False
-        new_edges = []
-        for e in edges:
-            src = str(e.get("source", ""))
-            tgt = str(e.get("target", ""))
-            lbl = str(e.get("label", ""))
-            if any(s in src.lower() or s in tgt.lower() or s in lbl.lower() for s in target_subs):
-                modified = True
-            else:
-                new_edges.append(e)
-
-        new_nodes = []
-        for n in nodes:
-            n_id = str(n.get("id", "")).lower()
-            n_sub = str(n.get("subject", "")).lower()
-            n_name = str(n.get("name", "")).lower()
-            if any(s in n_id or s in n_sub or s in n_name for s in target_subs):
-                modified = True
-            else:
-                new_nodes.append(n)
-
-        if modified:
-            c_nodes, c_edges = clean_graph_data(new_nodes, new_edges)
-            okg.graph_data = {"nodes": c_nodes, "edges": c_edges}
-            okg.tree_data = build_hierarchical_tree(c_nodes, c_edges, root_title=okg.subject)
-            okg.updated_at = utc_now()
 
     # 5. Очищаем лимиты из UserSetting по всем алиасам
     setting_res = await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))

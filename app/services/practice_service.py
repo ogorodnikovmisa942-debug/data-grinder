@@ -1,536 +1,22 @@
 # app/services/practice_service.py
 """
-Autonomous Practice Module for Data Grinder (Requirement R5).
-Generates and evaluates interactive cognitive exercises:
-1. Situational Vignettes / Decision Trees (qualification & jurisdictional forks).
-2. Contrast-Pair Boundary Discrimination (Gold Standard criteria).
-3. Fact Pattern Slot-Filling (Statute & procedural cloze).
-
-Operates autonomously and independently of the Knowledge Graph view.
+Практика «Пути знаний»: задания с вариантами ответа по пройденным урокам.
+1. Карточки узла с дистракторами того же типа ответа (их пишет ИИ при нарезке).
+2. Вопросы на связи графа: «A <связка> …?».
 """
 
 import re
 import uuid
 import random
 from typing import List, Dict, Any, Optional
-from collections import defaultdict
-from datetime import datetime
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import PracticeItem, Card, Phrase, TopicKnowledgeGraph
+from app.database.models import PracticeItem, Card
 from app.database.session import AsyncSessionLocal
-from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 
 
-# --- PRESET SEED PRACTICE ITEMS (FOR ZERO-CARD / INSTANT START) ---
-SUDOUSTROYSTVO_PRESET_PRACTICE = [
-    {
-        "type": "situational",
-        "prompt": "Судебный акт мирового судьи уже вступил в законную силу. Сторона процесса обнаружила существенное нарушение норм материального права. В какую судебную инстанцию подается кассационная жалоба?",
-        "options": [
-            "В кассационный суд общей юрисдикции",
-            "В районный суд в апелляционном порядке",
-            "В апелляционный суд общей юрисдикции",
-            "Председателю Верховного Суда РФ"
-        ],
-        "correct_answer": "В кассационный суд общей юрисдикции",
-        "explanation": "Вступившие в законную силу судебные акты мировых судей и районных судов пересматриваются кассационным судом общей юрисдикции (ст. 377 ГПК РФ, ст. 401.3 УПК РФ).",
-        "gold_standard": "Вступивший в силу акт -> Кассация (не апелляция)."
-    },
-    {
-        "type": "contrast_pair",
-        "prompt": "Какой водораздельный критерий разграничивает процессуальную роль народных заседателей и присяжных заседателей?",
-        "options": [
-            "Народные заседатели голосуют совместно с судьей по всем вопросам права и факта, а присяжные выносят обособленный вердикт только о виновности",
-            "Присяжные заседатели получают статус судьи, а народные — статус судебного пристава",
-            "Народные заседатели заседают только в арбитраже, а присяжные — в конституционном суде",
-            "Присяжные назначают уголовное наказание, а судья единолично устанавливает вину"
-        ],
-        "correct_answer": "Народные заседатели голосуют совместно с судьей по всем вопросам права и факта, а присяжные выносят обособленный вердикт только о виновности",
-        "explanation": "Народные заседатели образуют единую коллегию с профессиональным судьей. Присяжные отделены от судьи и дают ответ лишь на три ключевых вопроса о доказанности деяния и вины.",
-        "gold_standard": "Единая коллегия (вопросы права и вины) vs Обособленный вердикт (только вина)."
-    },
-    {
-        "type": "slot_filling",
-        "prompt": "В соответствии с ч. 1 ст. 118 Конституции РФ правосудие в Российской Федерации осуществляется только [...]",
-        "options": [
-            "судом",
-            "прокуратурой и следственными органами",
-            "Министерством юстиции РФ",
-            "третейскими комиссиями"
-        ],
-        "correct_answer": "судом",
-        "explanation": "Конституционный принцип исключительности судебной власти (монополия судейского корпуса на отправление правосудия).",
-        "gold_standard": "Исключительность судебной власти."
-    },
-    {
-        "type": "situational",
-        "prompt": "Между двумя коммерческими организациями (ООО и АО) возник спор о нарушении условий договора поставки производственного оборудования на сумму 15 млн рублей. Какому суду подсудно данное дело?",
-        "options": [
-            "Арбитражному суду субъекта РФ",
-            "Районному суду общей юрисдикции",
-            "Судебной коллегии по экономическим спорам ВС РФ по 1-й инстанции",
-            "Мировому судье судебного участка"
-        ],
-        "correct_answer": "Арбитражному суду субъекта РФ",
-        "explanation": "Экономические споры между коммерческими юридическими лицами отнесены к специальной подведомственности арбитражных судов субъектов РФ (ст. 27, 34 АПК РФ).",
-        "gold_standard": "Коммерческий спор юрлиц -> Арбитражный суд субъекта РФ."
-    },
-    {
-        "type": "contrast_pair",
-        "prompt": "Чем императивные предписания в праве функционально отличаются от диспозитивных?",
-        "options": [
-            "Императивные содержат категорические запреты и обязанности, исключающие выбор сторон; диспозитивные допускают согласование условий",
-            "Императивные действуют только во время военного положения, а диспозитивные — в обычное время",
-            "Императивные нормы издаются Президентом, а диспозитивные — Государственной Думой",
-            "Императивные нормы не обладают высшей юридической силой"
-        ],
-        "correct_answer": "Императивные содержат категорические запреты и обязанности, исключающие выбор сторон; диспозитивные допускают согласование условий",
-        "explanation": "Способ воздействия нормы: категорическое властное веление против свободы усмотрения субъектов правоотношений.",
-        "gold_standard": "Категорический долг/запрет vs Право на усмотрение."
-    },
-    {
-        "type": "situational",
-        "prompt": "Районный суд вынес решение по гражданскому спору. Решение еще не вступило в законную силу. В какую инстанцию подается апелляционная жалоба?",
-        "options": [
-            "В областной (краевой, республиканский) суд общей юрисдикции",
-            "В кассационный суд общей юрисдикции",
-            "В апелляционный суд общей юрисдикции",
-            "В судебную коллегию по гражданским делам ВС РФ"
-        ],
-        "correct_answer": "В областной (краевой, республиканский) суд общей юрисдикции",
-        "explanation": "Решения районных судов, не вступившие в законную силу, обжалуются в апелляционном порядке в вышестоящий суд субъекта РФ (ст. 320.1 ГПК РФ).",
-        "gold_standard": "Не вступившее решение районного суда -> Областной/краевой суд (апелляция)."
-    },
-    {
-        "type": "situational",
-        "prompt": "Арбитражный суд субъекта РФ вынес решение по делу о взыскании задолженности. Сторона не согласна с выводами суда. В какой орган подается апелляционная жалоба?",
-        "options": [
-            "В арбитражный апелляционный суд",
-            "В арбитражный суд округа",
-            "В кассационный суд общей юрисдикции",
-            "В Судебную коллегию по экономическим спорам ВС РФ"
-        ],
-        "correct_answer": "В арбитражный апелляционный суд",
-        "explanation": "Решения арбитражных судов субъектов РФ обжалуются в соответствующий арбитражный апелляционный суд (ст. 181, 257 АПК РФ).",
-        "gold_standard": "Арбитражный суд субъекта -> Арбитражный апелляционный суд."
-    },
-    {
-        "type": "situational",
-        "prompt": "Гражданин считает, что примененный судом в его деле федеральный закон нарушает конституционное право на неприкосновенность жилища. Куда подается жалоба на конституционность нормы?",
-        "options": [
-            "В Конституционный Суд РФ",
-            "В Верховный Суд РФ",
-            "В Генеральную прокуратуру РФ",
-            "Уполномоченному по правам человека"
-        ],
-        "correct_answer": "В Конституционный Суд РФ",
-        "explanation": "Проверка конституционности законов и иных нормативных актов по жалобам граждан на нарушение их конституционных прав осуществляется исключительно Конституционным Судом РФ (ст. 125 Конституции РФ).",
-        "gold_standard": "Конституционность закона -> Конституционный Суд РФ."
-    },
-    {
-        "type": "contrast_pair",
-        "prompt": "Какой водораздел разделяет свидетельский иммунитет (ст. 51 Конституции РФ) и общую обязанность свидетеля давать показания?",
-        "options": [
-            "Иммунитет дает абсолютное право не свидетельствовать против себя и близких родственников без уголовной ответственности за отказ",
-            "Иммунитет действует только при наличии разрешения прокурора",
-            "Иммунитет освобождает от явки в зал судебного заседания",
-            "Иммунитет применяется только к иностранным гражданам и дипломатам"
-        ],
-        "correct_answer": "Иммунитет дает абсолютное право не свидетельствовать против себя и близких родственников без уголовной ответственности за отказ",
-        "explanation": "Ст. 51 Конституции РФ устанавливает прямой запрет на привлечение к ответственности свидетеля за отказ давать показания против себя, своего супруга и близких родственников.",
-        "gold_standard": "Свидетельский иммунитет: против себя и родственников -> исключает ст. 308 УК РФ."
-    },
-    {
-        "type": "slot_filling",
-        "prompt": "В соответствии с ч. 3 ст. 118 Конституции РФ создание чрезвычайных судов [...]",
-        "options": [
-            "не допускается",
-            "допускается по указу Президента в период военного положения",
-            "разрешается постановлением Совета Федерации",
-            "допускается решением Конституционного Суда"
-        ],
-        "correct_answer": "не допускается",
-        "explanation": "Прямой абсолютный конституционный запрет: создание чрезвычайных судов не допускается ни при каких обстоятельствах (гарантия законного суда).",
-        "gold_standard": "Чрезвычайные суды -> абсолютный запрет (ч. 3 ст. 118 КРФ)."
-    },
-    {
-        "type": "situational",
-        "prompt": "Какая судебная инстанция осуществляет надзорное производство в качестве высшей и окончательной инстанции в РФ?",
-        "options": [
-            "Президиум Верховного Суда РФ",
-            "Судебная коллегия по уголовным делам ВС РФ",
-            "Конституционный Суд РФ",
-            "Пленум Верховного Суда РФ"
-        ],
-        "correct_answer": "Президиум Верховного Суда РФ",
-        "explanation": "Надзорное производство осуществляется исключительно Президиумом Верховного Суда Российской Федерации (ст. 391.1 ГПК РФ, ст. 412.1 УПК РФ).",
-        "gold_standard": "Надзорная инстанция -> Президиум Верховного Суда РФ."
-    },
-    {
-        "type": "contrast_pair",
-        "prompt": "Чем кассационное производство функционально отличается от апелляционного?",
-        "options": [
-            "Кассация проверяет исключительно законность вступивших в силу актов, а апелляция пересматривает дело по существу до вступления акта в силу",
-            "Кассация пересматривает только дела о преступлениях против государственной власти",
-            "Кассация проводится только с участием присяжных заседателей",
-            "Кассационная жалоба подается до вынесения решения судом первой инстанции"
-        ],
-        "correct_answer": "Кассация проверяет исключительно законность вступивших в силу актов, а апелляция пересматривает дело по существу до вступления акта в силу",
-        "explanation": "Апелляция — повторное рассмотрение дела по факту и праву не вступившего в силу решения. Кассация — ревизия законности акта, уже вступившего в законную силу.",
-        "gold_standard": "Апелляция (до вступления, факт+право) vs Кассация (после вступления, только законность)."
-    },
-    {
-        "type": "situational",
-        "prompt": "Какой общий процессуальный срок подачи апелляционной жалобы установлен Гражданским процессуальным кодексом РФ?",
-        "options": [
-            "В течение месяца со дня принятия решения суда в окончательной форме",
-            "В течение 10 дней с момента оглашения резолютивной части",
-            "В течение 6 месяцев с момента вынесения решения",
-            "В течение 14 дней с момента получения копии решения стороной"
-        ],
-        "correct_answer": "В течение месяца со дня принятия решения суда в окончательной форме",
-        "explanation": "В соответствии с ч. 2 ст. 321 ГПК РФ апелляционная жалоба может быть подана в течение месяца со дня принятия решения суда в окончательной форме.",
-        "gold_standard": "Срок апелляции ГПК -> 1 месяц со дня окончательной формы."
-    },
-    {
-        "type": "slot_filling",
-        "prompt": "Конституционный принцип презумпции невиновности (ст. 49 КРФ) устанавливает, что неустранимые сомнения в виновности лица толкуются [...]",
-        "options": [
-            "в пользу обвиняемого",
-            "в пользу потерпевшего",
-            "на усмотрение государственного обвинителя",
-            "в пользу следственных органов"
-        ],
-        "correct_answer": "в пользу обвиняемого",
-        "explanation": "Принцип 'in dubio pro reo': любые неустранимые сомнения в доказанности вины толкуются строго в пользу обвиняемого.",
-        "gold_standard": "Неустранимые сомнения -> в пользу обвиняемого (ч. 3 ст. 49 КРФ)."
-    },
-    {
-        "type": "situational",
-        "prompt": "Следователь вынес постановление о возбуждении уголовного дела в отношении действующего судьи районного суда. Какое обязательное условие необходимо для этого?",
-        "options": [
-            "Решение Председателя СК РФ с согласия квалификационной коллегии судей",
-            "Единоличное согласие прокурора района",
-            "Согласие председателя областного суда",
-            "Постановление Государственной Думы РФ"
-        ],
-        "correct_answer": "Решение Председателя СК РФ с согласия квалификационной коллегии судей",
-        "explanation": "Судейский иммунитет (ст. 16 Закона 'О статусе судей в РФ'): уголовное дело в отношении судьи возбуждается Председателем СК РФ с согласия ККС субъекта РФ.",
-        "gold_standard": "Уголовное преследование судьи -> Председатель СК РФ + согласие ККС."
-    },
-    {
-        "type": "contrast_pair",
-        "prompt": "Какой критерий отличает материальное право от процессуального права?",
-        "options": [
-            "Материальное определяет права, обязанности и ответственность; процессуальное регулирует порядок их реализации и судебной защиты",
-            "Материальное право применяется только в арбитраже, а процессуальное — в уголовном процессе",
-            "Материальное право состоит только из указов, а процессуальное — из кодексов",
-            "Процессуальное право имеет приоритет перед нормами Конституции РФ"
-        ],
-        "correct_answer": "Материальное определяет права, обязанности и ответственность; процессуальное регулирует порядок их реализации и судебной защиты",
-        "explanation": "Материальное право регулирует само существо отношений (собственность, преступление, долг), процессуальное — формы и процедуры судопроизводства.",
-        "gold_standard": "Материальное (права и состав) vs Процессуальное (порядок и защита)."
-    },
-    {
-        "type": "situational",
-        "prompt": "Какую роль в системе арбитражных судов выполняют Арбитражные суды округов (федеральные арбитражные суды)?",
-        "options": [
-            "Судов первой кассационной инстанции",
-            "Судов апелляционной инстанции",
-            "Судов надзорной инстанции",
-            "Судов исключительно первой инстанции по спорам с государством"
-        ],
-        "correct_answer": "Судов первой кассационной инстанции",
-        "explanation": "Арбитражные суды округов проверяют законность вступивших в силу судебных актов арбитражных судов субъектов РФ и апелляционных судов в кассационном порядке (ст. 274 АПК РФ).",
-        "gold_standard": "Арбитражные суды округов -> 1-я кассация арбитража."
-    },
-    {
-        "type": "slot_filling",
-        "prompt": "Согласно ст. 121 Конституции РФ, судьи несменяемы. Полномочия судьи могут быть прекращены или приостановлены не иначе как [...]",
-        "options": [
-            "в порядке и по основаниям, установленным федеральным законом",
-            "по личному распоряжению главы субъекта РФ",
-            "при смене состава Государственной Думы",
-            "по истечении пятилетнего срока службы"
-        ],
-        "correct_answer": "в порядке и по основаниям, установленным федеральным законом",
-        "explanation": "Гарантия независимости судей: полномочия судьи не ограничены сроком (для федеральных судей) и могут быть прекращены только решением ККС по закону.",
-        "gold_standard": "Несменяемость судей -> прекращение только по федеральному закону."
-    }
-]
-
-
-def is_invalid_distractor(text: str) -> bool:
-    """Проверяет, является ли кандидат вопросом, пустой строкой или недопустимым дистрактором."""
-    t = text.strip()
-    if not t or len(t) < 2:
-        return True
-    if t.endswith("?"):
-        return True
-    if re.search(r'^(?:какой|какая|какое|какие|каком|каких|какому|какую|чем|в чем|кто|что|где|когда|куда|почему|зачем|назовите|укажите|which|what|who|where|when|why|how)\b', t, re.IGNORECASE):
-        return True
-    return False
-
-
-def create_mirror_contrast_distractor(answer: str) -> Optional[str]:
-    """Синтезирует инвертированный дистрактор для контрастных пар (зеркальная путаница критериев)."""
-    splitters = [", а ", ", тогда как ", ", в то время как ", "; а ", "; "]
-    for sp in splitters:
-        if sp in answer:
-            parts = answer.split(sp, 1)
-            p1, p2 = parts[0].strip(), parts[1].strip()
-            if len(p1) > 8 and len(p2) > 8:
-                p2_cap = p2[0].upper() + p2[1:] if len(p2) > 1 else p2.upper()
-                p1_low = p1[0].lower() + p1[1:] if len(p1) > 1 else p1.lower()
-                p1_clean = p1_low.rstrip('.') + '.'
-                p2_clean = p2_cap.rstrip('.')
-                swapped = f"{p2_clean}{sp}{p1_clean}"
-                if swapped.strip().lower() != answer.strip().lower():
-                    return swapped
-    return None
-
-
-CONTEXTUAL_RULE_DISTRACTORS = [
-    "Применяется факультативно по специальному соглашению сторон",
-    "Определяется общими предписаниями вышестоящей нормы",
-    "Допускается исключительно при наличии прямо установленных процессуальных условий",
-    "Не является обязательным квалифицирующим признаком для данного состава",
-    "Регулируется отдельным специальным регламентом соответствующей отрасли",
-    "Исключается при наступлении ограничивающих законных факторов",
-    "Требует обязательного предварительного согласования с надзорным органом",
-    "Устанавливается на основе дискреционного усмотрения правоприменителя",
-    "Подлежит применению в порядке межотраслевой аналогии права",
-    "Применяется субсидиарно при пробеле в специальном регулировании",
-    "Действует по умолчанию при отсутствии прямого волеизъявления сторон",
-    "Ограничивается исключительным перечнем, прямо указанным в норме"
-]
-
-CONTEXTUAL_CONDITION_DISTRACTORS = [
-    "при соблюдении обязательного досудебного порядка",
-    "по мотивированному постановлению прокурора",
-    "в пределах установленного пресекательного срока",
-    "при наличии письменного ходатайства стороны",
-    "по единогласному решению квалификационной коллегии",
-    "в порядке судебного дискреционного усмотрения",
-    "в исключительных случаях, прямо предусмотренных законом",
-    "по соглашению всех участвующих в деле лиц",
-    "при возникновении неустранимых процессуальных сомнений",
-    "с обязательным участием законного представителя"
-]
-
-CONTEXTUAL_CONCEPT_DISTRACTORS = [
-    "Институт процессуального соучастия",
-    "Принцип процессуальной экономии",
-    "Презумпция добросовестности участников",
-    "Институт подведомственности и подсудности",
-    "Коллизионное регулирование норм",
-    "Юридический состав правоотношения",
-    "Диспозитивное правомочие субъекта",
-    "Материально-правовая легитимация",
-    "Институт преюдициального значения фактов",
-    "Принцип состязательности сторон"
-]
-
-CONTEXTUAL_SECTION_DISTRACTORS = [
-    "Общие положения и принципы производства",
-    "Производство в суде первой инстанции",
-    "Производство по пересмотру вступивших в силу актов",
-    "Особое производство и специальные процедуры",
-    "Институты подведомственности и коллизий",
-    "Исполнительное производство и обеспечение решений",
-    "Организация судейского сообщества и статус судей",
-    "Процессуальные сроки и судебные расходы"
-]
-
-CONTEXTUAL_INSTANCE_DISTRACTORS = [
-    "Кассационный суд общей юрисдикции",
-    "Апелляционный суд общей юрисдикции",
-    "Судебная коллегия Верховного Суда РФ",
-    "Арбитражный суд округа",
-    "Президиум Верховного Суда РФ",
-    "Арбитражный апелляционный суд",
-    "Конституционный Суд РФ",
-    "Районный суд общей юрисдикции"
-]
-
-
-def fill_options_to_four(
-    opts: list[str],
-    candidates: Optional[list[str]] = None,
-    domain_fallbacks: Optional[list[str]] = None
-) -> list[str]:
-    """Дополняет список вариантов ответов до 4 уникальными дистракторами из кандидатов или доменного пула."""
-    existing_low = {o.strip().lower() for o in opts if o.strip()}
-
-    if candidates:
-        for c in candidates:
-            if len(opts) >= 4:
-                break
-            c_clean = c.strip()
-            if c_clean and c_clean.lower() not in existing_low and not is_invalid_distractor(c_clean):
-                opts.append(c_clean)
-                existing_low.add(c_clean.lower())
-
-    if len(opts) < 4 and domain_fallbacks:
-        shuffled_fallbacks = list(domain_fallbacks)
-        random.shuffle(shuffled_fallbacks)
-        for fb in shuffled_fallbacks:
-            if len(opts) >= 4:
-                break
-            fb_clean = fb.strip()
-            if fb_clean and fb_clean.lower() not in existing_low:
-                opts.append(fb_clean)
-                existing_low.add(fb_clean.lower())
-
-    return opts[:4]
-
-
-def select_coherent_distractors(
-    target_answer: str,
-    candidate_answers: list[str],
-    count: int = 3,
-    fallback_pool: Optional[list[str]] = None,
-    cluster_candidates: Optional[list[str]] = None,
-    mirror_distractor: Optional[str] = None
-) -> list[str]:
-    """Подбирает контекстно и грамматически сопоставимые дистракторы похожей длины, приоритизируя тематический кластер."""
-    target_clean = target_answer.strip().lower()
-    target_words = len(target_clean.split())
-
-    chosen: list[str] = []
-    chosen_low: set[str] = {target_clean}
-
-    # 1. Если сформирован зеркальный дистрактор для контрастной пары — добавляем первым!
-    if mirror_distractor:
-        m_clean = mirror_distractor.strip()
-        if m_clean and m_clean.lower() not in chosen_low and not is_invalid_distractor(m_clean):
-            chosen.append(m_clean)
-            chosen_low.add(m_clean.lower())
-
-    # 2. Кандидаты из того же тематического кластера (наивысший приоритет)
-    if cluster_candidates:
-        valid_cluster = [
-            c.strip() for c in cluster_candidates
-            if c.strip() and c.strip().lower() not in chosen_low and not is_invalid_distractor(c)
-        ]
-        # Приоритет схожей длины внутри темы
-        def cluster_score(cand: str):
-            c_words = len(cand.split())
-            return abs(c_words - target_words)
-
-        valid_cluster.sort(key=cluster_score)
-        for c in valid_cluster:
-            if len(chosen) >= count:
-                break
-            chosen.append(c)
-            chosen_low.add(c.lower())
-
-    # 3. Общий пул ответов предмета
-    valid_general = [
-        a.strip() for a in candidate_answers 
-        if a.strip() and a.strip().lower() not in chosen_low and not is_invalid_distractor(a)
-    ]
-
-    # Дополнительный пул (термины или определения)
-    if fallback_pool:
-        for fb in fallback_pool:
-            clean_fb = fb.strip()
-            if clean_fb and clean_fb.lower() not in chosen_low and clean_fb not in valid_general and not is_invalid_distractor(clean_fb):
-                valid_general.append(clean_fb)
-
-    # 4. Если ответ числовой/временной (например "3 года", "10 суток"), формируем реалистичные альтернативы
-    deadline_pattern = r'^(\d+)\s+(суток|дней|дня|месяц|месяца|месяцев|лет|года|часов|часа)$'
-    m_num = re.match(deadline_pattern, target_answer.strip(), re.IGNORECASE)
-    if m_num:
-        val = int(m_num.group(1))
-        unit = m_num.group(2)
-        alts = [
-            f"{val + 1} {unit}",
-            f"{max(1, val - 1)} {unit}",
-            f"{val * 2} {unit}",
-            f"{val + 5} {unit}",
-            f"{max(1, val - 5)} {unit}"
-        ]
-        for a in alts:
-            if a.lower() not in chosen_low and a not in valid_general:
-                valid_general.append(a)
-
-    # Сортируем общий пул по схожести длины
-    def dist_score(cand: str):
-        c_words = len(cand.split())
-        return abs(c_words - target_words)
-
-    similar = [c for c in valid_general if dist_score(c) <= max(3, target_words // 2)]
-    random.shuffle(similar)
-    for c in similar:
-        if len(chosen) >= count:
-            break
-        chosen.append(c)
-        chosen_low.add(c.lower())
-
-    if len(chosen) < count:
-        valid_general.sort(key=dist_score)
-        for c in valid_general:
-            if len(chosen) >= count:
-                break
-            chosen.append(c)
-            chosen_low.add(c.lower())
-
-    # 5. Универсальные смысловые альтернативы при дефиците
-    if len(chosen) < count:
-        shuffled_fallbacks = list(CONTEXTUAL_RULE_DISTRACTORS)
-        random.shuffle(shuffled_fallbacks)
-        for sf in shuffled_fallbacks:
-            if sf.lower() not in chosen_low:
-                chosen.append(sf)
-                chosen_low.add(sf.lower())
-            if len(chosen) >= count:
-                break
-
-    return chosen[:count]
-
-
-
-def extract_cloze_target(front_text: str, back_text: str = "") -> tuple[str, str]:
-    """Извлекает искомое слово из разметки {{c1::слово}}, [слово] или числовых сроков/цензов."""
-    # 1. Формат Anki cloze {{c1::target}}
-    m_anki = re.search(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', front_text)
-    if m_anki:
-        target = m_anki.group(1).strip()
-        cloze_prompt = re.sub(r'\{\{c\d+::(.*?)(?:::.*?)?\}\}', '[...]', front_text)
-        return cloze_prompt, target
-
-    # 2. Формат скобок [target]
-    m_bracket = re.search(r'\[(.*?)\]', front_text)
-    if m_bracket:
-        target = m_bracket.group(1).strip()
-        if target != "...":
-            cloze_prompt = front_text.replace(f"[{target}]", "[...]")
-            return cloze_prompt, target
-        elif back_text:
-            clean_b = back_text.strip().rstrip('.')
-            if len(clean_b) <= 50:
-                return front_text, clean_b
-
-    # 3. Числовые сроки и цензы в вопросе
-    deadline_pattern = r'\b(\d+\s+(?:суток|дней|дня|месяц(?:а|ев)?|лет|года|часов|часа))\b'
-    m_dead = re.search(deadline_pattern, front_text, re.IGNORECASE)
-    if m_dead:
-        target = m_dead.group(1).strip()
-        cloze_prompt = front_text.replace(target, '[...]')
-        return cloze_prompt, target
-
-    # 4. Если в ответе содержится точный нормативный срок/число
-    if back_text:
-        m_dead_back = re.search(deadline_pattern, back_text, re.IGNORECASE)
-        if m_dead_back and len(back_text.strip()) <= 45:
-            target = m_dead_back.group(1).strip()
-            cloze_prompt = front_text.rstrip('?.') + ": срок составляет [...]"
-            return cloze_prompt, target
-
-    return front_text, ""
+PRACTICE_TYPE_BY_LAYER = {0: "recall", 1: "recall", 2: "situational"}
 
 
 async def generate_practice_session(
@@ -539,453 +25,86 @@ async def generate_practice_session(
     count: int = 10,
     db: Optional[AsyncSession] = None
 ) -> List[Dict[str, Any]]:
-    """Генерирует автономную практическую сессию для пользователя по предмету.
-    
-    1. Ищет карточки пользователя в таблице cards по данному предмету и его алиасам.
-    2. Если карточек достаточно (>=3), динамически синтезирует упражнения 3 типов:
-       - situational (ситуационные кейсы со схожими по длине дистракторами)
-       - contrast_pair (разграничение понятий)
-       - slot_filling (заполнение пропусков по срокам и ключевым понятиям)
-    3. Дополняет сценариями из графа знаний предмета.
-    4. Если карточек мало, подгружает эталонные пресеты.
-    5. Сохраняет сформированные PracticeItem в БД для надежной верификации ответов.
+    """Практика «Пути знаний» — только по узлам с пройденным уроком.
+
+    1. Карточки узла с готовыми дистракторами того же типа ответа (генерирует ИИ при нарезке).
+    2. Вопросы на связи графа: «A <связка> …?» — варианты из узлов того же яруса.
+    Регулярных выражений и случайных ответов из общего пула больше нет.
     """
+    from app.services.knowledge_path import normalize_subject, unlocked_node_ids_subquery
+    from app.database.models import KnowledgeNode, KnowledgeEdge
+
     should_close = False
     if db is None:
         db = AsyncSessionLocal()
         should_close = True
 
     try:
-        canonical_subject = resolve_subject_alias(subject)
-        all_aliases = get_all_subject_aliases(subject)
-        if subject not in all_aliases:
-            all_aliases.append(subject)
-        if canonical_subject not in all_aliases:
-            all_aliases.append(canonical_subject)
+        subject = normalize_subject(subject)
+        nodes = (await db.execute(
+            select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
+        )).scalars().all()
+        studied_ids = set((await db.execute(unlocked_node_ids_subquery(user_id))).scalars().all())
+        studied = {n.node_key: n for n in nodes if n.id in studied_ids}
 
-        # 1. Извлекаем карточки пользователя для предмета и его алиасов
-        stmt = select(Card).where(Card.subject.in_(all_aliases), Card.user_id == user_id)
-        res = await db.execute(stmt)
-        user_cards = res.scalars().all()
-        if not user_cards:
-            stmt_default = select(Card).where(Card.subject.in_(all_aliases))
-            res_default = await db.execute(stmt_default)
-            user_cards = res_default.scalars().all()
+        records: list[PracticeItem] = []
 
-        practice_records: List[PracticeItem] = []
+        cards = (await db.execute(
+            select(Card).where(Card.user_id == user_id, Card.subject == subject, Card.node_id.in_(studied_ids))
+        )).scalars().all() if studied_ids else []
+        for c in cards:
+            wrong = [d for d in (c.distractors or []) if d]
+            if len(wrong) < 2:
+                continue
+            options = [c.translation] + wrong[:3]
+            random.shuffle(options)
+            records.append(PracticeItem(
+                item_id=str(uuid.uuid4()),
+                user_id=user_id,
+                subject=subject,
+                node_id=c.node_id,
+                item_type=PRACTICE_TYPE_BY_LAYER.get(c.layer, "recall"),
+                prompt=c.text,
+                options=options,
+                correct_answer=c.translation,
+                explanation=c.example or c.secondary_text or f"Правильный ответ: {c.translation}",
+                gold_standard=c.translation,
+            ))
 
-        # 2. Если есть карточки (включая колоды из 1-2 карт), динамически синтезируем интерактивные тесты
-        if len(user_cards) >= 1:
-            all_answers = [c.translation.strip() for c in user_cards if c.translation and len(c.translation.strip()) > 3]
-            all_fronts = [c.text.strip() for c in user_cards if c.text and len(c.text.strip()) > 2]
+        edges = (await db.execute(
+            select(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject)
+        )).scalars().all() if studied else []
+        for e in edges:
+            src, dst = studied.get(e.source_key), studied.get(e.target_key)
+            if not src or not dst or not e.label:
+                continue
+            # Дистракторы — изученные узлы того же яруса, что и верный ответ
+            peers = [n.name for k, n in studied.items() if n.tier == dst.tier and k not in (src.node_key, dst.node_key)]
+            if len(peers) < 2:
+                continue
+            options = [dst.name] + random.sample(peers, min(3, len(peers)))
+            random.shuffle(options)
+            records.append(PracticeItem(
+                item_id=str(uuid.uuid4()),
+                user_id=user_id,
+                subject=subject,
+                node_id=src.id,
+                item_type="relation",
+                prompt=f"«{src.name}» {e.label} …?",
+                options=options,
+                correct_answer=dst.name,
+                explanation=f"{src.name} {e.label} {dst.name}.",
+                gold_standard=dst.name,
+            ))
 
-            # Извлекаем фразы предмета в качестве дополнительного пула понятий
-            stmt_p = select(Phrase).where(Phrase.subject.in_(all_aliases))
-            res_p = await db.execute(stmt_p)
-            deck_phrases = res_p.scalars().all()
-            for p in deck_phrases:
-                p_text = (p.text or "").strip()
-                if p_text and len(p_text) > 2 and p_text not in all_fronts:
-                    all_fronts.append(p_text)
+        random.shuffle(records)
+        records = records[:count]
 
-            # Извлекаем сущности графа знаний предмета для синтеза дистракторов
-            kg_nodes_names: list[str] = []
-            kg_record = None
-            try:
-                kg_stmt = select(TopicKnowledgeGraph).where(
-                    TopicKnowledgeGraph.user_id == user_id,
-                    TopicKnowledgeGraph.subject.in_(all_aliases)
-                ).order_by(TopicKnowledgeGraph.updated_at.desc())
-                kg_res = await db.execute(kg_stmt)
-                kg_record = kg_res.scalars().first()
-                if not kg_record:
-                    kg_stmt_any = select(TopicKnowledgeGraph).where(
-                        TopicKnowledgeGraph.subject.in_(all_aliases)
-                    ).order_by(TopicKnowledgeGraph.updated_at.desc())
-                    kg_res_any = await db.execute(kg_stmt_any)
-                    kg_record = kg_res_any.scalars().first()
-                if kg_record and kg_record.graph_data:
-                    kg_nodes_names = [n["name"].strip() for n in kg_record.graph_data.get("nodes", []) if n.get("name") and len(n.get("name").strip()) > 2]
-            except Exception as kg_fetch_err:
-                print(f"[Practice Engine] Ошибка предварительной загрузки графа: {kg_fetch_err}")
-
-            # Кластеризация карточек по подтемам и ключевым понятиям
-            theme_to_cards = defaultdict(list)
-            for c in user_cards:
-                if c.secondary_text:
-                    theme_key = c.secondary_text.strip().lower()
-                    theme_to_cards[theme_key].append(c)
-
-            def get_card_cluster_answers(current_card) -> list[str]:
-                cluster_ans: list[str] = []
-                # 1. По вторичной теме (раздел/подтема)
-                if current_card.secondary_text:
-                    theme_key = current_card.secondary_text.strip().lower()
-                    for c in theme_to_cards.get(theme_key, []):
-                        if c.id != current_card.id and c.translation:
-                            t = c.translation.strip()
-                            if t and t.lower() != (current_card.translation or "").strip().lower() and t not in cluster_ans:
-                                cluster_ans.append(t)
-
-                # 2. По общим ключевым словам в вопросе (front)
-                c_words = set(re.findall(r'\b[а-яa-z]{4,}\b', (current_card.text or "").lower()))
-                stop_words = {"какой", "какие", "каком", "какому", "понятие", "определение", "является", "случае", "различие", "между", "отличие", "когда"}
-                c_keywords = c_words - stop_words
-                if c_keywords:
-                    keyword_matches = []
-                    for c in user_cards:
-                        if c.id != current_card.id and c.translation:
-                            other_words = set(re.findall(r'\b[а-яa-z]{4,}\b', (c.text or "").lower()))
-                            common = c_keywords.intersection(other_words)
-                            if common:
-                                t = c.translation.strip()
-                                if t and t.lower() != (current_card.translation or "").strip().lower() and t not in cluster_ans:
-                                    keyword_matches.append((len(common), t))
-                    keyword_matches.sort(key=lambda x: x[0], reverse=True)
-                    for _, t in keyword_matches:
-                        if t not in cluster_ans:
-                            cluster_ans.append(t)
-
-                return cluster_ans
-
-            def get_card_cluster_fronts(current_card) -> list[str]:
-                cluster_fr: list[str] = []
-                if current_card.secondary_text:
-                    theme_key = current_card.secondary_text.strip().lower()
-                    for c in theme_to_cards.get(theme_key, []):
-                        if c.id != current_card.id and c.text:
-                            t = c.text.strip().rstrip('?:.')
-                            if t and t.lower() != (current_card.text or "").strip().rstrip('?:.').lower() and t not in cluster_fr:
-                                cluster_fr.append(t)
-                return cluster_fr
-
-            # Для маленьких колод (< 3 карт) синтезируем по несколько разнообразных когнитивных упражнений на карту
-            if len(user_cards) < 3:
-                for card in user_cards:
-                    if len(practice_records) >= count:
-                        break
-                    front = (card.text or "").strip()
-                    back = (card.translation or "").strip()
-                    ex = (card.example or "").strip()
-                    sec = (card.secondary_text or "").strip()
-                    if not front or not back:
-                        continue
-
-                    # Вариант A: Прямой вопрос (front -> back)
-                    is_contrast = any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница", "difference"))
-                    mirror_a = create_mirror_contrast_distractor(back) if is_contrast else None
-                    cluster_ans_a = get_card_cluster_answers(card)
-                    item_id_a = str(uuid.uuid4())
-                    chosen_a = select_coherent_distractors(
-                        back,
-                        all_answers,
-                        count=3,
-                        fallback_pool=[p.text for p in deck_phrases],
-                        cluster_candidates=cluster_ans_a,
-                        mirror_distractor=mirror_a
-                    )
-                    opts_a = [back] + chosen_a[:3]
-                    opts_a = fill_options_to_four(opts_a, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
-                    random.shuffle(opts_a)
-
-                    i_type = "contrast_pair" if is_contrast else "situational"
-                    practice_records.append(PracticeItem(
-                        item_id=item_id_a,
-                        user_id=user_id,
-                        subject=canonical_subject,
-                        item_type=i_type,
-                        prompt=front,
-                        options=opts_a[:4],
-                        correct_answer=back,
-                        explanation=ex or sec or f"Правильное нормативное содержание: {back}.",
-                        gold_standard=f"Точное определение: {back}."
-                    ))
-
-                    if len(practice_records) >= count:
-                        break
-
-                    # Вариант B: Заполнение пропуска (Slot-Filling)
-                    cloze_prompt, cloze_target = extract_cloze_target(front, back)
-                    if not cloze_target and ex:
-                        cloze_prompt, cloze_target = extract_cloze_target(ex, back)
-                    if cloze_target and len(cloze_target) > 1:
-                        item_id_b = str(uuid.uuid4())
-                        cluster_ans_b = get_card_cluster_answers(card)
-                        chosen_b = select_coherent_distractors(
-                            cloze_target,
-                            all_answers,
-                            count=3,
-                            fallback_pool=all_fronts,
-                            cluster_candidates=cluster_ans_b
-                        )
-                        opts_b = [cloze_target] + chosen_b[:3]
-                        opts_b = fill_options_to_four(opts_b, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONDITION_DISTRACTORS)
-                        random.shuffle(opts_b)
-                        practice_records.append(PracticeItem(
-                            item_id=item_id_b,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="slot_filling",
-                            prompt=cloze_prompt,
-                            options=opts_b[:4],
-                            correct_answer=cloze_target,
-                            explanation=ex or sec or f"Искомый термин/срок: {cloze_target}.",
-                            gold_standard=f"Точное соответствие: {cloze_target}."
-                        ))
-
-                    if len(practice_records) >= count:
-                        break
-
-                    # Вариант C: Обратная идентификация понятия (back -> front)
-                    clean_front = front.rstrip('?:.')
-                    if len(clean_front) <= 60 and clean_front != back:
-                        item_id_c = str(uuid.uuid4())
-                        cluster_fr_c = get_card_cluster_fronts(card)
-                        chosen_c = select_coherent_distractors(
-                            clean_front,
-                            all_fronts,
-                            count=3,
-                            fallback_pool=[p.text for p in deck_phrases],
-                            cluster_candidates=cluster_fr_c
-                        )
-                        opts_c = [clean_front] + chosen_c[:3]
-                        opts_c = fill_options_to_four(opts_c, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONCEPT_DISTRACTORS)
-                        random.shuffle(opts_c)
-                        practice_records.append(PracticeItem(
-                            item_id=item_id_c,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="situational",
-                            prompt=f"Какому понятию или институту соответствует следующее определение:\n«{back}»?",
-                            options=opts_c[:4],
-                            correct_answer=clean_front,
-                            explanation=f"Определение «{back}» относится именно к понятию «{clean_front}».",
-                            gold_standard=f"{clean_front} <-> {back}."
-                        ))
-
-                    if len(practice_records) >= count:
-                        break
-
-                    # Вариант D: Рубрикация по разделу (если есть secondary_text)
-                    if sec and len(sec) > 3 and sec != front and sec != back:
-                        sec_label = sec.split("|")[0].strip() if "|" in sec else sec.strip()
-                        item_id_d = str(uuid.uuid4())
-                        chosen_d = select_coherent_distractors(sec_label, [c.secondary_text for c in user_cards if c.secondary_text], count=3, fallback_pool=["Общая часть", "Особенная часть", "Процессуальный порядок"])
-                        sec_candidates = [c.secondary_text.strip() for c in user_cards if c.secondary_text and c.secondary_text.strip()]
-                        opts_d = [sec_label] + chosen_d[:3]
-                        opts_d = fill_options_to_four(opts_d, sec_candidates + kg_nodes_names, CONTEXTUAL_SECTION_DISTRACTORS)
-                        random.shuffle(opts_d)
-                        practice_records.append(PracticeItem(
-                            item_id=item_id_d,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="situational",
-                            prompt=f"К какому институту или разделу относится положение:\n«{front}»?",
-                            options=opts_d[:4],
-                            correct_answer=sec_label,
-                            explanation=f"Данный вопрос классифицируется в рамках раздела: «{sec_label}».",
-                            gold_standard=f"Институт: {sec_label}."
-                        ))
-
-            else:
-                # Стандартный режим для колод от 3 карт
-                sample_cards = random.sample(user_cards, min(count * 2, len(user_cards)))
-                for card in sample_cards:
-                    if len(practice_records) >= count:
-                        break
-                    front = (card.text or "").strip()
-                    back = (card.translation or "").strip()
-                    ex = (card.example or "").strip()
-                    sec = (card.secondary_text or "").strip()
-
-                    if not front or not back:
-                        continue
-
-                    cloze_prompt, cloze_target = extract_cloze_target(front, back)
-                    item_id = str(uuid.uuid4())
-                    cluster_ans = get_card_cluster_answers(card)
-
-                    # Тип 1: Заполнение пропусков (Slot-Filling)
-                    if cloze_target and len(cloze_target) > 1:
-                        chosen_distractors = select_coherent_distractors(
-                            cloze_target,
-                            all_answers,
-                            count=3,
-                            fallback_pool=all_fronts,
-                            cluster_candidates=cluster_ans
-                        )
-                        options = [cloze_target] + chosen_distractors[:3]
-                        options = fill_options_to_four(options, all_fronts + kg_nodes_names + [p.text for p in deck_phrases], CONTEXTUAL_CONDITION_DISTRACTORS)
-                        random.shuffle(options)
-
-                        pi = PracticeItem(
-                            item_id=item_id,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="slot_filling",
-                            prompt=cloze_prompt,
-                            options=options[:4],
-                            correct_answer=cloze_target,
-                            explanation=ex or sec or f"Правильный термин: {cloze_target}.",
-                            gold_standard=f"Точное соответствие: {cloze_target}."
-                        )
-                        practice_records.append(pi)
-
-                    # Тип 2: Контрастная пара (Contrast Pair)
-                    elif any(cue in front.lower() for cue in ("чем отлич", "разгранич", "в отличие", " vs ", "разница", "difference")):
-                        mirror = create_mirror_contrast_distractor(back)
-                        chosen_distractors = select_coherent_distractors(
-                            back,
-                            all_answers,
-                            count=3,
-                            fallback_pool=None,
-                            cluster_candidates=cluster_ans,
-                            mirror_distractor=mirror
-                        )
-                        options = [back] + chosen_distractors[:3]
-                        options = fill_options_to_four(options, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
-                        random.shuffle(options)
-
-                        pi = PracticeItem(
-                            item_id=item_id,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="contrast_pair",
-                            prompt=front,
-                            options=options[:4],
-                            correct_answer=back,
-                            explanation=ex or sec or f"Разграничительный критерий: {back}",
-                            gold_standard=f"Критерий: {back}"
-                        )
-                        practice_records.append(pi)
-
-                    # Тип 3: Ситуационный кейс / Концептуальный вопрос (для любой дисциплины)
-                    else:
-                        chosen_distractors = select_coherent_distractors(
-                            back,
-                            all_answers,
-                            count=3,
-                            fallback_pool=None,
-                            cluster_candidates=cluster_ans
-                        )
-                        options = [back] + chosen_distractors[:3]
-                        options = fill_options_to_four(options, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
-                        random.shuffle(options)
-
-                        pi = PracticeItem(
-                            item_id=item_id,
-                            user_id=user_id,
-                            subject=canonical_subject,
-                            item_type="situational",
-                            prompt=front,
-                            options=options[:4],
-                            correct_answer=back,
-                            explanation=ex or sec or f"Обоснование: {back}",
-                            gold_standard=f"Правильное решение: {back}"
-                        )
-                        practice_records.append(pi)
-
-        # 3. Синтез вопросов из графа знаний предмета (топологическая инстанционность и связи)
-        try:
-            if not kg_record:
-                kg_stmt = select(TopicKnowledgeGraph).where(
-                    TopicKnowledgeGraph.user_id == user_id,
-                    TopicKnowledgeGraph.subject.in_(all_aliases)
-                ).order_by(TopicKnowledgeGraph.updated_at.desc())
-                kg_res = await db.execute(kg_stmt)
-                kg_record = kg_res.scalars().first()
-                if not kg_record:
-                    kg_stmt_any = select(TopicKnowledgeGraph).where(
-                        TopicKnowledgeGraph.subject.in_(all_aliases)
-                    ).order_by(TopicKnowledgeGraph.updated_at.desc())
-                    kg_res_any = await db.execute(kg_stmt_any)
-                    kg_record = kg_res_any.scalars().first()
-            if kg_record and kg_record.graph_data:
-                g_nodes = {n["id"]: n for n in kg_record.graph_data.get("nodes", []) if "id" in n}
-                g_edges = kg_record.graph_data.get("edges", [])
-                for e in g_edges:
-                    if len(practice_records) >= count:
-                        break
-                    rel = e.get("relation", "")
-                    src_id = e.get("source")
-                    tgt_id = e.get("target")
-                    if rel == "appealed_to" and src_id in g_nodes and tgt_id in g_nodes:
-                        src_name = g_nodes[src_id].get("name", src_id)
-                        tgt_name = g_nodes[tgt_id].get("name", tgt_id)
-                        other_names = [n.get("name") for n in g_nodes.values() if n.get("name") and n.get("name") != tgt_name and n.get("name") != src_name]
-                        if len(other_names) >= 2:
-                            chosen_dist = random.sample(other_names, min(3, len(other_names)))
-                            existing_inst = {tgt_name.lower(), src_name.lower()} | {d.lower() for d in chosen_dist}
-                            shuffled_inst = list(CONTEXTUAL_INSTANCE_DISTRACTORS)
-                            random.shuffle(shuffled_inst)
-                            for inst in shuffled_inst:
-                                if len(chosen_dist) >= 3:
-                                    break
-                                if inst.lower() not in existing_inst:
-                                    chosen_dist.append(inst)
-                                    existing_inst.add(inst.lower())
-                            opts = [tgt_name] + chosen_dist[:3]
-                            random.shuffle(opts)
-                            pi = PracticeItem(
-                                item_id=str(uuid.uuid4()),
-                                user_id=user_id,
-                                subject=canonical_subject,
-                                item_type="situational",
-                                prompt=f"В какую судебную инстанцию в вышестоящем порядке обжалуются акты суда: «{src_name}»?",
-                                options=opts,
-                                correct_answer=tgt_name,
-                                explanation=f"В иерархии инстанций вышестоящим звеном для {src_name} выступает {tgt_name}.",
-                                gold_standard=f"{src_name} -> {tgt_name} (Вышестоящая инстанция)"
-                            )
-                            practice_records.append(pi)
-        except Exception as kg_err:
-            print(f"[Practice Engine] Ошибка синтеза из графа: {kg_err}")
-
-        # 4. Добор заданий строго из реальных карточек колоды
-        if len(practice_records) < count and len(user_cards) > 0:
-            remaining = count - len(practice_records)
-            all_answers = [c.translation.strip() for c in user_cards if c.translation and len(c.translation.strip()) > 3]
-            all_fronts = [c.text.strip() for c in user_cards if c.text and len(c.text.strip()) > 2]
-            for c in random.sample(user_cards, min(remaining * 2, len(user_cards))):
-                if len(practice_records) >= count:
-                    break
-                front = (c.text or "").strip()
-                back = (c.translation or "").strip()
-                if not front or not back:
-                    continue
-                c_cluster = get_card_cluster_answers(c)
-                chosen = select_coherent_distractors(back, all_answers, count=3, fallback_pool=None, cluster_candidates=c_cluster)
-                opts = [back] + chosen[:3]
-                opts = fill_options_to_four(opts, all_answers + [p.text for p in deck_phrases] + kg_nodes_names, CONTEXTUAL_RULE_DISTRACTORS)
-                random.shuffle(opts)
-                is_case = any(w in front.lower() for w in ("если", "в случае", "при условии", "сторона", "спор", "пациент", "клиент", "пользователь", "задача", "дело", "иск", "ситуация", "if", "when", "case"))
-                practice_records.append(PracticeItem(
-                    item_id=str(uuid.uuid4()),
-                    user_id=user_id,
-                    subject=canonical_subject,
-                    item_type="situational",
-                    prompt=front,
-                    options=opts[:4],
-                    correct_answer=back,
-                    explanation=c.example or c.secondary_text or f"Правильный ответ: {back}",
-                    gold_standard=f"Правильный ответ: {back}"
-                ))
-
-        # Перемешиваем и отбираем count разнообразных заданий
-        random.shuffle(practice_records)
-        practice_records = practice_records[:count]
-
-        # 5. Очищаем старые временные задания по предмету и сохраняем свежие элементы в БД
-        await db.execute(delete(PracticeItem).where(
-            PracticeItem.user_id == user_id,
-            PracticeItem.subject.in_(all_aliases)
-        ))
-        for pi in practice_records:
+        await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
+        for pi in records:
             db.add(pi)
         await db.commit()
-
-        # 6. Возвращаем клиенту безопасные словари без открытого правильного ответа
-        return [pi.to_dict(include_answer=False) for pi in practice_records]
+        return [pi.to_dict(include_answer=False) for pi in records]
 
     finally:
         if should_close:
@@ -1005,28 +124,18 @@ async def verify_practice_answer(
     selected_answer: str,
     db: Optional[AsyncSession] = None
 ) -> Dict[str, Any]:
-    """Верифицирует ответ пользователя на интерактивное задание."""
+    """Проверяет ответ пользователя на его собственное задание."""
     should_close = False
     if db is None:
         db = AsyncSessionLocal()
         should_close = True
 
     try:
-        stmt = select(PracticeItem).where(PracticeItem.item_id == item_id)
-        res = await db.execute(stmt)
-        item = res.scalars().first()
+        item = (await db.execute(
+            select(PracticeItem).where(PracticeItem.item_id == item_id, PracticeItem.user_id == user_id)
+        )).scalars().first()
 
         if not item:
-            # Fallback для тестов или устаревших сессий: если не найдено в БД, ищем в пресетах
-            for seed in SUDOUSTROYSTVO_PRESET_PRACTICE:
-                if normalize_answer_text(selected_answer) == normalize_answer_text(seed["correct_answer"]):
-                    return {
-                        "correct": True,
-                        "selected": selected_answer,
-                        "correct_answer": seed["correct_answer"],
-                        "explanation": seed["explanation"],
-                        "gold_standard": seed["gold_standard"]
-                    }
             return {
                 "correct": False,
                 "selected": selected_answer,
@@ -1035,7 +144,7 @@ async def verify_practice_answer(
                 "gold_standard": "Сессия обновлена."
             }
 
-        is_correct = (normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer))
+        is_correct = normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer)
         return {
             "correct": is_correct,
             "selected": selected_answer,

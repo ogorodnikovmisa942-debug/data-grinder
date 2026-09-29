@@ -103,6 +103,8 @@ function renderPracticeQuestion() {
     if (typeBadge) {
         const typeConfigs = {
             'situational': { icon: 'psychology', label: 'СИТУАЦИОННЫЙ КЕЙС' },
+            'recall': { icon: 'quiz', label: 'ВСПОМНИ ОТВЕТ' },
+            'relation': { icon: 'hub', label: 'СВЯЗЬ ТЕМ' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },

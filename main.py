@@ -7,7 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from jinja2 import Template
 
-from app.api.endpoints import train, management, admin, graph, practice
+from app.api.endpoints import train, management, admin, practice
+from app.api.endpoints import path as knowledge_path_api
 from app.core.config import settings
 from sqlalchemy import select, func
 from app.database.session import engine, AsyncSessionLocal
@@ -71,8 +72,8 @@ async def add_cache_control_header(request, call_next):
 app.include_router(train.router, prefix="/api", tags=["Training"])
 app.include_router(management.router, prefix="/api", tags=["Management"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-app.include_router(graph.router, prefix="/api", tags=["Knowledge Graph"])
 app.include_router(practice.router, prefix="/api", tags=["Practice"])
+app.include_router(knowledge_path_api.router, prefix="/api", tags=["Knowledge Path"])
 
 
 # Главная страница MiniApp

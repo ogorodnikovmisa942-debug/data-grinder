@@ -3250,9 +3250,12 @@ function updateImportExplanation() {
 }
 
 function isOffPeakWindow() {
+    // Пик DeepSeek: пн–пт 01:00–04:00 и 06:00–10:00 UTC, всё остальное время — скидка 50%
     const now = new Date();
-    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-    return utcMinutes >= 990 || utcMinutes < 30; // 16:30 - 00:30 UTC / 19:30 - 03:30 MSK
+    const day = now.getUTCDay();
+    if (day === 0 || day === 6) return true;
+    const h = now.getUTCHours();
+    return !((h >= 1 && h < 4) || (h >= 6 && h < 10));
 }
 
 let cachedAiProviderInfo = null;
@@ -3287,15 +3290,16 @@ window.updateTariffBanner = async function() {
     if (isOffPeak) {
         if (bannerTitle) bannerTitle.innerHTML = titleText;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
-        bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
+        bannerBadge.textContent = "[СКИДКА -50% АКТИВНА]";
         if (btnDeferred) {
             btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СКИДКА -50% (СЕЙЧАС)</span>`;
         }
     } else {
+        // Пик заканчивается в 04:00 или 10:00 UTC
         const now = new Date();
         const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-        let diffMinutes = 990 - utcMinutes;
-        if (diffMinutes < 0) diffMinutes += 1440;
+        const peakEnd = utcMinutes < 240 ? 240 : 600;
+        const diffMinutes = Math.max(0, peakEnd - utcMinutes);
         const h = Math.floor(diffMinutes / 60);
         const m = diffMinutes % 60;
 
@@ -3303,7 +3307,7 @@ window.updateTariffBanner = async function() {
         bannerBadge.className = "text-secondary font-bold font-mono";
         bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
         if (btnDeferred) {
-            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>НОЧЬЮ (-50%)</span>`;
+            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СО СКИДКОЙ (-50%)</span>`;
         }
     }
 };
@@ -3372,6 +3376,14 @@ window.openStagingJob = async function(jobId) {
 window.checkDeepLinkOrHash = async function() {
     let jobId = null;
     const hash = window.location.hash || '';
+
+    // Ссылка из push «Путь знаний готов»: #path_<предмет> → сразу открываем граф предмета
+    const pathMatch = hash.match(/^#path_(.+)$/i);
+    if (pathMatch && window.openKnowledgeGraphModal) {
+        window.openKnowledgeGraphModal(decodeURIComponent(pathMatch[1]));
+        return;
+    }
+
     const matchHash = hash.match(/#staging_job_?(\d+)/i);
     if (matchHash) {
         jobId = matchHash[1];
@@ -3614,7 +3626,7 @@ window.handleQueuedJob = function(data, statusEl) {
     const activeStatus = document.getElementById('generation-active-status');
 
     if (!data.is_immediate) {
-        // Задача отложена на скидочное время (19:30 МСК)
+        // Задача отложена до ближайшего окна скидки DeepSeek
         alert(`[ОЧЕРЕДЬ СКИДОК 50%]\n\n${data.message}`);
         if (activeBar) activeBar.classList.add('hidden');
         return false;
@@ -3726,15 +3738,15 @@ window.handleFileUpload = async function(event) {
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
-    // Если сейчас УЖЕ действует ночная скидка (19:30 - 03:30 МСК), сразу генерируем со скидкой 50%!
+    // Если сейчас УЖЕ действует скидка DeepSeek, сразу генерируем со скидкой 50%
     // Предлагаем отложить в очередь ТОЛЬКО в дневные часы, чтобы пользователь мог сэкономить 50%.
     const isOffPeak = isOffPeakWindow();
     let isDeferred = false;
     if (!isOffPeak && files.length > 0) {
         isDeferred = confirm(
             `Документ: ${fileName} (${fileSizeMb} МБ)\n\n` +
-            `Сейчас действует стандартный дневной тариф.\n` +
-            `Поставить в очередь «Ночной Грайнд» со скидкой 50% (обработка в 19:30 МСК)?\n\n` +
+            `Сейчас действует пиковый тариф DeepSeek.\n` +
+            `Поставить в очередь со скидкой 50% (обработка начнётся после окончания пика)?\n\n` +
             `[OK] — В очередь со скидкой 50%\n` +
             `[Отмена] — Создать карточки прямо сейчас`
         );
@@ -5499,9 +5511,8 @@ function getActiveDeckSubject() {
 
 let currentKgSubject = '';
 let currentKgGraphData = null;
-let currentKgTreeData = null;
 let currentKgView = 'tree'; // 'tree' | 'graph'
-let currentKgLayout = 'force'; // 'force' | 'radial' | 'tree'
+let currentKgLayout = 'radial'; // 'radial' | 'tree' (сверху вниз) | 'horizontal' (слева направо)
 let currentForceGraphInstance = null;
 
 // Динамический асинхронный загрузчик библиотек физики графа (D3 & ForceGraph)
@@ -5549,6 +5560,11 @@ const KG_CATEGORY_COLORS = {
     'condition': '#10b981',     // Emerald
     'exception': '#f43f5e',     // Rose
     'legal_status': '#a855f7',  // Violet / Purple
+    // Статусы узлов «Пути знаний»
+    'locked': '#94a3b8',        // Серый силуэт
+    'open': '#3b82f6',          // Синий — можно начать урок
+    'lesson_done': '#f59e0b',   // Янтарный — урок пройден, идут карточки
+    'mastered': '#10b981',      // Изумрудный — освоено
     'default': '#3b82f6'        // Blue
 };
 
@@ -5557,8 +5573,62 @@ const KG_CATEGORY_NAMES = {
     'instance': 'Инстанция / Звено',
     'condition': 'Условие / Основание',
     'exception': 'Исключение / Изъятие',
-    'legal_status': 'Правовой статус'
+    'legal_status': 'Правовой статус',
+    'locked': 'Закрыто',
+    'open': 'Открыто',
+    'lesson_done': 'Урок пройден',
+    'mastered': 'Освоено'
 };
+
+const PATH_TIER_NAMES = ['Основы', 'Тема', 'Подтема', 'Кейс'];
+let currentPathState = null;
+
+// Узлы «Пути знаний» → формат графа: id = ключ узла, цвет = статус, размер = ярус.
+// Линии дерева (родитель → ребёнок) строятся по тому же структурному дереву, что и раскладка
+// (07a_path_layout.js), и добавляются первыми; смысловые связи ИИ — только между ещё не связанными узлами.
+function pathStateToGraphData(state) {
+    const nodes = (state.nodes || []).map(n => ({
+        id: n.key,
+        db_id: n.id,
+        name: n.name,
+        category: n.status,
+        status: n.status,
+        summary: n.summary || '',
+        level: Math.min(n.tier, 2),
+        tier: n.tier,
+        parent_id: n.parent_key || undefined,
+        prereq_keys: n.prereq_keys || [],
+        lesson_status: n.lesson_status,
+        cards_total: n.cards_total || 0,
+        cards_answered: n.cards_answered || 0,
+        is_learned: n.status === 'mastered',
+        card_state: n.status === 'mastered' ? 2 : (n.status === 'lesson_done' ? 1 : 0)
+    }));
+    const tree = buildPathTree(nodes);
+    const edges = [];
+    const linked = new Set();
+    const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+    nodes.forEach(n => {
+        const p = tree.parent.get(n.id);
+        if (!p || p === PATH_COURSE_ID) return;
+        n.path_parent = p;
+        linked.add(pairKey(p, n.id));
+        const isMapParent = n.parent_id === p;
+        edges.push({
+            source: p,
+            target: n.id,
+            relation: isMapParent ? 'part_of' : 'prereq',
+            label: isMapParent ? 'включает' : 'открывает путь к',
+            __structural: true
+        });
+    });
+    (state.edges || []).forEach(e => {
+        if (e.from === e.to || linked.has(pairKey(e.from, e.to))) return;
+        linked.add(pairKey(e.from, e.to));
+        edges.push({ source: e.from, target: e.to, relation: e.relation, label: e.label });
+    });
+    return { nodes, edges };
+}
 
 const KG_RELATION_STYLES = {
     'subject_to_jurisdiction': {
@@ -5596,6 +5666,16 @@ const KG_RELATION_STYLES = {
         borderClass: 'border-rose-500/30 hover:border-rose-500',
         textClass: 'text-rose-600 dark:text-rose-400',
         bgClass: 'bg-rose-50/70 dark:bg-rose-950/40'
+    },
+    // «Путь знаний»: пререквизит — тема открывается после освоения этого узла
+    'prereq': {
+        color: '#a78bfa',
+        lightColor: '#7c3aed',
+        label: 'открывает путь к',
+        icon: 'lock_open',
+        borderClass: 'border-violet-300 dark:border-violet-700 hover:border-primary',
+        textClass: 'text-violet-700 dark:text-violet-300',
+        bgClass: 'bg-violet-50 dark:bg-violet-950/40'
     },
     'default': {
         color: '#94a3b8',        // Светло-серебристый сланец
@@ -5690,7 +5770,16 @@ function getCleanGraphData() {
             reps: n.reps || 0,
             learned_count: n.learned_count || 0,
             total_leaves: n.total_leaves || 0,
-            mastered_count: n.mastered_count || 0
+            mastered_count: n.mastered_count || 0,
+            // Поля «Пути знаний»
+            db_id: n.db_id,
+            status: n.status,
+            tier: n.tier,
+            prereq_keys: n.prereq_keys,
+            lesson_status: n.lesson_status,
+            cards_total: n.cards_total,
+            cards_answered: n.cards_answered,
+            path_parent: n.path_parent
         });
     }
 
@@ -5709,6 +5798,7 @@ function getCleanGraphData() {
                 target: t,
                 relation: e.relation || '',
                 label: e.label || '',
+                __structural: Boolean(e.__structural),
                 __key: getGraphLinkKey(s, t)
             };
         })
@@ -5781,7 +5871,7 @@ window.openKnowledgeGraphModal = function(targetSubject) {
     if (badge) badge.textContent = sub.toUpperCase();
 
     // Preserve selected view or default to tree view initially
-    switchKgView(currentKgView || 'tree');
+    switchKgView('graph');
     loadKnowledgeGraph(sub);
 };
 
@@ -5847,35 +5937,17 @@ document.addEventListener('fullscreenchange', () => {
     }
 });
 
-window.switchKgView = function(viewType) {
-    currentKgView = viewType;
-    const treeView = document.getElementById('kg-tree-view');
+// Граф — единственный вид «Пути знаний» (вид «Дерево» удалён). Функцию вызывают и из тренировки.
+window.switchKgView = function() {
+    currentKgView = 'graph';
     const graphView = document.getElementById('kg-graph-view');
-    const tabTree = document.getElementById('kg-tab-tree');
-    const tabGraph = document.getElementById('kg-tab-graph');
-
-    const activeTabClass = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
-    const inactiveTabClass = "px-3 py-1 text-xs font-mono font-bold uppercase rounded-lg transition-all text-neutral-500 hover:text-primary flex items-center gap-1 cursor-pointer";
-
-    if (viewType === 'tree') {
-        if (treeView) treeView.classList.remove('hidden');
-        if (graphView) graphView.classList.add('hidden');
-        if (tabTree) tabTree.className = activeTabClass;
-        if (tabGraph) tabGraph.className = inactiveTabClass;
-    } else {
-        if (treeView) treeView.classList.add('hidden');
-        if (graphView) graphView.classList.remove('hidden');
-        if (tabTree) tabTree.className = inactiveTabClass;
-        if (tabGraph) tabGraph.className = activeTabClass;
-
-        // Initialize or resize 2D Canvas Force Graph after reflow
-        if (currentKgGraphData) {
+    if (graphView) graphView.classList.remove('hidden');
+    if (currentKgGraphData) {
+        requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    initForceGraph(currentKgGraphData);
-                });
+                initForceGraph(currentKgGraphData);
             });
-        }
+        });
     }
 };
 
@@ -5896,7 +5968,6 @@ window.loadKnowledgeGraph = async function(subject) {
     const badge = document.getElementById('kg-subject-badge');
     const loading = document.getElementById('kg-loading');
     const emptyState = document.getElementById('kg-empty-state');
-    const treeView = document.getElementById('kg-tree-view');
     const countBadge = document.getElementById('kg-node-count-badge');
 
     if (!sub || sub === 'all') {
@@ -5914,11 +5985,9 @@ window.loadKnowledgeGraph = async function(subject) {
                 actions.innerHTML = '';
             }
         }
-        if (treeView) treeView.innerHTML = '';
         if (countBadge) countBadge.textContent = '0 узлов';
         if (badge) badge.textContent = '—';
         currentKgGraphData = null;
-        currentKgTreeData = null;
         return;
     }
 
@@ -5930,51 +5999,32 @@ window.loadKnowledgeGraph = async function(subject) {
     closeKgNodeDrawer();
 
     try {
-        const res = await apiFetch(`/api/knowledge-graph?subject=${encodeURIComponent(sub)}`);
+        const res = await apiFetch(`/api/path/${encodeURIComponent(sub)}`);
         if (!res.ok) {
             // Check if 404
             if (emptyState) emptyState.classList.remove('hidden');
-            if (treeView) treeView.innerHTML = '';
             if (countBadge) countBadge.textContent = '0 узлов';
             currentKgGraphData = null;
-            currentKgTreeData = null;
             return;
         }
 
         const data = await res.json();
+        currentPathState = data;
         currentKgSubject = data.subject || sub;
         if (badge) badge.textContent = currentKgSubject.toUpperCase();
-        currentKgGraphData = data.graph_data;
-        currentKgTreeData = data.tree_data;
+        currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
         if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
 
-        if (data.is_empty || nodesCount === 0) {
+        if (nodesCount === 0) {
             if (emptyState) emptyState.classList.remove('hidden');
-            if (treeView) treeView.innerHTML = '';
             return;
         }
 
-        // Render DOM Mindmap Tree
-        if (treeView) {
-            treeView.innerHTML = '';
-            if (currentKgTreeData) {
-                renderKnowledgeTreeNode(currentKgTreeData, treeView, 0);
-            } else if (currentKgGraphData.nodes.length > 0) {
-                // Fallback: render flat cards if tree_data wasn't generated
-                currentKgGraphData.nodes.forEach(node => {
-                    renderKnowledgeTreeNode(node, treeView, 0);
-                });
-            }
-        }
-
-        // If currently in graph view, render canvas
-        if (currentKgView === 'graph') {
-            setTimeout(() => {
-                initForceGraph(currentKgGraphData);
-            }, 50);
-        }
+        setTimeout(() => {
+            initForceGraph(currentKgGraphData);
+        }, 50);
 
     } catch (e) {
         console.error("Сбой загрузки каркаса знаний:", e);
@@ -5983,194 +6033,6 @@ window.loadKnowledgeGraph = async function(subject) {
         if (loading) loading.classList.add('hidden');
     }
 };
-
-window.loadSeedOrDemoGraph = async function() {
-    let sub = currentKgSubject || getActiveDeckSubject();
-    if (!sub || sub === 'all') {
-        const sel = document.getElementById('subject-selector');
-        if (sel && sel.options) {
-            for (let i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value && sel.options[i].value !== 'all') {
-                    sub = sel.options[i].value;
-                    break;
-                }
-            }
-        }
-    }
-    if (!sub || sub === 'all') {
-        renderEmptyKgState();
-        return;
-    }
-    currentKgSubject = sub;
-    const badge = document.getElementById('kg-subject-badge');
-    if (badge) badge.textContent = sub.toUpperCase();
-    await rebuildKnowledgeGraph();
-};
-
-window.rebuildKnowledgeGraph = async function() {
-    let sub = currentKgSubject || getActiveDeckSubject();
-    if (!sub || sub === 'all') {
-        const sel = document.getElementById('subject-selector');
-        if (sel && sel.options) {
-            for (let i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value && sel.options[i].value !== 'all') {
-                    sub = sel.options[i].value;
-                    break;
-                }
-            }
-        }
-    }
-    if (!sub || sub === 'all') {
-        if (window.showNotification) {
-            window.showNotification('Сначала выберите предмет для построения графа.', 'warning');
-        }
-        return;
-    }
-
-    const loading = document.getElementById('kg-loading');
-    const rebuildIcon = document.getElementById('kg-rebuild-icon');
-    
-    if (rebuildIcon) rebuildIcon.classList.add('animate-spin');
-    if (loading) loading.classList.remove('hidden');
-
-    try {
-        const res = await apiFetch(`/api/knowledge-graph/rebuild?subject=${encodeURIComponent(sub)}`, {
-            method: 'POST'
-        });
-        
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            window.showNotification(err.detail || 'Ошибка при перестроении графа', 'error');
-            return;
-        }
-
-        const data = await res.json();
-        currentKgSubject = data.subject || sub;
-        currentKgGraphData = data.graph_data;
-        currentKgTreeData = data.tree_data;
-
-        const badge = document.getElementById('kg-subject-badge');
-        if (badge) badge.textContent = currentKgSubject.toUpperCase();
-
-        const countBadge = document.getElementById('kg-node-count-badge');
-        const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
-        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
-
-        const emptyState = document.getElementById('kg-empty-state');
-        if (emptyState) emptyState.classList.add('hidden');
-
-        const treeView = document.getElementById('kg-tree-view');
-        if (treeView) {
-            treeView.innerHTML = '';
-            if (currentKgTreeData) {
-                renderKnowledgeTreeNode(currentKgTreeData, treeView, 0);
-            } else if (currentKgGraphData && currentKgGraphData.nodes) {
-                currentKgGraphData.nodes.forEach(node => {
-                    renderKnowledgeTreeNode(node, treeView, 0);
-                });
-            }
-        }
-
-        if (currentKgView === 'graph') {
-            setTimeout(() => {
-                if (currentForceGraphInstance) {
-                    setGraphLayout(currentKgLayout || 'force');
-                } else {
-                    initForceGraph(currentKgGraphData);
-                }
-            }, 50);
-        }
-
-        window.showNotification(`Граф знаний перестроен из актуальных карточек (${nodesCount} узлов)`, 'success');
-    } catch (e) {
-        console.error("Сбой перестроения графа:", e);
-        window.showNotification('Сетевая ошибка при перестроении графа', 'error');
-    } finally {
-        if (rebuildIcon) rebuildIcon.classList.remove('animate-spin');
-        if (loading) loading.classList.add('hidden');
-    }
-};
-
-function renderKnowledgeTreeNode(node, container, depth) {
-    if (!node) return;
-
-    const nodeWrapper = document.createElement('div');
-    nodeWrapper.className = depth === 0 ? "mb-2.5" : "tree-branch-container my-1.5";
-
-    const hasChildren = node.children && node.children.length > 0;
-    const cat = node.category || 'authority';
-    const badgeClass = `badge-${cat}`;
-    const catLabel = KG_CATEGORY_NAMES[cat] || cat.toUpperCase();
-
-    const cardState = node.card_state !== undefined ? node.card_state : (node.is_learned ? 2 : 0);
-    let statusBadgeHTML = '';
-    if (cardState === 2) {
-        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Изучено</span>`;
-    } else if (cardState === 1 || cardState === 3) {
-        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">В процессе</span>`;
-    } else if (depth > 0) {
-        statusBadgeHTML = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-neutral-400 dark:text-neutral-500 uppercase">Новое</span>`;
-    }
-
-    const card = document.createElement('div');
-    card.className = "tree-node-card p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 transition-all flex items-start justify-between gap-2.5 cursor-pointer shadow-xs select-none";
-    
-    card.innerHTML = `
-        <div class="flex items-start gap-2.5 min-w-0">
-            ${hasChildren ? `
-                <button class="tree-toggle-btn text-neutral-400 hover:text-primary p-0.5 mt-0.5 rounded transition-transform duration-200" title="Свернуть/Развернуть">
-                    <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
-                </button>
-            ` : `
-                <span class="w-1.5 h-1.5 rounded-full ${cardState === 2 ? 'bg-emerald-500' : (cardState > 0 ? 'bg-blue-500' : 'bg-neutral-400 dark:bg-neutral-600')} mt-2 ml-1 shrink-0"></span>
-            `}
-            <div class="flex flex-col min-w-0">
-                <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="font-bold text-xs sm:text-sm text-neutral-900 dark:text-neutral-100 font-mono">${escapeHTML(node.name || node.id)}</span>
-                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${badgeClass}">${escapeHTML(catLabel)}</span>
-                    ${statusBadgeHTML}
-                    ${node.total_leaves ? `<span class="text-[9px] font-mono text-neutral-400 font-medium">(${node.learned_count || 0}/${node.total_leaves})</span>` : ''}
-                </div>
-                ${node.summary ? `
-                    <p class="text-[11px] text-neutral-600 dark:text-neutral-400 leading-snug mt-1 font-sans line-clamp-2">${escapeHTML(node.summary)}</p>
-                ` : ''}
-            </div>
-        </div>
-        <button class="text-neutral-400 hover:text-primary p-1 shrink-0 rounded transition-colors" title="Подробнее">
-            <span class="material-symbols-outlined text-[16px]">info</span>
-        </button>
-    `;
-
-    // Click on node card opens drawer
-    card.onclick = (e) => {
-        // If clicked on toggle button, handle collapse/expand
-        if (e.target.closest('.tree-toggle-btn')) {
-            e.stopPropagation();
-            const btn = e.target.closest('.tree-toggle-btn');
-            const childrenWrapper = nodeWrapper.querySelector('.tree-children-container');
-            if (childrenWrapper) {
-                const isHidden = childrenWrapper.classList.toggle('hidden');
-                btn.style.transform = isHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
-            }
-            return;
-        }
-        showKgNodeDrawer(node);
-    };
-
-    nodeWrapper.appendChild(card);
-
-    // Recursively render children
-    if (hasChildren) {
-        const childrenContainer = document.createElement('div');
-        childrenContainer.className = "tree-children-container";
-        node.children.forEach(child => {
-            renderKnowledgeTreeNode(child, childrenContainer, depth + 1);
-        });
-        nodeWrapper.appendChild(childrenContainer);
-    }
-
-    container.appendChild(nodeWrapper);
-}
 
 function wrapNodeText(text, maxChars = 16) {
     text = String(text || '');
@@ -6225,336 +6087,174 @@ function getUndirectedLinkKey(source, target) {
     return s < t ? `${s}--${t}` : `${t}--${s}`;
 }
 
-function applyLayoutForces(graphInstance, layoutType) {
-    if (!graphInstance) return;
+// Результат последней раскладки: круг/узел предмета и изгибы линий (рисуются в onRenderFramePre и linkCanvasObject)
+let kgPathLayoutMeta = null;
 
-    const graphData = (graphInstance.graphData && typeof graphInstance.graphData === 'function') ? graphInstance.graphData() : null;
-    const nodes = (graphData && graphData.nodes && graphData.nodes.length > 0)
-        ? graphData.nodes
-        : ((getCleanGraphData() || {}).nodes || []);
-    if (!nodes || nodes.length === 0) return;
+// Связи между основами и темами: по умолчанию фоном (видно дерево пути), по кнопке «Связи» — все ярко.
+// Связи выбранного или наведённого узла подсвечиваются всегда.
+let kgShowCrossLinks = false;
 
-    const nodeCount = nodes.length;
-    const isLarge = nodeCount > 40;
-    const nodeMap = new Map(nodes.map(n => [String(n.id), n]));
+window.toggleKgCrossLinks = function() {
+    kgShowCrossLinks = !kgShowCrossLinks;
+    const btn = document.getElementById('kg-cross-links-toggle');
+    if (btn) {
+        btn.setAttribute('aria-pressed', String(kgShowCrossLinks));
+        btn.classList.toggle('bg-primary', kgShowCrossLinks);
+        btn.classList.toggle('text-on-primary', kgShowCrossLinks);
+        btn.classList.toggle('text-neutral-500', !kgShowCrossLinks);
+    }
+    if (currentForceGraphInstance) {
+        // Движок перерисовывает кадр только при изменениях: незаметный сдвиг масштаба, физику не трогаем
+        const z = currentForceGraphInstance.zoom();
+        currentForceGraphInstance.zoom(z * 1.0001, 0);
+    }
+};
 
-    const rootNodes = nodes.filter(n => n.level === 0);
-    const branches = nodes.filter(n => n.level === 1);
-    const branchCount = Math.max(1, branches.length);
-
-    // Группировка дочерних понятий под их родительскими институтами
-    const branchLeavesMap = new Map();
-    branches.forEach(b => branchLeavesMap.set(String(b.id), []));
-    nodes.filter(n => n.level === 2).forEach(leaf => {
-        const pId = String(leaf.parent_id || '');
-        if (!branchLeavesMap.has(pId)) {
-            branchLeavesMap.set(pId, []);
-        }
-        branchLeavesMap.get(pId).push(leaf);
+// Раскладка «Пути знаний»: координаты считает 07a_path_layout.js, здесь узлы фиксируются,
+// линиям дерева передаются изгибы, связям между ветками — дуги (в круговой) или скрытие (в слоях).
+function applyPathLayout(graphData, layoutType) {
+    const meta = computePathLayout(graphData.nodes, graphData.links, layoutType);
+    kgPathLayoutMeta = { layout: layoutType, ...meta };
+    const nodeById = new Map(graphData.nodes.map(n => [String(n.id), n]));
+    let ringLane = 0;
+    graphData.nodes.forEach(n => {
+        const p = meta.positions[String(n.id)];
+        if (!p) return;
+        n.x = n.fx = p.x;
+        n.y = n.fy = p.y;
     });
-
-    // Сбрасываем позиционные силы перед назначением геометрии
-    graphInstance.d3Force('radial', null);
-    graphInstance.d3Force('x', null);
-    graphInstance.d3Force('y', null);
-    graphInstance.d3Force('center', null);
-
-    // Снимаем жесткую фиксацию с не-корневых узлов
-    nodes.forEach(n => {
-        if (n.level !== 0) {
-            n.fx = undefined;
-            n.fy = undefined;
+    graphData.links.forEach(l => {
+        const sId = String(typeof l.source === 'object' ? l.source.id : l.source);
+        const tId = String(typeof l.target === 'object' ? l.target.id : l.target);
+        l.__bends = null;
+        l.__ring = null;
+        if (l.__structural) {
+            l.__curvature = 0;
+            if (layoutType !== 'radial' && meta.parent[tId] === sId) l.__bends = meta.bends[tId] || null;
+            return;
+        }
+        const a = nodeById.get(sId);
+        const b = nodeById.get(tId);
+        if (!a || !b) return;
+        if (layoutType === 'radial') {
+            // Связь идёт по «кольцевой дороге» между кругом основ и кольцом тем: не режет центр
+            l.__curvature = 0;
+            l.__ring = (meta.routeRadius || 0) + (ringLane++ % 7 - 3) * 6;
+        } else {
+            l.__curvature = 0.25;
         }
     });
+}
 
-    // 1. Сила отталкивания (Charge Repulsion) с адаптивным масштабированием для защиты от зависания и взрыва координат
-    if (graphInstance.d3Force('charge')) {
-        graphInstance.d3Force('charge')
-            .strength(node => {
-                const lvl = (node.level !== undefined) ? node.level : 1;
-                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
-                    return -25; // Деликатное отталкивание в геометрических режимах
-                }
-                // Органический режим: для больших графов (>50 узлов) используем сбалансированное отталкивание
-                if (isLarge) {
-                    if (lvl === 0) return -800;
-                    if (lvl === 1) return -250;
-                    return -60;
-                }
-                if (lvl === 0) return -1800;
-                if (lvl === 1) return -450;
-                return -120;
-            })
-            .distanceMax(isLarge ? Math.min(850, 400 + nodeCount * 1.5) : 1600);
-    }
-
-    // 2. Сила связей (Link Force)
-    if (graphInstance.d3Force('link')) {
-        graphInstance.d3Force('link')
-            .distance(link => {
-                const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
-                const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
-                const sLvl = (s.level !== undefined) ? s.level : 1;
-                const tLvl = (t.level !== undefined) ? t.level : 1;
-
-                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
-                    if (sLvl === 0 || tLvl === 0) return 200;
-                    return 50;
-                }
-
-                // Органический режим (Force)
-                if (sLvl === 0 || tLvl === 0) {
-                    return Math.max(260, Math.min(420, 200 + branchCount * 3.0));
-                }
-                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) {
-                    return 70;
-                }
-                return 110;
-            })
-            .strength(link => {
-                const s = (typeof link.source === 'object' && link.source !== null) ? link.source : (nodeMap.get(String(link.source)) || {});
-                const t = (typeof link.target === 'object' && link.target !== null) ? link.target : (nodeMap.get(String(link.target)) || {});
-                const sLvl = (s.level !== undefined) ? s.level : 1;
-                const tLvl = (t.level !== undefined) ? t.level : 1;
-
-                if (layoutType === 'tree' || layoutType === 'horizontal' || layoutType === 'radial') {
-                    return 0.12; // Мягкая связность, геометрия управляется целевыми позициями
-                }
-
-                if (sLvl === 0 || tLvl === 0) return 0.85;
-                if ((sLvl === 1 && tLvl === 2) || (sLvl === 2 && tLvl === 1)) return 0.75;
-                return 0.04; // Деликатные кросс-связи
+// Предмет не является узлом графа (по нему нельзя тапнуть): рисуем его на подложке.
+// Круговая — круг с названием, основы на его ободе. Слои — плашка-заголовок и линии к основам.
+function drawPathCourse(ctx, globalScale) {
+    const meta = kgPathLayoutMeta;
+    if (!meta || !meta.course) return;
+    const dark = document.documentElement.classList.contains('dark');
+    const title = (currentPathState && currentPathState.title) || '';
+    ctx.save();
+    if (meta.layout === 'radial') {
+        if (meta.hubRadius > 0) {
+            ctx.beginPath();
+            ctx.arc(0, 0, meta.hubRadius, 0, 2 * Math.PI, false);
+            ctx.fillStyle = dark ? 'rgba(59, 130, 246, 0.06)' : 'rgba(59, 130, 246, 0.05)';
+            ctx.fill();
+            ctx.lineWidth = 2 / Math.max(globalScale, 0.2);
+            ctx.strokeStyle = dark ? 'rgba(96, 165, 250, 0.45)' : 'rgba(37, 99, 235, 0.35)';
+            ctx.stroke();
+        }
+        if (title) {
+            const fontSize = Math.max(12, (meta.hubRadius || 120) * 0.14);
+            ctx.font = `700 ${fontSize}px "Plus Jakarta Sans", -apple-system, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = dark ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)';
+            wrapNodeText(title, 18).slice(0, 3).forEach((line, idx, arr) => {
+                ctx.fillText(line, 0, (idx - (arr.length - 1) / 2) * fontSize * 1.2);
             });
+        }
+        ctx.restore();
+        return;
     }
+    // Линии от предмета к основам (с изгибами той же «шины»)
+    ctx.strokeStyle = dark ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.6)';
+    ctx.lineWidth = 1.4 / globalScale;
+    Object.entries(meta.parent).forEach(([id, parentId]) => {
+        if (parentId !== PATH_COURSE_ID) return;
+        const target = meta.positions[id];
+        if (!target) return;
+        ctx.beginPath();
+        ctx.moveTo(meta.course.x, meta.course.y);
+        (meta.bends[id] || []).forEach(pt => ctx.lineTo(pt.x, pt.y));
+        ctx.lineTo(target.x, target.y);
+        ctx.stroke();
+    });
+    // Плашка предмета
+    const fontSize = 13;
+    ctx.font = `700 ${fontSize}px "Plus Jakarta Sans", -apple-system, sans-serif`;
+    const lines = wrapNodeText(title || 'Предмет', 22).slice(0, 2);
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 28;
+    const h = lines.length * fontSize * 1.25 + 16;
+    const x = meta.course.x - w / 2;
+    const y = meta.course.y - h / 2;
+    ctx.fillStyle = dark ? '#1e293b' : '#eff6ff';
+    ctx.strokeStyle = dark ? 'rgba(96, 165, 250, 0.6)' : 'rgba(37, 99, 235, 0.5)';
+    ctx.lineWidth = 1.5 / globalScale;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 10); else ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = dark ? '#e2e8f0' : '#0f172a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    lines.forEach((line, idx) => ctx.fillText(line, meta.course.x, meta.course.y + (idx - (lines.length - 1) / 2) * fontSize * 1.25));
+    ctx.restore();
+}
 
-    // 3. Сила коллизии (Collide) — 1 итерация для плавной производительности на мобильных WebView
-    if (window.d3 && window.d3.forceCollide) {
-        graphInstance.d3Force('collide', window.d3.forceCollide()
-            .radius(node => {
-                const lvl = (node.level !== undefined) ? node.level : 2;
-                if (isLarge) {
-                    if (lvl === 0) return 36;
-                    if (lvl === 1) return 26;
-                    return 18;
-                }
-                if (lvl === 0) return 50;
-                if (lvl === 1) return 38;
-                return 28;
-            })
-            .strength(isLarge ? 0.45 : 0.75)
-            .iterations(1)
-        );
-    }
+// Связь между ветками в круговой раскладке: радиально к кольцевой дороге, по ней короткой дугой, обратно к узлу
+function drawRingRoadLink(link, ctx, globalScale) {
+    const s = link.source;
+    const t = link.target;
+    if (!s || !t || !Number.isFinite(s.x) || !Number.isFinite(t.x)) return;
+    const colorFn = currentForceGraphInstance.linkColor();
+    const color = typeof colorFn === 'function' ? colorFn(link) : colorFn;
+    if (!color || color === 'rgba(0, 0, 0, 0)') return;
+    const widthFn = currentForceGraphInstance.linkWidth();
+    const r = link.__ring;
+    const a1 = Math.atan2(s.y, s.x);
+    const a2 = Math.atan2(t.y, t.x);
+    let delta = a2 - a1;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(Math.cos(a1) * r, Math.sin(a1) * r);
+    ctx.arc(0, 0, r, a1, a1 + delta, delta < 0);
+    ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = (typeof widthFn === 'function' ? widthFn(link) : widthFn) / globalScale;
+    ctx.stroke();
+    ctx.restore();
+}
 
-    // 4. Позиционные силы для чистых упорядоченных раскладок
-    const targetXMap = new Map();
-    const targetYMap = new Map();
-
-    if (layoutType === 'tree') {
-        // Дерево: СВЕРХУ ВНИЗ (Иерархический веер институтов с распределением понятий по сетке)
-        rootNodes.forEach(r => {
-            r.fx = 0;
-            r.fy = -480;
-            targetXMap.set(String(r.id), 0);
-            targetYMap.set(String(r.id), -480);
-        });
-
-        // Рассчитываем ширину институтов по количеству их дочерних понятий
-        const branchWidths = branches.map(b => {
-            const leaves = branchLeavesMap.get(String(b.id)) || [];
-            if (leaves.length <= 1) return 150;
-            const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
-            return Math.max(160, cols * 76 + 20);
-        });
-        const totalTreeWidth = branchWidths.reduce((sum, w) => sum + w, 0);
-        let curX = -totalTreeWidth / 2;
-
-        branches.forEach((b, idx) => {
-            const bWidth = branchWidths[idx];
-            const bX = curX + bWidth / 2;
-            curX += bWidth;
-
-            const bY = (idx % 2 === 0) ? -230 : -150;
-            targetXMap.set(String(b.id), bX);
-            targetYMap.set(String(b.id), bY);
-
-            const leaves = branchLeavesMap.get(String(b.id)) || [];
-            if (leaves.length === 1) {
-                targetXMap.set(String(leaves[0].id), bX);
-                targetYMap.set(String(leaves[0].id), bY + 110);
-            } else if (leaves.length > 1) {
-                // Распределяем дочерние понятия веером по сетке (не в одну колонку!)
-                const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
-                const colSpacing = 76;
-                const rowSpacing = 52;
-                leaves.forEach((leaf, lIdx) => {
-                    const col = lIdx % cols;
-                    const row = Math.floor(lIdx / cols);
-                    const totalRows = Math.ceil(leaves.length / cols);
-                    const itemsInRow = (row === totalRows - 1 && leaves.length % cols !== 0)
-                        ? (leaves.length % cols)
-                        : cols;
-                    const leafX = bX + (col - (itemsInRow - 1) / 2) * colSpacing;
-                    const leafY = bY + 110 + (row * rowSpacing);
-                    targetXMap.set(String(leaf.id), leafX);
-                    targetYMap.set(String(leaf.id), leafY);
-                });
-            }
-        });
-
-        nodes.forEach(n => {
-            const id = String(n.id);
-            if (!targetXMap.has(id)) {
-                targetXMap.set(id, 0);
-                targetYMap.set(id, 100);
-            }
-        });
-
-        if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
-        }
-
-    } else if (layoutType === 'horizontal') {
-        // Горизонтально: СЛЕВА НАПРАВО (Иерархический веер институтов)
-        rootNodes.forEach(r => {
-            r.fx = -480;
-            r.fy = 0;
-            targetXMap.set(String(r.id), -480);
-            targetYMap.set(String(r.id), 0);
-        });
-
-        const branchHeights = branches.map(b => {
-            const leaves = branchLeavesMap.get(String(b.id)) || [];
-            if (leaves.length <= 1) return 130;
-            const rows = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
-            return Math.max(140, rows * 64 + 20);
-        });
-        const totalTreeHeight = branchHeights.reduce((sum, h) => sum + h, 0);
-        let curY = -totalTreeHeight / 2;
-
-        branches.forEach((b, idx) => {
-            const bHeight = branchHeights[idx];
-            const bY = curY + bHeight / 2;
-            curY += bHeight;
-
-            const bX = (idx % 2 === 0) ? -230 : -150;
-            targetXMap.set(String(b.id), bX);
-            targetYMap.set(String(b.id), bY);
-
-            const leaves = branchLeavesMap.get(String(b.id)) || [];
-            if (leaves.length === 1) {
-                targetXMap.set(String(leaves[0].id), bX + 110);
-                targetYMap.set(String(leaves[0].id), bY);
-            } else if (leaves.length > 1) {
-                const rows = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(leaves.length * 1.3))));
-                const colSpacing = 68;
-                const rowSpacing = 52;
-                leaves.forEach((leaf, lIdx) => {
-                    const row = lIdx % rows;
-                    const col = Math.floor(lIdx / rows);
-                    const totalCols = Math.ceil(leaves.length / rows);
-                    const itemsInCol = (col === totalCols - 1 && leaves.length % rows !== 0)
-                        ? (leaves.length % rows)
-                        : rows;
-                    const leafY = bY + (row - (itemsInCol - 1) / 2) * rowSpacing;
-                    const leafX = bX + 110 + (col * colSpacing);
-                    targetXMap.set(String(leaf.id), leafX);
-                    targetYMap.set(String(leaf.id), leafY);
-                });
-            }
-        });
-
-        nodes.forEach(n => {
-            const id = String(n.id);
-            if (!targetXMap.has(id)) {
-                targetXMap.set(id, 100);
-                targetYMap.set(id, 0);
-            }
-        });
-
-        if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
-        }
-
-    } else if (layoutType === 'radial') {
-        // Радиальный: Аккуратный просторный цветок с расходящимися секторами (STARBURST)
-        rootNodes.forEach(r => {
-            r.fx = 0;
-            r.fy = 0;
-            targetXMap.set(String(r.id), 0);
-            targetYMap.set(String(r.id), 0);
-        });
-
-        branches.forEach((b, idx) => {
-            const angle = (idx / branchCount) * 2 * Math.PI;
-            const radius = (idx % 2 === 0) ? 340 : 520;
-            const bX = Math.cos(angle) * radius;
-            const bY = Math.sin(angle) * radius;
-            targetXMap.set(String(b.id), bX);
-            targetYMap.set(String(b.id), bY);
-
-            const leaves = branchLeavesMap.get(String(b.id)) || [];
-            const angleSpan = Math.min(0.24, (2 * Math.PI / branchCount) * 0.85);
-            leaves.forEach((leaf, lIdx) => {
-                const row = Math.floor(lIdx / 4);
-                const col = lIdx % 4;
-                const itemsInRow = (row === Math.floor((leaves.length - 1) / 4))
-                    ? ((leaves.length - 1) % 4 + 1)
-                    : 4;
-                const leafRadius = radius + 110 + (row * 60);
-                const angleOffset = itemsInRow > 1
-                    ? ((col - (itemsInRow - 1) / 2) * (angleSpan / itemsInRow))
-                    : 0;
-                const leafX = Math.cos(angle + angleOffset) * leafRadius;
-                const leafY = Math.sin(angle + angleOffset) * leafRadius;
-                targetXMap.set(String(leaf.id), leafX);
-                targetYMap.set(String(leaf.id), leafY);
-            });
-        });
-
-        nodes.forEach(n => {
-            const id = String(n.id);
-            if (!targetXMap.has(id)) {
-                targetXMap.set(id, 0);
-                targetYMap.set(id, 0);
-            }
-        });
-
-        if (window.d3 && window.d3.forceX && window.d3.forceY) {
-            graphInstance.d3Force('x', window.d3.forceX(node => targetXMap.get(String(node.id)) || 0).strength(0.92));
-            graphInstance.d3Force('y', window.d3.forceY(node => targetYMap.get(String(node.id)) || 0).strength(0.92));
-        }
-
-    } else {
-        // Органический (Force)
-        rootNodes.forEach(r => {
-            r.fx = 0;
-            r.fy = 0;
-        });
-        if (window.d3 && window.d3.forceCenter) {
-            graphInstance.d3Force('center', window.d3.forceCenter(0, 0).strength(0.08));
-        }
-    }
+function kgStructuralLinkBends(link) {
+    return link && link.__bends && link.__bends.length ? link.__bends : null;
 }
 
 window.setGraphLayout = function(layoutType) {
-    currentKgLayout = layoutType || 'force';
+    const allowed = ['radial', 'tree', 'horizontal'];
+    currentKgLayout = allowed.includes(layoutType) ? layoutType : 'radial';
     isInitialLayoutFit = true;
 
-    const btnForce = document.getElementById('kg-layout-force');
-    const btnRadial = document.getElementById('kg-layout-radial');
-    const btnTree = document.getElementById('kg-layout-tree');
-    const btnLr = document.getElementById('kg-layout-lr');
-
+    const buttons = { radial: 'kg-layout-radial', tree: 'kg-layout-tree', horizontal: 'kg-layout-lr' };
     const inactiveClass = "p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer";
     const activeClass = "p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all bg-primary text-on-primary shadow-xs flex items-center gap-1 cursor-pointer";
-
-    if (btnForce) btnForce.className = currentKgLayout === 'force' ? activeClass : inactiveClass;
-    if (btnRadial) btnRadial.className = currentKgLayout === 'radial' ? activeClass : inactiveClass;
-    if (btnTree) btnTree.className = currentKgLayout === 'tree' ? activeClass : inactiveClass;
-    if (btnLr) btnLr.className = currentKgLayout === 'horizontal' ? activeClass : inactiveClass;
+    Object.entries(buttons).forEach(([layout, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.className = currentKgLayout === layout ? activeClass : inactiveClass;
+    });
 
     if (!currentForceGraphInstance) return;
 
@@ -6566,31 +6266,29 @@ window.setGraphLayout = function(layoutType) {
 
     const cleanData = getCleanGraphData();
     if (!cleanData) return;
+    applyPathLayout(cleanData, currentKgLayout);
 
-    // Снимаем фиксацию со всех не-корневых узлов
-    (cleanData.nodes || []).forEach(n => {
-        if (n.level !== 0) {
-            n.fx = undefined;
-            n.fy = undefined;
-        }
-    });
-
+    // Все узлы стоят на вычисленных местах: физика не нужна, остаётся только отрисовка
+    currentForceGraphInstance.d3Force('charge', null);
+    currentForceGraphInstance.d3Force('center', null);
+    currentForceGraphInstance.d3Force('collide', null);
+    currentForceGraphInstance.d3Force('x', null);
+    currentForceGraphInstance.d3Force('y', null);
+    currentForceGraphInstance.d3Force('radial', null);
+    if (currentForceGraphInstance.d3Force('link')) {
+        currentForceGraphInstance.d3Force('link').strength(0);
+    }
     currentForceGraphInstance
         .dagMode(null)
         .onDagError(() => false)
         .graphData(cleanData);
 
-    applyLayoutForces(currentForceGraphInstance, currentKgLayout);
-
-    if (currentForceGraphInstance.d3ReheatSimulation) {
-        currentForceGraphInstance.d3ReheatSimulation();
-    }
     setTimeout(() => {
         if (currentForceGraphInstance && isInitialLayoutFit) {
             isInitialLayoutFit = false;
-            currentForceGraphInstance.zoomToFit(500, 45);
+            currentForceGraphInstance.zoomToFit(500, 60);
         }
-    }, 450);
+    }, 300);
 };
 
 /* ==========================================================================
@@ -7025,7 +6723,7 @@ window.initForceGraph = async function(graphData) {
         if (currentForceGraphInstance.resumeAnimation) {
             currentForceGraphInstance.resumeAnimation();
         }
-        setGraphLayout(currentKgLayout || 'force');
+        setGraphLayout(currentKgLayout || 'radial');
         return;
     }
 
@@ -7049,10 +6747,10 @@ window.initForceGraph = async function(graphData) {
                     <div class="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] text-neutral-600 dark:text-neutral-400">
                         <span class="material-symbols-outlined text-4xl text-amber-500 mb-2">account_tree</span>
                         <p class="font-mono text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-1">2D-движок графа недоступен</p>
-                        <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не смог загрузиться из-за сетевых ограничений. Рекомендуем переключиться на режим ментальной карты.</p>
-                        <button onclick="window.switchKgView('tree')" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
-                            <span class="material-symbols-outlined text-[16px]">account_tree</span>
-                            <span>[ Открыть Mindmap (Дерево) ]</span>
+                        <p class="text-xs mb-4 max-w-sm">Скрипт 2D-визуализации не смог загрузиться из-за сетевых ограничений.</p>
+                        <button onclick="window.loadKnowledgeGraph()" class="px-4 py-2 bg-primary text-on-primary rounded-xl font-mono text-xs font-bold uppercase transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">refresh</span>
+                            <span>Повторить</span>
                         </button>
                     </div>
                 `;
@@ -7088,6 +6786,7 @@ window.initForceGraph = async function(graphData) {
         .nodeVal('val')
         .nodeLabel(node => `${node.name} (${KG_CATEGORY_NAMES[node.category] || node.category})`)
         .linkDirectionalArrowLength(link => {
+            if (kgStructuralLinkBends(link) || link.__structural || link.__ring) return 0;  // без стрелок: дерево и кольцевые связи
             const lKey = link.__key || getGraphLinkKey(link.source, link.target);
             if (nodeClickStep === 2) {
                 if (searchBackboneLinkKeys.has(lKey) || searchHighlightLinkKeys.has(lKey)) return 7.5;
@@ -7103,6 +6802,7 @@ window.initForceGraph = async function(graphData) {
         })
         .linkDirectionalArrowRelPos(0.88)
         .linkCurvature(link => link.__curvature || 0)
+        .linkLineDash(link => (link.relation === 'prereq' ? [5, 4] : null))
         .linkColor(link => {
             const lKey = link.__key || getGraphLinkKey(link.source, link.target);
             const isHovered = hoveredLink === link || hoveredLinkKeys.has(lKey);
@@ -7142,7 +6842,13 @@ window.initForceGraph = async function(graphData) {
             if (hoveredNode || hoveredLink) {
                 return isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
             }
-            // Обычное состояние: яркие, четкие линии с цветами основного приложения
+            // Обычное состояние: дерево пути — ярко; связи между ветками — по кнопке «Связи»
+            // (в круговой — едва заметными дугами, в слоях — скрыты, чтобы не перечёркивать слои)
+            if (!link.__structural) {
+                if (kgShowCrossLinks) return getKgRelationLinkColor(link.relation, false, isDark, 0.9);
+                if (currentKgLayout === 'radial') return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)';
+                return 'rgba(0, 0, 0, 0)';
+            }
             return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
@@ -7176,6 +6882,7 @@ window.initForceGraph = async function(graphData) {
         })
         .linkDirectionalParticles(() => 0) // Без вырвиглазных бегущих частиц!
         .onRenderFramePre((ctx, globalScale) => {
+            drawPathCourse(ctx, globalScale);
             try {
                 if (currentForceGraphInstance && typeof currentForceGraphInstance.screen2GraphCoords === 'function') {
                     const pad = 120;
@@ -7202,8 +6909,30 @@ window.initForceGraph = async function(graphData) {
                 kgViewportBounds.maxY = 1e6;
             }
         })
-        .linkCanvasObjectMode(() => 'after')
+        .linkCanvasObjectMode(link => (kgStructuralLinkBends(link) || link.__ring ? 'replace' : 'after'))
         .linkCanvasObject((link, ctx, globalScale) => {
+            if (link.__ring) {
+                drawRingRoadLink(link, ctx, globalScale);
+                return;
+            }
+            // Линия дерева в слоистых раскладках — ломаная «оргчарта» через изгибы из раскладки
+            const bends = kgStructuralLinkBends(link);
+            if (bends) {
+                if (!link.source || !link.target || !Number.isFinite(link.source.x) || !Number.isFinite(link.target.x)) return;
+                const colorFn = currentForceGraphInstance.linkColor();
+                const widthFn = currentForceGraphInstance.linkWidth();
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(link.source.x, link.source.y);
+                bends.forEach(pt => ctx.lineTo(pt.x, pt.y));
+                ctx.lineTo(link.target.x, link.target.y);
+                ctx.strokeStyle = typeof colorFn === 'function' ? colorFn(link) : colorFn;
+                ctx.lineWidth = (typeof widthFn === 'function' ? widthFn(link) : widthFn) / globalScale;
+                if (link.relation === 'prereq') ctx.setLineDash([5 / globalScale, 4 / globalScale]);
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
             try {
                 if (!link.source || !link.target) return;
                 const sx = Number.isFinite(link.source.x) ? link.source.x : null;
@@ -7470,6 +7199,20 @@ window.initForceGraph = async function(graphData) {
                 }
             }
 
+            // «Путь знаний»: цвет узла определяется его статусом, закрытые узлы — бледные силуэты
+            if (node.status && !isTarget) {
+                const statusColor = getKgNodeColor(node.status);
+                if (node.status === 'locked') {
+                    nodeFill = currentDark ? '#1e293b' : '#f1f5f9';
+                    nodeStroke = currentDark ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)';
+                    strokeWidth = 1.0;
+                } else {
+                    nodeFill = statusColor;
+                    nodeStroke = currentDark ? '#ffffff' : '#0f172a';
+                    strokeWidth = node.status === 'open' ? 2.2 : 1.4;
+                }
+            }
+
             // 2. Тело узла
             ctx.beginPath();
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
@@ -7516,6 +7259,25 @@ window.initForceGraph = async function(graphData) {
                 ctx.stroke();
             }
 
+            // 3.4. Карточки узла — спутники по кругу (без физики и линий); закрашены уже отвеченные
+            if (node.cards_total && globalScale >= 0.45) {
+                const total = Math.min(node.cards_total, 16);
+                const answered = Math.round((node.cards_answered || 0) * total / node.cards_total);
+                const orbit = radius + 4.5;
+                const dotR = Math.max(0.9, Math.min(1.6, radius * 0.22));
+                for (let i = 0; i < total; i++) {
+                    const a = (2 * Math.PI * i) / total - Math.PI / 2;
+                    ctx.beginPath();
+                    ctx.arc(node.x + Math.cos(a) * orbit, node.y + Math.sin(a) * orbit, dotR, 0, 2 * Math.PI, false);
+                    ctx.fillStyle = i < answered
+                        ? '#10b981'
+                        : (node.status === 'locked'
+                            ? (currentDark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)')
+                            : (currentDark ? 'rgba(148, 163, 184, 0.8)' : 'rgba(71, 85, 105, 0.75)'));
+                    ctx.fill();
+                }
+            }
+
             // 4. Текстовая плашка-метка узла (Obsidian-Style Semantic Zoom LOD)
             let shouldShowLabel = false;
             let labelAlpha = 1.0;
@@ -7539,9 +7301,9 @@ window.initForceGraph = async function(graphData) {
                 shouldShowLabel = true;
                 labelAlpha = 1.0;
             } else if (node.level === 1) {
-                // Институты появляются при приближении (когда в кадре несколько институтов)
-                shouldShowLabel = globalScale >= 0.85;
-                labelAlpha = Math.min(1.0, Math.max(0.0, (globalScale - 0.75) / 0.15));
+                // Темы подписаны всегда: вместе с основами это скелет предмета
+                shouldShowLabel = true;
+                labelAlpha = 1.0;
             } else {
                 // Понятия появляются при глубоком приближении с плавным переходом 1.80 - 2.10
                 shouldShowLabel = globalScale >= 1.80;
@@ -7696,7 +7458,7 @@ window.initForceGraph = async function(graphData) {
             }
         });
 
-    setGraphLayout(currentKgLayout || 'force');
+    setGraphLayout(currentKgLayout || 'radial');
 
     // Resize on window resize (remove previous listener to prevent memory leak and duplicate events)
     if (kgResizeHandler) {
@@ -7883,6 +7645,8 @@ window.showKgNodeDrawer = function(node, startCollapsed = false) {
         }
     }
 
+    renderPathDrawerState(node);
+
     if (cardBtn) {
         if (node.card_id) {
             cardBtn.classList.remove('hidden');
@@ -8012,6 +7776,54 @@ window.showKgNodeDrawer = function(node, startCollapsed = false) {
 
 let currentKgDrawerNode = null;
 
+function renderPathDrawerState(node) {
+    const lessonBtn = document.getElementById('kg-drawer-btn-lesson');
+    const lessonLabel = document.getElementById('kg-drawer-btn-lesson-label');
+    const hint = document.getElementById('kg-drawer-path-hint');
+    const statusBadge = document.getElementById('kg-drawer-status-badge');
+    if (!node.status) {
+        if (lessonBtn) lessonBtn.classList.add('hidden');
+        if (hint) hint.classList.add('hidden');
+        return;
+    }
+    const tierName = PATH_TIER_NAMES[node.tier] || '';
+    if (statusBadge) {
+        statusBadge.classList.remove('hidden');
+        statusBadge.className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 badge-${node.status}`;
+        statusBadge.textContent = node.cards_total
+            ? `${tierName} · ${node.cards_answered}/${node.cards_total}`
+            : tierName;
+    }
+    if (hint) {
+        if (node.status === 'locked') {
+            const byKey = new Map((currentKgGraphData.nodes || []).map(n => [n.id, n]));
+            const missing = (node.prereq_keys || [])
+                .map(k => byKey.get(k))
+                .filter(n => n && n.status !== 'mastered')
+                .map(n => `«${n.name}»`);
+            hint.textContent = missing.length ? `Откроется после: ${missing.join(', ')}` : 'Пока закрыто';
+            hint.classList.remove('hidden');
+        } else if (node.status === 'lesson_done') {
+            hint.textContent = 'Урок пройден. Карточки темы уже в тренировке.';
+            hint.classList.remove('hidden');
+        } else {
+            hint.classList.add('hidden');
+        }
+    }
+    if (lessonBtn) {
+        const available = node.status !== 'locked' && node.lesson_status === 'ready';
+        lessonBtn.classList.toggle('hidden', !available);
+        if (lessonLabel) lessonLabel.textContent = node.status === 'open' ? 'Начать урок' : 'Повторить урок';
+    }
+}
+
+window.openLessonForKgNode = function() {
+    if (!currentKgDrawerNode || !currentKgDrawerNode.db_id) return;
+    if (window.openLesson) {
+        window.openLesson(currentKgDrawerNode.db_id);
+    }
+};
+
 window.closeKgNodeDrawer = function() {
     const drawer = document.getElementById('kg-node-drawer');
     if (drawer) drawer.classList.add('hidden');
@@ -8035,6 +7847,392 @@ window.openCardForKgNode = function() {
 
 
 
+
+// ============================================================================
+// РАСКЛАДКА «ПУТИ ЗНАНИЙ»: СТРУКТУРНОЕ ДЕРЕВО → КООРДИНАТЫ
+// Круговая (кольца от центра предмета), «сверху вниз» и «слева направо» (слои).
+// Чистые функции без DOM: проверяются автотестом через node (tests/js/path_layout_check.js).
+//
+// Дерево: корень — предмет, его дети — основы; у остальных узлов ровно один структурный
+// родитель (родитель из карты или первый пререквизит ярусом выше). Слой = глубина в дереве,
+// поэтому подтема, привязанная прямо к основе, стоит под ней и её линия не перескакивает слои.
+// Линии дерева не пересекаются по построению: каждое поддерево занимает свою полосу (сектор).
+// ============================================================================
+
+const PATH_COURSE_ID = '__course__';
+
+const PATH_LAYOUT_CONFIG = {
+    vertical: {
+        depthGap: 150,          // расстояние между слоями
+        siblingGap: 22,         // зазор между соседними поддеревьями
+        columnThreshold: 4,     // больше стольких листьев у узла — складываем их в столбик
+        columnMaxRows: 8,
+        columnWidth: 130,
+        rowGap: 50,
+        leafOffset: 55,         // сдвиг листа вправо от вертикальной «шины» столбика
+        rowSpacing: 1.1,        // зазор между рядами при переносе (в долях depthGap)
+        targetAspect: 1.3       // желаемое отношение ширины к высоте схемы при переносе рядами
+    },
+    horizontal: {
+        depthGap: 240,
+        siblingGap: 10,
+        nodeBreadth: 46,        // по вертикали узел с подписью занимает ~46px
+        rowSpacing: 0.6,        // зазор между колонками при переносе (в долях depthGap)
+        targetAspect: 0.8       // поперечная ось здесь вертикальная: колонки выше, чем шире
+    },
+    radial: {
+        firstRingGap: 220,
+        ringGaps: [160, 120, 100],
+        minRootArc: 170,        // минимальная дуга между основами на ободе
+        minArc: 125,            // минимальная дуга между узлами второго кольца (подписи тем не слипаются)
+        minLeafArc: 34,
+        minCoreWeight: 2.5,     // минимальный «вес» сектора основы/темы
+        leafSubRing: 55         // второй «подкольцевой» ряд для плотных вееров листьев
+    }
+};
+
+function pathLabelWidth(node) {
+    const maxChars = node && node.tier === 0 ? 22 : 16;
+    const len = Math.min(String((node && node.name) || '').length, maxChars);
+    return Math.max(70, len * 6.4 + 16);
+}
+
+// Структурный родитель каждого узла: родитель из карты → первый пререквизит ярусом выше → предмет.
+// Циклы разрываются (узел уходит к предмету).
+function buildPathTree(nodes) {
+    const byId = new Map(nodes.map(n => [String(n.id), n]));
+    const parent = new Map();
+    nodes.forEach(n => {
+        const id = String(n.id);
+        let p = PATH_COURSE_ID;
+        if (n.tier > 0) {
+            const mapParent = n.parent_id !== undefined && n.parent_id !== null ? String(n.parent_id) : '';
+            if (mapParent && mapParent !== id && byId.has(mapParent)) {
+                p = mapParent;
+            } else {
+                const prereqs = (n.prereq_keys || [])
+                    .map(k => byId.get(String(k)))
+                    .filter(x => x && String(x.id) !== id && x.tier < n.tier);
+                const primary = prereqs.find(x => x.tier === n.tier - 1) || prereqs.sort((a, b) => b.tier - a.tier)[0];
+                if (primary) p = String(primary.id);
+            }
+        }
+        parent.set(id, p);
+    });
+    nodes.forEach(n => {
+        const id = String(n.id);
+        const seen = new Set([id]);
+        let cur = parent.get(id);
+        while (cur && cur !== PATH_COURSE_ID) {
+            if (seen.has(cur)) {
+                parent.set(id, PATH_COURSE_ID);
+                break;
+            }
+            seen.add(cur);
+            cur = parent.get(cur);
+        }
+    });
+
+    const children = new Map([[PATH_COURSE_ID, []]]);
+    nodes.forEach(n => {
+        const p = parent.get(String(n.id));
+        if (!children.has(p)) children.set(p, []);
+        children.get(p).push(String(n.id));
+    });
+
+    const depth = new Map([[PATH_COURSE_ID, 0]]);
+    const queue = [PATH_COURSE_ID];
+    while (queue.length) {
+        const u = queue.shift();
+        (children.get(u) || []).forEach(c => {
+            depth.set(c, depth.get(u) + 1);
+            queue.push(c);
+        });
+    }
+    return { byId, parent, children, depth };
+}
+
+// Порядок детей: связанные между собой ветки (по смысловым связям) ставим рядом —
+// межветочные связи становятся короче и реже пересекаются.
+function orderPathChildren(tree, edges) {
+    const topUnder = (id, parentId) => {
+        let cur = id;
+        let guard = 0;
+        while (cur && tree.parent.get(cur) !== parentId && guard++ < 64) {
+            cur = tree.parent.get(cur);
+            if (!cur || cur === PATH_COURSE_ID) return null;
+        }
+        return tree.parent.get(cur) === parentId ? cur : null;
+    };
+    tree.children.forEach((kids, parentId) => {
+        if (kids.length < 3) return;
+        const originalIdx = new Map(kids.map((k, i) => [k, i]));
+        const weight = new Map();
+        const key = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+        (edges || []).forEach(e => {
+            const a = topUnder(String(e.source), parentId);
+            const b = topUnder(String(e.target), parentId);
+            if (a && b && a !== b) weight.set(key(a, b), (weight.get(key(a, b)) || 0) + 1);
+        });
+        if (!weight.size) return;
+        const ordered = [kids[0]];
+        const rest = new Set(kids.slice(1));
+        while (rest.size) {
+            const last = ordered[ordered.length - 1];
+            let best = null;
+            let bestW = -1;
+            rest.forEach(c => {
+                const w = weight.get(key(last, c)) || 0;
+                if (w > bestW || (w === bestW && originalIdx.get(c) < originalIdx.get(best))) {
+                    best = c;
+                    bestW = w;
+                }
+            });
+            ordered.push(best);
+            rest.delete(best);
+        }
+        tree.children.set(parentId, ordered);
+    });
+}
+
+// Аккуратное слоистое дерево в координатах (breadth, depth): каждое поддерево — своя полоса.
+// Связи рисуются «оргчартом»: от родителя вниз к шине, по шине, вниз к ребёнку.
+function tidyPathTree(tree, cfg, breadthOf, wrapRoots) {
+    const pos = new Map();
+    const bends = new Map();
+    const span = new Map();
+    const isLeaf = id => !(tree.children.get(id) || []).length;
+    const useColumns = cfg.columnThreshold !== undefined;
+
+    const items = id => {
+        const kids = tree.children.get(id) || [];
+        const leaves = kids.filter(isLeaf);
+        if (!useColumns || leaves.length <= cfg.columnThreshold) {
+            return kids.map(k => ({ type: 'node', id: k }));
+        }
+        const branches = kids.filter(k => !isLeaf(k)).map(k => ({ type: 'node', id: k }));
+        const column = { type: 'column', leaves, cols: Math.ceil(leaves.length / cfg.columnMaxRows) };
+        branches.splice(Math.floor(branches.length / 2), 0, column);
+        return branches;
+    };
+    const itemSpan = it => (it.type === 'column' ? it.cols * cfg.columnWidth : span.get(it.id));
+
+    const measure = id => {
+        const its = items(id);
+        its.forEach(it => { if (it.type === 'node') measure(it.id); });
+        const own = breadthOf(id) + cfg.siblingGap;
+        const kidsSpan = its.reduce((sum, it) => sum + itemSpan(it), 0);
+        span.set(id, Math.max(own, kidsSpan));
+    };
+
+    const place = (id, left, d) => {
+        const total = span.get(id);
+        const b = left + total / 2;
+        pos.set(id, { b, d });
+        const its = items(id);
+        if (!its.length) return;
+        const kidsSpan = its.reduce((sum, it) => sum + itemSpan(it), 0);
+        let cur = left + (total - kidsSpan) / 2;
+        const busD = d + cfg.depthGap * 0.45;
+        its.forEach(it => {
+            if (it.type === 'node') {
+                place(it.id, cur, d + cfg.depthGap);
+                bends.set(it.id, [{ b, d: busD }, { b: pos.get(it.id).b, d: busD }]);
+            } else {
+                it.leaves.forEach((leafId, idx) => {
+                    const col = Math.floor(idx / cfg.columnMaxRows);
+                    const row = idx % cfg.columnMaxRows;
+                    const spineB = cur + col * cfg.columnWidth + 12;
+                    const leafD = d + cfg.depthGap + row * cfg.rowGap;
+                    pos.set(leafId, { b: spineB + cfg.leafOffset, d: leafD });
+                    bends.set(leafId, [{ b, d: busD }, { b: spineB, d: busD }, { b: spineB, d: leafD }]);
+                });
+            }
+            cur += itemSpan(it);
+        });
+    };
+
+    measure(PATH_COURSE_ID);
+    const roots = tree.children.get(PATH_COURSE_ID) || [];
+    const totalSpan = roots.reduce((sum, r) => sum + span.get(r), 0);
+
+    // Высота поддерева основы (по оси слоёв), включая столбики листьев
+    const subtreeDepth = rootId => {
+        let maxD = 0;
+        const walk = id => {
+            maxD = Math.max(maxD, pos.get(id).d);
+            (tree.children.get(id) || []).forEach(walk);
+        };
+        walk(rootId);
+        return maxD;
+    };
+
+    // Ряды: сколько основ с их деревьями в одном ряду, чтобы схема была близка к квадрату
+    let rows = [roots];
+    if (wrapRoots && roots.length > 1) {
+        roots.forEach(r => place(r, 0, 0));
+        const height = Math.max(...roots.map(subtreeDepth)) + cfg.depthGap * cfg.rowSpacing;
+        const k = Math.max(1, Math.round(Math.sqrt(totalSpan / (cfg.targetAspect * height))));
+        if (k > 1) {
+            const maxRow = Math.max(...roots.map(r => span.get(r)), totalSpan / k);
+            rows = [[]];
+            let rowSpan = 0;
+            roots.forEach(r => {
+                if (rows[rows.length - 1].length && rowSpan + span.get(r) > maxRow * 1.05) {
+                    rows.push([]);
+                    rowSpan = 0;
+                }
+                rows[rows.length - 1].push(r);
+                rowSpan += span.get(r);
+            });
+        }
+    }
+
+    if (rows.length === 1) {
+        place(PATH_COURSE_ID, -span.get(PATH_COURSE_ID) / 2, 0);
+        return { pos, bends };
+    }
+
+    // Перенос рядами: предмет в левом верхнем углу, от него вниз «ствол» левее всех деревьев,
+    // от ствола к каждому ряду — своя шина между рядами. Линии дерева по-прежнему не пересекаются.
+    const trunkB = -cfg.depthGap * 0.35;
+    pos.set(PATH_COURSE_ID, { b: trunkB, d: 0 });
+    let rowTop = cfg.depthGap;
+    rows.forEach(row => {
+        let left = 0;
+        let rowBottom = rowTop;
+        const busD = rowTop - cfg.depthGap * 0.45;
+        row.forEach(r => {
+            place(r, left, rowTop);
+            bends.set(r, [{ b: trunkB, d: busD }, { b: pos.get(r).b, d: busD }]);
+            rowBottom = Math.max(rowBottom, subtreeDepth(r));
+            left += span.get(r);
+        });
+        rowTop = rowBottom + cfg.depthGap * cfg.rowSpacing;
+    });
+    return { pos, bends };
+}
+
+function layoutPathVertical(tree, horizontal) {
+    const cfg = horizontal
+        ? Object.assign({}, PATH_LAYOUT_CONFIG.horizontal)
+        : Object.assign({}, PATH_LAYOUT_CONFIG.vertical);
+    const breadthOf = id => {
+        if (id === PATH_COURSE_ID) return horizontal ? 60 : 180;
+        return horizontal ? cfg.nodeBreadth : pathLabelWidth(tree.byId.get(id));
+    };
+    const { pos, bends } = tidyPathTree(tree, cfg, breadthOf, true);
+    const toXY = p => (horizontal ? { x: p.d, y: p.b } : { x: p.b, y: p.d });
+    const positions = {};
+    pos.forEach((p, id) => { positions[id] = toXY(p); });
+    const outBends = {};
+    bends.forEach((pts, id) => { outBends[id] = pts.map(toXY); });
+    return { positions, bends: outBends, course: positions[PATH_COURSE_ID], hubRadius: 0 };
+}
+
+// Круговая: то же дерево в полярных координатах. Угол — полоса поддерева, радиус — слой.
+function layoutPathRadial(tree) {
+    const cfg = PATH_LAYOUT_CONFIG.radial;
+    const leafWeight = new Map();
+    const weightOf = id => {
+        if (leafWeight.has(id)) return leafWeight.get(id);
+        const kids = tree.children.get(id) || [];
+        const node = tree.byId.get(id);
+        // Основа или тема без подтем всё равно получает заметный сектор — иначе соседние темы слипаются
+        const minWeight = node && node.tier <= 1 ? cfg.minCoreWeight : 1;
+        const w = Math.max(minWeight, kids.length ? kids.reduce((s, k) => s + weightOf(k), 0) : 1);
+        leafWeight.set(id, w);
+        return w;
+    };
+    weightOf(PATH_COURSE_ID);
+
+    const angle = new Map();
+    const roots = tree.children.get(PATH_COURSE_ID) || [];
+    const totalW = roots.reduce((s, r) => s + weightOf(r), 0) || 1;
+    const equal = 1 / Math.max(1, roots.length);
+    const assign = (id, start, end) => {
+        angle.set(id, (start + end) / 2);
+        const kids = tree.children.get(id) || [];
+        if (!kids.length) return;
+        const w = kids.reduce((s, k) => s + weightOf(k), 0);
+        let cur = start;
+        kids.forEach(k => {
+            const share = (end - start) * weightOf(k) / w;
+            assign(k, cur, cur + share);
+            cur += share;
+        });
+    };
+    // Сектор основы: половина поровну (основы не слипаются), половина — по размеру её ветвей
+    let cur = -Math.PI / 2;
+    roots.forEach(r => {
+        const share = 2 * Math.PI * (0.5 * equal + 0.5 * weightOf(r) / totalW);
+        assign(r, cur, cur + share);
+        cur += share;
+    });
+
+    // Радиусы колец: не меньше, чем нужно, чтобы соседние подписи на кольце не слипались
+    const byDepth = new Map();
+    tree.depth.forEach((d, id) => {
+        if (id === PATH_COURSE_ID) return;
+        if (!byDepth.has(d)) byDepth.set(d, []);
+        byDepth.get(d).push(id);
+    });
+    const minGapAngle = ids => {
+        const a = ids.map(id => angle.get(id)).sort((x, y) => x - y);
+        if (a.length < 2) return 2 * Math.PI;
+        let g = 2 * Math.PI - (a[a.length - 1] - a[0]);
+        for (let i = 1; i < a.length; i++) g = Math.min(g, a[i] - a[i - 1]);
+        return Math.max(g, 1e-3);
+    };
+    const radius = new Map();
+    const maxDepth = Math.max(0, ...byDepth.keys());
+    const hubRadius = roots.length > 1 ? Math.max(130, cfg.minRootArc / minGapAngle(roots)) : 0;
+    radius.set(1, hubRadius);
+    for (let d = 2; d <= maxDepth; d++) {
+        const ids = byDepth.get(d) || [];
+        const gap = d === 2 ? cfg.firstRingGap : cfg.ringGaps[Math.min(d - 3, cfg.ringGaps.length - 1)];
+        // Подписи тем (ярус ≤ 1) видны всегда — им нужна дуга minArc; мелким узлам хватает minLeafArc
+        const core = ids.filter(id => (tree.byId.get(id) || {}).tier <= 1);
+        const need = Math.max(
+            core.length > 1 ? cfg.minArc / minGapAngle(core) : 0,
+            cfg.minLeafArc / minGapAngle(ids)
+        );
+        radius.set(d, Math.min(2600, Math.max(radius.get(d - 1) + gap, need)));
+    }
+
+    const positions = { [PATH_COURSE_ID]: { x: 0, y: 0 } };
+    tree.depth.forEach((d, id) => {
+        if (id === PATH_COURSE_ID) return;
+        let r = radius.get(d) || 0;
+        // Плотный веер листьев одного родителя — через один на второе «подкольцо»
+        const siblings = tree.children.get(tree.parent.get(id)) || [];
+        const isLeaf = !(tree.children.get(id) || []).length;
+        if (d > 2 && isLeaf && siblings.length > 5 && siblings.indexOf(id) % 2 === 1) r += cfg.leafSubRing;
+        const a = angle.get(id);
+        positions[id] = { x: Math.cos(a) * r, y: Math.sin(a) * r };
+    });
+    const ring2 = radius.get(2) || hubRadius + cfg.firstRingGap;
+    const routeRadius = hubRadius + (ring2 - hubRadius) * 0.5;
+    return { positions, bends: {}, course: { x: 0, y: 0 }, hubRadius, routeRadius };
+}
+
+// Главная точка входа: nodes [{id, tier, name, parent_id, prereq_keys}], edges [{source, target}]
+function computePathLayout(nodes, edges, layoutType) {
+    const tree = buildPathTree(nodes);
+    orderPathChildren(tree, edges);
+    const result = layoutType === 'radial'
+        ? layoutPathRadial(tree)
+        : layoutPathVertical(tree, layoutType === 'horizontal');
+    result.parent = {};
+    tree.parent.forEach((p, id) => { result.parent[id] = p; });
+    result.depth = {};
+    tree.depth.forEach((d, id) => { result.depth[id] = d; });
+    return result;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { PATH_COURSE_ID, PATH_LAYOUT_CONFIG, buildPathTree, computePathLayout, pathLabelWidth };
+}
 
 /* ==========================================================================
    MILESTONE 4: INTERACTIVE PRACTICE MODULE CONTROLLER (R5)
@@ -8140,6 +8338,8 @@ function renderPracticeQuestion() {
     if (typeBadge) {
         const typeConfigs = {
             'situational': { icon: 'psychology', label: 'СИТУАЦИОННЫЙ КЕЙС' },
+            'recall': { icon: 'quiz', label: 'ВСПОМНИ ОТВЕТ' },
+            'relation': { icon: 'hub', label: 'СВЯЗЬ ТЕМ' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
@@ -8414,4 +8614,330 @@ window.checkTodayPracticeStats = async function(sub) {
     } catch (e) {
         console.warn("Сбой проверки статистики практики:", e);
     }
+};
+// ============================================================================
+// УРОК УЗЛА «ПУТИ ЗНАНИЙ»: КОТ-РАССКАЗЧИК, ВОПРОСЫ НА ПОНИМАНИЕ, ЗАВЕРШЕНИЕ
+// Озвучки нет: кот «говорит» только текстом (TTS работает лишь в тренировке языков).
+// ============================================================================
+
+// Кадры кота: 3 строки по 9 символов. Эмоции приходят из урока (поле emo).
+const LESSON_CAT = {
+    idle:      { frames: [[' /\\_/\\   ', '( o.o )  ', ' > ^ <   ']], blink: [' /\\_/\\   ', '( -.- )  ', ' > ^ <   '] },
+    talk:      { frames: [[' /\\_/\\   ', '( o.o )  ', ' > o <   '], [' /\\_/\\   ', '( o.o )  ', ' > - <   ']] },
+    happy:     { frames: [[' /\\_/\\   ', '( ^.^ )  ', ' > w <   ']] },
+    think:     { frames: [[' /\\_/\\  ?', '( -.- )  ', ' > ~ <   '], [' /\\_/\\ ? ', '( -.- )  ', ' > ~ <   ']] },
+    surprised: { frames: [[' /\\_/\\  !', '( O.O )  ', ' > o <   ']] },
+    confused:  { frames: [[' /\\_/\\  ?', '( o.O )  ', ' > ~ <   ']] }
+};
+const LESSON_TIER_NAMES = ['Основы', 'Тема', 'Подтема', 'Кейс на различение'];
+const LESSON_TYPE_MS = 18;
+
+let lessonState = null;
+let lessonCatTimer = null;
+let lessonTypeTimer = null;
+
+function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function setLessonCat(emotion, reaction) {
+    const el = document.getElementById('lesson-cat');
+    if (!el) return;
+    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
+    clearInterval(lessonCatTimer);
+
+    const draw = (frame) => { el.textContent = frame.join('\n'); };
+    draw(cat.frames[0]);
+
+    // Микроанимации: рот/знак вопроса сменяют кадры, спокойный кот иногда моргает
+    if (!prefersReducedMotion()) {
+        if (cat.frames.length > 1) {
+            let i = 0;
+            lessonCatTimer = setInterval(() => { i = (i + 1) % cat.frames.length; draw(cat.frames[i]); }, emotion === 'talk' ? 170 : 600);
+        } else if (cat.blink) {
+            lessonCatTimer = setInterval(() => {
+                draw(cat.blink);
+                setTimeout(() => draw(cat.frames[0]), 160);
+            }, 3200);
+        }
+    }
+
+    el.className = `lesson-cat font-mono text-primary cat-emo-${emotion}`;
+    if (reaction && !prefersReducedMotion()) {
+        void el.offsetWidth; // перезапуск CSS-анимации реакции
+        el.classList.add(`cat-react-${reaction}`);
+    }
+}
+
+// Печать реплики по буквам; кот «говорит», пока идёт текст, потом принимает эмоцию реплики
+function sayLesson(text, emotionAfter, reaction) {
+    const textEl = document.getElementById('lesson-text');
+    clearInterval(lessonTypeTimer);
+    if (!textEl) return;
+    if (prefersReducedMotion()) {
+        textEl.textContent = text;
+        setLessonCat(emotionAfter, reaction);
+        return;
+    }
+    setLessonCat('talk');
+    let pos = 0;
+    textEl.textContent = '';
+    lessonState.typingDone = () => {
+        clearInterval(lessonTypeTimer);
+        textEl.textContent = text;
+        lessonState.typingDone = null;
+        setLessonCat(emotionAfter, reaction);
+    };
+    lessonTypeTimer = setInterval(() => {
+        pos += 1;
+        textEl.textContent = text.slice(0, pos);
+        if (pos >= text.length && lessonState.typingDone) lessonState.typingDone();
+    }, LESSON_TYPE_MS);
+}
+
+window.skipLessonTyping = function() {
+    if (lessonState && lessonState.typingDone) lessonState.typingDone();
+};
+
+function renderLessonProgress() {
+    const el = document.getElementById('lesson-progress');
+    if (!el || !lessonState) return;
+    const total = lessonState.screens.length + lessonState.checks.length;
+    const current = lessonState.phase === 'screens' ? lessonState.idx : lessonState.screens.length + lessonState.idx;
+    el.innerHTML = '';
+    for (let i = 0; i < total; i++) {
+        const dot = document.createElement('span');
+        dot.className = `lesson-dot ${i < current ? 'lesson-dot-done' : (i === current ? 'lesson-dot-current' : '')}`;
+        el.appendChild(dot);
+    }
+}
+
+function setLessonButtons(nextLabel, nextEnabled, secondaryLabel) {
+    const next = document.getElementById('lesson-next-btn');
+    const secondary = document.getElementById('lesson-secondary-btn');
+    if (next) {
+        next.textContent = nextLabel;
+        next.disabled = !nextEnabled;
+    }
+    if (secondary) {
+        secondary.classList.toggle('hidden', !secondaryLabel);
+        if (secondaryLabel) secondary.textContent = secondaryLabel;
+    }
+}
+
+function clearLessonExtras() {
+    ['lesson-focus', 'lesson-options'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    });
+    const fb = document.getElementById('lesson-feedback');
+    if (fb) fb.classList.add('hidden');
+}
+
+function renderLessonScreen() {
+    const s = lessonState.screens[lessonState.idx];
+    clearLessonExtras();
+    renderLessonProgress();
+    sayLesson(s.say, s.emo || 'idle');
+
+    // Понятия, о которых говорит кот, — чипы с названиями узлов графа
+    const focusEl = document.getElementById('lesson-focus');
+    const nodesByKey = new Map(((typeof currentKgGraphData !== 'undefined' && currentKgGraphData && currentKgGraphData.nodes) || []).map(n => [n.id, n]));
+    (s.focus || []).forEach(key => {
+        const n = nodesByKey.get(key);
+        if (!n || !focusEl) return;
+        const chip = document.createElement('span');
+        chip.className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase badge-${n.status || 'open'}`;
+        chip.textContent = n.name;
+        focusEl.appendChild(chip);
+    });
+
+    const isLast = lessonState.idx === lessonState.screens.length - 1;
+    const nextLabel = isLast ? (lessonState.checks.length ? 'Проверим себя' : 'Завершить урок') : 'Далее';
+    setLessonButtons(nextLabel, true, lessonState.idx > 0 ? 'Назад' : null);
+}
+
+function renderLessonCheck() {
+    const c = lessonState.checks[lessonState.idx];
+    clearLessonExtras();
+    renderLessonProgress();
+    lessonState.answered = false;
+    sayLesson(c.q, 'think');
+
+    const optionsEl = document.getElementById('lesson-options');
+    c.options.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'lesson-option w-full text-left rounded-xl text-sm transition-all cursor-pointer';
+        btn.textContent = opt;
+        btn.onclick = () => answerLessonCheck(i);
+        optionsEl.appendChild(btn);
+    });
+    setLessonButtons('Ответь на вопрос', false, null);
+}
+
+function answerLessonCheck(choice) {
+    if (!lessonState || lessonState.answered) return;
+    lessonState.answered = true;
+    const c = lessonState.checks[lessonState.idx];
+    const correct = choice === c.answer;
+    if (correct) lessonState.score += 1;
+
+    document.querySelectorAll('#lesson-options .lesson-option').forEach((btn, i) => {
+        btn.disabled = true;
+        btn.classList.remove('cursor-pointer');
+        if (i === c.answer) btn.classList.add('lesson-option-correct');
+        else if (i === choice) btn.classList.add('lesson-option-wrong');
+        else btn.classList.add('lesson-option-dim');
+    });
+
+    // Реакция кота на ответ — главный момент эмоций
+    const verdict = correct ? 'Верно!' : 'Не совсем.';
+    sayLesson(c.why ? `${verdict} ${c.why}` : verdict, correct ? 'happy' : 'confused', correct ? 'bounce' : 'shake');
+
+    const isLast = lessonState.idx === lessonState.checks.length - 1;
+    setLessonButtons(isLast ? 'Завершить урок' : 'Следующий вопрос', true, null);
+}
+
+async function finishLesson() {
+    clearLessonExtras();
+    lessonState.phase = 'done';
+    renderLessonProgress();
+    const hasChecks = lessonState.checks.length > 0;
+
+    // Нужен хотя бы один верный ответ, иначе предлагаем пройти урок ещё раз
+    if (hasChecks && lessonState.score === 0) {
+        sayLesson('Хм, пока не сложилось. Давай ещё раз пробежимся по уроку — это быстро.', 'confused', 'shake');
+        setLessonButtons('Пройти ещё раз', true, 'Позже');
+        lessonState.onNext = () => restartLesson();
+        lessonState.onSecondary = () => closeLesson();
+        return;
+    }
+
+    setLessonButtons('Сохраняю…', false, null);
+    try {
+        const res = await apiFetch(`/api/path/node/${lessonState.nodeId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checkpoint_score: lessonState.score })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+        console.error('Не удалось сохранить прохождение урока:', e);
+        sayLesson('Не получилось сохранить прогресс. Проверь связь и попробуй ещё раз.', 'confused', 'shake');
+        setLessonButtons('Повторить', true, 'Закрыть');
+        lessonState.onNext = () => finishLesson();
+        lessonState.onSecondary = () => closeLesson();
+        return;
+    }
+
+    const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    sayLesson(`Урок пройден!${scoreLine} Карточки этой темы уже ждут тебя в тренировке.`, 'happy', 'bounce');
+    setLessonButtons('К графу', true, null);
+    lessonState.onNext = () => {
+        closeLesson();
+        if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
+    };
+}
+
+function restartLesson() {
+    lessonState.phase = 'screens';
+    lessonState.idx = 0;
+    lessonState.score = 0;
+    lessonState.onNext = null;
+    lessonState.onSecondary = null;
+    renderLessonScreen();
+}
+
+window.lessonNext = function() {
+    if (!lessonState) return;
+    if (lessonState.typingDone) {
+        // Первое нажатие во время печати — просто допечатать реплику
+        lessonState.typingDone();
+        return;
+    }
+    if (lessonState.onNext) {
+        lessonState.onNext();
+        return;
+    }
+    if (lessonState.phase === 'screens') {
+        if (lessonState.idx < lessonState.screens.length - 1) {
+            lessonState.idx += 1;
+            renderLessonScreen();
+        } else if (lessonState.checks.length) {
+            lessonState.phase = 'check';
+            lessonState.idx = 0;
+            renderLessonCheck();
+        } else {
+            finishLesson();
+        }
+    } else if (lessonState.phase === 'check') {
+        if (lessonState.idx < lessonState.checks.length - 1) {
+            lessonState.idx += 1;
+            renderLessonCheck();
+        } else {
+            finishLesson();
+        }
+    }
+};
+
+window.lessonSecondaryAction = function() {
+    if (!lessonState) return;
+    if (lessonState.onSecondary) {
+        lessonState.onSecondary();
+        return;
+    }
+    if (lessonState.phase === 'screens' && lessonState.idx > 0) {
+        lessonState.idx -= 1;
+        renderLessonScreen();
+    }
+};
+
+window.openLesson = async function(nodeId) {
+    const modal = document.getElementById('lesson-modal');
+    if (!modal) return;
+    let data;
+    try {
+        const res = await apiFetch(`/api/path/node/${nodeId}/lesson`);
+        data = await res.json();
+        if (!res.ok) {
+            alert(data.detail || 'Урок пока недоступен.');
+            return;
+        }
+    } catch (e) {
+        console.error('Сбой загрузки урока:', e);
+        alert('Не удалось загрузить урок. Проверь связь.');
+        return;
+    }
+    if (!data.lesson || !(data.lesson.screens || []).length) {
+        alert('Для этой темы урок не сгенерировался.');
+        return;
+    }
+
+    lessonState = {
+        nodeId,
+        screens: data.lesson.screens,
+        checks: data.lesson.check || [],
+        phase: 'screens',
+        idx: 0,
+        score: 0,
+        answered: false,
+        typingDone: null,
+        onNext: null,
+        onSecondary: null
+    };
+    const nameEl = document.getElementById('lesson-node-name');
+    if (nameEl) nameEl.textContent = data.node.name;
+    const tierEl = document.getElementById('lesson-tier-badge');
+    if (tierEl) tierEl.textContent = LESSON_TIER_NAMES[data.node.tier] || '';
+
+    modal.classList.remove('hidden');
+    renderLessonScreen();
+};
+
+window.closeLesson = function() {
+    clearInterval(lessonCatTimer);
+    clearInterval(lessonTypeTimer);
+    lessonState = null;
+    const modal = document.getElementById('lesson-modal');
+    if (modal) modal.classList.add('hidden');
 };

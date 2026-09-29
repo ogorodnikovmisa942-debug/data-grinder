@@ -285,3 +285,36 @@ __all__ = [
     "semantic_normalize_front",
     "BLACKLISTED_PATTERNS",
 ]
+
+
+def strip_secondary_spoilers(front: str, back: str, secondary: str) -> str:
+    """Убирает из 's' (виден на лицевой стороне) части после '|', которые подсказывают ответ 'd'."""
+    clean_sec = str(secondary or "").strip()
+    clean_back = str(back or "").strip()
+    if "|" not in clean_sec or not clean_back:
+        return clean_sec
+
+    def extract_stems(text_val: str) -> set[str]:
+        stop_stems = {"суд", "дел", "прав", "закон", "орган", "норм", "стат", "кодекс", "област", "виды", "вид", "form", "part", "case", "rule", "type"}
+        stems = set()
+        for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', text_val.lower()):
+            s = re.sub(r'(?:ый|ий|ой|ая|яя|ое|ее|ые|ие|ого|его|ому|ему|ых|их|ым|им|ом|ем|ами|ями|ях|ах|ов|ев|ей|ам|ям|а|я|у|ю|е|о|ы|и|ь|ing|ed|es|s)$', '', w)
+            if len(s) >= 3 and s not in stop_stems:
+                stems.add(s)
+        return stems
+
+    parts = [p.strip() for p in clean_sec.split("|")]
+    back_stems = extract_stems(clean_back)
+    is_concept_def = bool(re.search(r'\b(?:какое понятие|какой термин|назовите понятие|назовите термин|что обозначает|what concept|what term|which term)\b', str(front or "").lower()))
+    safe_parts = [parts[0]]
+    for part in parts[1:]:
+        part_lower = part.lower()
+        part_stems = extract_stems(part)
+        is_spoiler = bool(part_stems & back_stems)
+        if not is_spoiler and is_concept_def:
+            is_spoiler = any(s in clean_back.lower() for s in part_stems if len(s) >= 4)
+        if not is_spoiler and re.search(r'\b(?:срок|дней|суток|месяц|кгб|комитет|надзор|отмена|запрещен|противопоказан)\b', part_lower):
+            is_spoiler = any(w in clean_back.lower() for w in part_lower.split())
+        if not is_spoiler:
+            safe_parts.append(part)
+    return " | ".join(safe_parts)

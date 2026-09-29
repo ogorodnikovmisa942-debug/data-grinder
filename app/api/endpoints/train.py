@@ -3,7 +3,7 @@ import asyncio
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from pydantic import BaseModel
 from collections import defaultdict
 from app.database.session import get_db
@@ -13,6 +13,7 @@ from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
+from app.services.knowledge_path import unlocked_node_ids_subquery
 from datetime import datetime
 
 router = APIRouter()
@@ -198,11 +199,13 @@ async def get_session_cards(
     if allowed_new_count > 0:
         new_stmt = select(Card).filter(
             Card.user_id == current_user,
-            Card.state == 0
+            Card.state == 0,
+            # Путь знаний: новые карточки узла доступны только после его урока
+            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user)))
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        new_stmt = new_stmt.order_by(Card.layer.asc(), Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(allowed_new_count)
+        new_stmt = new_stmt.order_by(Card.subject.asc(), Card.topological_rank.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
     elif mode == "new":
@@ -211,11 +214,13 @@ async def get_session_cards(
         extra_limit = limit or 10
         extra_stmt = select(Card).filter(
             Card.user_id == current_user,
-            Card.state == 0
+            Card.state == 0,
+            # Путь знаний: новые карточки узла доступны только после его урока
+            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user)))
         )
         if subject != 'all':
             extra_stmt = extra_stmt.filter(Card.subject.in_(sub_aliases))
-        extra_stmt = extra_stmt.order_by(Card.layer.asc(), Card.topological_rank.asc(), Card.phrase_id.asc(), Card.id.asc()).limit(extra_limit)
+        extra_stmt = extra_stmt.order_by(Card.subject.asc(), Card.topological_rank.asc(), Card.id.asc()).limit(extra_limit)
         extra_res = await db.execute(extra_stmt)
         new_cards = extra_res.scalars().all()
 

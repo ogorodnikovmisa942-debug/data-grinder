@@ -1,0 +1,42 @@
+    <!-- Модальное окно: Урок узла «Пути знаний» (кот-рассказчик + вопросы на понимание) -->
+    <div id="lesson-modal" role="dialog" aria-modal="true" aria-label="Урок" class="hidden fixed inset-0 z-[130] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 relative overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <!-- Хедер урока -->
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">school</span>
+                    <div class="flex flex-col min-w-0">
+                        <h3 id="lesson-node-name" class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Урок</h3>
+                        <span id="lesson-tier-badge" class="text-[10px] font-mono text-neutral-500 uppercase">—</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <div id="lesson-progress" class="flex items-center gap-1" aria-hidden="true"></div>
+                    <button onclick="closeLesson()" aria-label="Закрыть урок" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer">
+                        <span class="material-symbols-outlined text-lg">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Кот и его реплика -->
+            <div class="lesson-body flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col" style="touch-action: pan-y;">
+                <div class="lesson-row">
+                    <div class="lesson-cat-wrap shrink-0">
+                        <pre id="lesson-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                    </div>
+                    <div id="lesson-bubble" onclick="skipLessonTyping()" class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 cursor-pointer">
+                        <p id="lesson-text" class="lesson-text text-sm leading-relaxed" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div id="lesson-focus" class="lesson-chips"></div>
+                <div id="lesson-options" class="lesson-options"></div>
+                <p id="lesson-feedback" class="hidden text-xs leading-relaxed font-mono px-1"></p>
+            </div>
+
+            <!-- Управление -->
+            <div class="px-4 py-3 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2 shrink-0">
+                <button id="lesson-secondary-btn" onclick="lessonSecondaryAction()" class="lesson-btn lesson-btn-secondary hidden flex-1 rounded-xl text-sm font-mono font-bold transition-all cursor-pointer">Назад</button>
+                <button id="lesson-next-btn" onclick="lessonNext()" class="lesson-btn lesson-btn-primary flex-1 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">Далее</button>
+            </div>
+        </div>
+    </div>

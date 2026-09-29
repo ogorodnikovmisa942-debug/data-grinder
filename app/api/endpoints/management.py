@@ -20,7 +20,6 @@ from app.services.card_db_sync import (
     get_user_experiment_status,
     save_cards_to_database,
     append_or_sync_cards_to_database,
-    sync_subject_knowledge_and_practice,
 )
 from app.services.generation_worker import is_deepseek_offpeak
 

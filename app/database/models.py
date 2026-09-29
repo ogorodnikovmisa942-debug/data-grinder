@@ -75,6 +75,11 @@ class Card(Base):
     organ_slug = Column(String, nullable=True, index=True)    # Идентификатор органа / института / школы
     layer = Column(Integer, default=1)                        # Когнитивный слой (0: скелет, 1: основы, 2: составы, 3: развилки/примеры)
 
+    # Путь знаний: привязка к узлу графа и готовые дистракторы для практики
+    node_id = Column(Integer, ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    answer_type = Column(String, nullable=True)   # term | date | number | organ | rule | criterion
+    distractors = Column(JSON, nullable=True)     # 3 правдоподобных неверных ответа того же answer_type
+
     # Реляционные связи
     phrase = relationship("Phrase", back_populates="cards")
     category = relationship("Category", back_populates="cards")
@@ -207,6 +212,8 @@ class AiTelemetryLog(Base):
     prompt_tokens = Column(Integer, default=0, nullable=False)
     completion_tokens = Column(Integer, default=0, nullable=False)
     cache_hit = Column(Boolean, default=False, nullable=False)  # попадание в Context Cache
+    cache_hit_tokens = Column(Integer, default=0, nullable=False)
+    cost_usd = Column(Float, default=0.0, nullable=False)       # оценка стоимости вызова по ценам из настроек
     is_truncated = Column(Boolean, default=False, nullable=False)
     repair_successful = Column(Boolean, default=False, nullable=False)
     cards_generated = Column(Integer, default=0, nullable=False)
@@ -230,37 +237,6 @@ class InviteCode(Base):
     used_at = Column(DateTime, nullable=True)
 
 
-class TopicKnowledgeGraph(Base):
-    """
-    Семантический граф знаний и иерархическое дерево ментального каркаса предмета (R1, R2).
-    Обеспечивает мгновенную O(1) загрузку структуры книги/темы без повторного обращения к LLM.
-    """
-    __tablename__ = "topic_knowledge_graphs"
-    __table_args__ = (
-        UniqueConstraint("user_id", "subject", name="uq_topic_knowledge_graphs_user_subject"),
-        Index("ix_topic_knowledge_graphs_user_subject", "user_id", "subject"),
-    )
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, nullable=False, index=True, default="default_user")
-    subject = Column(String, nullable=False, index=True)
-    graph_data = Column(JSON, nullable=False)
-    tree_data = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=utc_now, server_default=func.now())
-    updated_at = Column(DateTime, default=utc_now, server_default=func.now(), onupdate=utc_now)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "subject": self.subject,
-            "graph_data": self.graph_data,
-            "tree_data": self.tree_data,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-
 class PracticeItem(Base):
     """
     Интерактивные практические задания (ситуационные кейсы, разграничение контрастных пар, заполнение пропусков) (R5).
@@ -276,6 +252,7 @@ class PracticeItem(Base):
     user_id = Column(String, nullable=False, index=True, default="default_user")
     subject = Column(String, nullable=False, index=True)
     item_type = Column(String, nullable=False, default="situational")  # situational | contrast_pair | slot_filling
+    node_id = Column(Integer, ForeignKey("knowledge_nodes.id", ondelete="CASCADE"), nullable=True, index=True)
     prompt = Column(Text, nullable=False)
     options = Column(JSON, nullable=False)  # list of strings
     correct_answer = Column(Text, nullable=False)
@@ -328,4 +305,75 @@ class PracticeSessionLog(Base):
         }
 
 
-
+
+
+class KnowledgeNode(Base):
+    """
+    Узел «Пути знаний»: единица теории, к которой привязаны урок, карточки и практика.
+    Ярусы: 0 — базовые понятия, 1 — темы/отрасли, 2 — подтемы, 3 — кейсы на различение.
+    """
+    __tablename__ = "knowledge_nodes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "subject", "node_key", name="uq_knowledge_nodes_user_subject_key"),
+        Index("ix_knowledge_nodes_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    subject = Column(String, nullable=False, index=True)
+    node_key = Column(String, nullable=False)           # slug-идентификатор узла из ответа LLM
+    name = Column(String, nullable=False)
+    tier = Column(Integer, nullable=False, default=0)
+    parent_key = Column(String, nullable=True)
+    prereq_keys = Column(JSON, nullable=False, default=list)
+    order_idx = Column(Integer, nullable=False, default=0)
+    summary = Column(Text, nullable=True)
+    source_hint = Column(String, nullable=True)         # главы/страницы источника
+    lesson = Column(JSON, nullable=True)                # {"screens": [...], "checkpoint": [...]}
+    lesson_status = Column(String, nullable=False, default="pending")  # pending | ready | failed
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "key": self.node_key,
+            "name": self.name,
+            "tier": self.tier,
+            "parent_key": self.parent_key,
+            "prereq_keys": self.prereq_keys or [],
+            "order": self.order_idx,
+            "summary": self.summary,
+            "source_hint": self.source_hint,
+            "lesson_status": self.lesson_status,
+        }
+
+
+class KnowledgeEdge(Base):
+    """Смысловая связь между узлами (для графа и вопросов практики на связи)."""
+    __tablename__ = "knowledge_edges"
+    __table_args__ = (
+        Index("ix_knowledge_edges_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    subject = Column(String, nullable=False, index=True)
+    source_key = Column(String, nullable=False)
+    target_key = Column(String, nullable=False)
+    relation = Column(String, nullable=False)
+    label = Column(String, nullable=True)               # связка на русском: «обжалуется в»
+
+
+class NodeProgress(Base):
+    """Прогресс пользователя по узлу: урок пройден → карточки узла доступны в очереди."""
+    __tablename__ = "node_progress"
+    __table_args__ = (
+        UniqueConstraint("user_id", "node_id", name="uq_node_progress_user_node"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    node_id = Column(Integer, ForeignKey("knowledge_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
+    lesson_done = Column(Boolean, default=False, nullable=False)
+    checkpoint_score = Column(Integer, default=0, nullable=False)
+    lesson_done_at = Column(DateTime, nullable=True)

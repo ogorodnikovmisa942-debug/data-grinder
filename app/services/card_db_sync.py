@@ -7,12 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete, update
 
 from app.database.models import (
-    Card, Phrase, UserSession, UserSetting, TopicKnowledgeGraph, PracticeItem, utc_now
+    Card, Phrase, UserSession, UserSetting, PracticeItem, utc_now
 )
-from app.services.graph_service import (
-    resolve_subject_alias, get_all_subject_aliases, synthesize_graph_from_cards
-)
-from app.services.practice_service import generate_practice_session
+from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.core.config import settings
 
 
@@ -376,118 +373,3 @@ async def append_or_sync_cards_to_database(
 
     return cards_created, cards_updated, canonical, clean_title
 
-
-async def sync_subject_knowledge_and_practice(
-    db: AsyncSession,
-    user_id: str,
-    subject_slug: str,
-    cards_data: Optional[list] = None,
-    kg_data: Optional[dict] = None,
-    fallback_title: Optional[str] = None
-) -> None:
-    """
-    Автоматическая синхронизация графа знаний и интерактивных практических заданий (R2).
-    - Очищает устаревшие дублирующие записи по всем алиасам предмета.
-    - Обеспечивает актуальный граф знаний (25-45 узлов) и свежие практические задания.
-    """
-    clean_sub = subject_slug.strip().lower() or "generic"
-    canonical = resolve_subject_alias(clean_sub)
-    all_aliases = get_all_subject_aliases(clean_sub)
-    if clean_sub not in all_aliases:
-        all_aliases.append(clean_sub)
-    if canonical not in all_aliases:
-        all_aliases.append(canonical)
-
-    # 1. Удаляем устаревшие конфликтующие записи графа по не-каноническим алиасам
-    await db.execute(
-        delete(TopicKnowledgeGraph).where(
-            TopicKnowledgeGraph.user_id == user_id,
-            TopicKnowledgeGraph.subject.in_(all_aliases),
-            TopicKnowledgeGraph.subject != canonical
-        )
-    )
-
-    # 2. Формируем актуальный граф знаний
-    now = utc_now()
-    graph_data = None
-    tree_data = None
-
-    # Проверяем, есть ли уже сохраненный граф для данного пользователя и предмета
-    kg_stmt = select(TopicKnowledgeGraph).where(
-        TopicKnowledgeGraph.user_id == user_id,
-        TopicKnowledgeGraph.subject == canonical
-    )
-    kg_rec = (await db.execute(kg_stmt)).scalars().first()
-
-    stmt_c = select(Card).where(Card.user_id == user_id, Card.subject.in_(all_aliases))
-    res_c = await db.execute(stmt_c)
-    deck_cards = res_c.scalars().all()
-
-    if not deck_cards and not cards_data:
-        # Если в предмете не осталось карточек — полностью удаляем граф и практику для ЛЮБОГО предмета
-        await db.execute(delete(TopicKnowledgeGraph).where(
-            TopicKnowledgeGraph.user_id == user_id,
-            TopicKnowledgeGraph.subject.in_(all_aliases)
-        ))
-        await db.execute(delete(PracticeItem).where(
-            PracticeItem.user_id == user_id,
-            PracticeItem.subject.in_(all_aliases)
-        ))
-    elif kg_data and kg_data.get("nodes") and len(kg_data.get("nodes", [])) >= 20:
-        # Явно передан свежий семантический граф от ИИ (генерация / импорт)
-        graph_data = {"nodes": kg_data.get("nodes", []), "edges": kg_data.get("edges", [])}
-        tree_data = kg_data.get("tree_data")
-        if kg_rec:
-            kg_rec.graph_data = graph_data
-            kg_rec.tree_data = tree_data
-            kg_rec.updated_at = now
-        else:
-            new_kg = TopicKnowledgeGraph(
-                user_id=user_id,
-                subject=canonical,
-                graph_data=graph_data,
-                tree_data=tree_data,
-                created_at=now,
-                updated_at=now
-            )
-            db.add(new_kg)
-    elif kg_rec:
-        # Граф уже существует! При удалении/редактировании отдельных карточек НЕ разрушаем структуру графа
-        if isinstance(kg_rec.graph_data, dict):
-            kg_rec.graph_data["deck_size"] = len(deck_cards)
-            kg_rec.updated_at = now
-    else:
-        # Графа еще нет совсем, но карточки есть — выполняем первичный синтез
-        cards_payload = [
-            {
-                "text": c.text,
-                "translation": c.translation,
-                "secondary_text": c.secondary_text or "",
-                "example": c.example or "",
-                "phrase": {"text": fallback_title or canonical}
-            }
-            for c in deck_cards
-        ]
-        if not cards_payload and cards_data:
-            cards_payload = cards_data
-
-        syn = synthesize_graph_from_cards(cards_payload, fallback_title=fallback_title or canonical)
-        if syn and syn.get("graph_data", {}).get("nodes"):
-            graph_data = syn["graph_data"]
-            graph_data["deck_size"] = len(deck_cards) if deck_cards else len(cards_payload)
-            tree_data = syn.get("tree_data")
-            new_kg = TopicKnowledgeGraph(
-                user_id=user_id,
-                subject=canonical,
-                graph_data=graph_data,
-                tree_data=tree_data,
-                created_at=now,
-                updated_at=now
-            )
-            db.add(new_kg)
-
-    # 3. Синхронизируем интерактивную практику
-    try:
-        await generate_practice_session(user_id=user_id, subject=canonical, count=10, db=db)
-    except Exception as e:
-        print(f"[Practice Sync] Ошибка синхронизации практики: {e}")

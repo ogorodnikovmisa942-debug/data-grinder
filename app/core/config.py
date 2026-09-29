@@ -43,7 +43,11 @@ class Settings:
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip().strip('"\'')
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip().strip('"\'')
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip().strip('"\'')
-    
+    # Пиковые цены deepseek-flash, $ за 1M токенов (вне пика — половина). Источник: api-docs.deepseek.com/quick_start/pricing
+    DEEPSEEK_PRICE_CACHE_HIT: float = float(os.getenv("DEEPSEEK_PRICE_CACHE_HIT", "0.006"))
+    DEEPSEEK_PRICE_CACHE_MISS: float = float(os.getenv("DEEPSEEK_PRICE_CACHE_MISS", "0.30"))
+    DEEPSEEK_PRICE_OUTPUT: float = float(os.getenv("DEEPSEEK_PRICE_OUTPUT", "1.20"))
+
     WEBAPP_URL: str = os.getenv("WEBAPP_URL", "https://datagrinder.site").strip().strip('"\'')
     ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "").strip().strip('"\'')
     ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")

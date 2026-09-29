@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.database.models import (
     utc_now, ReviewLog, DailySession, GenerationJob, AiTelemetryLog,
-    InviteCode, TopicKnowledgeGraph, PracticeItem, PracticeSessionLog,
+    InviteCode, KnowledgeNode, PracticeItem, PracticeSessionLog,
     UserSession, Card, Phrase
 )
 from app.services.notifications import send_telegram_alert, check_and_send_alerts
@@ -36,9 +36,8 @@ def test_models_use_utc_now_defaults():
     assert callable(GenerationJob.created_at.default.arg)
     assert GenerationJob.created_at.default.arg(None).tzinfo is None
 
-    # TopicKnowledgeGraph
-    assert callable(TopicKnowledgeGraph.created_at.default.arg)
-    assert callable(TopicKnowledgeGraph.updated_at.default.arg)
+    # KnowledgeNode
+    assert callable(KnowledgeNode.created_at.default.arg)
 
 
 @pytest.mark.asyncio

@@ -667,9 +667,12 @@ function updateImportExplanation() {
 }
 
 function isOffPeakWindow() {
+    // Пик DeepSeek: пн–пт 01:00–04:00 и 06:00–10:00 UTC, всё остальное время — скидка 50%
     const now = new Date();
-    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-    return utcMinutes >= 990 || utcMinutes < 30; // 16:30 - 00:30 UTC / 19:30 - 03:30 MSK
+    const day = now.getUTCDay();
+    if (day === 0 || day === 6) return true;
+    const h = now.getUTCHours();
+    return !((h >= 1 && h < 4) || (h >= 6 && h < 10));
 }
 
 let cachedAiProviderInfo = null;
@@ -704,15 +707,16 @@ window.updateTariffBanner = async function() {
     if (isOffPeak) {
         if (bannerTitle) bannerTitle.innerHTML = titleText;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
-        bannerBadge.textContent = "[НОЧНОЙ ТАРИФ -50% АКТИВЕН]";
+        bannerBadge.textContent = "[СКИДКА -50% АКТИВНА]";
         if (btnDeferred) {
             btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СКИДКА -50% (СЕЙЧАС)</span>`;
         }
     } else {
+        // Пик заканчивается в 04:00 или 10:00 UTC
         const now = new Date();
         const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-        let diffMinutes = 990 - utcMinutes;
-        if (diffMinutes < 0) diffMinutes += 1440;
+        const peakEnd = utcMinutes < 240 ? 240 : 600;
+        const diffMinutes = Math.max(0, peakEnd - utcMinutes);
         const h = Math.floor(diffMinutes / 60);
         const m = diffMinutes % 60;
 
@@ -720,7 +724,7 @@ window.updateTariffBanner = async function() {
         bannerBadge.className = "text-secondary font-bold font-mono";
         bannerBadge.textContent = `[СКИДКА 50% ЧЕРЕЗ ${h}ч ${m}м]`;
         if (btnDeferred) {
-            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>НОЧЬЮ (-50%)</span>`;
+            btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СО СКИДКОЙ (-50%)</span>`;
         }
     }
 };
@@ -789,6 +793,14 @@ window.openStagingJob = async function(jobId) {
 window.checkDeepLinkOrHash = async function() {
     let jobId = null;
     const hash = window.location.hash || '';
+
+    // Ссылка из push «Путь знаний готов»: #path_<предмет> → сразу открываем граф предмета
+    const pathMatch = hash.match(/^#path_(.+)$/i);
+    if (pathMatch && window.openKnowledgeGraphModal) {
+        window.openKnowledgeGraphModal(decodeURIComponent(pathMatch[1]));
+        return;
+    }
+
     const matchHash = hash.match(/#staging_job_?(\d+)/i);
     if (matchHash) {
         jobId = matchHash[1];
@@ -1031,7 +1043,7 @@ window.handleQueuedJob = function(data, statusEl) {
     const activeStatus = document.getElementById('generation-active-status');
 
     if (!data.is_immediate) {
-        // Задача отложена на скидочное время (19:30 МСК)
+        // Задача отложена до ближайшего окна скидки DeepSeek
         alert(`[ОЧЕРЕДЬ СКИДОК 50%]\n\n${data.message}`);
         if (activeBar) activeBar.classList.add('hidden');
         return false;
@@ -1143,15 +1155,15 @@ window.handleFileUpload = async function(event) {
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
-    // Если сейчас УЖЕ действует ночная скидка (19:30 - 03:30 МСК), сразу генерируем со скидкой 50%!
+    // Если сейчас УЖЕ действует скидка DeepSeek, сразу генерируем со скидкой 50%
     // Предлагаем отложить в очередь ТОЛЬКО в дневные часы, чтобы пользователь мог сэкономить 50%.
     const isOffPeak = isOffPeakWindow();
     let isDeferred = false;
     if (!isOffPeak && files.length > 0) {
         isDeferred = confirm(
             `Документ: ${fileName} (${fileSizeMb} МБ)\n\n` +
-            `Сейчас действует стандартный дневной тариф.\n` +
-            `Поставить в очередь «Ночной Грайнд» со скидкой 50% (обработка в 19:30 МСК)?\n\n` +
+            `Сейчас действует пиковый тариф DeepSeek.\n` +
+            `Поставить в очередь со скидкой 50% (обработка начнётся после окончания пика)?\n\n` +
             `[OK] — В очередь со скидкой 50%\n` +
             `[Отмена] — Создать карточки прямо сейчас`
         );

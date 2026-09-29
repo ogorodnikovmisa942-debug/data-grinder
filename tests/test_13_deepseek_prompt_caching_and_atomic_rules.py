@@ -1,12 +1,9 @@
 # tests/test_13_deepseek_prompt_caching_and_atomic_rules.py
 """
-Test Suite for Prompt Caching, Atomic Rules, DeepSeek V4.1 Flash Integration, and Admin Switcher.
-Validates:
-1. Integrity of DEEPSEEK_CACHED_SYSTEM_PROMPT and CURRICULUM_SKELETON_SYSTEM_PROMPT (static, >1024 tokens, atomic rules).
-2. DeepSeek client call_deepseek with mocked OpenAI-compatible endpoint and usage telemetry.
-3. Admin AI provider and model switcher (GET /api/admin/ai-provider, POST /api/admin/switch-ai-provider, set_active_ai_provider).
-4. Bot admin panel keyboard and dashboard rendering with DeepSeek model indicators.
-5. Routing of parse_raw_text and extract_curriculum_skeleton through DeepSeek.
+DeepSeek-клиент «Пути знаний», контракт кэшируемого промпта и админский переключатель модели.
+1. PATH_BUILDER_SYSTEM_PROMPT: статичный, длиннее порога кэширования, содержит атомарные правила карточек.
+2. call_deepseek: JSON Mode, сырой JSON, метрики кэша и стоимости, fallback модели, обрезанный ответ.
+3. Админский переключатель модели и клавиатура бота.
 """
 
 import unittest
@@ -17,13 +14,9 @@ from fastapi.testclient import TestClient
 from main import app
 from app.core.config import settings
 from app.services.ai_gateway import (
-    DEEPSEEK_CACHED_SYSTEM_PROMPT,
-    CURRICULUM_SKELETON_SYSTEM_PROMPT,
+    PATH_BUILDER_SYSTEM_PROMPT,
+    LLMOutputTruncated,
     call_deepseek,
-    parse_raw_text,
-    extract_curriculum_skeleton,
-    is_blacklisted_card,
-    unpack_minified_cards
 )
 from app.api.endpoints.admin import set_active_ai_provider
 from bot import build_admin_keyboard, render_admin_dashboard_text, get_admin_dashboard_data
@@ -49,28 +42,21 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
     def run_async(self, coro):
         return asyncio.run(coro)
 
-    def test_01_deepseek_prompt_caching_contract(self):
-        """Проверка контракта Prompt Caching DeepSeek: промпт статичен, длинее 1024 токенов и содержит атомарные законы."""
-        # Длина промпта должна существенно превышать 1024 токена (~4000 символов) для активации кэша
-        self.assertGreater(len(DEEPSEEK_CACHED_SYSTEM_PROMPT), 5000, "Системный промпт должен превышать порог кэширования (>1024 токенов)")
-        
-        # Ключевые когнитивные и архитектурные правила
-        self.assertIn("Minimum Information Principle", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Absolute Prohibition of Lists & Enumerations", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Zero-Spoiler Law", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("Pareto 80/20 Law", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn("organ_slug or module_slug", DEEPSEEK_CACHED_SYSTEM_PROMPT)
-
-        # Контракт схемы JSON
-        self.assertIn('"graph":', DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn('"nodes":', DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn('"edges":', DEEPSEEK_CACHED_SYSTEM_PROMPT)
-        self.assertIn('"c":', DEEPSEEK_CACHED_SYSTEM_PROMPT)
-
-        # Контракт скелета курса
-        self.assertIn("CHIEF EDUCATIONAL ARCHITECT", CURRICULUM_SKELETON_SYSTEM_PROMPT.upper())
-        self.assertIn("quota", CURRICULUM_SKELETON_SYSTEM_PROMPT)
-        self.assertIn("modules", CURRICULUM_SKELETON_SYSTEM_PROMPT)
+    def test_01_path_builder_prompt_caching_contract(self):
+        """Промпт статичен, длиннее порога кэширования DeepSeek и сохраняет атомарные правила карточек."""
+        self.assertGreater(len(PATH_BUILDER_SYSTEM_PROMPT), 5000)
+        self.assertNotIn("{", PATH_BUILDER_SYSTEM_PROMPT.split("PART A")[0])
+        for rule in (
+            "Minimum Information Principle",
+            "Absolute Prohibition of Lists & Enumerations",
+            "Zero-Spoiler Law",
+            "No binary Yes/No cards",
+            "Anti-giveaway",
+            'TASK "MAP"',
+            'TASK "NODE_PACK"',
+            "B3. DISTRACTORS",
+        ):
+            self.assertIn(rule, PATH_BUILDER_SYSTEM_PROMPT)
 
     def test_02_call_deepseek_mocked_success(self):
         """Проверка вызова call_deepseek с эмуляцией ответа DeepSeek API."""
@@ -106,7 +92,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
                 unpacked, meta = self.run_async(call_deepseek(
                     user_prompt="Тестовый вопрос",
-                    fallback_subject="test_sub"
+                    system_instruction=PATH_BUILDER_SYSTEM_PROMPT
                 ))
 
                 mock_post.assert_called_once()
@@ -120,9 +106,10 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 self.assertEqual(json_payload["model"], "deepseek-flash")
                 self.assertEqual(json_payload["response_format"], {"type": "json_object"})
 
-                self.assertEqual(len(unpacked["cards"]), 1)
-                self.assertEqual(unpacked["cards"][0]["text"], "Что проверяет суд кассационной инстанции?")
-                self.assertEqual(unpacked["cards"][0]["translation"], "Законность вступивших в силу судебных актов.")
+                self.assertEqual(json_payload["messages"][0]["content"], PATH_BUILDER_SYSTEM_PROMPT)
+                self.assertEqual(unpacked["c"][0]["d"], "Законность вступивших в силу судебных актов.")
+                self.assertEqual(meta["cache_hit_tokens"], 1024)
+                self.assertGreater(meta["cost_usd"], 0)
 
                 self.assertTrue(meta["cache_hit"])
                 self.assertEqual(meta["prompt_tokens"], 1250)
@@ -148,7 +135,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             }
 
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=[resp_404, resp_200]) as mock_post:
-                unpacked, meta = self.run_async(call_deepseek("Запрос"))
+                unpacked, meta = self.run_async(call_deepseek("Запрос", system_instruction="SYS"))
                 self.assertEqual(mock_post.call_count, 2)
                 second_call_model = mock_post.call_args_list[1][1]["json"]["model"]
                 self.assertEqual(second_call_model, "deepseek-chat")
@@ -163,7 +150,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         settings.DEEPSEEK_API_KEY = ""
         try:
             with self.assertRaises(ValueError) as ctx:
-                self.run_async(call_deepseek("тест"))
+                self.run_async(call_deepseek("тест", system_instruction="SYS"))
             self.assertIn("DEEPSEEK_API_KEY", str(ctx.exception))
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
@@ -212,27 +199,6 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         )
         self.assertEqual(r_invalid.status_code, 400)
 
-    def test_06_parse_raw_text_calls_deepseek(self):
-        """Проверка вызова parse_raw_text через call_deepseek."""
-        mock_unpacked = {"cards": [{"text": "Тест DeepSeek", "translation": "Ответ DS"}]}
-        mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 100, "completion_tokens": 50}
-
-        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_unpacked, mock_meta)) as mock_ds:
-            res = self.run_async(parse_raw_text("Какой-то исходный учебный текст", target_subject="law"))
-            mock_ds.assert_called_once()
-            self.assertEqual(len(res["cards"]), 1)
-            self.assertEqual(res["cards"][0]["text"], "Тест DeepSeek")
-
-    def test_07_extract_curriculum_skeleton_calls_deepseek(self):
-        """Проверка выполнения Прохода 1 (Curriculum Skeleton) через call_deepseek."""
-        mock_res = {"modules": [{"slug": "mod_1", "name": "Введение", "quota": 10}], "phrase_title": "Каркас"}
-        mock_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 300, "completion_tokens": 50}
-
-        with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_res, mock_meta)) as mock_ds:
-            skeleton = self.run_async(extract_curriculum_skeleton("Оглавление учебника...", target_subject="law"))
-            mock_ds.assert_called_once()
-            self.assertEqual(len(skeleton["modules"]), 1)
-
     def test_08_telegram_bot_admin_keyboard_and_dashboard(self):
         """Проверка отображения кнопки смены модели в клавиатуре бота и текста в дашборде."""
         kb_ds = build_admin_keyboard(phase=1, ai_model="deepseek-flash")
@@ -261,9 +227,10 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 "usage": None
             }
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
-                unpacked, meta = self.run_async(call_deepseek("тест"))
+                unpacked, meta = self.run_async(call_deepseek("тест", system_instruction="SYS"))
                 self.assertEqual(len(unpacked["cards"]), 1)
                 self.assertEqual(meta["prompt_tokens"], 0)
+                self.assertEqual(meta["cost_usd"], 0)
 
             # 2. choices=[] должен вызывать понятный ValueError
             mock_empty_choices = MagicMock()
@@ -271,7 +238,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             mock_empty_choices.json.return_value = {"choices": []}
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_empty_choices):
                 with self.assertRaises(ValueError):
-                    self.run_async(call_deepseek("тест"))
+                    self.run_async(call_deepseek("тест", system_instruction="SYS"))
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
 
@@ -334,7 +301,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             mock_resp.json.return_value = mock_response_json
 
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
-                unpacked, meta = self.run_async(call_deepseek("Исходный учебный материал для Flash"))
+                unpacked, meta = self.run_async(call_deepseek("Исходный учебный материал для Flash", system_instruction="SYS"))
                 mock_post.assert_called_once()
                 call_args = mock_post.call_args
                 json_payload = call_args[1]["json"]
@@ -345,15 +312,17 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 self.assertTrue(meta["cache_hit"])
                 self.assertEqual(meta["prompt_tokens"], 1600)
 
-            # Проверяем расширенный контекст (>60k) для DeepSeek в extract_curriculum_skeleton
-            large_text = "Раздел курса " * 10000  # ~130 000 символов
-            mock_skel_res = {"modules": [], "phrase_title": "Большой каркас курса"}
-            mock_skel_meta = {"model_resolved": "deepseek-flash", "prompt_tokens": 800, "completion_tokens": 60}
-            with patch("app.services.ai_gateway.call_deepseek", new_callable=AsyncMock, return_value=(mock_skel_res, mock_skel_meta)) as mock_ds_skel:
-                self.run_async(extract_curriculum_skeleton(large_text, target_subject="law"))
-                mock_ds_skel.assert_called_once()
-                prompt_sent = mock_ds_skel.call_args[0][0]
-                self.assertGreater(len(prompt_sent), 60000)
+            # Ответ, обрезанный на лимите, не парсится вслепую: исключение несёт стоимость для учёта
+            truncated = MagicMock()
+            truncated.status_code = 200
+            truncated.json.return_value = {
+                "choices": [{"message": {"content": '{"nodes":[{"key":"a"'}, "finish_reason": "length"}],
+                "usage": {"prompt_cache_miss_tokens": 1000, "completion_tokens": 500}
+            }
+            with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=truncated):
+                with self.assertRaises(LLMOutputTruncated) as ctx:
+                    self.run_async(call_deepseek("Книга", system_instruction="SYS", max_tokens=500))
+                self.assertGreater(ctx.exception.meta["cost_usd"], 0)
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
 

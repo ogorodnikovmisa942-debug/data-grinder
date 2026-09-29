@@ -13,7 +13,6 @@ from sqlalchemy import delete
 from main import app
 from app.database.session import AsyncSessionLocal
 from app.database.models import Card, Phrase, ReviewLog, GenerationJob
-from app.services.ai_gateway import unpack_minified_cards, split_text_into_chunks
 
 class TestV2Features(unittest.TestCase):
     @classmethod
@@ -40,47 +39,6 @@ class TestV2Features(unittest.TestCase):
 
     def run_async(self, coro):
         return asyncio.run(coro)
-
-    def test_01_cloze_unpacking(self):
-        """Проверка автораспознавания карточек с пропусками {{c1::ответ::подсказка}}."""
-        raw_payload = {
-            "domain": "law",
-            "slug": "law_const",
-            "title": "Конституционное право",
-            "c": [
-                {
-                    "t": "Судебная власть в РБ принадлежит исключительно {{c1::судам::орган}}.",
-                    "s": "Конституция | ст. 109",
-                    "d": "Судам.",
-                    "e": "Правосудие осуществляется только судом.",
-                    "l": "easy",
-                    "h": "Судебная власть"
-                },
-                {
-                    "t": "Что такое норма права?",
-                    "s": "Теория права",
-                    "d": "Общеобязательное правило поведения.",
-                    "e": "Норма закреплена в законе.",
-                    "l": "easy",
-                    "h": "Общая теория"
-                }
-            ]
-        }
-        unpacked = unpack_minified_cards(raw_payload)
-        cards = unpacked["cards"]
-        self.assertEqual(len(cards), 2)
-        self.assertEqual(cards[0]["content_type"], "cloze")
-        self.assertIn("{{c1::судам::орган}}", cards[0]["text"])
-        self.assertEqual(cards[1]["content_type"], "text")
-
-    def test_02_chunking_economics_and_overlap(self):
-        """Проверка деления текста на чанки 14 000 символов с overlap 1000 символов."""
-        sample_text = "Параграф текста для тестирования нарезки знаний. " * 500  # ~24 500 символов
-        chunks = split_text_into_chunks(sample_text, max_chunk_chars=14000, overlap_chars=1000)
-        self.assertGreaterEqual(len(chunks), 2)
-        for ch in chunks:
-            self.assertLessEqual(len(ch), 15000)
-            self.assertGreater(len(ch), 0)
 
     def test_03_docx_file_import(self):
         """Проверка извлечения текста из реального файла Microsoft Word (.docx)."""
@@ -305,7 +263,7 @@ class TestV2Features(unittest.TestCase):
             self.assertEqual(data["status"], "queued")
             self.assertTrue(data.get("is_immediate"))
             self.assertTrue(data.get("is_offpeak"))
-            self.assertIn("Скидка 50% активна прямо сейчас", data["message"])
+            self.assertIn("Скидка 50% активна", data["message"])
 
         # 2. Симулируем дневное время с явным выбором отложить со скидкой (is_deferred = True)
         with patch("app.api.endpoints.management.is_deepseek_offpeak", return_value=False):
@@ -325,25 +283,28 @@ class TestV2Features(unittest.TestCase):
             self.assertEqual(data["status"], "queued")
             self.assertFalse(data.get("is_immediate"))
             self.assertFalse(data.get("is_offpeak"))
-            self.assertIn("19:30 по МСК", data["message"])
+            self.assertIn("по МСК", data["message"])
 
     def test_10_is_deepseek_offpeak_calculation(self):
-        """Проверка границ окна скидок DeepSeek (16:30 - 00:30 UTC / 19:30 - 03:30 MSK)."""
+        """Окно скидок DeepSeek: пик пн–пт 01:00–04:00 и 06:00–10:00 UTC, всё остальное — скидка."""
         from unittest.mock import patch
+        from datetime import timezone
         from app.services.generation_worker import is_deepseek_offpeak
+        from app.services.ai_gateway.client import format_offpeak_start_msk
 
-        # 17:00 UTC (20:00 MSK) -> скидка активна
-        with patch("app.services.generation_worker.datetime") as mock_dt:
-            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 17, 0, 0)
-            self.assertTrue(is_deepseek_offpeak())
+        cases = [
+            (datetime(2026, 9, 11, 17, 0, 0), True),   # пятница вечер
+            (datetime(2026, 9, 11, 0, 15, 0), True),   # пятница ночь
+            (datetime(2026, 9, 11, 12, 0, 0), True),   # пятница день после пика
+            (datetime(2026, 9, 11, 2, 0, 0), False),   # пятница ночной пик
+            (datetime(2026, 9, 11, 8, 0, 0), False),   # пятница утренний пик
+            (datetime(2026, 9, 12, 8, 0, 0), True),    # суббота — без пика
+        ]
+        for moment, expected in cases:
+            with patch("app.services.generation_worker.datetime") as mock_dt:
+                mock_dt.utcnow.return_value = moment
+                self.assertEqual(is_deepseek_offpeak(), expected, moment)
 
-        # 00:15 UTC (03:15 MSK) -> скидка активна
-        with patch("app.services.generation_worker.datetime") as mock_dt:
-            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 0, 15, 0)
-            self.assertTrue(is_deepseek_offpeak())
-
-        # 12:00 UTC (15:00 MSK) -> стандартный дневной тариф
-        with patch("app.services.generation_worker.datetime") as mock_dt:
-            mock_dt.utcnow.return_value = datetime(2026, 9, 11, 12, 0, 0)
-            self.assertFalse(is_deepseek_offpeak())
+        self.assertEqual(format_offpeak_start_msk(datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc)), "13:00 по МСК")
+        self.assertEqual(format_offpeak_start_msk(datetime(2026, 9, 11, 2, 0, tzinfo=timezone.utc)), "07:00 по МСК")
 

@@ -1,0 +1,1493 @@
+{
+ "title": "Общая теория права",
+ "nodes": [
+  {
+   "key": "pravo",
+   "name": "Право",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "gosudarstvo",
+   "name": "Государство",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "norma_prava",
+   "name": "Норма права",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "pravootnoshenie",
+   "name": "Правоотношение",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "pravosoznanie",
+   "name": "Правосознание",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "istochnik_prava",
+   "name": "Источник права",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "pravovaya_sistema",
+   "name": "Правовая система",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "pravovoe_gosudarstvo",
+   "name": "Правовое государство",
+   "tier": 0,
+   "parent": null,
+   "prereqs": []
+  },
+  {
+   "key": "pravovedenie",
+   "name": "Правоведение",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "gosudarstvo"
+   ]
+  },
+  {
+   "key": "metodologiya_yuridicheskoy_nauki",
+   "name": "Методология юридической науки",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "pravovedenie"
+   ]
+  },
+  {
+   "key": "proishozhdenie_prava",
+   "name": "Происхождение права",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "norma_prava"
+   ]
+  },
+  {
+   "key": "sushnost_prava",
+   "name": "Сущность права",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "norma_prava"
+   ]
+  },
+  {
+   "key": "pravo_i_vlast",
+   "name": "Право и власть",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "gosudarstvo"
+   ]
+  },
+  {
+   "key": "mehanizm_pravovogo_regulirovaniya",
+   "name": "Механизм правового регулирования",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "norma_prava",
+    "pravootnoshenie"
+   ]
+  },
+  {
+   "key": "chelovek_obshestvo_pravo",
+   "name": "Человек, общество, право",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "pravosoznanie"
+   ]
+  },
+  {
+   "key": "proishozhdenie_gosudarstva",
+   "name": "Происхождение государства",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "gosudarstvo",
+    "proishozhdenie_prava"
+   ]
+  },
+  {
+   "key": "sushnost_gosudarstva",
+   "name": "Сущность государства",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "gosudarstvo",
+    "pravo"
+   ]
+  },
+  {
+   "key": "formy_gosudarstva",
+   "name": "Формы государства",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "gosudarstvo",
+    "sushnost_gosudarstva"
+   ]
+  },
+  {
+   "key": "funkcii_i_apparat_gosudarstva",
+   "name": "Функции и аппарат государства",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "gosudarstvo",
+    "sushnost_gosudarstva"
+   ]
+  },
+  {
+   "key": "grazhdanskoe_obshestvo",
+   "name": "Гражданское общество",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravovoe_gosudarstvo",
+    "chelovek_obshestvo_pravo"
+   ]
+  },
+  {
+   "key": "tipologiya_prava_i_gosudarstva",
+   "name": "Типология права и государства",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravo",
+    "gosudarstvo",
+    "pravovaya_sistema"
+   ]
+  },
+  {
+   "key": "pravotvorchestvo",
+   "name": "Правотворчество",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "norma_prava",
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "realizaciya_prava",
+   "name": "Реализация права",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "norma_prava",
+    "pravootnoshenie",
+    "mehanizm_pravovogo_regulirovaniya"
+   ]
+  },
+  {
+   "key": "tolkovanie_prava",
+   "name": "Толкование права",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "norma_prava",
+    "realizaciya_prava"
+   ]
+  },
+  {
+   "key": "pravovaya_kultura",
+   "name": "Правовая культура",
+   "tier": 1,
+   "parent": null,
+   "prereqs": [
+    "pravosoznanie",
+    "pravo"
+   ]
+  },
+  {
+   "key": "predmet_teorii_prava",
+   "name": "Предмет общей теории права",
+   "tier": 2,
+   "parent": "pravovedenie",
+   "prereqs": [
+    "pravovedenie"
+   ]
+  },
+  {
+   "key": "metody_poznaniya_prava",
+   "name": "Методы познания права",
+   "tier": 2,
+   "parent": "metodologiya_yuridicheskoy_nauki",
+   "prereqs": [
+    "metodologiya_yuridicheskoy_nauki"
+   ]
+  },
+  {
+   "key": "sinergetika_i_geremevtika",
+   "name": "Синергетика и герменевтика",
+   "tier": 2,
+   "parent": "metodologiya_yuridicheskoy_nauki",
+   "prereqs": [
+    "metodologiya_yuridicheskoy_nauki"
+   ]
+  },
+  {
+   "key": "koncepcii_proishozhdeniya_prava",
+   "name": "Концепции происхождения права",
+   "tier": 2,
+   "parent": "proishozhdenie_prava",
+   "prereqs": [
+    "proishozhdenie_prava"
+   ]
+  },
+  {
+   "key": "pervobytnoe_obshestvo",
+   "name": "Первобытное общество",
+   "tier": 2,
+   "parent": "proishozhdenie_prava",
+   "prereqs": [
+    "proishozhdenie_prava"
+   ]
+  },
+  {
+   "key": "prichiny_proishozhdeniya_prava",
+   "name": "Причины происхождения права",
+   "tier": 2,
+   "parent": "proishozhdenie_prava",
+   "prereqs": [
+    "proishozhdenie_prava"
+   ]
+  },
+  {
+   "key": "koncepcii_pravoponimaniya",
+   "name": "Концепции правопонимания",
+   "tier": 2,
+   "parent": "sushnost_prava",
+   "prereqs": [
+    "sushnost_prava"
+   ]
+  },
+  {
+   "key": "principy_prava",
+   "name": "Принципы права",
+   "tier": 2,
+   "parent": "sushnost_prava",
+   "prereqs": [
+    "sushnost_prava"
+   ]
+  },
+  {
+   "key": "funkcii_prava",
+   "name": "Функции права",
+   "tier": 2,
+   "parent": "sushnost_prava",
+   "prereqs": [
+    "sushnost_prava"
+   ]
+  },
+  {
+   "key": "vidy_vlasti",
+   "name": "Виды власти",
+   "tier": 2,
+   "parent": "pravo_i_vlast",
+   "prereqs": [
+    "pravo_i_vlast"
+   ]
+  },
+  {
+   "key": "socialnoe_regulirovanie",
+   "name": "Социальное регулирование",
+   "tier": 2,
+   "parent": "pravo_i_vlast",
+   "prereqs": [
+    "pravo_i_vlast"
+   ]
+  },
+  {
+   "key": "pravo_i_spravedlivost",
+   "name": "Право и справедливость",
+   "tier": 2,
+   "parent": "pravo_i_vlast",
+   "prereqs": [
+    "pravo_i_vlast"
+   ]
+  },
+  {
+   "key": "predmet_pravovogo_regulirovaniya",
+   "name": "Предмет правового регулирования",
+   "tier": 2,
+   "parent": "mehanizm_pravovogo_regulirovaniya",
+   "prereqs": [
+    "mehanizm_pravovogo_regulirovaniya"
+   ]
+  },
+  {
+   "key": "sposoby_pravovogo_regulirovaniya",
+   "name": "Способы правового регулирования",
+   "tier": 2,
+   "parent": "mehanizm_pravovogo_regulirovaniya",
+   "prereqs": [
+    "mehanizm_pravovogo_regulirovaniya"
+   ]
+  },
+  {
+   "key": "elementy_mehanizma_pravovogo_regulirovaniya",
+   "name": "Элементы механизма правового регулирования",
+   "tier": 2,
+   "parent": "mehanizm_pravovogo_regulirovaniya",
+   "prereqs": [
+    "mehanizm_pravovogo_regulirovaniya",
+    "norma_prava",
+    "pravootnoshenie"
+   ]
+  },
+  {
+   "key": "pravovoy_status_lichnosti",
+   "name": "Правовой статус личности",
+   "tier": 2,
+   "parent": "chelovek_obshestvo_pravo",
+   "prereqs": [
+    "chelovek_obshestvo_pravo"
+   ]
+  },
+  {
+   "key": "prava_cheloveka",
+   "name": "Права человека",
+   "tier": 2,
+   "parent": "chelovek_obshestvo_pravo",
+   "prereqs": [
+    "chelovek_obshestvo_pravo"
+   ]
+  },
+  {
+   "key": "teorii_proishozhdeniya_gosudarstva",
+   "name": "Теории происхождения государства",
+   "tier": 2,
+   "parent": "proishozhdenie_gosudarstva",
+   "prereqs": [
+    "proishozhdenie_gosudarstva"
+   ]
+  },
+  {
+   "key": "priznaki_gosudarstva",
+   "name": "Признаки государства",
+   "tier": 2,
+   "parent": "sushnost_gosudarstva",
+   "prereqs": [
+    "sushnost_gosudarstva"
+   ]
+  },
+  {
+   "key": "formy_pravleniya",
+   "name": "Формы правления",
+   "tier": 2,
+   "parent": "formy_gosudarstva",
+   "prereqs": [
+    "formy_gosudarstva"
+   ]
+  },
+  {
+   "key": "formy_gosudarstvennogo_ustroystva",
+   "name": "Формы государственного устройства",
+   "tier": 2,
+   "parent": "formy_gosudarstva",
+   "prereqs": [
+    "formy_gosudarstva"
+   ]
+  },
+  {
+   "key": "politicheskiy_rezhim",
+   "name": "Политический режим",
+   "tier": 2,
+   "parent": "formy_gosudarstva",
+   "prereqs": [
+    "formy_gosudarstva"
+   ]
+  },
+  {
+   "key": "funkcii_gosudarstva",
+   "name": "Функции государства",
+   "tier": 2,
+   "parent": "funkcii_i_apparat_gosudarstva",
+   "prereqs": [
+    "funkcii_i_apparat_gosudarstva"
+   ]
+  },
+  {
+   "key": "mehanizm_gosudarstva",
+   "name": "Механизм государства",
+   "tier": 2,
+   "parent": "funkcii_i_apparat_gosudarstva",
+   "prereqs": [
+    "funkcii_i_apparat_gosudarstva"
+   ]
+  },
+  {
+   "key": "mehanizm_gosudarstva_belarusi",
+   "name": "Механизм государства Беларуси",
+   "tier": 2,
+   "parent": "funkcii_i_apparat_gosudarstva",
+   "prereqs": [
+    "funkcii_i_apparat_gosudarstva"
+   ]
+  },
+  {
+   "key": "principy_pravovogo_gosudarstva",
+   "name": "Принципы правового государства",
+   "tier": 2,
+   "parent": "pravovoe_gosudarstvo",
+   "prereqs": [
+    "pravovoe_gosudarstvo"
+   ]
+  },
+  {
+   "key": "vzaimodeystvie_obshestva_i_gosudarstva",
+   "name": "Взаимодействие общества и государства",
+   "tier": 2,
+   "parent": "grazhdanskoe_obshestvo",
+   "prereqs": [
+    "grazhdanskoe_obshestvo",
+    "pravovoe_gosudarstvo"
+   ]
+  },
+  {
+   "key": "formacionnyy_podhod",
+   "name": "Формационный подход",
+   "tier": 2,
+   "parent": "tipologiya_prava_i_gosudarstva",
+   "prereqs": [
+    "tipologiya_prava_i_gosudarstva"
+   ]
+  },
+  {
+   "key": "civilizacionnyy_podhod",
+   "name": "Цивилизационный подход",
+   "tier": 2,
+   "parent": "tipologiya_prava_i_gosudarstva",
+   "prereqs": [
+    "tipologiya_prava_i_gosudarstva"
+   ]
+  },
+  {
+   "key": "principy_normotvorchestva",
+   "name": "Принципы нормотворчества",
+   "tier": 2,
+   "parent": "pravotvorchestvo",
+   "prereqs": [
+    "pravotvorchestvo"
+   ]
+  },
+  {
+   "key": "vidy_pravotvorchestva",
+   "name": "Виды правотворчества",
+   "tier": 2,
+   "parent": "pravotvorchestvo",
+   "prereqs": [
+    "pravotvorchestvo"
+   ]
+  },
+  {
+   "key": "normotvorcheskiy_process",
+   "name": "Нормотворческий процесс",
+   "tier": 2,
+   "parent": "pravotvorchestvo",
+   "prereqs": [
+    "pravotvorchestvo"
+   ]
+  },
+  {
+   "key": "yuridicheskaya_tehnika",
+   "name": "Юридическая техника",
+   "tier": 2,
+   "parent": "pravotvorchestvo",
+   "prereqs": [
+    "pravotvorchestvo"
+   ]
+  },
+  {
+   "key": "sistematizaciya_zakonodatelstva",
+   "name": "Систематизация законодательства",
+   "tier": 2,
+   "parent": "pravotvorchestvo",
+   "prereqs": [
+    "pravotvorchestvo",
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "formy_realizacii_prava",
+   "name": "Формы реализации права",
+   "tier": 2,
+   "parent": "realizaciya_prava",
+   "prereqs": [
+    "realizaciya_prava"
+   ]
+  },
+  {
+   "key": "primenenie_prava",
+   "name": "Применение права",
+   "tier": 2,
+   "parent": "realizaciya_prava",
+   "prereqs": [
+    "realizaciya_prava"
+   ]
+  },
+  {
+   "key": "akty_primeneniya_prava",
+   "name": "Акты применения права",
+   "tier": 2,
+   "parent": "realizaciya_prava",
+   "prereqs": [
+    "realizaciya_prava"
+   ]
+  },
+  {
+   "key": "probely_v_prave",
+   "name": "Пробелы в праве",
+   "tier": 2,
+   "parent": "realizaciya_prava",
+   "prereqs": [
+    "realizaciya_prava"
+   ]
+  },
+  {
+   "key": "sposoby_tolkovaniya",
+   "name": "Способы толкования",
+   "tier": 2,
+   "parent": "tolkovanie_prava",
+   "prereqs": [
+    "tolkovanie_prava"
+   ]
+  },
+  {
+   "key": "tolkovanie_po_subektam",
+   "name": "Толкование по субъектам",
+   "tier": 2,
+   "parent": "tolkovanie_prava",
+   "prereqs": [
+    "tolkovanie_prava"
+   ]
+  },
+  {
+   "key": "tolkovanie_po_obemu",
+   "name": "Толкование по объёму",
+   "tier": 2,
+   "parent": "tolkovanie_prava",
+   "prereqs": [
+    "tolkovanie_prava"
+   ]
+  },
+  {
+   "key": "akty_tolkovaniya",
+   "name": "Акты толкования права",
+   "tier": 2,
+   "parent": "tolkovanie_prava",
+   "prereqs": [
+    "tolkovanie_prava"
+   ]
+  },
+  {
+   "key": "struktura_pravosoznaniya",
+   "name": "Структура правосознания",
+   "tier": 2,
+   "parent": "pravosoznanie",
+   "prereqs": [
+    "pravosoznanie"
+   ]
+  },
+  {
+   "key": "pravovaya_ideologiya_i_psihologiya",
+   "name": "Правовая идеология и психология",
+   "tier": 2,
+   "parent": "pravosoznanie",
+   "prereqs": [
+    "pravosoznanie"
+   ]
+  },
+  {
+   "key": "pravovoy_nigilizm",
+   "name": "Правовой нигилизм",
+   "tier": 2,
+   "parent": "pravosoznanie",
+   "prereqs": [
+    "pravosoznanie"
+   ]
+  },
+  {
+   "key": "pravovoe_vospitanie",
+   "name": "Правовое воспитание",
+   "tier": 2,
+   "parent": "pravovaya_kultura",
+   "prereqs": [
+    "pravovaya_kultura"
+   ]
+  },
+  {
+   "key": "pravovoy_obychay",
+   "name": "Правовой обычай",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "normativnyy_dogovor",
+   "name": "Нормативный договор",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "sudebnyy_precedent",
+   "name": "Судебный прецедент",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "pravovaya_doktrina",
+   "name": "Правовая доктрина",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "normativnye_pravovye_akty",
+   "name": "Нормативные правовые акты",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "zakon",
+   "name": "Закон",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "deystvie_normativnyh_aktov",
+   "name": "Действие нормативных актов",
+   "tier": 2,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "sistema_prava",
+   "name": "Система права",
+   "tier": 2,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovaya_sistema"
+   ]
+  },
+  {
+   "key": "predmet_i_metod_otrasli",
+   "name": "Предмет и метод отрасли",
+   "tier": 2,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovaya_sistema"
+   ]
+  },
+  {
+   "key": "otrasli_i_instituty_prava",
+   "name": "Отрасли и институты права",
+   "tier": 2,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovaya_sistema"
+   ]
+  },
+  {
+   "key": "sistema_zakonodatelstva",
+   "name": "Система законодательства",
+   "tier": 2,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovaya_sistema",
+    "istochnik_prava"
+   ]
+  },
+  {
+   "key": "pravovye_semi",
+   "name": "Правовые семьи",
+   "tier": 2,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovaya_sistema"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_istochnikov",
+   "name": "Различение источников права",
+   "tier": 3,
+   "parent": "istochnik_prava",
+   "prereqs": [
+    "pravovoy_obychay",
+    "normativnyy_dogovor",
+    "sudebnyy_precedent",
+    "normativnye_pravovye_akty"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_form_gosudarstva",
+   "name": "Различение форм государства",
+   "tier": 3,
+   "parent": "formy_gosudarstva",
+   "prereqs": [
+    "formy_pravleniya",
+    "formy_gosudarstvennogo_ustroystva",
+    "politicheskiy_rezhim"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_realizacii_prava",
+   "name": "Различение форм реализации права",
+   "tier": 3,
+   "parent": "realizaciya_prava",
+   "prereqs": [
+    "formy_realizacii_prava",
+    "primenenie_prava",
+    "akty_primeneniya_prava"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_tolkovaniya",
+   "name": "Различение видов толкования",
+   "tier": 3,
+   "parent": "tolkovanie_prava",
+   "prereqs": [
+    "sposoby_tolkovaniya",
+    "tolkovanie_po_subektam",
+    "tolkovanie_po_obemu"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_pravosoznaniya",
+   "name": "Различение деформаций правосознания",
+   "tier": 3,
+   "parent": "pravosoznanie",
+   "prereqs": [
+    "struktura_pravosoznaniya",
+    "pravovoy_nigilizm",
+    "pravovaya_ideologiya_i_psihologiya"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_teoriy_gosudarstva",
+   "name": "Различение теорий государства",
+   "tier": 3,
+   "parent": "proishozhdenie_gosudarstva",
+   "prereqs": [
+    "teorii_proishozhdeniya_gosudarstva"
+   ]
+  },
+  {
+   "key": "keys_razlicheniya_pravovyh_semey",
+   "name": "Различение правовых семей",
+   "tier": 3,
+   "parent": "pravovaya_sistema",
+   "prereqs": [
+    "pravovye_semi",
+    "sistema_prava",
+    "istochnik_prava"
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "pravo",
+   "to": "gosudarstvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "norma_prava",
+   "to": "pravo",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravootnoshenie",
+   "to": "norma_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "norma_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "pravo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "pravo",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravovoe_gosudarstvo",
+   "to": "pravo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovedenie",
+   "to": "pravo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "metodologiya_yuridicheskoy_nauki",
+   "to": "pravovedenie",
+   "relation": "part_of"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "norma_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "sushnost_prava",
+   "to": "pravo",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "gosudarstvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "mehanizm_pravovogo_regulirovaniya",
+   "to": "norma_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "chelovek_obshestvo_pravo",
+   "to": "pravosoznanie",
+   "relation": "depends_on"
+  },
+  {
+   "from": "proishozhdenie_gosudarstva",
+   "to": "gosudarstvo",
+   "relation": "leads_to"
+  },
+  {
+   "from": "sushnost_gosudarstva",
+   "to": "gosudarstvo",
+   "relation": "part_of"
+  },
+  {
+   "from": "formy_gosudarstva",
+   "to": "gosudarstvo",
+   "relation": "part_of"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "gosudarstvo",
+   "relation": "part_of"
+  },
+  {
+   "from": "grazhdanskoe_obshestvo",
+   "to": "pravovoe_gosudarstvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "tipologiya_prava_i_gosudarstva",
+   "to": "pravovaya_sistema",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "istochnik_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "realizaciya_prava",
+   "to": "mehanizm_pravovogo_regulirovaniya",
+   "relation": "part_of"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "realizaciya_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovaya_kultura",
+   "to": "pravosoznanie",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "norma_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "realizaciya_prava",
+   "to": "pravootnoshenie",
+   "relation": "depends_on"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "norma_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovaya_kultura",
+   "to": "pravovoe_gosudarstvo",
+   "relation": "leads_to"
+  },
+  {
+   "from": "grazhdanskoe_obshestvo",
+   "to": "chelovek_obshestvo_pravo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "formy_gosudarstva",
+   "to": "politicheskiy_rezhim",
+   "relation": "part_of"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "mehanizm_gosudarstva",
+   "relation": "part_of"
+  },
+  {
+   "from": "sushnost_prava",
+   "to": "principy_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "sushnost_prava",
+   "to": "funkcii_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "zakon",
+   "relation": "kind_of"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "pravovoy_obychay",
+   "relation": "kind_of"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "sudebnyy_precedent",
+   "relation": "kind_of"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "normativnyy_dogovor",
+   "relation": "kind_of"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "sistema_prava",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "sistema_zakonodatelstva",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "pravovye_semi",
+   "relation": "kind_of"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "yuridicheskaya_tehnika",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "sistematizaciya_zakonodatelstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "realizaciya_prava",
+   "to": "primenenie_prava",
+   "relation": "kind_of"
+  },
+  {
+   "from": "primenenie_prava",
+   "to": "akty_primeneniya_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "primenenie_prava",
+   "to": "probely_v_prave",
+   "relation": "depends_on"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "sposoby_tolkovaniya",
+   "relation": "kind_of"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "tolkovanie_po_subektam",
+   "relation": "kind_of"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "tolkovanie_po_obemu",
+   "relation": "kind_of"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "akty_tolkovaniya",
+   "relation": "leads_to"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "struktura_pravosoznaniya",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "pravovaya_ideologiya_i_psihologiya",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "pravovoy_nigilizm",
+   "relation": "demarcated_from"
+  },
+  {
+   "from": "pravovaya_kultura",
+   "to": "pravovoe_vospitanie",
+   "relation": "leads_to"
+  },
+  {
+   "from": "mehanizm_pravovogo_regulirovaniya",
+   "to": "predmet_pravovogo_regulirovaniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "mehanizm_pravovogo_regulirovaniya",
+   "to": "sposoby_pravovogo_regulirovaniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "mehanizm_pravovogo_regulirovaniya",
+   "to": "elementy_mehanizma_pravovogo_regulirovaniya",
+   "relation": "part_of"
+  },
+  {
+   "from": "chelovek_obshestvo_pravo",
+   "to": "pravovoy_status_lichnosti",
+   "relation": "part_of"
+  },
+  {
+   "from": "chelovek_obshestvo_pravo",
+   "to": "prava_cheloveka",
+   "relation": "part_of"
+  },
+  {
+   "from": "proishozhdenie_gosudarstva",
+   "to": "teorii_proishozhdeniya_gosudarstva",
+   "relation": "kind_of"
+  },
+  {
+   "from": "sushnost_gosudarstva",
+   "to": "priznaki_gosudarstva",
+   "relation": "part_of"
+  },
+  {
+   "from": "formy_gosudarstva",
+   "to": "formy_pravleniya",
+   "relation": "part_of"
+  },
+  {
+   "from": "formy_gosudarstva",
+   "to": "formy_gosudarstvennogo_ustroystva",
+   "relation": "part_of"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "funkcii_gosudarstva",
+   "relation": "part_of"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "mehanizm_gosudarstva_belarusi",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravovoe_gosudarstvo",
+   "to": "principy_pravovogo_gosudarstva",
+   "relation": "part_of"
+  },
+  {
+   "from": "grazhdanskoe_obshestvo",
+   "to": "vzaimodeystvie_obshestva_i_gosudarstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "tipologiya_prava_i_gosudarstva",
+   "to": "formacionnyy_podhod",
+   "relation": "kind_of"
+  },
+  {
+   "from": "tipologiya_prava_i_gosudarstva",
+   "to": "civilizacionnyy_podhod",
+   "relation": "kind_of"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "principy_normotvorchestva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "vidy_pravotvorchestva",
+   "relation": "kind_of"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "normotvorcheskiy_process",
+   "relation": "leads_to"
+  },
+  {
+   "from": "realizaciya_prava",
+   "to": "formy_realizacii_prava",
+   "relation": "kind_of"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "predmet_i_metod_otrasli",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovaya_sistema",
+   "to": "otrasli_i_instituty_prava",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravovedenie",
+   "to": "predmet_teorii_prava",
+   "relation": "part_of"
+  },
+  {
+   "from": "metodologiya_yuridicheskoy_nauki",
+   "to": "metody_poznaniya_prava",
+   "relation": "part_of"
+  },
+  {
+   "from": "metodologiya_yuridicheskoy_nauki",
+   "to": "sinergetika_i_geremevtika",
+   "relation": "leads_to"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "koncepcii_proishozhdeniya_prava",
+   "relation": "kind_of"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "pervobytnoe_obshestvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "prichiny_proishozhdeniya_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "sushnost_prava",
+   "to": "koncepcii_pravoponimaniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "vidy_vlasti",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "socialnoe_regulirovanie",
+   "relation": "part_of"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "pravo_i_spravedlivost",
+   "relation": "leads_to"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "pravovaya_doktrina",
+   "relation": "kind_of"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "normativnye_pravovye_akty",
+   "relation": "kind_of"
+  },
+  {
+   "from": "istochnik_prava",
+   "to": "deystvie_normativnyh_aktov",
+   "relation": "leads_to"
+  },
+  {
+   "from": "keys_razlicheniya_istochnikov",
+   "to": "pravovoy_obychay",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_istochnikov",
+   "to": "normativnyy_dogovor",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_istochnikov",
+   "to": "sudebnyy_precedent",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_istochnikov",
+   "to": "normativnye_pravovye_akty",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_form_gosudarstva",
+   "to": "formy_pravleniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_form_gosudarstva",
+   "to": "formy_gosudarstvennogo_ustroystva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_form_gosudarstva",
+   "to": "politicheskiy_rezhim",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_realizacii_prava",
+   "to": "formy_realizacii_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_realizacii_prava",
+   "to": "primenenie_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_realizacii_prava",
+   "to": "akty_primeneniya_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_tolkovaniya",
+   "to": "sposoby_tolkovaniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_tolkovaniya",
+   "to": "tolkovanie_po_subektam",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_tolkovaniya",
+   "to": "tolkovanie_po_obemu",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravosoznaniya",
+   "to": "struktura_pravosoznaniya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravosoznaniya",
+   "to": "pravovoy_nigilizm",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravosoznaniya",
+   "to": "pravovaya_ideologiya_i_psihologiya",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_teoriy_gosudarstva",
+   "to": "teorii_proishozhdeniya_gosudarstva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravovyh_semey",
+   "to": "pravovye_semi",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravovyh_semey",
+   "to": "sistema_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "keys_razlicheniya_pravovyh_semey",
+   "to": "istochnik_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "metodologiya_yuridicheskoy_nauki",
+   "to": "sushnost_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "proishozhdenie_gosudarstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "sushnost_prava",
+   "to": "sushnost_gosudarstva",
+   "relation": "demarcated_from"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "sushnost_gosudarstva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "sushnost_gosudarstva",
+   "to": "formy_gosudarstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "formy_gosudarstva",
+   "to": "funkcii_i_apparat_gosudarstva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "pravovoe_gosudarstvo",
+   "relation": "leads_to"
+  },
+  {
+   "from": "grazhdanskoe_obshestvo",
+   "to": "pravovaya_sistema",
+   "relation": "depends_on"
+  },
+  {
+   "from": "tipologiya_prava_i_gosudarstva",
+   "to": "formy_gosudarstva",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravotvorchestvo",
+   "to": "pravovaya_sistema",
+   "relation": "leads_to"
+  },
+  {
+   "from": "realizaciya_prava",
+   "to": "pravovaya_kultura",
+   "relation": "depends_on"
+  },
+  {
+   "from": "tolkovanie_prava",
+   "to": "pravotvorchestvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "pravotvorchestvo",
+   "relation": "leads_to"
+  },
+  {
+   "from": "pravovaya_kultura",
+   "to": "pravovedenie",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravovoe_gosudarstvo",
+   "to": "pravo_i_vlast",
+   "relation": "depends_on"
+  },
+  {
+   "from": "proishozhdenie_gosudarstva",
+   "to": "sushnost_gosudarstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "proishozhdenie_prava",
+   "to": "sushnost_prava",
+   "relation": "leads_to"
+  },
+  {
+   "from": "metodologiya_yuridicheskoy_nauki",
+   "to": "tipologiya_prava_i_gosudarstva",
+   "relation": "leads_to"
+  },
+  {
+   "from": "chelovek_obshestvo_pravo",
+   "to": "pravovoe_gosudarstvo",
+   "relation": "leads_to"
+  },
+  {
+   "from": "pravo_i_vlast",
+   "to": "mehanizm_pravovogo_regulirovaniya",
+   "relation": "leads_to"
+  },
+  {
+   "from": "funkcii_i_apparat_gosudarstva",
+   "to": "pravotvorchestvo",
+   "relation": "depends_on"
+  },
+  {
+   "from": "pravosoznanie",
+   "to": "tolkovanie_prava",
+   "relation": "depends_on"
+  },
+  {
+   "from": "grazhdanskoe_obshestvo",
+   "to": "pravo_i_vlast",
+   "relation": "demarcated_from"
+  },
+  {
+   "from": "pravovedenie",
+   "to": "sushnost_prava",
+   "relation": "depends_on"
+  }
+ ]
+}

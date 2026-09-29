@@ -80,6 +80,17 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
             await db.execute(text("ALTER TABLE cards ADD COLUMN organ_slug VARCHAR"))
         if "layer" not in columns_cards:
             await db.execute(text("ALTER TABLE cards ADD COLUMN layer INTEGER DEFAULT 1"))
+        if "node_id" not in columns_cards:
+            await db.execute(text("ALTER TABLE cards ADD COLUMN node_id INTEGER"))
+        if "answer_type" not in columns_cards:
+            await db.execute(text("ALTER TABLE cards ADD COLUMN answer_type VARCHAR"))
+        if "distractors" not in columns_cards:
+            await db.execute(text("ALTER TABLE cards ADD COLUMN distractors JSON"))
+
+        res_practice = await db.execute(text("PRAGMA table_info(practice_items)"))
+        columns_practice = [row[1] for row in res_practice.fetchall()]
+        if columns_practice and "node_id" not in columns_practice:
+            await db.execute(text("ALTER TABLE practice_items ADD COLUMN node_id INTEGER"))
 
         # 3. Миграции для user_sessions (отметки уведомлений и флаги эксперимента)
         res_users = await db.execute(text("PRAGMA table_info(user_sessions)"))
@@ -127,10 +138,11 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
         if "error_trace" not in columns_jobs:
             await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN error_trace TEXT"))
 
-        # 6. Миграция для topic_knowledge_graphs
-        res_tkg = await db.execute(text("PRAGMA table_info(topic_knowledge_graphs)"))
-        columns_tkg = [row[1] for row in res_tkg.fetchall()]
-        if columns_tkg and "tree_data" not in columns_tkg:
-            await db.execute(text("ALTER TABLE topic_knowledge_graphs ADD COLUMN tree_data JSON"))
+        res_tel = await db.execute(text("PRAGMA table_info(ai_telemetry_logs)"))
+        columns_tel = [row[1] for row in res_tel.fetchall()]
+        if columns_tel and "cache_hit_tokens" not in columns_tel:
+            await db.execute(text("ALTER TABLE ai_telemetry_logs ADD COLUMN cache_hit_tokens INTEGER NOT NULL DEFAULT 0"))
+        if columns_tel and "cost_usd" not in columns_tel:
+            await db.execute(text("ALTER TABLE ai_telemetry_logs ADD COLUMN cost_usd FLOAT NOT NULL DEFAULT 0"))
 
         await db.commit()

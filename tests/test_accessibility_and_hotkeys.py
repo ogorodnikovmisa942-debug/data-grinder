@@ -109,8 +109,11 @@ class TestAccessibilityAndHotkeys(unittest.TestCase):
         self.assertIn('aria-label="Полноэкранный режим графа"', html)
 
         # Layout buttons
-        self.assertIn('aria-label="Сетка / Радиальный / Дерево"', html)
-        self.assertIn('id="kg-layout-force"', html)
+        self.assertIn('aria-label="Круговая раскладка"', html)
+        self.assertIn('aria-label="Раскладка сверху вниз"', html)
+        self.assertIn('aria-label="Раскладка слева направо"', html)
+        self.assertIn('aria-label="Показать связи между темами"', html)
+        self.assertNotIn('id="kg-layout-force"', html)  # «Паутина» удалена
         self.assertIn('id="kg-layout-radial"', html)
         self.assertIn('id="kg-layout-tree"', html)
 

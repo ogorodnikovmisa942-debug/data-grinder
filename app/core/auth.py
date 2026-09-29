@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.config import settings
 from app.database.session import get_db
-from app.database.models import UserSetting, UserSession, Card, Phrase, TopicKnowledgeGraph, utc_now
+from app.database.models import UserSetting, UserSession, Card, Phrase, utc_now
 
 def parse_and_verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
     """
