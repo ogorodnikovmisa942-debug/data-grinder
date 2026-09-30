@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from jinja2 import Template
 
-from app.api.endpoints import train, management, admin, practice
+from app.api.endpoints import train, management, admin, practice, open_questions
 from app.api.endpoints import path as knowledge_path_api
 from app.api.endpoints.admin import verify_admin_token
 from app.core.config import settings
@@ -81,6 +81,7 @@ app.include_router(management.router, prefix="/api", tags=["Management"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(practice.router, prefix="/api", tags=["Practice"])
 app.include_router(knowledge_path_api.router, prefix="/api", tags=["Knowledge Path"])
+app.include_router(open_questions.router, prefix="/api", tags=["Open Questions"])
 
 
 # Главная страница MiniApp
