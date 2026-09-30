@@ -190,7 +190,7 @@ function renderAnswerSyncBadge() {
         el.setAttribute('role', 'status');
         el.setAttribute('aria-live', 'polite');
         el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tg-safe-bottom,0px) + 72px);z-index:9999;' +
-            'padding:8px 14px;border-radius:999px;border:1px solid #f59e0b;background:#1c1917;color:#fbbf24;font:600 12px/1.2 monospace;cursor:pointer;';
+            'width:max-content;max-width:calc(100vw - 32px);text-align:center;padding:8px 14px;border-radius:16px;border:1px solid #f59e0b;background:#1c1917;color:#fbbf24;font:600 12px/1.3 monospace;cursor:pointer;';
         el.onclick = () => flushAnswerQueue(true);
         document.body.appendChild(el);
     }

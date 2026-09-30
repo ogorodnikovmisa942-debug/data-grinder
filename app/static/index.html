@@ -726,6 +726,11 @@
                     </p>
                 </div>
 
+                <button type="button" onclick="openOpenQuestionsModal()" class="w-full flex items-center justify-center gap-2 border border-neutral-300 dark:border-neutral-700 rounded-2xl py-2.5 text-xs font-mono font-bold uppercase tracking-wide text-primary hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors">
+                    <span class="material-symbols-outlined text-[16px]">edit_note</span>
+                    <span>Вопросы с открытым ответом</span>
+                </button>
+
                 <div id="slicing-controls-container" class="flex flex-col gap-sm">
                 <!-- Выбор целевого предмета -->
                 <div class="flex flex-col gap-1 mt-1">
@@ -1551,6 +1556,37 @@
         </div>
     </div>
 
+
+        <!-- Модальное окно: загрузка вопросов с открытым ответом («билеты») -->
+    <div id="oq-modal" role="dialog" aria-modal="true" aria-labelledby="oq-modal-title" class="hidden fixed inset-0 z-[125] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col p-3">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <h3 id="oq-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider">Вопросы с открытым ответом</h3>
+                <button type="button" onclick="closeOpenQuestionsModal()" aria-label="Закрыть" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
+                <p class="oq-note">Вставьте вопросы, к которым готовитесь, и свои эталонные ответы. На тренировке вы пишете ответ своими словами, а приложение сверяет его с ключевыми тезисами — без ИИ и без затрат.</p>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Предмет
+                    <input id="oq-subject" list="oq-subject-list" class="oq-modal-field" placeholder="Например, constitutional_law" autocomplete="off">
+                    <datalist id="oq-subject-list"></datalist>
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Название набора
+                    <input id="oq-title" class="oq-modal-field" placeholder="Билеты к экзамену" maxlength="120">
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Вопросы и ответы
+                    <textarea id="oq-text" class="oq-modal-field" rows="10" placeholder="Что такое разделение властей?&#10;- деление власти на ветви / три ветви&#10;- независимость ветвей&#10;&#10;Вопрос: Сколько ветвей власти?&#10;Ответ: Три"></textarea>
+                </label>
+                <p class="oq-note">Вопросы разделяйте пустой строкой. Под вопросом — ответ. Пункты списком («- тезис / вариант») задают ключевые тезисы точно; без списка тезисы выделяются из текста ответа автоматически.</p>
+                <div id="oq-preview" class="oq-note" aria-live="polite"></div>
+            </div>
+            <div class="oq-row p-4 border-t border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <button type="button" class="oq-btn" onclick="closeOpenQuestionsModal()">Отмена</button>
+                <button type="button" id="oq-import-btn" class="oq-btn oq-btn-primary" onclick="importOpenQuestions()" disabled>Добавить</button>
+            </div>
+        </div>
+    </div>
 
         <!-- «Продолжить путь»: кот ведёт между шагами занятия (повторение → урок → карточки → практика → итог) -->
     <div id="path-run-overlay" role="dialog" aria-modal="true" aria-label="Продолжить путь" class="hidden fixed inset-0 z-[120] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">

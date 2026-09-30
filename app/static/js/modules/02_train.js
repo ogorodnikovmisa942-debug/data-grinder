@@ -820,6 +820,7 @@ let currentSessionStats = {
 
 function resetCardDOM() {
     isFlipped = false;
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
     const flashcardEl = document.getElementById('flashcard');
     if (flashcardEl) {
         flashcardEl.style.transform = '';
@@ -1228,7 +1229,14 @@ function renderCurrentCard() {
     
     const card = cardsQueue[currentIndex];
     const isNewCard = (card.state === 0) && !card.has_seen_intro;
-    
+
+    // Вопрос с открытым ответом: своя панель (написать ответ → разбор по тезисам → оценка)
+    if (card.content_type === 'open' && typeof window.renderOpenCard === 'function') {
+        window.renderOpenCard(card);
+        return;
+    }
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
+
     if (isNewCard) {
         renderIntroductionCard(card);
     } else {
