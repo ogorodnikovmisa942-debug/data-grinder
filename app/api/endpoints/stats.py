@@ -1,5 +1,5 @@
 # app/api/endpoints/stats.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query
@@ -15,6 +15,7 @@ from app.services.graph_service import resolve_subject_alias, get_all_subject_al
 from app.services.card_db_sync import is_admin_or_dev, get_user_experiment_status
 from app.core.auth import get_current_user_id
 from app.core.config import settings
+from app.core.timeutil import get_user_timezone, local_now, local_midnight_utc, to_local_date, user_day_start
 
 router = APIRouter()
 
@@ -69,17 +70,16 @@ async def get_analytics(
     retention_rate = round((successful_reviews / total_reviews) * 100, 1) if total_reviews > 0 else 0.0
 
     # Расчет ударного режима (Streak) для конкретного пользователя
-    streak_stmt = select(func.date(ReviewLog.review_time)).filter(
-        ReviewLog.user_id == current_user
-    ).distinct().order_by(func.date(ReviewLog.review_time).desc()).limit(30)
-    
-    streak_res = await db.execute(streak_stmt)
-    active_days = streak_res.all()
-    
+    tz_name = await get_user_timezone(db, current_user)
+    since = local_midnight_utc(tz_name, days_back=60)
+    times = (await db.execute(
+        select(ReviewLog.review_time).where(ReviewLog.user_id == current_user, ReviewLog.review_time >= since)
+    )).scalars().all()
+    dates_set = {to_local_date(t, tz_name) for t in times if t}
+
     streak = 0
-    dates_set = {datetime.strptime(str(d[0]), "%Y-%m-%d").date() if isinstance(d[0], str) else d[0] for d in active_days}
-    current_date = utc_now().date()
-    if current_date not in dates_set: 
+    current_date = local_now(tz_name).date()
+    if current_date not in dates_set:
         current_date -= timedelta(days=1)
     while current_date in dates_set:
         streak += 1
@@ -114,9 +114,8 @@ async def get_analytics(
             })
 
     # Проверяем, пройден ли опрос сегодня именно этим пользователем
-    msk_now = utc_now() + timedelta(hours=3)
-    msk_today_start = msk_now.replace(hour=0, minute=0, second=0, microsecond=0)
-    utc_today_start = msk_today_start - timedelta(hours=3)
+    msk_now = local_now(tz_name)  # локальное время пользователя (имя историческое)
+    utc_today_start = local_midnight_utc(tz_name)
     
     survey_stmt = select(DailySession).filter(
         DailySession.user_id == current_user,
@@ -130,7 +129,7 @@ async def get_analytics(
         evening_msk = msk_now.replace(hour=21, minute=0, second=0, microsecond=0)
     else:
         evening_msk = (msk_now + timedelta(days=1)).replace(hour=21, minute=0, second=0, microsecond=0)
-    evening_utc = evening_msk - timedelta(hours=3)
+    evening_utc = evening_msk.astimezone(timezone.utc).replace(tzinfo=None)
     
     evening_stmt = select(func.count(Card.id)).filter(
         Card.user_id == current_user,
@@ -171,7 +170,7 @@ async def get_analytics(
         daily_new_limit = subject_limits.get(canonical_sub, subject_limits.get(subject, user_daily_limit))
 
     # Сколько новых карточек изучено сегодня
-    today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = await user_day_start(db, current_user)
     new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.state == 0,

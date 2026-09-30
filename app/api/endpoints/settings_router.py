@@ -1,6 +1,6 @@
 # app/api/endpoints/settings_router.py
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,6 +20,30 @@ class ConfigUpdate(BaseModel):
     focus_mode_default: bool = False
     target_retention: float | None = 0.9
     assoc_preference: str | None = "acoustic"
+
+
+class TimezoneIn(BaseModel):
+    timezone: str
+
+
+@router.post("/config/timezone")
+async def set_timezone(
+    payload: TimezoneIn,
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Клиент сообщает IANA-пояс (Intl): по нему считаются границы суток, лимит новых и уведомления."""
+    from app.core.timeutil import is_valid_timezone
+    tz = payload.timezone.strip()
+    if not is_valid_timezone(tz):
+        raise HTTPException(status_code=422, detail="Неизвестный часовой пояс")
+    setting = (await db.execute(select(UserSetting).filter(UserSetting.user_id == current_user))).scalar_one_or_none()
+    if not setting:
+        setting = UserSetting(user_id=current_user, daily_limit=10, subject_limits={"all": 10})
+        db.add(setting)
+    setting.timezone = tz
+    await db.commit()
+    return {"status": "success", "timezone": tz}
 
 
 # --- 3. НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ ИЗ ТАБЛИЦЫ БД ---

@@ -53,8 +53,22 @@ except ImportError:
     _rate_limit_exceeded_handler = fallback_rate_limit_exceeded_handler
     get_remote_address = fallback_get_remote_address
 
+def client_key(request: Any = None) -> str:
+    """Ключ лимита: реальный IP клиента. За nginx (loopback-пир) берём X-Real-IP, который nginx выставляет сам
+    ($remote_addr) и подделать его клиент не может, в отличие от начала X-Forwarded-For."""
+    try:
+        peer = request.client.host if request and request.client else "127.0.0.1"
+        if peer in ("127.0.0.1", "::1"):
+            real = request.headers.get("x-real-ip")
+            if real:
+                return real.strip()
+        return peer
+    except Exception:
+        return "127.0.0.1"
+
+
 # Shared limiter instance across the application
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 
 __all__ = [
     "limiter",
@@ -63,5 +77,6 @@ __all__ = [
     "RateLimitExceeded",
     "_rate_limit_exceeded_handler",
     "get_remote_address",
+    "client_key",
     "HAS_SLOWAPI",
 ]

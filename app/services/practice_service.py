@@ -12,10 +12,12 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import PracticeItem, Card
+from datetime import timedelta
+from app.database.models import PracticeItem, Card, utc_now
 from app.database.session import AsyncSessionLocal
 
 
+PRACTICE_ITEM_TTL_HOURS = 6
 PRACTICE_TYPE_BY_LAYER = {0: "recall", 1: "recall", 2: "situational"}
 
 
@@ -52,7 +54,33 @@ async def generate_practice_session(
         cards = (await db.execute(
             select(Card).where(Card.user_id == user_id, Card.subject == subject, Card.node_id.in_(studied_ids))
         )).scalars().all() if studied_ids else []
+        # Часть зрелых карточек предъявляем письменно вместо выбора из вариантов (политика — в open_policy)
+        from app.services.card_db_sync import get_user_experiment_status
+        from app.services.open_policy import pick_open_ids
+        from app.database.models import UserSetting
+        is_part, phase = await get_user_experiment_status(user_id, db)
+        open_mode = None if (is_part and phase == 1) else (await db.execute(
+            select(UserSetting.open_mode).where(UserSetting.user_id == user_id))).scalar_one_or_none()
+        if is_part and phase == 1:
+            open_mode = "off"
+        from app.core.timeutil import user_day_start
+        day_key = (await user_day_start(db, user_id)).strftime("%Y-%m-%d")
+        open_ids = pick_open_ids(cards, open_mode, day_key=day_key, salt=f"{user_id}:practice")
         for c in cards:
+            if c.id in open_ids:
+                records.append(PracticeItem(
+                    item_id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    subject=subject,
+                    node_id=c.node_id,
+                    item_type="open_recall",
+                    prompt=c.text,
+                    options=[],
+                    correct_answer=c.translation,
+                    explanation=c.example or c.secondary_text or "",
+                    gold_standard=c.translation,
+                ))
+                continue
             wrong = [d for d in (c.distractors or []) if d]
             if len(wrong) < 2:
                 continue
@@ -99,7 +127,11 @@ async def generate_practice_session(
 
         records = _pick_interleaved(records, count, await _fresh_node_ids(db, user_id))
 
-        await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
+        # Прошлые задания не стираем сразу: вторая вкладка или перезапрос не должны ломать открытую сессию
+        await db.execute(delete(PracticeItem).where(
+            PracticeItem.user_id == user_id, PracticeItem.subject == subject,
+            PracticeItem.created_at < utc_now() - timedelta(hours=PRACTICE_ITEM_TTL_HOURS),
+        ))
         for pi in records:
             db.add(pi)
         await db.commit()
@@ -112,8 +144,9 @@ async def generate_practice_session(
 
 async def _fresh_node_ids(db: AsyncSession, user_id: str) -> set[int]:
     """Узлы, урок которых пройден сегодня: по ним практика нужнее всего."""
-    from app.database.models import NodeProgress, utc_now
-    today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    from app.database.models import NodeProgress
+    from app.core.timeutil import user_day_start
+    today = await user_day_start(db, user_id)
     return set((await db.execute(
         select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= today)
     )).scalars().all())
@@ -170,6 +203,19 @@ async def verify_practice_answer(
                 "gold_standard": "Сессия обновлена."
             }
 
+        if item.item_type == "open_recall":
+            from app.services.open_answer import grade_answer
+            graded = grade_answer(selected_answer, None, item.correct_answer)
+            return {
+                "correct": graded["suggested_rating"] >= 3,
+                "selected": selected_answer,
+                "correct_answer": item.correct_answer,
+                "explanation": item.explanation or "",
+                "gold_standard": item.gold_standard or item.correct_answer,
+                "open": True,
+                "score": graded["score"],
+                "points": graded["points"],
+            }
         is_correct = normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer)
         return {
             "correct": is_correct,

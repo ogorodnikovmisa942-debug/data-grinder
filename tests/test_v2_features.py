@@ -244,6 +244,10 @@ class TestV2Features(unittest.TestCase):
         from app.services.generation_worker import is_deepseek_offpeak
 
         large_text = "Конституционное право Республики Беларусь. " * 1000  # >35000 знаков
+        from app.core.config import settings
+        patch.object(settings, "MAX_ACTIVE_JOBS_PER_USER", 100).start()
+        patch.object(settings, "MAX_JOBS_PER_HOUR", 100).start()
+        self.addCleanup(patch.stopall)
 
         # 1. Симулируем off-peak (скидка 50% активна)
         with patch("app.api.endpoints.management.is_deepseek_offpeak", return_value=True):

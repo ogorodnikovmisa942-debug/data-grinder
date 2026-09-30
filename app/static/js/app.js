@@ -109,6 +109,178 @@ async function apiFetch(url, options = {}) {
 }
 
 // ============================================================================
+// УВЕДОМЛЕНИЯ: неблокирующие тосты вместо системных alert() (в Telegram WebView они выглядят как сбой)
+// confirm() остаётся системным: там нужен ответ пользователя.
+// ============================================================================
+window.nativeAlert = window.alert.bind(window);
+window.showToast = function(message, kind = 'info') {
+    try {
+        const text = String(message == null ? '' : message);
+        if (!text.trim() || !document.body) return;
+        let host = document.getElementById('toast-host');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'toast-host';
+            host.setAttribute('role', 'status');
+            host.setAttribute('aria-live', 'polite');
+            host.style.cssText = 'position:fixed;left:0;right:0;top:calc(var(--tg-safe-top,0px) + 12px);z-index:10000;' +
+                'display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 16px;';
+            document.body.appendChild(host);
+        }
+        const colors = { info: '#e5e7eb', error: '#fecaca', success: '#bbf7d0' };
+        const borders = { info: '#525252', error: '#ef4444', success: '#22c55e' };
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.textContent = text;
+        el.style.cssText = 'pointer-events:auto;max-width:520px;text-align:left;padding:10px 14px;border-radius:14px;cursor:pointer;' +
+            `background:#171717;color:${colors[kind] || colors.info};border:1px solid ${borders[kind] || borders.info};` +
+            'font:500 13px/1.4 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35);white-space:pre-line;';
+        const close = () => { try { el.remove(); } catch (_) {} };
+        el.onclick = close;
+        host.appendChild(el);
+        setTimeout(close, Math.min(12000, 3500 + text.length * 45));
+    } catch (_) {}
+};
+// Все существующие alert(...) в приложении становятся тостами; ошибки подсвечиваются по тексту
+window.alert = function(message) {
+    const text = String(message == null ? '' : message);
+    window.showToast(text, /ошибк|не удалось|сбой|нет связи|запрещ|слишком/i.test(text) ? 'error' : 'info');
+};
+
+// ============================================================================
+// НАДЁЖНАЯ ОТПРАВКА ОТВЕТОВ: очередь в localStorage, повторы, идемпотентность (client_id)
+// Ответ ставится в очередь сразу, уходит на сервер по порядку; при сбое сети остаётся и уходит позже.
+// ============================================================================
+const ANSWER_QUEUE_KEY = 'dg_answer_queue_v1';
+const ANSWER_QUEUE_MAX = 500;
+let answerQueue = [];
+let answerFlushing = false;
+let answerRetryTimer = null;
+let answerRetryDelay = 4000;
+let answerLastFailed = false;
+
+function newClientId() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (_) {}
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function persistAnswerQueue() {
+    try { localStorage.setItem(ANSWER_QUEUE_KEY, JSON.stringify(answerQueue)); } catch (_) {}
+}
+
+function restoreAnswerQueue() {
+    try {
+        const raw = localStorage.getItem(ANSWER_QUEUE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) answerQueue = parsed.filter(x => x && x.card_id && x.client_id).slice(-ANSWER_QUEUE_MAX);
+    } catch (_) { answerQueue = []; }
+}
+
+function renderAnswerSyncBadge() {
+    let el = document.getElementById('answer-sync-badge');
+    const pending = answerQueue.length;
+    if (!pending || !answerLastFailed) {
+        if (el) el.remove();
+        return;
+    }
+    if (!el) {
+        el = document.createElement('button');
+        el.id = 'answer-sync-badge';
+        el.type = 'button';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tg-safe-bottom,0px) + 72px);z-index:9999;' +
+            'width:max-content;max-width:calc(100vw - 32px);text-align:center;padding:8px 14px;border-radius:16px;border:1px solid #f59e0b;background:#1c1917;color:#fbbf24;font:600 12px/1.3 monospace;cursor:pointer;';
+        el.onclick = () => flushAnswerQueue(true);
+        document.body.appendChild(el);
+    }
+    el.textContent = `Не отправлено ответов: ${pending}. Нажмите, чтобы повторить`;
+}
+
+function scheduleAnswerRetry() {
+    answerLastFailed = true;
+    renderAnswerSyncBadge();
+    if (answerRetryTimer) return;
+    answerRetryTimer = setTimeout(() => {
+        answerRetryTimer = null;
+        flushAnswerQueue();
+    }, answerRetryDelay);
+    answerRetryDelay = Math.min(answerRetryDelay * 2, 60000);
+}
+
+async function flushAnswerQueue(manual = false) {
+    if (answerFlushing) return;
+    if (manual && answerRetryTimer) { clearTimeout(answerRetryTimer); answerRetryTimer = null; }
+    answerFlushing = true;
+    let sentAny = false;
+    try {
+        while (answerQueue.length) {
+            const item = answerQueue[0];
+            let res;
+            try {
+                res = await apiFetch('/api/answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(item)
+                });
+            } catch (_) {
+                scheduleAnswerRetry();
+                return;
+            }
+            if (res.ok) {
+                answerQueue.shift();
+                persistAnswerQueue();
+                sentAny = true;
+                answerRetryDelay = 4000;
+            } else if (res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)) {
+                // Ответ невозможно принять (карточка удалена и т.п.) — повторять бессмысленно
+                console.warn('[Data Grinder] Ответ отклонён сервером, пропускаю:', res.status, item.card_id);
+                answerQueue.shift();
+                persistAnswerQueue();
+            } else {
+                scheduleAnswerRetry();
+                return;
+            }
+        }
+        answerLastFailed = false;
+    } finally {
+        answerFlushing = false;
+        renderAnswerSyncBadge();
+        if (sentAny && typeof updateGlobalBadges === 'function') {
+            try { updateGlobalBadges(); } catch (_) {}
+        }
+    }
+}
+
+// Единая точка отправки ответа: ставит в очередь и запускает отправку
+window.queueAnswer = function(payload) {
+    answerQueue.push({ ...payload, client_id: newClientId(), answered_at: Date.now() });
+    if (answerQueue.length > ANSWER_QUEUE_MAX) answerQueue.shift();
+    persistAnswerQueue();
+    return flushAnswerQueue();
+};
+
+restoreAnswerQueue();
+
+// Часовой пояс пользователя: сервер считает по нему «сегодня», лимит новых карточек и время уведомлений
+async function syncUserTimezone() {
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (!tz || localStorage.getItem('dg_tz_sent') === tz) return;
+        const res = await apiFetch('/api/config/timezone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timezone: tz })
+        });
+        if (res.ok) localStorage.setItem('dg_tz_sent', tz);
+    } catch (_) {}
+}
+window.addEventListener('load', () => { setTimeout(syncUserTimezone, 1500); });
+window.addEventListener('online', () => flushAnswerQueue(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') flushAnswerQueue(); });
+window.addEventListener('load', () => { if (answerQueue.length) flushAnswerQueue(); });
+
+// ============================================================================
 // ВСТРОЕННАЯ МОБИЛЬНАЯ КОНСОЛЬ ОТЛАДКИ (Eruda DevTools)
 // ============================================================================
 window.enableEruda = function() {
@@ -1230,6 +1402,7 @@ let currentSessionStats = {
 
 function resetCardDOM() {
     isFlipped = false;
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
     const flashcardEl = document.getElementById('flashcard');
     if (flashcardEl) {
         flashcardEl.style.transform = '';
@@ -1506,6 +1679,37 @@ async function startSession(mode) {
     }
 }
 
+// Ошибка загрузки очереди: понятный текст и кнопки повтора (status 0 — сеть/таймаут)
+function renderSessionError(mode, status) {
+    cardsQueue = [];
+    resetCardDOM();
+    if (cardText) {
+        cardText.classList.remove('hidden');
+        cardText.textContent = status === 401 ? "Требуется авторизация" : "Ошибка сессии";
+    }
+    const frontHint = document.getElementById('card-front-hint');
+    if (frontHint) {
+        frontHint.classList.remove('hidden');
+        frontHint.className = "mt-4 flex flex-col items-center gap-2";
+        frontHint.innerHTML = `
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
+                ${status === 401 ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу." : (status === 0 ? "Нет связи с сервером. Проверьте интернет и повторите." : "Не удалось загрузить карточки. Проверьте подключение к серверу.")}
+            </p>
+            <div class="flex gap-2">
+                <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
+                    [ ПОВТОРИТЬ ПОПЫТКУ ]
+                </button>
+                <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
+                    [ В МЕНЮ СЕССИЙ ]
+                </button>
+            </div>
+        `;
+    }
+    currentSessionCounters = { new: 0, learning: 0, review: 0 };
+    renderTopCounters();
+    updateGlobalBadges();
+}
+
 async function fetchActiveSession(mode = 'mixed') {
     try {
         currentSessionMode = mode;
@@ -1515,33 +1719,7 @@ async function fetchActiveSession(mode = 'mixed') {
         const response = await apiFetch(`/api/session?subject=${encodeURIComponent(targetSub)}&mode=${mode}${runParams}`);
         if (!response.ok) {
             console.error("[Data Grinder] Сбой ответа сессии:", response.status);
-            cardsQueue = [];
-            resetCardDOM();
-            if (cardText) {
-                cardText.classList.remove('hidden');
-                cardText.textContent = response.status === 401 ? "Требуется авторизация" : "Ошибка сессии";
-            }
-            const frontHint = document.getElementById('card-front-hint');
-            if (frontHint) {
-                frontHint.classList.remove('hidden');
-                frontHint.className = "mt-4 flex flex-col items-center gap-2";
-                frontHint.innerHTML = `
-                    <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
-                        ${response.status === 401 ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу." : "Не удалось загрузить карточки. Проверьте подключение к серверу."}
-                    </p>
-                    <div class="flex gap-2">
-                        <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                            [ ПОВТОРИТЬ ПОПЫТКУ ]
-                        </button>
-                        <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
-                            [ В МЕНЮ СЕССИЙ ]
-                        </button>
-                    </div>
-                `;
-            }
-            currentSessionCounters = { new: 0, learning: 0, review: 0 };
-            renderTopCounters();
-            updateGlobalBadges();
+            renderSessionError(mode, response.status);
             return;
         }
         const data = await response.json();
@@ -1602,7 +1780,10 @@ async function fetchActiveSession(mode = 'mixed') {
         }
         
         currentIndex = 0; recalculateQueueCounters(); renderCurrentCard(); updateGlobalBadges();
-    } catch (error) { console.error("[Data Grinder] Ошибка загрузки сессии:", error); }
+    } catch (error) {
+        console.error("[Data Grinder] Ошибка загрузки сессии:", error);
+        renderSessionError(mode, 0);
+    }
 }
 
 function recalculateQueueCounters() {
@@ -1630,7 +1811,15 @@ function renderCurrentCard() {
     
     const card = cardsQueue[currentIndex];
     const isNewCard = (card.state === 0) && !card.has_seen_intro;
-    
+
+    // Вопрос с открытым ответом: своя панель (написать ответ → разбор по тезисам → оценка)
+    // Копия после «Снова» показывается обычно: сразу после провала вспомнить письменно труднее, успех важнее формата
+    if ((card.content_type === 'open' || (card.presentation === 'open' && !card._intra_relearn)) && typeof window.renderOpenCard === 'function') {
+        window.renderOpenCard(card);
+        return;
+    }
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
+
     if (isNewCard) {
         renderIntroductionCard(card);
     } else {
@@ -1857,17 +2046,7 @@ function completeIntroduction() {
     currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            card_id: card.id,
-            rating: 3, // Good
-            response_time: responseTimeMs,
-            is_introduction: true
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка синхронизации ознакомления:", err));
+    window.queueAnswer({ card_id: card.id, rating: 3 /* Good */, response_time: responseTimeMs, is_introduction: true });
     
     currentIndex++;
     recalculateQueueCounters();
@@ -1885,12 +2064,7 @@ window.failIntroduction = function() {
     if (!card._retry) currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: card.id, rating: 1, response_time: responseTimeMs, is_introduction: true })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка синхронизации «Не вспомнил»:", err));
+    window.queueAnswer({ card_id: card.id, rating: 1, response_time: responseTimeMs, is_introduction: true });
 
     const retry = (card._retry || 0) + 1;
     if (retry <= 2) {
@@ -1919,18 +2093,7 @@ window.fastTrackIntroduction = function() {
     currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            card_id: card.id,
-            rating: 4, // Easy
-            response_time: responseTimeMs,
-            is_introduction: true,
-            is_fast_track: true
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка fast-track синхронизации:", err));
+    window.queueAnswer({ card_id: card.id, rating: 4 /* Easy */, response_time: responseTimeMs, is_introduction: true, is_fast_track: true });
     
     currentIndex++;
     recalculateQueueCounters();
@@ -2362,18 +2525,18 @@ window.submitCardRating = function(rating) {
     recalculateQueueCounters(); 
     renderCurrentCard();
 
-    apiFetch('/api/answer', {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            card_id: payloadCardId, 
-            rating: rating,
-            response_time: responseTimeMs,
-            has_association: hasAssoc,
-            is_cram: currentSessionMode === 'cram'
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("[Data Grinder] Фоновая ошибка синхронизации:", err));
+    // Письменный ответ: сообщаем формат и оценку проверяющего (для подстройки доли и сверки самооценки)
+    const openMeta = window.__openMeta || {};
+    window.__openMeta = null;
+    window.queueAnswer({
+        card_id: payloadCardId,
+        rating: rating,
+        response_time: responseTimeMs,
+        has_association: hasAssoc,
+        is_cram: currentSessionMode === 'cram',
+        answer_format: openMeta.answer_format || 'flip',
+        ...(openMeta.auto_score != null ? { auto_score: openMeta.auto_score } : {})
+    });
 };
 
 function submitCardRating(rating) {
@@ -3496,6 +3659,30 @@ window.cancelActiveGeneration = function() {
     console.log("[Data Grinder] Активная генерация отменена пользователем.");
 };
 
+// Повторная нарезка заменяет изучаемый предмет: сервер отвечает 409 replace_confirm, спрашиваем согласие и повторяем
+async function fetchWithReplaceConfirm(send) {
+    let response = await send(false);
+    if (response.status === 409) {
+        let data = null;
+        try { data = await response.clone().json(); } catch (_) {}
+        const d = data && data.detail;
+        if (d && d.code === 'replace_confirm') {
+            if (!confirm(d.message)) return null;
+            response = await send(true);
+        }
+    }
+    return response;
+}
+
+// Понятный текст ошибки из ответа сервера (detail может быть строкой, объектом или списком)
+function apiErrorText(data, fallback) {
+    let t = data && (data.detail || data.message);
+    if (!t) return fallback || 'Неизвестная ошибка';
+    if (Array.isArray(t)) return t.map(e => (typeof e === 'object' ? (e.msg || JSON.stringify(e)) : e)).join(', ');
+    if (typeof t === 'object') return t.message || JSON.stringify(t);
+    return t;
+}
+
 async function importTextKnowledge(isDeferred = false) {
     if (window.isExperimentPhase1) {
         alert("Нарезка материалов заблокирована на период Фазы 1 эксперимента. Доступно только тестирование готовых карточек (10 шт/день).");
@@ -3530,8 +3717,9 @@ async function importTextKnowledge(isDeferred = false) {
         if (activeStatus) activeStatus.textContent = "ИИ создает карточки...";
     }
 
+    let keepActiveBar = false;
     try {
-        const response = await apiFetch('/api/config/import', {
+        const response = await fetchWithReplaceConfirm((confirmReplace) => apiFetch('/api/config/import', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
@@ -3545,10 +3733,11 @@ async function importTextKnowledge(isDeferred = false) {
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
                 commit_now: false, // Направляем на проверку
-                is_deferred: isDeferred
+                is_deferred: isDeferred,
+                confirm_replace: confirmReplace
             })
-        });
-        let keepActiveBar = false;
+        }));
+        if (!response) return; // пользователь отказался заменять предмет
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
             if (textarea) textarea.value = "";
@@ -3561,7 +3750,7 @@ async function importTextKnowledge(isDeferred = false) {
             await loadDynamicSubjects(); 
             updateGlobalBadges();
         } else { 
-            alert("Ошибка создания карточек: " + (data.message || data.detail || "Неизвестный сбой.")); 
+            alert("Ошибка создания карточек: " + apiErrorText(data, "Неизвестный сбой.")); 
         }
     } catch (e) { 
         if (e.name === 'AbortError' || e.message === 'The user aborted a request.') {
@@ -3759,14 +3948,20 @@ window.handleFileUpload = async function(event) {
 
     let keepActiveBar = false;
     try {
-        const response = await apiFetch('/api/config/import/file', {
-            method: 'POST',
-            signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
-            body: formData
+        const response = await fetchWithReplaceConfirm((confirmReplace) => {
+            formData.set('confirm_replace', confirmReplace ? 'true' : 'false');
+            return apiFetch('/api/config/import/file', {
+                method: 'POST',
+                signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
+                body: formData
+            });
         });
+        if (!response) { if (statusEl) statusEl.classList.add('hidden'); return; }
 
         if (response.status === 413) {
-            alert(`Файл слишком большой для веб-сервера (${fileSizeMb} МБ). Nginx ограничил размер загрузки. Рекомендуем разбить документ по главам.`);
+            let d413 = null;
+            try { d413 = await response.clone().json(); } catch (_) {}
+            alert(d413 && d413.detail ? apiErrorText(d413) : `Файл слишком большой для веб-сервера (${fileSizeMb} МБ). Рекомендуем разбить документ по главам.`);
             if (statusEl) statusEl.classList.add('hidden');
             return;
         }
@@ -6011,7 +6206,14 @@ window.loadKnowledgeGraph = async function(subject) {
         currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
-        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
+        if (countBadge) {
+            const plan = data && data.plan;
+            countBadge.textContent = `${nodesCount} узлов`;
+            if (plan && plan.new_cards_left > 0) {
+                countBadge.textContent += ` · ещё ${plan.new_cards_left} карт ≈ ${plan.days_left} дн. по ${plan.daily_limit}/день`;
+                countBadge.title = 'Оценка: новых карточек осталось / дневной лимит. Лимит меняется в настройках.';
+            }
+        }
 
         if (nodesCount === 0) {
             if (emptyState) emptyState.classList.remove('hidden');
@@ -8352,7 +8554,8 @@ function renderPracticeQuestion() {
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
-            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' }
+            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' },
+            'open_recall': { icon: 'edit_note', label: 'ВПИШИ ОТВЕТ' }
         };
         const cfg = typeConfigs[item.type] || { icon: 'quiz', label: 'ПРАКТИЧЕСКИЙ ТЕСТ' };
         typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
@@ -8363,7 +8566,8 @@ function renderPracticeQuestion() {
     if (promptEl) promptEl.textContent = item.prompt;
 
     // Кот объявляет задание; на первом — напоминает, что ошибаться здесь нормально
-    const catLine = PRACTICE_CAT_INTRO[item.type] || 'Выбери верный вариант.';
+    const isOpenItem = !item.options || item.options.length === 0;
+    const catLine = PRACTICE_CAT_INTRO[item.type] || (isOpenItem ? 'Напиши ответ своими словами, вариантов не будет.' : 'Выбери верный вариант.');
     practiceCat('think', practiceCurrentIndex === 0 && !isRetrySession
         ? `Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально. ${catLine}`
         : (isRetrySession ? `Работа над ошибками. ${catLine}` : catLine));
@@ -8376,6 +8580,28 @@ function renderPracticeQuestion() {
     const optionsContainer = document.getElementById('practice-options-list');
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
+
+    if (isOpenItem) {
+        // Письменный ответ вместо выбора из вариантов: проверяется по ключевым тезисам на сервере
+        const input = document.createElement('textarea');
+        input.className = 'oq-textarea';
+        input.rows = 3;
+        input.maxLength = 3000;
+        input.setAttribute('aria-label', 'Ваш ответ');
+        input.placeholder = 'Напишите ответ своими словами…';
+        const send = document.createElement('button');
+        send.type = 'button';
+        send.className = 'oq-btn oq-btn-primary';
+        send.style.marginTop = '8px';
+        send.textContent = 'Проверить';
+        send.disabled = true;
+        input.addEventListener('input', () => { send.disabled = !input.value.trim(); });
+        send.onclick = () => { input.disabled = true; selectPracticeOption(item.id, input.value, send); };
+        optionsContainer.appendChild(input);
+        optionsContainer.appendChild(send);
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
+        return;
+    }
 
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
@@ -8411,6 +8637,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
     const handleVerifyFailure = () => {
+        const openInput = document.querySelector('#practice-options-list textarea');
+        if (openInput) openInput.disabled = false;
         const spinner = clickedBtn.querySelector('.animate-spin');
         if (spinner) spinner.remove();
         allButtons.forEach(b => {
@@ -8490,10 +8718,10 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (statusEl) {
             if (isCorrect) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
 
@@ -9549,3 +9777,308 @@ window.closeDayCelebration = function() {
 };
 
 window.showDayCelebration = showDayCelebration;
+// ============================================================================
+// ВОПРОСЫ С ОТКРЫТЫМ ОТВЕТОМ: загрузка списка вопросов и панель ответа на тренировке.
+// Проверка идёт на сервере по ключевым тезисам (без ИИ); оценку всегда выбирает пользователь.
+// ============================================================================
+
+// Мини-конструктор DOM: пользовательский текст попадает только через textContent (без innerHTML)
+function oqEl(tag, props = {}, children = []) {
+    const el = document.createElement(tag);
+    Object.entries(props).forEach(([k, v]) => {
+        if (k === 'class') el.className = v;
+        else if (k === 'text') el.textContent = v;
+        else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+        else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+    });
+    [].concat(children).forEach(c => { if (c) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return el;
+}
+
+function oqErrorText(data, fallback) {
+    const d = data && (data.detail || data.message);
+    if (!d) return fallback;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) return d.map(e => e.msg || JSON.stringify(e)).join(', ');
+    return d.message || fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Модалка загрузки вопросов
+// ---------------------------------------------------------------------------
+let oqPreviewTimer = null;
+let oqPreviewSeq = 0;
+
+window.openOpenQuestionsModal = function() {
+    const modal = document.getElementById('oq-modal');
+    if (!modal) return;
+    const list = document.getElementById('oq-subject-list');
+    const subjectInput = document.getElementById('oq-subject');
+    if (list) {
+        list.innerHTML = '';
+        const seen = new Set();
+        document.querySelectorAll('#import-target-subject option').forEach(opt => {
+            if (!opt.value || opt.value === '__new__' || seen.has(opt.value)) return;
+            seen.add(opt.value);
+            list.appendChild(oqEl('option', { value: opt.value }));
+        });
+    }
+    if (subjectInput && !subjectInput.value) {
+        const cur = (typeof currentSubject !== 'undefined' && currentSubject && currentSubject !== 'all') ? currentSubject : '';
+        subjectInput.value = cur;
+    }
+    modal.classList.remove('hidden');
+    const text = document.getElementById('oq-text');
+    if (text && !text.dataset.bound) {
+        text.dataset.bound = '1';
+        text.addEventListener('input', () => {
+            clearTimeout(oqPreviewTimer);
+            oqPreviewTimer = setTimeout(previewOpenQuestions, 450);
+        });
+        if (subjectInput) subjectInput.addEventListener('input', updateOqImportState);
+    }
+    updateOqImportState();
+};
+
+window.closeOpenQuestionsModal = function() {
+    const modal = document.getElementById('oq-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+let oqPreviewCount = 0;
+
+function updateOqImportState() {
+    const btn = document.getElementById('oq-import-btn');
+    const subject = (document.getElementById('oq-subject')?.value || '').trim();
+    if (btn) btn.disabled = !(oqPreviewCount > 0 && subject);
+}
+
+async function previewOpenQuestions() {
+    const text = (document.getElementById('oq-text')?.value || '').trim();
+    const box = document.getElementById('oq-preview');
+    if (!box) return;
+    if (!text) { oqPreviewCount = 0; box.textContent = ''; updateOqImportState(); return; }
+    const seq = ++oqPreviewSeq;
+    try {
+        const res = await apiFetch('/api/open/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (seq !== oqPreviewSeq) return; // устаревший ответ
+        if (!res.ok) { box.textContent = oqErrorText(data, 'Не удалось разобрать текст.'); oqPreviewCount = 0; updateOqImportState(); return; }
+        oqPreviewCount = data.count;
+        const parts = [`Найдено вопросов: ${data.count}`];
+        if (data.without_answer) parts.push(`без ответа: ${data.without_answer} (их придётся оценивать самому)`);
+        box.textContent = parts.join(', ') + '.';
+        const shown = (data.items || []).slice(0, 5);
+        if (shown.length) {
+            const ul = oqEl('ul', { class: 'oq-points', style: 'margin-top:8px' });
+            shown.forEach(it => ul.appendChild(oqEl('li', { class: 'oq-point' },
+                `${it.question.slice(0, 80)}${it.question.length > 80 ? '…' : ''} — тезисов: ${it.points}`)));
+            box.appendChild(ul);
+        }
+    } catch (e) {
+        if (seq === oqPreviewSeq) box.textContent = 'Нет связи с сервером. Предпросмотр недоступен.';
+    }
+    updateOqImportState();
+}
+
+window.importOpenQuestions = async function() {
+    const btn = document.getElementById('oq-import-btn');
+    const subject = (document.getElementById('oq-subject')?.value || '').trim().toLowerCase();
+    const title = (document.getElementById('oq-title')?.value || '').trim() || 'Вопросы';
+    const text = (document.getElementById('oq-text')?.value || '').trim();
+    if (!subject || !text) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Добавляю…'; }
+    try {
+        const res = await apiFetch('/api/open/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject, title, text })
+        });
+        const data = await res.json();
+        if (!res.ok) { showToast(oqErrorText(data, 'Не удалось добавить вопросы.'), 'error'); return; }
+        let msg = `Добавлено вопросов: ${data.created}.`;
+        if (data.skipped_duplicates) msg += ` Уже были: ${data.skipped_duplicates}.`;
+        if (data.without_answer) msg += ` Без ответа: ${data.without_answer}.`;
+        showToast(msg + ' Они появятся в тренировке.', 'success');
+        document.getElementById('oq-text').value = '';
+        oqPreviewCount = 0;
+        document.getElementById('oq-preview').textContent = '';
+        closeOpenQuestionsModal();
+        if (typeof loadDynamicSubjects === 'function') { try { await loadDynamicSubjects(); } catch (_) {} }
+        if (typeof updateGlobalBadges === 'function') { try { updateGlobalBadges(); } catch (_) {} }
+    } catch (e) {
+        showToast('Нет связи с сервером. Попробуйте ещё раз.', 'error');
+    } finally {
+        if (btn) { btn.textContent = 'Добавить'; }
+        updateOqImportState();
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Панель ответа на тренировке
+// ---------------------------------------------------------------------------
+const OQ_RATINGS = [
+    { r: 1, label: 'Снова', hint: 'мимо' },
+    { r: 2, label: 'Трудно', hint: 'с трудом' },
+    { r: 3, label: 'Хорошо', hint: 'вспомнил' },
+    { r: 4, label: 'Легко', hint: 'без усилий' }
+];
+
+window.teardownOpenPanel = function() {
+    const panel = document.getElementById('open-answer-panel');
+    if (panel) panel.remove();
+    const fc = document.getElementById('flashcard');
+    if (fc) fc.classList.remove('hidden');
+};
+
+function oqFinish(rating, result) {
+    window.__openMeta = { answer_format: 'open', auto_score: (result && result.graded && typeof result.score === 'number') ? result.score : null };
+    window.teardownOpenPanel();
+    window.submitCardRating(rating);
+}
+
+window.renderOpenCard = function(card) {
+    const fc = document.getElementById('flashcard');
+    if (!fc) return;
+    window.teardownOpenPanel();
+    fc.classList.add('hidden');
+    const actions = document.getElementById('action-buttons');
+    if (actions) { actions.classList.add('hidden'); actions.classList.remove('flex'); }
+    if (typeof cardShowTimestamp !== 'undefined') cardShowTimestamp = Date.now();
+
+    const panel = oqEl('div', { id: 'open-answer-panel', class: 'oq-panel', role: 'group', 'aria-label': 'Вопрос с открытым ответом' });
+    fc.parentNode.insertBefore(panel, fc.nextSibling);
+    renderOpenAsk(panel, card);
+};
+
+function renderOpenAsk(panel, card) {
+    panel.replaceChildren();
+    const sub = card.subject_title || '';
+    const own = card.content_type === 'open';
+    const short = card.answer_kind === 'short';
+    const badge = own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите');
+    panel.appendChild(oqEl('span', { class: 'oq-badge', text: sub ? `${badge} · ${sub}` : badge }));
+    panel.appendChild(oqEl('div', { class: 'oq-question', text: card.text }));
+
+    const textarea = oqEl('textarea', {
+        class: 'oq-textarea', maxlength: '3000', rows: short ? '2' : '5', 'aria-label': 'Ваш ответ',
+        placeholder: short ? 'Впишите ответ…' : 'Напишите ответ своими словами…'
+    });
+    if (short) textarea.style.minHeight = '64px';
+    const checkBtn = oqEl('button', { type: 'button', class: 'oq-btn oq-btn-primary', text: 'Проверить', disabled: true });
+    const showBtn = oqEl('button', { type: 'button', class: 'oq-btn', text: 'Не помню' });
+    textarea.addEventListener('input', () => { checkBtn.disabled = !textarea.value.trim(); });
+    textarea.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && textarea.value.trim()) checkBtn.click();
+    });
+
+    const run = async (skip) => {
+        checkBtn.disabled = showBtn.disabled = true;
+        checkBtn.textContent = skip ? checkBtn.textContent : 'Проверяю…';
+        let result = null;
+        try {
+            const res = await apiFetch('/api/open/check', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ card_id: card.id, answer: skip ? '' : textarea.value })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            result = await res.json();
+        } catch (e) {
+            // Нет связи: эталон уже в карточке, поэтому не блокируем занятие — разбор вручную, оценка своя
+            result = { graded: false, offline: true, reference: card.translation || '', points: [], suggested_rating: 1 };
+        }
+        renderOpenResult(panel, card, textarea.value, result, skip);
+    };
+    checkBtn.addEventListener('click', () => run(false));
+    showBtn.addEventListener('click', () => run(true));
+
+    panel.appendChild(textarea);
+    panel.appendChild(oqEl('div', { class: 'oq-row' }, [showBtn, checkBtn]));
+    setTimeout(() => { try { textarea.focus(); } catch (_) {} }, 50);
+}
+
+function renderOpenResult(panel, card, userAnswer, result, skipped) {
+    panel.replaceChildren();
+    panel.appendChild(oqEl('span', { class: 'oq-badge', text: 'Разбор ответа' }));
+    panel.appendChild(oqEl('div', { class: 'oq-question', text: card.text }));
+
+    const live = oqEl('div', { 'aria-live': 'polite' });
+    panel.appendChild(live);
+
+    let suggested = result.suggested_rating || 1;
+    if (result.graded && !skipped) {
+        live.appendChild(oqEl('div', { class: 'oq-note', text: `Совпало тезисов: ${result.matched} из ${result.total} (${result.percent}%)` }));
+        const meter = oqEl('div', { class: 'oq-meter', role: 'img', 'aria-label': `Совпадение ${result.percent}%` }, [oqEl('span')]);
+        meter.firstChild.style.width = `${result.percent}%`;
+        live.appendChild(meter);
+
+        const ul = oqEl('ul', { class: 'oq-points', style: 'margin-top:8px' });
+        (result.points || []).forEach(p => {
+            const cls = p.matched ? 'oq-point-ok' : (p.partial ? 'oq-point-part' : 'oq-point-miss');
+            const mark = p.matched ? '✓' : (p.partial ? '≈' : '✗');
+            const sr = p.matched ? 'есть' : (p.partial ? 'частично' : (p.negated ? 'сказано наоборот' : 'нет'));
+            ul.appendChild(oqEl('li', { class: `oq-point ${cls}` }, [
+                oqEl('span', { 'aria-hidden': 'true', text: mark }),
+                oqEl('span', { text: p.text }),
+                oqEl('span', { class: 'oq-note', style: 'margin-left:auto;white-space:nowrap', text: sr })
+            ]));
+        });
+        panel.appendChild(ul);
+    } else if (skipped) {
+        suggested = 1;
+        live.appendChild(oqEl('div', { class: 'oq-note', text: 'Ответ ниже. Прочитайте и оцените, насколько он был вам знаком.' }));
+    } else if (result.offline) {
+        live.appendChild(oqEl('div', { class: 'oq-note', text: 'Нет связи, автоматическая проверка недоступна. Сверьте свой ответ с эталоном и оцените сами.' }));
+        if (userAnswer && userAnswer.trim()) {
+            panel.appendChild(oqEl('div', { class: 'oq-note', text: 'Ваш ответ' }));
+            panel.appendChild(oqEl('div', { class: 'oq-reference', text: userAnswer }));
+        }
+    } else {
+        live.appendChild(oqEl('div', { class: 'oq-note', text: 'Для этого вопроса нет ключевых тезисов, автоматическая проверка невозможна. Оцените сами.' }));
+    }
+
+    if (result.reference) {
+        panel.appendChild(oqEl('div', { class: 'oq-note', text: 'Эталонный ответ' }));
+        panel.appendChild(oqEl('div', { class: 'oq-reference', text: result.reference }));
+    } else {
+        panel.appendChild(oqEl('div', { class: 'oq-note', text: 'Эталонного ответа нет: у этой карточки его не задали.' }));
+    }
+
+    panel.appendChild(oqEl('div', { class: 'oq-note', text: 'Оценку выбираете вы: программа сверяет слова и не понимает пересказ без общих слов.' }));
+    const rate = oqEl('div', { class: 'oq-rate', role: 'group', 'aria-label': 'Оценка ответа' });
+    OQ_RATINGS.forEach(({ r, label, hint }) => {
+        const b = oqEl('button', { type: 'button', class: `oq-btn${r === suggested && result.graded ? ' oq-suggested' : ''}`,
+            title: r === suggested && result.graded ? 'Рекомендуем' : hint }, [label]);
+        b.addEventListener('click', () => oqFinish(r, result));
+        rate.appendChild(b);
+    });
+    panel.appendChild(rate);
+}
+
+// ---------------------------------------------------------------------------
+// Режим письменных вопросов (настройка): auto — изредка, exam — подготовка к экзамену, off — не предлагать
+// ---------------------------------------------------------------------------
+window.loadOpenMode = async function() {
+    const sel = document.getElementById('open-mode-select');
+    if (!sel) return;
+    try {
+        const res = await apiFetch('/api/open/settings');
+        if (res.ok) sel.value = (await res.json()).mode || 'auto';
+    } catch (_) {}
+};
+
+window.saveOpenMode = async function(mode) {
+    try {
+        const res = await apiFetch('/api/open/settings', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast({ auto: 'Письменные вопросы: иногда.', exam: 'Подготовка к экзамену: письменных вопросов будет больше.', off: 'Письменные вопросы отключены.' }[mode] || 'Сохранено.', 'success');
+    } catch (_) {
+        showToast('Не удалось сохранить настройку. Проверьте связь.', 'error');
+        window.loadOpenMode();
+    }
+};
+
+window.addEventListener('load', () => { setTimeout(() => window.loadOpenMode && window.loadOpenMode(), 1800); });

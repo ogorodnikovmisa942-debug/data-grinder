@@ -1,0 +1,30 @@
+    <!-- Модальное окно: загрузка вопросов с открытым ответом («билеты») -->
+    <div id="oq-modal" role="dialog" aria-modal="true" aria-labelledby="oq-modal-title" class="hidden fixed inset-0 z-[125] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col p-3">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <h3 id="oq-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider">Свои вопросы к экзамену</h3>
+                <button type="button" onclick="closeOpenQuestionsModal()" aria-label="Закрыть" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
+                <p class="oq-note">Это необязательно: письменные вопросы система и так создаёт из ваших карточек. Здесь можно добавить именно те вопросы, которые будут на экзамене, вместе с эталонными ответами. Такие вопросы всегда предлагаются письменно, а проверка идёт по ключевым тезисам без ИИ.</p>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Предмет
+                    <input id="oq-subject" list="oq-subject-list" class="oq-modal-field" placeholder="Например, constitutional_law" autocomplete="off">
+                    <datalist id="oq-subject-list"></datalist>
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Название набора
+                    <input id="oq-title" class="oq-modal-field" placeholder="Билеты к экзамену" maxlength="120">
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Вопросы и ответы
+                    <textarea id="oq-text" class="oq-modal-field" rows="10" placeholder="Что такое разделение властей?&#10;- деление власти на ветви / три ветви&#10;- независимость ветвей&#10;&#10;Вопрос: Сколько ветвей власти?&#10;Ответ: Три"></textarea>
+                </label>
+                <p class="oq-note">Вопросы разделяйте пустой строкой. Под вопросом — ответ. Пункты списком («- тезис / вариант») задают ключевые тезисы точно; без списка тезисы выделяются из текста ответа автоматически.</p>
+                <div id="oq-preview" class="oq-note" aria-live="polite"></div>
+            </div>
+            <div class="oq-row p-4 border-t border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <button type="button" class="oq-btn" onclick="closeOpenQuestionsModal()">Отмена</button>
+                <button type="button" id="oq-import-btn" class="oq-btn oq-btn-primary" onclick="importOpenQuestions()" disabled>Добавить</button>
+            </div>
+        </div>
+    </div>

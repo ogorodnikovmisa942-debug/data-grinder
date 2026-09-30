@@ -121,7 +121,8 @@ function renderPracticeQuestion() {
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
-            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' }
+            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' },
+            'open_recall': { icon: 'edit_note', label: 'ВПИШИ ОТВЕТ' }
         };
         const cfg = typeConfigs[item.type] || { icon: 'quiz', label: 'ПРАКТИЧЕСКИЙ ТЕСТ' };
         typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
@@ -132,7 +133,8 @@ function renderPracticeQuestion() {
     if (promptEl) promptEl.textContent = item.prompt;
 
     // Кот объявляет задание; на первом — напоминает, что ошибаться здесь нормально
-    const catLine = PRACTICE_CAT_INTRO[item.type] || 'Выбери верный вариант.';
+    const isOpenItem = !item.options || item.options.length === 0;
+    const catLine = PRACTICE_CAT_INTRO[item.type] || (isOpenItem ? 'Напиши ответ своими словами, вариантов не будет.' : 'Выбери верный вариант.');
     practiceCat('think', practiceCurrentIndex === 0 && !isRetrySession
         ? `Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально. ${catLine}`
         : (isRetrySession ? `Работа над ошибками. ${catLine}` : catLine));
@@ -145,6 +147,28 @@ function renderPracticeQuestion() {
     const optionsContainer = document.getElementById('practice-options-list');
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
+
+    if (isOpenItem) {
+        // Письменный ответ вместо выбора из вариантов: проверяется по ключевым тезисам на сервере
+        const input = document.createElement('textarea');
+        input.className = 'oq-textarea';
+        input.rows = 3;
+        input.maxLength = 3000;
+        input.setAttribute('aria-label', 'Ваш ответ');
+        input.placeholder = 'Напишите ответ своими словами…';
+        const send = document.createElement('button');
+        send.type = 'button';
+        send.className = 'oq-btn oq-btn-primary';
+        send.style.marginTop = '8px';
+        send.textContent = 'Проверить';
+        send.disabled = true;
+        input.addEventListener('input', () => { send.disabled = !input.value.trim(); });
+        send.onclick = () => { input.disabled = true; selectPracticeOption(item.id, input.value, send); };
+        optionsContainer.appendChild(input);
+        optionsContainer.appendChild(send);
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
+        return;
+    }
 
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
@@ -180,6 +204,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
     const handleVerifyFailure = () => {
+        const openInput = document.querySelector('#practice-options-list textarea');
+        if (openInput) openInput.disabled = false;
         const spinner = clickedBtn.querySelector('.animate-spin');
         if (spinner) spinner.remove();
         allButtons.forEach(b => {
@@ -259,10 +285,10 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (statusEl) {
             if (isCorrect) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
 

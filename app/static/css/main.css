@@ -741,3 +741,37 @@ html, body {
 .practice-cat-row { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-bottom: 10px; }
 .practice-cat-row .intro-cat-bubble p { min-height: 1.4em; }
 .practice-finish-cat { font-size: 16px; }
+
+/* ===== Вопросы с открытым ответом ===== */
+.oq-panel { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px;
+    border: 1px solid #e5e5e5; background: #ffffff; max-height: 100%; overflow-y: auto; }
+.dark .oq-panel { border-color: #262626; background: #111111; }
+.oq-badge { align-self: flex-start; font: 700 10px/1 ui-monospace, monospace; letter-spacing: .05em; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 999px; background: rgba(99, 102, 241, .1); border: 1px solid rgba(99, 102, 241, .3); color: #6366f1; }
+.oq-question { font-size: 16px; line-height: 1.4; font-weight: 600; word-break: break-word; }
+.oq-textarea { width: 100%; min-height: 120px; resize: vertical; padding: 12px; border-radius: 12px; border: 1px solid #d4d4d4;
+    background: #fafafa; color: inherit; font: 14px/1.5 system-ui, sans-serif; }
+.dark .oq-textarea { border-color: #404040; background: #171717; }
+.oq-textarea:focus { outline: 2px solid #6366f1; outline-offset: 1px; }
+.oq-row { display: flex; gap: 8px; }
+.oq-btn { flex: 1; min-height: 44px; padding: 10px 12px; border-radius: 12px; font: 700 12px/1.2 ui-monospace, monospace; text-transform: uppercase;
+    letter-spacing: .04em; cursor: pointer; border: 1px solid #d4d4d4; background: transparent; color: inherit; }
+.dark .oq-btn { border-color: #404040; }
+.oq-btn:disabled { opacity: .45; cursor: not-allowed; }
+.oq-btn-primary { background: #6366f1; border-color: #6366f1; color: #fff; }
+.oq-meter { height: 8px; border-radius: 999px; background: #e5e5e5; overflow: hidden; }
+.dark .oq-meter { background: #262626; }
+.oq-meter > span { display: block; height: 100%; background: #6366f1; transition: width .4s ease; }
+.oq-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.oq-point { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.35; padding: 8px 10px; border-radius: 10px; border: 1px solid #e5e5e5; }
+.dark .oq-point { border-color: #262626; }
+.oq-point-ok { border-color: #10b981 !important; background: rgba(16, 185, 129, .1); }
+.oq-point-part { border-color: #f59e0b !important; background: rgba(245, 158, 11, .1); }
+.oq-point-miss { border-color: #f43f5e !important; background: rgba(244, 63, 94, .08); }
+.oq-reference { white-space: pre-line; font-size: 13px; line-height: 1.45; padding: 10px 12px; border-radius: 10px; background: rgba(99, 102, 241, .07); }
+.oq-note { font-size: 11px; color: #737373; line-height: 1.4; }
+.oq-rate { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.oq-rate .oq-btn { padding: 8px 4px; font-size: 11px; }
+.oq-rate .oq-suggested { outline: 2px solid #6366f1; outline-offset: 1px; }
+.oq-modal-field { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid #d4d4d4; background: #fafafa; color: inherit; font: 13px/1.4 system-ui, sans-serif; }
+.dark .oq-modal-field { border-color: #404040; background: #171717; }

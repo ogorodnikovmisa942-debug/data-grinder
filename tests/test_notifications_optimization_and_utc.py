@@ -137,7 +137,7 @@ async def test_check_and_send_alerts_grouped_queries_no_n_plus_1():
         # Карточки u1: 2 карты (1 due)
         c1 = Card(
             phrase_id=p1.id, user_id=uid1, subject="test_sub",
-            text="card1", translation="trans1", state=2, next_review=now - timedelta(days=1)
+            text="card1", translation="trans1", state=2, next_review=now - timedelta(days=2)
         )
         c2 = Card(
             phrase_id=p1.id, user_id=uid1, subject="test_sub",
@@ -153,7 +153,10 @@ async def test_check_and_send_alerts_grouped_queries_no_n_plus_1():
         await db.commit()
 
     mock_send = AsyncMock()
-    with patch("app.services.notifications.send_telegram_alert", mock_send):
+    # Фиксируем «сейчас» в дневное время по Москве (13:00), чтобы тихие часы не делали тест зависимым от часа запуска
+    noon = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    with patch("app.services.notifications.send_telegram_alert", mock_send), \
+         patch("app.services.notifications.utc_now", return_value=noon):
         await check_and_send_alerts()
 
     # Проверяем, что для пользователей с due картами отправлены алерты с переданным bot
@@ -169,3 +172,53 @@ async def test_check_and_send_alerts_grouped_queries_no_n_plus_1():
         await db.execute(delete(Phrase).filter(Phrase.user_id.in_([uid1, uid2])))
         await db.execute(delete(UserSession).filter(UserSession.telegram_id.in_([uid1, uid2])))
         await db.commit()
+
+
+def test_quiet_hours_boundaries():
+    from app.services.notifications import is_quiet_hour
+    assert is_quiet_hour(22) and is_quiet_hour(0) and is_quiet_hour(7)
+    assert not is_quiet_hour(8) and not is_quiet_hour(12) and not is_quiet_hour(21)
+
+
+@pytest.mark.asyncio
+async def test_no_instant_alert_at_night_and_learning_steps_do_not_count():
+    """Ночью (по поясу пользователя) пуш не уходит; шаги заучивания (state 1/3, минуты назад) в счётчик не входят."""
+    uid = "test_user_night_1"
+    real_now = utc_now()
+    night_utc = real_now.replace(hour=20, minute=30, second=0, microsecond=0)   # 23:30 МСК
+    day_utc = real_now.replace(hour=10, minute=0, second=0, microsecond=0)      # 13:00 МСК
+
+    async with AsyncSessionLocal() as db:
+        db.add(UserSession(telegram_id=uid, user_id=uid, last_due_count=0))
+        ph = Phrase(user_id=uid, subject="night_sub", text="T")
+        db.add(ph)
+        await db.flush()
+        db.add_all([
+            Card(phrase_id=ph.id, user_id=uid, subject="night_sub", text="due", translation="x",
+                 state=2, next_review=night_utc - timedelta(days=1)),
+            # только что провалена: ждёт шага заучивания через 5 минут, для пуша это не «просрочка»
+            Card(phrase_id=ph.id, user_id=uid, subject="night_sub", text="step", translation="x",
+                 state=3, next_review=day_utc - timedelta(minutes=10)),
+        ])
+        await db.commit()
+
+    try:
+        mock_send = AsyncMock()
+        with patch("app.services.notifications.send_telegram_alert", mock_send), \
+             patch("app.services.notifications.utc_now", return_value=night_utc):
+            await check_and_send_alerts()
+        assert not any(c.args and c.args[0] == uid for c in mock_send.call_args_list)
+
+        mock_send = AsyncMock()
+        with patch("app.services.notifications.send_telegram_alert", mock_send), \
+             patch("app.services.notifications.utc_now", return_value=day_utc):
+            await check_and_send_alerts()
+        mine = [c for c in mock_send.call_args_list if c.args and c.args[0] == uid]
+        assert len(mine) == 1 and "1 шт." in mine[0].args[1]   # считается только настоящая просрочка
+    finally:
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import delete
+            await db.execute(delete(Card).filter(Card.user_id == uid))
+            await db.execute(delete(Phrase).filter(Phrase.user_id == uid))
+            await db.execute(delete(UserSession).filter(UserSession.telegram_id == uid))
+            await db.commit()

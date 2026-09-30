@@ -917,6 +917,30 @@ window.cancelActiveGeneration = function() {
     console.log("[Data Grinder] Активная генерация отменена пользователем.");
 };
 
+// Повторная нарезка заменяет изучаемый предмет: сервер отвечает 409 replace_confirm, спрашиваем согласие и повторяем
+async function fetchWithReplaceConfirm(send) {
+    let response = await send(false);
+    if (response.status === 409) {
+        let data = null;
+        try { data = await response.clone().json(); } catch (_) {}
+        const d = data && data.detail;
+        if (d && d.code === 'replace_confirm') {
+            if (!confirm(d.message)) return null;
+            response = await send(true);
+        }
+    }
+    return response;
+}
+
+// Понятный текст ошибки из ответа сервера (detail может быть строкой, объектом или списком)
+function apiErrorText(data, fallback) {
+    let t = data && (data.detail || data.message);
+    if (!t) return fallback || 'Неизвестная ошибка';
+    if (Array.isArray(t)) return t.map(e => (typeof e === 'object' ? (e.msg || JSON.stringify(e)) : e)).join(', ');
+    if (typeof t === 'object') return t.message || JSON.stringify(t);
+    return t;
+}
+
 async function importTextKnowledge(isDeferred = false) {
     if (window.isExperimentPhase1) {
         alert("Нарезка материалов заблокирована на период Фазы 1 эксперимента. Доступно только тестирование готовых карточек (10 шт/день).");
@@ -951,8 +975,9 @@ async function importTextKnowledge(isDeferred = false) {
         if (activeStatus) activeStatus.textContent = "ИИ создает карточки...";
     }
 
+    let keepActiveBar = false;
     try {
-        const response = await apiFetch('/api/config/import', {
+        const response = await fetchWithReplaceConfirm((confirmReplace) => apiFetch('/api/config/import', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
@@ -966,10 +991,11 @@ async function importTextKnowledge(isDeferred = false) {
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
                 commit_now: false, // Направляем на проверку
-                is_deferred: isDeferred
+                is_deferred: isDeferred,
+                confirm_replace: confirmReplace
             })
-        });
-        let keepActiveBar = false;
+        }));
+        if (!response) return; // пользователь отказался заменять предмет
         const data = await response.json();
         if (response.ok && data.status === 'queued') {
             if (textarea) textarea.value = "";
@@ -982,7 +1008,7 @@ async function importTextKnowledge(isDeferred = false) {
             await loadDynamicSubjects(); 
             updateGlobalBadges();
         } else { 
-            alert("Ошибка создания карточек: " + (data.message || data.detail || "Неизвестный сбой.")); 
+            alert("Ошибка создания карточек: " + apiErrorText(data, "Неизвестный сбой.")); 
         }
     } catch (e) { 
         if (e.name === 'AbortError' || e.message === 'The user aborted a request.') {
@@ -1180,14 +1206,20 @@ window.handleFileUpload = async function(event) {
 
     let keepActiveBar = false;
     try {
-        const response = await apiFetch('/api/config/import/file', {
-            method: 'POST',
-            signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
-            body: formData
+        const response = await fetchWithReplaceConfirm((confirmReplace) => {
+            formData.set('confirm_replace', confirmReplace ? 'true' : 'false');
+            return apiFetch('/api/config/import/file', {
+                method: 'POST',
+                signal: activeImportAbortController ? activeImportAbortController.signal : undefined,
+                body: formData
+            });
         });
+        if (!response) { if (statusEl) statusEl.classList.add('hidden'); return; }
 
         if (response.status === 413) {
-            alert(`Файл слишком большой для веб-сервера (${fileSizeMb} МБ). Nginx ограничил размер загрузки. Рекомендуем разбить документ по главам.`);
+            let d413 = null;
+            try { d413 = await response.clone().json(); } catch (_) {}
+            alert(d413 && d413.detail ? apiErrorText(d413) : `Файл слишком большой для веб-сервера (${fileSizeMb} МБ). Рекомендуем разбить документ по главам.`);
             if (statusEl) statusEl.classList.add('hidden');
             return;
         }
