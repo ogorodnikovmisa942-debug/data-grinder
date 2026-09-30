@@ -109,6 +109,8 @@ class ReviewLog(Base):
     timestamp = Column(DateTime, default=utc_now) # точное время повторения
     is_outlier = Column(Boolean, default=False, nullable=False) # фильтрация невалидных задержек / мисскликов
     is_cram = Column(Boolean, default=False, nullable=False) # флаг сессии режима штурма
+    answer_format = Column(String(16), nullable=True)   # open | flip: как карточка была предъявлена (для адаптации доли открытых вопросов)
+    auto_score = Column(Float, nullable=True)           # оценка локального проверяющего 0..1 (для сверки с оценкой пользователя)
     client_id = Column(String(64), nullable=True, index=True)  # идемпотентность: повторная отправка ответа не дублирует лог
 
     # Обратная связь
@@ -168,6 +170,7 @@ class UserSetting(Base):
     subject_limits = Column(JSON, nullable=True) # например {"law_civil_rb": 15, "all": 10}
     is_experiment_participant = Column(Boolean, default=False, nullable=False)
     experiment_phase = Column(Integer, default=1, nullable=False)
+    open_mode = Column(String(16), default="auto", nullable=True)  # auto | exam | off: доля вопросов с письменным ответом
     timezone = Column(String(64), nullable=True)  # IANA, например Europe/Moscow: границы суток и уведомления
 
 

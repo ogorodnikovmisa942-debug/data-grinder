@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user_id
 from app.core.limiter import limiter
-from app.database.models import Card, Phrase, utc_now
+from app.database.models import Card, Phrase, UserSetting, utc_now
 from app.database.session import get_db
 from app.services.card_db_sync import check_experiment_lock
 from app.services.graph_service import resolve_subject_alias
+from app.services.open_policy import OPEN_MODES, normalize_mode
 from app.services.open_answer import (
     MAX_ANSWER_CHARS, derive_key_points, grade_answer, parse_questions, points_from_bullets,
 )
@@ -47,6 +48,32 @@ def build_card_fields(item: dict) -> dict:
         reference = answer
         key_points = derive_key_points(answer) if answer else None
     return {"text": item["question"], "translation": reference, "key_points": key_points or None}
+
+
+class OpenModeIn(BaseModel):
+    mode: str
+
+
+@router.get("/open/settings")
+async def get_open_settings(current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    mode = (await db.execute(select(UserSetting.open_mode).where(UserSetting.user_id == current_user))).scalar_one_or_none()
+    return {"mode": normalize_mode(mode)}
+
+
+@router.post("/open/settings")
+async def set_open_settings(
+    payload: OpenModeIn, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+):
+    """auto — изредка, exam — подготовка к экзамену (чаще), off — не предлагать письменные вопросы."""
+    if payload.mode not in OPEN_MODES:
+        raise HTTPException(status_code=422, detail="Допустимо: auto, exam, off")
+    setting = (await db.execute(select(UserSetting).where(UserSetting.user_id == current_user))).scalar_one_or_none()
+    if not setting:
+        setting = UserSetting(user_id=current_user, daily_limit=10, subject_limits={"all": 10})
+        db.add(setting)
+    setting.open_mode = payload.mode
+    await db.commit()
+    return {"mode": payload.mode}
 
 
 @router.post("/open/preview")

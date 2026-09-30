@@ -11,6 +11,7 @@ from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSessio
 from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
 from app.core.auth import get_current_user_id
 from app.core.timeutil import user_day_start
+from app.services.open_policy import pick_open_ids, answer_kind
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
@@ -58,6 +59,8 @@ class AnswerIn(BaseModel):
     is_cram: bool = False
     is_introduction: bool = False
     is_fast_track: bool = False
+    answer_format: str | None = Field(None, pattern="^(open|flip)$")   # как карточка была предъявлена
+    auto_score: float | None = Field(None, ge=0, le=1)                   # оценка локального проверяющего для открытых
     client_id: str | None = Field(None, max_length=64)   # уникален на ответ: повторная отправка не задваивает лог
     answered_at: int | None = None                        # мс от эпохи: реальный момент ответа при отложенной отправке
 
@@ -291,6 +294,23 @@ async def get_session_cards(
         display_names_cache[s] = name
         display_names_cache[canon_s] = name
 
+    # Формат предъявления: часть подходящих зрелых карточек показываем письменно (политика — в open_policy)
+    open_ids: set = set()
+    if mode in ("mixed", "review") and not (is_participant and phase == 1):
+        open_mode = (await db.execute(
+            select(UserSetting.open_mode).where(UserSetting.user_id == current_user)
+        )).scalar_one_or_none()
+        recent = (await db.execute(
+            select(ReviewLog.rating).where(
+                ReviewLog.user_id == current_user, ReviewLog.answer_format == "open", ReviewLog.is_cram == False  # noqa: E712
+            ).order_by(ReviewLog.review_time.desc()).limit(30)
+        )).scalars().all()
+        accuracy = (sum(1 for r in recent if r >= 3) / len(recent)) if recent else None
+        open_ids = pick_open_ids(
+            full_pool, open_mode, day_key=today_start.strftime("%Y-%m-%d"),
+            recent_accuracy=accuracy, n_recent=len(recent), salt=current_user,
+        )
+
     result = []
     for c in full_pool:
         phrase_text = phrase_map.get(c.phrase_id, "") or ""
@@ -358,6 +378,8 @@ async def get_session_cards(
             "topological_rank": c.topological_rank or 0,
             "organ_slug": c.organ_slug or "",
             "node_id": c.node_id,
+            "presentation": "open" if (c.content_type == "open" or c.id in open_ids) else "flip",
+            "answer_kind": answer_kind(c.translation),
             "layer": c.layer if c.layer is not None else 1,
             "lapses": lapses_count,
             "is_leech": lapses_count >= 4
@@ -506,7 +528,9 @@ async def handle_answer(
         timestamp=now,
         is_outlier=is_outlier,
         is_cram=payload.is_cram,
-        client_id=payload.client_id
+        client_id=payload.client_id,
+        answer_format=payload.answer_format,
+        auto_score=payload.auto_score
     )
     db.add(log)
     await db.commit()

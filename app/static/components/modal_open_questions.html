@@ -2,13 +2,13 @@
     <div id="oq-modal" role="dialog" aria-modal="true" aria-labelledby="oq-modal-title" class="hidden fixed inset-0 z-[125] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col p-3">
         <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl">
             <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
-                <h3 id="oq-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider">Вопросы с открытым ответом</h3>
+                <h3 id="oq-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider">Свои вопросы к экзамену</h3>
                 <button type="button" onclick="closeOpenQuestionsModal()" aria-label="Закрыть" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary">
                     <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
             <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
-                <p class="oq-note">Вставьте вопросы, к которым готовитесь, и свои эталонные ответы. На тренировке вы пишете ответ своими словами, а приложение сверяет его с ключевыми тезисами — без ИИ и без затрат.</p>
+                <p class="oq-note">Это необязательно: письменные вопросы система и так создаёт из ваших карточек. Здесь можно добавить именно те вопросы, которые будут на экзамене, вместе с эталонными ответами. Такие вопросы всегда предлагаются письменно, а проверка идёт по ключевым тезисам без ИИ.</p>
                 <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Предмет
                     <input id="oq-subject" list="oq-subject-list" class="oq-modal-field" placeholder="Например, constitutional_law" autocomplete="off">
                     <datalist id="oq-subject-list"></datalist>

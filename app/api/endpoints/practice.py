@@ -21,13 +21,13 @@ class PracticeItemResponse(BaseModel):
     id: str = Field(..., description="Unique practice item identifier")
     type: str = Field(..., description="situational | contrast_pair | slot_filling")
     prompt: str = Field(..., description="Task prompt or case scenario")
-    options: List[str] = Field(..., description="List of answer choices")
+    options: List[str] = Field(..., description="List of answer choices; пусто — письменный ответ")
     subject: str = Field(..., description="Subject domain slug")
 
 
 class VerifyPracticeIn(BaseModel):
     item_id: str = Field(..., description="Practice item identifier")
-    selected_answer: str = Field(..., description="User selected answer text")
+    selected_answer: str = Field(..., max_length=3000, description="User selected answer text")
 
 
 class VerifyPracticeResponse(BaseModel):
@@ -36,6 +36,9 @@ class VerifyPracticeResponse(BaseModel):
     correct_answer: str = Field(..., description="Authoritative correct answer")
     explanation: Optional[str] = Field(default=None, description="Detailed statutory or factual explanation")
     gold_standard: Optional[str] = Field(default=None, description="Decisive dividing criterion or formula")
+    open: bool = Field(default=False, description="Письменный ответ: проверен по ключевым тезисам")
+    score: Optional[float] = Field(default=None, description="Доля совпавших тезисов 0..1 (только для письменных)")
+    points: Optional[list] = Field(default=None, description="Разбор по тезисам (только для письменных)")
 
 
 class CompletePracticeIn(BaseModel):

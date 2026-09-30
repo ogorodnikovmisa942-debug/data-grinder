@@ -12,7 +12,7 @@ def test_app_js_is_in_sync_with_modules():
 def test_bundle_contains_reliability_and_open_question_features():
     js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
     for needle in ("window.queueAnswer", "flushAnswerQueue", "window.showToast", "window.renderOpenCard",
-                   "fetchWithReplaceConfirm", "renderSessionError", "syncUserTimezone"):
+                   "fetchWithReplaceConfirm", "renderSessionError", "syncUserTimezone", "saveOpenMode", "open_recall"):
         assert needle in js, needle
     # все отправки ответов идут через очередь
     assert js.count("apiFetch('/api/answer'") == 1

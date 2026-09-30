@@ -1813,7 +1813,8 @@ function renderCurrentCard() {
     const isNewCard = (card.state === 0) && !card.has_seen_intro;
 
     // Вопрос с открытым ответом: своя панель (написать ответ → разбор по тезисам → оценка)
-    if (card.content_type === 'open' && typeof window.renderOpenCard === 'function') {
+    // Копия после «Снова» показывается обычно: сразу после провала вспомнить письменно труднее, успех важнее формата
+    if ((card.content_type === 'open' || (card.presentation === 'open' && !card._intra_relearn)) && typeof window.renderOpenCard === 'function') {
         window.renderOpenCard(card);
         return;
     }
@@ -2524,12 +2525,17 @@ window.submitCardRating = function(rating) {
     recalculateQueueCounters(); 
     renderCurrentCard();
 
+    // Письменный ответ: сообщаем формат и оценку проверяющего (для подстройки доли и сверки самооценки)
+    const openMeta = window.__openMeta || {};
+    window.__openMeta = null;
     window.queueAnswer({
         card_id: payloadCardId,
         rating: rating,
         response_time: responseTimeMs,
         has_association: hasAssoc,
-        is_cram: currentSessionMode === 'cram'
+        is_cram: currentSessionMode === 'cram',
+        answer_format: openMeta.answer_format || 'flip',
+        ...(openMeta.auto_score != null ? { auto_score: openMeta.auto_score } : {})
     });
 };
 
@@ -8548,7 +8554,8 @@ function renderPracticeQuestion() {
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
-            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' }
+            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' },
+            'open_recall': { icon: 'edit_note', label: 'ВПИШИ ОТВЕТ' }
         };
         const cfg = typeConfigs[item.type] || { icon: 'quiz', label: 'ПРАКТИЧЕСКИЙ ТЕСТ' };
         typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
@@ -8559,7 +8566,8 @@ function renderPracticeQuestion() {
     if (promptEl) promptEl.textContent = item.prompt;
 
     // Кот объявляет задание; на первом — напоминает, что ошибаться здесь нормально
-    const catLine = PRACTICE_CAT_INTRO[item.type] || 'Выбери верный вариант.';
+    const isOpenItem = !item.options || item.options.length === 0;
+    const catLine = PRACTICE_CAT_INTRO[item.type] || (isOpenItem ? 'Напиши ответ своими словами, вариантов не будет.' : 'Выбери верный вариант.');
     practiceCat('think', practiceCurrentIndex === 0 && !isRetrySession
         ? `Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально. ${catLine}`
         : (isRetrySession ? `Работа над ошибками. ${catLine}` : catLine));
@@ -8572,6 +8580,28 @@ function renderPracticeQuestion() {
     const optionsContainer = document.getElementById('practice-options-list');
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
+
+    if (isOpenItem) {
+        // Письменный ответ вместо выбора из вариантов: проверяется по ключевым тезисам на сервере
+        const input = document.createElement('textarea');
+        input.className = 'oq-textarea';
+        input.rows = 3;
+        input.maxLength = 3000;
+        input.setAttribute('aria-label', 'Ваш ответ');
+        input.placeholder = 'Напишите ответ своими словами…';
+        const send = document.createElement('button');
+        send.type = 'button';
+        send.className = 'oq-btn oq-btn-primary';
+        send.style.marginTop = '8px';
+        send.textContent = 'Проверить';
+        send.disabled = true;
+        input.addEventListener('input', () => { send.disabled = !input.value.trim(); });
+        send.onclick = () => { input.disabled = true; selectPracticeOption(item.id, input.value, send); };
+        optionsContainer.appendChild(input);
+        optionsContainer.appendChild(send);
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
+        return;
+    }
 
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
@@ -8607,6 +8637,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
     const handleVerifyFailure = () => {
+        const openInput = document.querySelector('#practice-options-list textarea');
+        if (openInput) openInput.disabled = false;
         const spinner = clickedBtn.querySelector('.animate-spin');
         if (spinner) spinner.remove();
         allButtons.forEach(b => {
@@ -8686,10 +8718,10 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (statusEl) {
             if (isCorrect) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
 
@@ -9900,7 +9932,8 @@ window.teardownOpenPanel = function() {
     if (fc) fc.classList.remove('hidden');
 };
 
-function oqFinish(rating) {
+function oqFinish(rating, result) {
+    window.__openMeta = { answer_format: 'open', auto_score: (result && result.graded && typeof result.score === 'number') ? result.score : null };
     window.teardownOpenPanel();
     window.submitCardRating(rating);
 }
@@ -9922,13 +9955,17 @@ window.renderOpenCard = function(card) {
 function renderOpenAsk(panel, card) {
     panel.replaceChildren();
     const sub = card.subject_title || '';
-    panel.appendChild(oqEl('span', { class: 'oq-badge', text: sub ? `Открытый вопрос · ${sub}` : 'Открытый вопрос' }));
+    const own = card.content_type === 'open';
+    const short = card.answer_kind === 'short';
+    const badge = own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите');
+    panel.appendChild(oqEl('span', { class: 'oq-badge', text: sub ? `${badge} · ${sub}` : badge }));
     panel.appendChild(oqEl('div', { class: 'oq-question', text: card.text }));
 
     const textarea = oqEl('textarea', {
-        class: 'oq-textarea', maxlength: '3000', rows: '5', 'aria-label': 'Ваш ответ',
-        placeholder: 'Напишите ответ своими словами…'
+        class: 'oq-textarea', maxlength: '3000', rows: short ? '2' : '5', 'aria-label': 'Ваш ответ',
+        placeholder: short ? 'Впишите ответ…' : 'Напишите ответ своими словами…'
     });
+    if (short) textarea.style.minHeight = '64px';
     const checkBtn = oqEl('button', { type: 'button', class: 'oq-btn oq-btn-primary', text: 'Проверить', disabled: true });
     const showBtn = oqEl('button', { type: 'button', class: 'oq-btn', text: 'Не помню' });
     textarea.addEventListener('input', () => { checkBtn.disabled = !textarea.value.trim(); });
@@ -10013,8 +10050,35 @@ function renderOpenResult(panel, card, userAnswer, result, skipped) {
     OQ_RATINGS.forEach(({ r, label, hint }) => {
         const b = oqEl('button', { type: 'button', class: `oq-btn${r === suggested && result.graded ? ' oq-suggested' : ''}`,
             title: r === suggested && result.graded ? 'Рекомендуем' : hint }, [label]);
-        b.addEventListener('click', () => oqFinish(r));
+        b.addEventListener('click', () => oqFinish(r, result));
         rate.appendChild(b);
     });
     panel.appendChild(rate);
 }
+
+// ---------------------------------------------------------------------------
+// Режим письменных вопросов (настройка): auto — изредка, exam — подготовка к экзамену, off — не предлагать
+// ---------------------------------------------------------------------------
+window.loadOpenMode = async function() {
+    const sel = document.getElementById('open-mode-select');
+    if (!sel) return;
+    try {
+        const res = await apiFetch('/api/open/settings');
+        if (res.ok) sel.value = (await res.json()).mode || 'auto';
+    } catch (_) {}
+};
+
+window.saveOpenMode = async function(mode) {
+    try {
+        const res = await apiFetch('/api/open/settings', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast({ auto: 'Письменные вопросы: иногда.', exam: 'Подготовка к экзамену: письменных вопросов будет больше.', off: 'Письменные вопросы отключены.' }[mode] || 'Сохранено.', 'success');
+    } catch (_) {
+        showToast('Не удалось сохранить настройку. Проверьте связь.', 'error');
+        window.loadOpenMode();
+    }
+};
+
+window.addEventListener('load', () => { setTimeout(() => window.loadOpenMode && window.loadOpenMode(), 1800); });

@@ -1231,7 +1231,8 @@ function renderCurrentCard() {
     const isNewCard = (card.state === 0) && !card.has_seen_intro;
 
     // Вопрос с открытым ответом: своя панель (написать ответ → разбор по тезисам → оценка)
-    if (card.content_type === 'open' && typeof window.renderOpenCard === 'function') {
+    // Копия после «Снова» показывается обычно: сразу после провала вспомнить письменно труднее, успех важнее формата
+    if ((card.content_type === 'open' || (card.presentation === 'open' && !card._intra_relearn)) && typeof window.renderOpenCard === 'function') {
         window.renderOpenCard(card);
         return;
     }
@@ -1942,12 +1943,17 @@ window.submitCardRating = function(rating) {
     recalculateQueueCounters(); 
     renderCurrentCard();
 
+    // Письменный ответ: сообщаем формат и оценку проверяющего (для подстройки доли и сверки самооценки)
+    const openMeta = window.__openMeta || {};
+    window.__openMeta = null;
     window.queueAnswer({
         card_id: payloadCardId,
         rating: rating,
         response_time: responseTimeMs,
         has_association: hasAssoc,
-        is_cram: currentSessionMode === 'cram'
+        is_cram: currentSessionMode === 'cram',
+        answer_format: openMeta.answer_format || 'flip',
+        ...(openMeta.auto_score != null ? { auto_score: openMeta.auto_score } : {})
     });
 };
 
