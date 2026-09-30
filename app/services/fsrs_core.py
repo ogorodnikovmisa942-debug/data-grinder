@@ -103,7 +103,10 @@ def calculate_intervals(
     # 1. Если карточка новая (First review)
     if card.state == 0:
         new_stability = W[rating - 1]
-        new_difficulty = W[4] - W[5] * (rating - 3) + latency_penalty
+        # Априорная сложность карточки (уровень из нарезки, результат проверки после урока) сдвигает старт вполовину.
+        # Нейтральное значение 5.5 не меняет расчёт.
+        prior_shift = 0.5 * (float(card.difficulty or 5.5) - 5.5)
+        new_difficulty = W[4] - W[5] * (rating - 3) + latency_penalty + prior_shift
         
         if rating == 1:
             new_state = 1  # Переводим в этап обучения (Learning)

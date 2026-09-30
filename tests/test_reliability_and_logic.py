@@ -226,3 +226,47 @@ def test_practice_regeneration_keeps_active_session_items():
         assert res["correct"] is True
 
     run(go())
+
+
+# ---------- проверка урока влияет на карточки; план пути ----------
+def test_checkpoint_score_shifts_new_card_difficulty_and_plan():
+    from app.database.models import KnowledgeNode, NodeProgress
+    from app.services.knowledge_path import complete_lesson, get_path_state
+    uid, sub = "rel_cp_user", "rel_cp_sub"
+
+    async def go():
+        await _reset(uid)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(NodeProgress).where(NodeProgress.user_id == uid))
+            await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == uid))
+            n = KnowledgeNode(user_id=uid, subject=sub, node_key="k", name="K", tier=0, order_idx=0, prereq_keys=[],
+                              summary="", source_hint="", lesson_status="ready",
+                              lesson={"screens": [], "check": [{}, {}, {}, {}]})
+            db.add(n)
+            await db.flush()
+            c = await _card(db, uid, sub, node_id=n.id, difficulty=5.5)
+            await db.commit()
+            nid, cid = n.id, c.id
+        async with AsyncSessionLocal() as db:
+            await complete_lesson(db, uid, nid, 1)      # 1 из 4 — слабо
+            await db.commit()
+            weak = (await db.execute(select(Card.difficulty).where(Card.id == cid))).scalar()
+            await complete_lesson(db, uid, nid, 4)      # повтор не должен сдвигать ещё раз
+            await db.commit()
+            again = (await db.execute(select(Card.difficulty).where(Card.id == cid))).scalar()
+            state = await get_path_state(db, uid, sub)
+            await db.execute(delete(NodeProgress).where(NodeProgress.user_id == uid))
+            await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == uid))
+            await db.commit()
+        assert weak == 6.5 and again == 6.5
+        assert state["plan"] == {"new_cards_left": 1, "daily_limit": 10, "days_left": 1}
+        await _reset(uid)
+
+    run(go())
+
+
+def test_prior_difficulty_shifts_first_review_but_neutral_does_not():
+    now = utc_now()
+    base = calculate_intervals(_card_obj(state=0, difficulty=5.5, stability=1.0, last_review=None), 3, now)[1]
+    hard = calculate_intervals(_card_obj(state=0, difficulty=7.5, stability=1.0, last_review=None), 3, now)[1]
+    assert hard == pytest.approx(base + 1.0)

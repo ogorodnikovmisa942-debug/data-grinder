@@ -141,6 +141,20 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
 # Открытие узлов
 # ---------------------------------------------------------------------------
 
+async def _path_plan(db, user_id: str, subject: str) -> dict:
+    """Сколько новых карточек осталось и за сколько дней путь будет пройден при текущем дневном лимите."""
+    from math import ceil
+    left = (await db.execute(
+        select(func.count(Card.id)).where(Card.user_id == user_id, Card.subject == subject, Card.state == 0)
+    )).scalar() or 0
+    setting = (await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))).scalar_one_or_none()
+    limit = setting.daily_limit if setting and setting.daily_limit else 10
+    if setting and setting.subject_limits:
+        limit = setting.subject_limits.get(subject, limit)
+    limit = max(1, int(limit or 10))
+    return {"new_cards_left": left, "daily_limit": limit, "days_left": ceil(left / limit) if left else 0}
+
+
 async def get_path_state(db, user_id: str, subject: str) -> dict:
     """Состояние пути для UI: узлы со статусами locked | open | lesson_done | mastered и прогрессом."""
     subject = normalize_subject(subject)
@@ -208,6 +222,7 @@ async def get_path_state(db, user_id: str, subject: str) -> dict:
     return {
         "subject": subject,
         "title": title or subject,
+        "plan": await _path_plan(db, user_id, subject),
         "nodes": items,
         "edges": [{"from": e.source_key, "to": e.target_key, "relation": e.relation, "label": e.label} for e in edges],
     }
@@ -219,6 +234,23 @@ async def is_node_open(db, user_id: str, node: KnowledgeNode) -> bool:
     return status != "locked"
 
 
+async def _apply_checkpoint_to_cards(db, user_id: str, node_id: int, score: int) -> None:
+    """Слабый результат проверки в уроке делает новые карточки узла «тяжелее» (чаще повторения), сильный — легче."""
+    from sqlalchemy import update
+    node = (await db.execute(select(KnowledgeNode).where(KnowledgeNode.id == node_id))).scalar_one_or_none()
+    checks = len(((node.lesson or {}).get("check") or [])) if node else 0
+    if not checks:
+        return
+    ratio = max(0.0, min(1.0, score / checks))
+    delta = 1.0 if ratio < 0.5 else (-0.5 if ratio >= 1.0 else 0.0)
+    if delta:
+        await db.execute(
+            update(Card)
+            .where(Card.user_id == user_id, Card.node_id == node_id, Card.state == 0)
+            .values(difficulty=func.max(1.0, func.min(10.0, Card.difficulty + delta)))
+        )
+
+
 async def complete_lesson(db, user_id: str, node_id: int, checkpoint_score: int) -> NodeProgress:
     progress = (await db.execute(
         select(NodeProgress).where(NodeProgress.user_id == user_id, NodeProgress.node_id == node_id)
@@ -226,7 +258,10 @@ async def complete_lesson(db, user_id: str, node_id: int, checkpoint_score: int)
     if not progress:
         progress = NodeProgress(user_id=user_id, node_id=node_id, lesson_done=False, checkpoint_score=0)
         db.add(progress)
+    first_completion = not progress.lesson_done
     progress.lesson_done = True
+    if first_completion:
+        await _apply_checkpoint_to_cards(db, user_id, node_id, checkpoint_score)
     progress.checkpoint_score = max(progress.checkpoint_score or 0, checkpoint_score)
     progress.lesson_done_at = progress.lesson_done_at or utc_now()
     return progress

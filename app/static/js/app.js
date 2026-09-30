@@ -109,6 +109,45 @@ async function apiFetch(url, options = {}) {
 }
 
 // ============================================================================
+// УВЕДОМЛЕНИЯ: неблокирующие тосты вместо системных alert() (в Telegram WebView они выглядят как сбой)
+// confirm() остаётся системным: там нужен ответ пользователя.
+// ============================================================================
+window.nativeAlert = window.alert.bind(window);
+window.showToast = function(message, kind = 'info') {
+    try {
+        const text = String(message == null ? '' : message);
+        if (!text.trim() || !document.body) return;
+        let host = document.getElementById('toast-host');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'toast-host';
+            host.setAttribute('role', 'status');
+            host.setAttribute('aria-live', 'polite');
+            host.style.cssText = 'position:fixed;left:0;right:0;top:calc(var(--tg-safe-top,0px) + 12px);z-index:10000;' +
+                'display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 16px;';
+            document.body.appendChild(host);
+        }
+        const colors = { info: '#e5e7eb', error: '#fecaca', success: '#bbf7d0' };
+        const borders = { info: '#525252', error: '#ef4444', success: '#22c55e' };
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.textContent = text;
+        el.style.cssText = 'pointer-events:auto;max-width:520px;text-align:left;padding:10px 14px;border-radius:14px;cursor:pointer;' +
+            `background:#171717;color:${colors[kind] || colors.info};border:1px solid ${borders[kind] || borders.info};` +
+            'font:500 13px/1.4 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35);white-space:pre-line;';
+        const close = () => { try { el.remove(); } catch (_) {} };
+        el.onclick = close;
+        host.appendChild(el);
+        setTimeout(close, Math.min(12000, 3500 + text.length * 45));
+    } catch (_) {}
+};
+// Все существующие alert(...) в приложении становятся тостами; ошибки подсвечиваются по тексту
+window.alert = function(message) {
+    const text = String(message == null ? '' : message);
+    window.showToast(text, /ошибк|не удалось|сбой|нет связи|запрещ|слишком/i.test(text) ? 'error' : 'info');
+};
+
+// ============================================================================
 // НАДЁЖНАЯ ОТПРАВКА ОТВЕТОВ: очередь в localStorage, повторы, идемпотентность (client_id)
 // Ответ ставится в очередь сразу, уходит на сервер по порядку; при сбое сети остаётся и уходит позже.
 // ============================================================================
@@ -6153,7 +6192,14 @@ window.loadKnowledgeGraph = async function(subject) {
         currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
-        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
+        if (countBadge) {
+            const plan = data && data.plan;
+            countBadge.textContent = `${nodesCount} узлов`;
+            if (plan && plan.new_cards_left > 0) {
+                countBadge.textContent += ` · ещё ${plan.new_cards_left} карт ≈ ${plan.days_left} дн. по ${plan.daily_limit}/день`;
+                countBadge.title = 'Оценка: новых карточек осталось / дневной лимит. Лимит меняется в настройках.';
+            }
+        }
 
         if (nodesCount === 0) {
             if (emptyState) emptyState.classList.remove('hidden');

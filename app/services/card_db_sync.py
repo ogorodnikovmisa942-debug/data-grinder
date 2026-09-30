@@ -139,7 +139,7 @@ async def check_experiment_lock(current_user: str, db: AsyncSession):
     if is_part and phase == 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Действие заблокировано на период проведения научного эксперимента (Фаза 1: нарезка материалов отключена, проводится тестирование карточек с лимитом 10 карт/день)."
+            detail="Действие заблокировано на период проведения научного эксперимента. Сейчас доступны только готовые карточки (10 в день)."
         )
 
 
