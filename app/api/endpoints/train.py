@@ -1,6 +1,6 @@
 # app/api/endpoints/train.py
 import asyncio
-from typing import Optional
+from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
@@ -75,17 +75,17 @@ def is_admin_or_dev(user_id: str) -> bool:
         pass
     return False
 
-def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
+def apply_interleaving(cards_list: list, max_consecutive: int = 1, key=lambda c: c.subject) -> list:
     """
     Алгоритмический балансировщик (интерливинг).
-    Гарантирует, что подряд пойдет не более max_consecutive карт одного предмета.
+    Гарантирует, что подряд пойдет не более max_consecutive карт одной группы (по умолчанию — предмета).
     """
     if not cards_list:
         return []
         
     by_subject = defaultdict(list)
     for c in cards_list:
-        by_subject[c.subject].append(c)
+        by_subject[key(c)].append(c)
         
     interleaved_result = []
     last_subject = None
@@ -125,6 +125,9 @@ def apply_interleaving(cards_list: list, max_consecutive: int = 1) -> list:
 async def get_session_cards(
     subject: Optional[str] = Query("all"), 
     mode: str = Query("mixed"), 
+    node_id: Annotated[Optional[int], Query(description="Путь знаний: новые карточки только этого узла")] = None,
+    limit_cards: Annotated[Optional[int], Query(ge=1, le=200, description="Обрезать очередь (короткие подходы)")] = None,
+    due_only: Annotated[bool, Query(description="Заучивание — только карточки, у которых подошёл срок")] = False,
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
@@ -164,7 +167,8 @@ async def get_session_cards(
     )
     if subject != 'all':
         review_stmt = review_stmt.filter(Card.subject.in_(sub_aliases))
-    review_stmt = review_stmt.order_by(Card.subject.asc(), Card.layer.asc(), Card.topological_rank.asc(), Card.next_review.asc())
+    # Сначала самые просроченные; внутри предмета темы чередуются ниже (interleaving)
+    review_stmt = review_stmt.order_by(Card.next_review.asc(), Card.id.asc())
     review_res = await db.execute(review_stmt)
     due_reviews = review_res.scalars().all()
 
@@ -175,7 +179,9 @@ async def get_session_cards(
     )
     if subject != 'all':
         intra_stmt = intra_stmt.filter(Card.subject.in_(sub_aliases))
-    intra_stmt = intra_stmt.order_by(Card.subject.asc(), Card.layer.asc(), Card.topological_rank.asc())
+    if due_only:
+        intra_stmt = intra_stmt.filter(Card.next_review <= now)
+    intra_stmt = intra_stmt.order_by(Card.next_review.asc(), Card.id.asc())
     intra_res = await db.execute(intra_stmt)
     intra_day_cards = intra_res.scalars().all()
 
@@ -205,7 +211,9 @@ async def get_session_cards(
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        new_stmt = new_stmt.order_by(Card.subject.asc(), Card.topological_rank.asc(), Card.id.asc()).limit(allowed_new_count)
+        if node_id is not None:
+            new_stmt = new_stmt.filter(Card.node_id == node_id)
+        new_stmt = new_stmt.order_by(Card.topological_rank.asc(), Card.subject.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
     elif mode == "new":
@@ -220,7 +228,9 @@ async def get_session_cards(
         )
         if subject != 'all':
             extra_stmt = extra_stmt.filter(Card.subject.in_(sub_aliases))
-        extra_stmt = extra_stmt.order_by(Card.subject.asc(), Card.topological_rank.asc(), Card.id.asc()).limit(extra_limit)
+        if node_id is not None:
+            extra_stmt = extra_stmt.filter(Card.node_id == node_id)
+        extra_stmt = extra_stmt.order_by(Card.topological_rank.asc(), Card.subject.asc(), Card.id.asc()).limit(extra_limit)
         extra_res = await db.execute(extra_stmt)
         new_cards = extra_res.scalars().all()
 
@@ -228,8 +238,11 @@ async def get_session_cards(
         # Режим "Учить новое": СТРОГО только новые карточки (state == 0), ни одной старой
         full_pool = new_cards
     elif mode == "review":
-        # Режим "Повторение": долгосрочные повторения (state == 2) + краткосрочные внутри дня (state in [1, 3])
+        # Режим "Повторение": долгосрочные повторения (state == 2) + краткосрочные внутри дня (state in [1, 3]).
+        # Внутри предмета темы (узлы пути) чередуются: подряд не идут две карточки одного узла.
         full_pool = due_reviews + intra_day_cards
+        if subject != 'all':
+            full_pool = apply_interleaving(full_pool, 1, key=lambda c: c.node_id or c.organ_slug or c.id)
     elif mode == "cram":
         # Режим "Штурм": строго только уже изученные карточки (state in [1, 2, 3]), исключая новые (state == 0)
         # Сортировка: самые трудные (высокий difficulty) и наименее стабильные (низкая stability)
@@ -263,6 +276,8 @@ async def get_session_cards(
         filtered_pool.append(c)
 
     full_pool = filtered_pool
+    if limit_cards:
+        full_pool = full_pool[:limit_cards]
     
     # Интерливинг запускаем ТОЛЬКО при выборе 'all' И если это режим review/mixed,
     # но НИКОГДА не размываем новые карточки (mode == 'new'), чтобы не разрушать связность урока
@@ -351,6 +366,7 @@ async def get_session_cards(
             "example": c.example if c.example else "",
             "topological_rank": c.topological_rank or 0,
             "organ_slug": c.organ_slug or "",
+            "node_id": c.node_id,
             "layer": c.layer if c.layer is not None else 1,
             "lapses": lapses_count,
             "is_leech": lapses_count >= 4

@@ -127,6 +127,8 @@ async def complete_practice(
     from app.services.graph_service import resolve_subject_alias
     
     canonical_sub = resolve_subject_alias(payload.subject)
+    if payload.score > payload.total:
+        raise HTTPException(status_code=422, detail="score не может превышать total")
     pct = round((payload.score / payload.total) * 100.0, 1)
     
     if pct >= 80:

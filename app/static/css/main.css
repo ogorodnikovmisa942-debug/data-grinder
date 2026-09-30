@@ -582,6 +582,162 @@ html, body {
 }
 .lesson-option-correct { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.12) !important; }
 .lesson-option-wrong { border-color: #f43f5e !important; background: rgba(244, 63, 94, 0.10) !important; }
+.lesson-option-picked { border-color: #6366f1 !important; background: rgba(99, 102, 241, 0.10) !important; }
 @media (prefers-reduced-motion: reduce) {
     .lesson-cat { animation: none !important; transform: none !important; }
 }
+
+/* ==========================================================================
+   «Продолжить путь»: кнопка, шаги занятия, праздничный кот дня
+   ========================================================================== */
+.path-run-start:hover { filter: brightness(1.12); }
+.path-run-start:active { transform: scale(0.98); }
+.path-run-steps { display: flex; justify-content: center; gap: 6px; min-height: 28px; }
+.path-run-step {
+    width: 28px; height: 28px; border-radius: 9999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #e5e5e5; background: #f5f5f5; color: #525252;
+    animation: pathStepIn 0.35s ease-out both;
+}
+.path-run-step .material-symbols-outlined { font-size: 16px; }
+.dark .path-run-step { border-color: #404040; background: #262626; color: #d4d4d4; }
+.path-run-step-done { background: rgba(16, 185, 129, 0.12); border-color: #10b981; color: #059669; }
+.dark .path-run-step-done { color: #34d399; }
+.path-run-step-current { border-color: currentColor; transform: scale(1.1); }
+@keyframes pathStepIn { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+.path-run-card {
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    border-radius: 16px; border: 1px solid #e5e5e5; background: #ffffff;
+    animation: fadeIn 0.3s ease-out both;
+}
+.dark .path-run-card { border-color: #404040; background: #171717; }
+
+.day-scene { position: relative; }
+.day-layer {
+    /* 44 символа по ширине экрана: моноширинный знак ≈ 0.6em */
+    font-size: clamp(8px, calc((100vw - 40px) / 26.4), 22px);
+    line-height: 1.12;
+    white-space: pre;
+    margin: 0;
+}
+.day-confetti { position: absolute; inset: 0; color: #f59e0b; }
+.dark .day-confetti { color: #fbbf24; }
+.day-face { position: relative; transform-origin: 50% 88%; animation: daySway 2.8s ease-in-out infinite; }
+@keyframes daySway {
+    0%, 100% { transform: rotate(-4deg) translateY(0); }
+    25% { transform: rotate(0deg) translateY(-2px); }
+    50% { transform: rotate(4deg) translateY(0); }
+    75% { transform: rotate(0deg) translateY(-2px); }
+}
+.day-stats { display: flex; flex-direction: column; gap: 4px; min-height: 5em; }
+.day-stat-line { opacity: 0; animation: fadeIn 0.4s ease-out forwards; }
+.day-close-in { animation: fadeIn 0.4s ease-out 2.6s forwards; }
+@media (prefers-reduced-motion: reduce) {
+    .day-stat-line, .day-close-in { animation: none !important; opacity: 1 !important; }
+    .day-face { animation: none !important; }
+    .path-run-step, .path-run-card { animation: none !important; }
+}
+/* tailwind.min.css собран заранее: z-[120]/z-[140] в нём нет */
+#path-run-overlay { z-index: 120; }
+#day-celebration { z-index: 140; }
+#day-close { padding: 10px 24px; white-space: nowrap; }
+
+/* ==========================================================================
+   Карточка «Учить новое»: кот ведёт по вспоминанию (в стиле урока)
+   ========================================================================== */
+.intro-card { padding-top: 22px; gap: 8px; }
+.intro-cat-row { display: flex; align-items: flex-end; gap: 10px; width: 100%; }
+.intro-cat { font-size: 11px; line-height: 1.15; margin: 0; flex-shrink: 0; }
+.intro-cat-bubble {
+    position: relative; flex: 1; min-width: 0;
+    padding: 8px 12px; border-radius: 14px;
+    background: #f5f5f5; border: 1px solid #e5e5e5;
+    font-size: 12px; line-height: 1.4; color: #404040;
+}
+.dark .intro-cat-bubble { background: rgba(38, 38, 38, 0.8); border-color: #404040; color: #d4d4d4; }
+.intro-cat-bubble::before {
+    content: ''; position: absolute; left: -6px; bottom: 12px; width: 10px; height: 10px;
+    background: inherit; border-left: 1px solid; border-bottom: 1px solid; border-color: inherit;
+    transform: rotate(45deg);
+}
+.intro-cat-bubble p { min-height: 2.8em; }
+.intro-question-block { gap: 8px; padding: 10px 4px 12px; }
+.intro-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.intro-chip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 220px;
+    padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600;
+    background: rgba(99, 102, 241, 0.10); color: #4f46e5;
+}
+.dark .intro-chip { background: rgba(129, 140, 248, 0.16); color: #a5b4fc; }
+.intro-chip .material-symbols-outlined { font-size: 13px; }
+.intro-chip-muted { background: #f5f5f5; color: #737373; }
+.dark .intro-chip-muted { background: #262626; color: #a3a3a3; }
+.intro-chip-btn { cursor: pointer; padding: 2px 7px; }
+.intro-chip-btn:hover { color: #4f46e5; }
+.intro-term { text-align: center; font-weight: 700; color: #171717; padding: 0 6px; word-break: break-word; }
+.dark .intro-term { color: #f5f5f5; }
+.intro-secondary { font-size: 11px; color: #a3a3a3; text-align: center; }
+
+.intro-reveal {
+    width: 100%; flex: 1; min-height: 84px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    border: 2px dashed rgba(99, 102, 241, 0.35); border-radius: 16px;
+    background: rgba(99, 102, 241, 0.04); color: #4f46e5; cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+.intro-reveal:hover { background: rgba(99, 102, 241, 0.09); }
+.intro-reveal:active { transform: scale(0.98); }
+.intro-reveal .material-symbols-outlined { font-size: 28px; }
+.intro-reveal-title { font-size: 13px; font-weight: 700; }
+.intro-reveal-hint { font-size: 11px; color: #a3a3a3; }
+.dark .intro-reveal { color: #a5b4fc; border-color: rgba(165, 180, 252, 0.35); }
+
+.intro-answer {
+    padding: 12px 14px; border-radius: 16px; text-align: left;
+    background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.intro-answer-label {
+    display: flex; align-items: center; gap: 4px; margin-bottom: 4px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #059669;
+}
+.intro-answer-label .material-symbols-outlined { font-size: 13px; }
+.dark .intro-answer-label { color: #34d399; }
+.intro-answer-text { font-size: 15px; font-weight: 600; line-height: 1.45; color: #171717; word-break: break-word; }
+.dark .intro-answer-text { color: #f5f5f5; }
+.intro-answer-example { margin-top: 8px; font-size: 12px; font-style: italic; color: #737373; }
+.intro-mnemonic {
+    padding: 10px 14px; border-radius: 16px; text-align: left;
+    background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.intro-mnemonic .intro-answer-label { color: #d97706; }
+
+.intro-footer { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+.intro-grade { display: flex; gap: 8px; }
+.intro-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 11px 12px; border-radius: 14px;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: filter 0.15s ease, transform 0.1s ease;
+}
+.intro-btn:active { transform: scale(0.97); }
+.intro-btn .material-symbols-outlined { font-size: 17px; }
+.intro-btn-primary { background: #1c1b1b; color: #ffffff; }
+.dark .intro-btn-primary { background: #e5e5e5; color: #171717; }
+.intro-btn-primary:hover { filter: brightness(1.15); }
+.intro-btn-good { background: #10b981; color: #ffffff; }
+.intro-btn-good:hover { filter: brightness(1.08); }
+.intro-btn-again { background: rgba(244, 63, 94, 0.10); color: #e11d48; border: 1px solid rgba(244, 63, 94, 0.3); }
+.dark .intro-btn-again { color: #fb7185; }
+.intro-btn-again:hover { background: rgba(244, 63, 94, 0.16); }
+.intro-link {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 4px; font-size: 11px; font-weight: 600; color: #a3a3a3; cursor: pointer;
+}
+.intro-link:hover { color: #4f46e5; }
+.intro-link .material-symbols-outlined { font-size: 14px; }
+
+/* Кот в практике */
+.practice-cat-row { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-bottom: 10px; }
+.practice-cat-row .intro-cat-bubble p { min-height: 1.4em; }
+.practice-finish-cat { font-size: 16px; }

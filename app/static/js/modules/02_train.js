@@ -279,9 +279,8 @@ function initTrainGestures() {
                     card.style.transform = '';
                     card.style.opacity = '1';
                     if (badgeGood) badgeGood.style.opacity = '0';
-                    if (typeof window.fastTrackIntroduction === 'function') {
-                        window.fastTrackIntroduction();
-                    }
+                    if (currentCard.intro_phase === 1 && currentCard._recall_checked) completeIntroduction();
+                    else window.fastTrackIntroduction();
                 }, 200);
             } else if (deltaX < -75) {
                 // Свайп влево: Переход к следующему шагу знакомства
@@ -298,11 +297,9 @@ function initTrainGestures() {
                     if (phase === 0) {
                         advanceIntroduction();
                     } else if (!currentCard._recall_checked) {
-                        if (typeof window.toggleIntroRecall === 'function') {
-                            window.toggleIntroRecall();
-                        }
+                        window.toggleIntroRecall();
                     } else {
-                        advanceIntroduction();
+                        window.failIntroduction();
                     }
                 }, 200);
             } else {
@@ -560,11 +557,9 @@ window.flipCard = function() {
         if (phase === 0) {
             advanceIntroduction();
         } else if (!card._recall_checked) {
-            if (typeof window.toggleIntroRecall === 'function') {
-                window.toggleIntroRecall();
-            }
+            window.toggleIntroRecall();
         } else {
-            advanceIntroduction();
+            return; // ответ открыт — оценку ставят кнопками «Вспомнил» / «Не вспомнил»
         }
         triggerHaptic('light');
         return;
@@ -861,6 +856,13 @@ function resetCardDOM() {
 }
 
 window.showSessionDebrief = async function() {
+    // «Продолжить путь»: вместо итогов сессии — следующий шаг занятия
+    if (window.pathRun && window.pathRun.active) {
+        triggerHaptic('success');
+        resetCardDOM();
+        window.pathRun.trainFinished(currentSessionStats);
+        return;
+    }
     triggerHaptic('success');
     resetCardDOM();
     
@@ -1051,6 +1053,7 @@ function showSessionStarter() {
 window.showSessionStarter = showSessionStarter;
 
 window.exitToSessionMenu = function() {
+    if (window.pathRun && window.pathRun.active) window.pathRun.trainInterrupted();
     cardsQueue = [];
     currentIndex = 0;
     isFlipped = false;
@@ -1096,8 +1099,10 @@ async function startSession(mode) {
 async function fetchActiveSession(mode = 'mixed') {
     try {
         currentSessionMode = mode;
-        const targetSub = (mode === 'cram') ? 'all' : currentSubject;
-        const response = await apiFetch(`/api/session?subject=${targetSub}&mode=${mode}`);
+        const run = (window.pathRun && window.pathRun.active) ? window.pathRun.sessionQuery() : null;
+        const targetSub = run ? run.subject : ((mode === 'cram') ? 'all' : currentSubject);
+        const runParams = run ? run.params : '';
+        const response = await apiFetch(`/api/session?subject=${encodeURIComponent(targetSub)}&mode=${mode}${runParams}`);
         if (!response.ok) {
             console.error("[Data Grinder] Сбой ответа сессии:", response.status);
             cardsQueue = [];
@@ -1138,6 +1143,12 @@ async function fetchActiveSession(mode = 'mixed') {
             shuffleArray(cardsQueue);
         }
         const surveyContainer = document.getElementById('survey-container');
+        if (cardsQueue.length === 0 && run) {
+            // Шаг пути оказался пустым (всё уже сделано) — сразу к следующему
+            resetCardDOM();
+            window.pathRun.trainFinished(null);
+            return;
+        }
         if (cardsQueue.length === 0) {
             resetCardDOM();
             if (surveyContainer) surveyContainer.classList.add('hidden');
@@ -1217,227 +1228,179 @@ function renderCurrentCard() {
     }
 }
 
+// Кот на карточке знакомства: реплика по фазе + реакция на прошлый ответ
+const TRAIN_CAT_LINES = {
+    preview: 'Новое понятие. Прочитай ответ и пример, потом проверим себя.',
+    askPath: 'Помнишь из урока? Сначала вспомни ответ сам, потом открой.',
+    ask: 'Попробуй вспомнить ответ, потом открой.',
+    retry: 'Второй заход. Теперь получится!',
+    revealed: 'Честно: вспомнил или нет? Ошибка тоже помогает запомнить.'
+};
+let trainCatPending = null;
+const catWidgetTimers = {};
+
+// Маленький кот с репликой (карточки, практика): эмоция, моргание, реакция на ответ
+function setCatWidget(catId, sayId, emotion, text, reaction) {
+    const el = document.getElementById(catId);
+    const say = document.getElementById(sayId);
+    if (say) say.textContent = text;
+    if (!el || typeof LESSON_CAT === 'undefined') return;
+    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
+    clearInterval(catWidgetTimers[catId]);
+    el.textContent = cat.frames[0].join('\n');
+    el.className = `lesson-cat intro-cat font-mono text-primary cat-emo-${emotion}`;
+    if (prefersReducedMotion()) return;
+    if (reaction) {
+        void el.offsetWidth;
+        el.classList.add(`cat-react-${reaction}`);
+    }
+    if (cat.frames.length > 1) {
+        let i = 0;
+        catWidgetTimers[catId] = setInterval(() => { i = (i + 1) % cat.frames.length; el.textContent = cat.frames[i].join('\n'); }, 600);
+    } else {
+        catWidgetTimers[catId] = setInterval(() => {
+            el.textContent = LESSON_CAT.idle.blink.join('\n');
+            setTimeout(() => { el.textContent = cat.frames[0].join('\n'); }, 160);
+        }, 3400);
+    }
+}
+window.setCatWidget = setCatWidget;
+
+function setTrainCat(emotion, text, reaction) {
+    setCatWidget('train-cat', 'train-cat-say', emotion, text, reaction);
+}
+
+function introAnswerHTML(card, mnemonicFormatted) {
+    const example = card.example && card.example !== '---' ? card.example : '';
+    return `
+        <div class="intro-answer animate-fade-in">
+            <span class="intro-answer-label">Ответ</span>
+            <div class="intro-answer-text">${escapeHTML(card.translation)}</div>
+            ${example ? `<div class="intro-answer-example">«${escapeHTML(example)}»</div>` : ''}
+        </div>
+        ${mnemonicFormatted ? `
+            <div class="intro-mnemonic animate-fade-in">
+                <span class="intro-answer-label"><span class="material-symbols-outlined">psychology</span> Ассоциация</span>
+                <div class="text-xs sm:text-sm leading-snug break-words">${mnemonicFormatted}</div>
+            </div>
+        ` : ''}
+    `;
+}
+
 function renderIntroductionCard(card) {
     isFlipped = false;
     if (flashcard) {
         flashcard.style.transform = '';
         flashcard.classList.remove('rotate-y-180');
     }
-    
-    // Скрываем кнопки FSRS
     if (actionButtons) {
         actionButtons.classList.add('hidden');
         actionButtons.classList.remove('flex');
     }
-    
-    // Переключаем контейнеры на лицевой стороне
+
     const normalFront = document.getElementById('card-front-normal');
     const introFront = document.getElementById('card-front-intro');
     const front = document.getElementById('card-front');
-    
     if (normalFront) normalFront.classList.add('hidden');
     if (introFront) {
         introFront.classList.remove('hidden');
         introFront.classList.add('flex', 'flex-col', 'justify-between');
     }
     if (front) front.classList.add('introduction-mode');
-    
-    // 1. Заполняем намертво закрепленный заголовок термина (НИКОГДА НЕ СКРОЛЛИТСЯ)
-    const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
-    const introSubBadge = document.getElementById('card-intro-subject-badge');
-    const introSubText = document.getElementById('card-intro-subject-text');
-    if (introSubBadge && introSubText) {
-        if (subTitle) {
-            introSubText.textContent = subTitle;
-            introSubBadge.classList.remove('hidden');
-            introSubBadge.classList.add('inline-flex');
-        } else {
-            introSubBadge.classList.add('hidden');
-            introSubBadge.classList.remove('inline-flex');
-        }
-    }
 
-    const introModeText = document.getElementById('card-intro-mode-text');
-    if (introModeText) {
-        introModeText.textContent = card.reason_label || 'РЕЖИМ ЗНАКОМСТВА';
+    // Путь знаний: урок уже был — начинаем сразу с вспоминания (retrieval first)
+    if (!card._intro_init) {
+        card._intro_init = true;
+        card.intro_phase = card.node_id ? 1 : (card.intro_phase || 0);
     }
+    const phase = card.intro_phase;
+    const revealed = phase === 1 && card._recall_checked;
 
-    const introModeIcon = document.getElementById('card-intro-mode-icon');
-    if (introModeIcon) {
-        introModeIcon.textContent = card.reason_icon || 'school';
-    }
-
-    const introChapterBadge = document.getElementById('card-intro-chapter-badge');
-    const introChapterText = document.getElementById('card-intro-chapter-text');
-    const introChapterName = (card.chapter || card.phrase_text || '').trim();
-    if (introChapterBadge && introChapterText) {
-        if (introChapterName) {
-            introChapterText.textContent = introChapterName;
-            introChapterBadge.classList.remove('hidden');
-            introChapterBadge.classList.add('inline-flex');
-        } else {
-            introChapterBadge.classList.add('hidden');
-            introChapterBadge.classList.remove('inline-flex');
-        }
-    }
+    const setChip = (badgeId, textId, value) => {
+        const badge = document.getElementById(badgeId);
+        const text = document.getElementById(textId);
+        if (!badge || !text) return;
+        text.textContent = value || '';
+        badge.classList.toggle('hidden', !value);
+        badge.classList.toggle('inline-flex', !!value);
+    };
+    setChip('card-intro-chapter-badge', 'card-intro-chapter-text', (card.chapter || card.phrase_text || '').trim());
+    setChip('card-intro-subject-badge', 'card-intro-subject-text', card.subject_title || '');
 
     const isIntroCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
     const termEl = document.getElementById('card-intro-term');
     const secEl = document.getElementById('card-intro-secondary');
     if (termEl) {
-        if (isIntroCloze) {
-            termEl.innerHTML = formatClozeHTML(card.text, (card.intro_phase || 0) === 1 ? false : true);
-        } else {
-            termEl.textContent = card.text;
-        }
+        if (isIntroCloze) termEl.innerHTML = formatClozeHTML(card.text, !(phase === 1 && !revealed));
+        else termEl.textContent = card.text;
         applyDynamicCardTypography(termEl, card.text);
     }
     if (secEl) {
-        // Защита от спойлеров: в фазе 1 (Recall / самопроверка) secondary_text строго скрыт!
-        // Показывается только в фазе 0 (Preview) при первом ознакомлении с ответом
-        const currentIntroPhase = card.intro_phase || 0;
-        if (currentIntroPhase === 0 && card.secondary_text && card.secondary_text !== '---') {
-            secEl.textContent = card.secondary_text;
-            secEl.classList.remove('hidden');
-        } else {
-            secEl.classList.add('hidden');
-        }
+        // Контекст (источник | раздел) без подсказки ответа; в старых колодах он мог спойлерить — там только в обзоре
+        const showSec = card.secondary_text && card.secondary_text !== '---' && (phase === 0 || card.node_id);
+        secEl.textContent = showSec ? card.secondary_text : '';
+        secEl.classList.toggle('hidden', !showSec);
     }
-    
-    // 2. Форматирование мнемоники
+
     let mnemonicFormatted = '';
     if (card.mnemonic) {
         const m = card.mnemonic;
         mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
     }
-    
-    // Фаза: 0 - Обзор (Preview), 1 - Самопроверка (Recall)
-    const phase = card.intro_phase || 0;
+
     const bodyEl = document.getElementById('card-intro-body');
     const footerEl = document.getElementById('card-intro-footer');
-    
-    if (phase === 0) {
-        // ШАГ 1: КОМПАКТНЫЙ ОБЗОР (Вопрос + Определение + Мнемоника на одном экране!)
-        if (bodyEl) {
-            bodyEl.innerHTML = `
-                <div class="w-full flex flex-col gap-2 animate-fade-in text-center">
-                    <!-- Определение -->
-                    <div class="bg-neutral-50 dark:bg-neutral-900/40 p-2.5 sm:p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
-                        <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
-                        <div class="text-sm sm:text-base text-neutral-900 dark:text-neutral-100 font-medium leading-relaxed break-words">
-                            ${escapeHTML(card.translation)}
-                        </div>
-                    </div>
-                    
-                    <!-- Мнемоника / Ассоциация (если есть) -->
-                    ${mnemonicFormatted ? `
-                        <div class="bg-amber-500/5 dark:bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 text-left">
-                            <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
-                                <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
-                            </span>
-                            <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
-                                ${mnemonicFormatted}
-                            </div>
-                        </div>
-                    ` : ''}
+    const knowLink = `
+        <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" class="intro-link">
+            <span class="material-symbols-outlined">verified</span><span>Знаю наизусть</span>
+        </button>`;
 
-                    <!-- Пример (если есть) -->
-                    ${card.example && card.example !== '---' ? `
-                        <div class="border-l-2 border-primary/50 pl-3 py-0.5 text-left">
-                            <div class="text-xs text-neutral-500 dark:text-neutral-400 italic break-words">
-                                «${escapeHTML(card.example)}»
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        }
-        
-        if (footerEl) {
-            footerEl.innerHTML = `
-                <button onclick="event.stopPropagation(); advanceIntroduction()" 
-                        class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs flex items-center justify-center gap-1.5">
-                    <span class="material-symbols-outlined text-[15px]">quiz</span>
-                    <span>ПРОВЕРИТЬ СЕБЯ В ПАМЯТИ</span>
-                </button>
-                <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                        class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
-                    <span class="material-symbols-outlined text-[15px]">verified</span>
-                    <span>ЗНАЮ НАИЗУСТЬ</span>
-                </button>
-            `;
-        }
+    let catEmo = 'idle', catText = '';
+    if (phase === 0) {
+        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted);
+        if (footerEl) footerEl.innerHTML = `
+            <button onclick="event.stopPropagation(); advanceIntroduction()" class="intro-btn intro-btn-primary">
+                <span class="material-symbols-outlined">quiz</span><span>Проверить себя</span>
+            </button>${knowLink}`;
+        catEmo = 'talk'; catText = TRAIN_CAT_LINES.preview;
+    } else if (!revealed) {
+        if (bodyEl) bodyEl.innerHTML = `
+            <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-reveal animate-fade-in">
+                <span class="material-symbols-outlined">visibility</span>
+                <span class="intro-reveal-title">Открыть ответ</span>
+                <span class="intro-reveal-hint">сначала произнеси его про себя</span>
+            </button>`;
+        if (footerEl) footerEl.innerHTML = `
+            <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-btn intro-btn-primary">
+                <span class="material-symbols-outlined">visibility</span><span>Показать ответ</span>
+            </button>${card._retry ? '' : knowLink}`;
+        catEmo = 'think';
+        catText = card._retry ? TRAIN_CAT_LINES.retry : (card.node_id ? TRAIN_CAT_LINES.askPath : TRAIN_CAT_LINES.ask);
     } else {
-        // ШАГ 2: САМОПРОВЕРКА (Вопрос на виду, проверяем память)
-        if (!card._recall_checked) {
-            if (bodyEl) {
-                bodyEl.innerHTML = `
-                    <div onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                         class="w-full h-full flex flex-col items-center justify-center border-2 border-dashed border-primary/40 bg-primary/5 rounded-xl p-5 cursor-pointer hover:bg-primary/10 transition-all text-center animate-fade-in group">
-                        <span class="material-symbols-outlined text-primary text-3xl mb-2 group-hover:scale-110 transition-transform">visibility</span>
-                        <div class="text-xs font-mono font-bold text-primary uppercase">ПОКАЗАТЬ ОТВЕТ И АССОЦИАЦИЮ</div>
-                        <div class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">Попробуйте воспроизвести значение по памяти</div>
-                    </div>
-                `;
-            }
-            if (footerEl) {
-                footerEl.innerHTML = `
-                    <button onclick="event.stopPropagation(); window.toggleIntroRecall()" 
-                            class="w-full border border-primary text-primary py-2.5 rounded-xl font-bold tracking-wide hover:bg-primary/10 transition-all text-xs font-mono uppercase flex items-center justify-center gap-1.5">
-                        <span class="material-symbols-outlined text-[15px]">visibility</span>
-                        <span>ПОКАЗАТЬ ОТВЕТ</span>
-                    </button>
-                    <button onclick="event.stopPropagation(); window.fastTrackIntroduction()" 
-                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
-                        <span class="material-symbols-outlined text-[15px]">verified</span>
-                        <span>ЗНАЮ НАИЗУСТЬ</span>
-                    </button>
-                `;
-            }
-        } else {
-            // Ответ раскрыт после самопроверки
-            if (bodyEl) {
-                bodyEl.innerHTML = `
-                    <div class="w-full flex flex-col gap-2 animate-fade-in text-center">
-                        <div class="bg-neutral-50 dark:bg-neutral-900/40 p-2.5 sm:p-3 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
-                            <span class="block text-[10px] text-neutral-400 dark:text-neutral-500 uppercase font-mono tracking-wider mb-1">ОПРЕДЕЛЕНИЕ</span>
-                            <div class="text-sm sm:text-base text-neutral-900 dark:text-neutral-100 font-medium leading-relaxed break-words">
-                                ${escapeHTML(card.translation)}
-                            </div>
-                        </div>
-                        ${mnemonicFormatted ? `
-                            <div class="bg-amber-500/5 dark:bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 text-left">
-                                <span class="block text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider mb-1 font-mono flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
-                                </span>
-                                <div class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words">
-                                    ${mnemonicFormatted}
-                                </div>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            }
-            if (footerEl) {
-                footerEl.innerHTML = `
-                    <button onclick="event.stopPropagation(); completeIntroduction()" 
-                            class="w-full bg-primary text-on-primary py-2.5 rounded-xl font-bold tracking-wide hover:opacity-90 transition-all text-xs font-mono uppercase shadow-xs flex items-center justify-center gap-1.5">
-                        <span class="material-symbols-outlined text-[15px]">check_circle</span>
-                        <span>ВСПОМНИЛ И ЗАКРЕПИЛ</span>
-                    </button>
-                    <button onclick="event.stopPropagation(); stepBackIntroduction()" 
-                            class="w-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:text-primary hover:border-primary py-2 rounded-xl font-bold tracking-wide transition-all text-[11px] font-mono uppercase flex items-center justify-center gap-1.5">
-                        <span class="material-symbols-outlined text-[15px]">arrow_back</span>
-                        <span>ВЕРНУТЬСЯ К ОБЗОРУ</span>
-                    </button>
-                `;
-            }
-        }
+        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted);
+        if (footerEl) footerEl.innerHTML = `
+            <div class="intro-grade">
+                <button onclick="event.stopPropagation(); window.failIntroduction()" class="intro-btn intro-btn-again">
+                    <span class="material-symbols-outlined">close</span><span>Не вспомнил</span>
+                </button>
+                <button onclick="event.stopPropagation(); completeIntroduction()" class="intro-btn intro-btn-good">
+                    <span class="material-symbols-outlined">check</span><span>Вспомнил</span>
+                </button>
+            </div>`;
+        catEmo = 'surprised'; catText = TRAIN_CAT_LINES.revealed;
     }
-    
+
+    // Реакция на ответ по предыдущей карточке
+    if (trainCatPending) {
+        const p = trainCatPending;
+        trainCatPending = null;
+        setTrainCat(p.emo, `${p.text} ${catText}`, p.reaction);
+    } else {
+        setTrainCat(catEmo, catText);
+    }
+
     if (cardCounter) cardCounter.textContent = `${currentIndex + 1} / ${cardsQueue.length}`;
     if (progressFill) progressFill.style.width = `${(currentIndex / cardsQueue.length) * 100}%`;
-    
     cardShowTimestamp = Date.now();
 }
 
@@ -1471,7 +1434,9 @@ window.advanceIntroduction = advanceIntroduction;
 
 function completeIntroduction() {
     const card = cardsQueue[currentIndex];
+    if (!card) return;
     triggerHaptic('success');
+    trainCatPending = { emo: 'happy', text: card._retry ? 'Вот, получилось!' : 'Есть!', reaction: 'bounce' };
     card.has_seen_intro = true;
     card.state = 1; // Learning
     
@@ -1500,10 +1465,40 @@ function completeIntroduction() {
 }
 window.completeIntroduction = completeIntroduction;
 
+// «Не вспомнил»: честная ошибка (FSRS «Снова»), карточка вернётся в конце подхода (до двух раз)
+window.failIntroduction = function() {
+    const card = cardsQueue[currentIndex];
+    if (!card) return;
+    triggerHaptic('warning');
+    currentSessionStats.totalAnswered = (currentSessionStats.totalAnswered || 0) + 1;
+    currentSessionStats.lapsedCount = (currentSessionStats.lapsedCount || 0) + 1;
+    if (!card._retry) currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
+
+    const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
+    apiFetch('/api/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_id: card.id, rating: 1, response_time: responseTimeMs, is_introduction: true })
+    }).then(res => { if (res.ok) updateGlobalBadges(); })
+      .catch(err => console.error("Ошибка синхронизации «Не вспомнил»:", err));
+
+    const retry = (card._retry || 0) + 1;
+    if (retry <= 2) {
+        cardsQueue.push({ ...card, intro_phase: 1, _recall_checked: false, _retry: retry });
+        trainCatPending = { emo: 'confused', text: 'Ничего, покажу её ещё раз в конце.', reaction: 'shake' };
+    } else {
+        trainCatPending = { emo: 'confused', text: 'Эту вернём в повторениях.', reaction: 'shake' };
+    }
+    currentIndex++;
+    recalculateQueueCounters();
+    renderCurrentCard();
+};
+
 window.fastTrackIntroduction = function() {
     const card = cardsQueue[currentIndex];
     if (!card) return;
     triggerHaptic('success');
+    trainCatPending = { emo: 'happy', text: 'Лёгкая!', reaction: 'bounce' };
     card.has_seen_intro = true;
     card.state = 2; // Сразу в Review
     
@@ -2015,6 +2010,7 @@ async function updateGlobalBadges() {
         
         renderTopCounters();
         renderSessionStarterButtons(data);
+        if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
         
         const dataTab = document.getElementById('tab-text-data');
         const learnTab = document.getElementById('tab-text-train');

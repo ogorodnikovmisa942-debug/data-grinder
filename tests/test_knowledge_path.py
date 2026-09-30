@@ -5,7 +5,7 @@ from sqlalchemy import select, delete, func
 
 from app.database.session import AsyncSessionLocal
 from app.database.models import (
-    GenerationJob, Card, KnowledgeNode, KnowledgeEdge, AiTelemetryLog,
+    GenerationJob, Card, KnowledgeNode, KnowledgeEdge, AiTelemetryLog, ReviewLog, utc_now,
 )
 from app.services.ai_gateway.path_builder import normalize_map
 from app.services.generation_worker import process_generation_job
@@ -112,11 +112,18 @@ def test_tiers_unlock_after_lesson_and_answered_cards():
                 await db.commit()
             assert (await statuses())["base"] == "lesson_done"
 
-            # 4 из 5 карточек отвечены = 80% → основа освоена, тема открывается
+            # «Не вспомнил» освоением не считается
             async with AsyncSessionLocal() as db:
                 cards = (await db.execute(select(Card).where(Card.node_id == base.id).order_by(Card.id))).scalars().all()
                 for c in cards[:4]:
-                    c.state = 1
+                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=1, review_time=utc_now(), state=0))
+                await db.commit()
+            assert (await statuses())["base"] == "lesson_done"
+
+            # 4 из 5 карточек хоть раз вспомнены верно = 80% → основа освоена, тема открывается в тот же день
+            async with AsyncSessionLocal() as db:
+                for c in cards[:4]:
+                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=1))
                 await db.commit()
             assert await statuses() == {"base": "mastered", "topic": "open", "sub": "locked"}
         finally:
@@ -194,6 +201,58 @@ def test_practice_uses_stored_distractors_and_graph_edges():
             async with AsyncSessionLocal() as db:
                 await db.execute(delete(PracticeItem).where(PracticeItem.user_id == USER))
                 await db.commit()
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_next_step_guides_through_path():
+    """«Продолжить путь»: урок → его карточки → следующий урок → практика → итог; пустой урок не блокирует путь."""
+    from datetime import timedelta
+    from app.database.models import utc_now
+    from app.services.knowledge_path import next_path_step
+
+    async def scenario():
+        await cleanup()
+        try:
+            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
+                await process_generation_job(await create_job(), is_offpeak=True)
+
+            async with AsyncSessionLocal() as db:
+                nodes = {n.node_key: n.id for n in (await db.execute(
+                    select(KnowledgeNode).where(KnowledgeNode.user_id == USER))).scalars().all()}
+
+                step = await next_path_step(db, USER, SUBJECT, [])
+                assert step["type"] == "lesson" and step["node_id"] == nodes["base"]
+
+                await complete_lesson(db, USER, nodes["base"], 1)
+                await db.commit()
+                step = await next_path_step(db, USER, SUBJECT, ["lesson"])
+                assert step["type"] == "cards" and step["node_id"] == nodes["base"] and step["count"] == 5
+
+                # Карточки основы вспомнены и ушли в Review на завтра → открывается тема
+                for c in (await db.execute(select(Card).where(Card.node_id == nodes["base"]))).scalars().all():
+                    c.state, c.next_review = 2, utc_now() + timedelta(days=1)
+                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=0))
+                await db.commit()
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards"])
+                assert step["type"] == "lesson" and step["node_id"] == nodes["topic"]
+
+                # Лимит уроков за запуск исчерпан → практика по изученному
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards", "lesson"])
+                assert step["type"] == "practice"
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards", "lesson", "practice"])
+                assert step["type"] == "done" and step["today"]["lessons"] == 1
+
+                # Подтема без урока: после освоения темы сразу открываются её карточки
+                await complete_lesson(db, USER, nodes["topic"], 1)
+                for c in (await db.execute(select(Card).where(Card.node_id == nodes["topic"]))).scalars().all():
+                    c.state, c.next_review = 2, utc_now() + timedelta(days=1)
+                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=0))
+                await db.commit()
+                step = await next_path_step(db, USER, SUBJECT, ["lesson"])
+                assert step["type"] == "cards" and step["node_id"] == nodes["sub"]
+        finally:
             await cleanup()
 
     asyncio.run(scenario())

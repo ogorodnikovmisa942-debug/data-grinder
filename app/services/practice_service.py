@@ -97,8 +97,7 @@ async def generate_practice_session(
                 gold_standard=dst.name,
             ))
 
-        random.shuffle(records)
-        records = records[:count]
+        records = _pick_interleaved(records, count, await _fresh_node_ids(db, user_id))
 
         await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
         for pi in records:
@@ -109,6 +108,33 @@ async def generate_practice_session(
     finally:
         if should_close:
             await db.close()
+
+
+async def _fresh_node_ids(db: AsyncSession, user_id: str) -> set[int]:
+    """Узлы, урок которых пройден сегодня: по ним практика нужнее всего."""
+    from app.database.models import NodeProgress, utc_now
+    today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return set((await db.execute(
+        select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= today)
+    )).scalars().all())
+
+
+def _pick_interleaved(records: list, count: int, fresh_ids: set[int]) -> list:
+    """
+    Половина заданий — по сегодняшним узлам, остальное — по ранее изученным (вперемешку).
+    Подряд не идут два задания одного узла: чередование учит выбирать правило, а не узнавать тему.
+    """
+    random.shuffle(records)
+    fresh = [r for r in records if r.node_id in fresh_ids]
+    old = [r for r in records if r.node_id not in fresh_ids]
+    n_fresh = min(len(fresh), max(count // 2, count - len(old)))
+    picked = fresh[:n_fresh] + old[:count - n_fresh]
+
+    result, pool = [], picked[:]
+    while pool:
+        i = next((k for k, r in enumerate(pool) if not result or r.node_id != result[-1].node_id), 0)
+        result.append(pool.pop(i))
+    return result
 
 
 def normalize_answer_text(text: str) -> str:

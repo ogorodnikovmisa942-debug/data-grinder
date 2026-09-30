@@ -86,8 +86,12 @@ window.skipLessonTyping = function() {
 function renderLessonProgress() {
     const el = document.getElementById('lesson-progress');
     if (!el || !lessonState) return;
-    const total = lessonState.screens.length + lessonState.checks.length;
-    const current = lessonState.phase === 'screens' ? lessonState.idx : lessonState.screens.length + lessonState.idx;
+    const pre = lessonState.hasPretest ? 1 : 0;
+    const total = pre + lessonState.screens.length + lessonState.checks.length;
+    const current = lessonState.phase === 'pretest' ? 0
+        : lessonState.phase === 'screens' ? pre + lessonState.idx
+        : lessonState.phase === 'check' ? pre + lessonState.screens.length + lessonState.idx
+        : total;
     el.innerHTML = '';
     for (let i = 0; i < total; i++) {
         const dot = document.createElement('span');
@@ -141,6 +145,39 @@ function renderLessonScreen() {
     setLessonButtons(nextLabel, true, lessonState.idx > 0 ? 'Назад' : null);
 }
 
+// Вопрос ДО урока (эффект предтеста, Richland, Kornell & Kao, 2009): попытка угадать,
+// даже неудачная, настраивает внимание на главное. Верный ответ не раскрываем — его даст урок.
+function renderLessonPretest() {
+    const c = lessonState.checks[0];
+    clearLessonExtras();
+    renderLessonProgress();
+    lessonState.answered = false;
+    sayLesson(`Прежде чем начнём — угадай. Ошибиться не страшно, так лучше запомнится. ${c.q}`, 'think');
+
+    const optionsEl = document.getElementById('lesson-options');
+    c.options.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'lesson-option w-full text-left rounded-xl text-sm transition-all cursor-pointer';
+        btn.textContent = opt;
+        btn.onclick = () => answerLessonPretest(i);
+        optionsEl.appendChild(btn);
+    });
+    setLessonButtons('Выбери вариант', false, null);
+}
+
+function answerLessonPretest(choice) {
+    if (!lessonState || lessonState.answered) return;
+    lessonState.answered = true;
+    lessonState.pretestChoice = choice;
+    document.querySelectorAll('#lesson-options .lesson-option').forEach((btn, i) => {
+        btn.disabled = true;
+        btn.classList.remove('cursor-pointer');
+        btn.classList.add(i === choice ? 'lesson-option-picked' : 'lesson-option-dim');
+    });
+    sayLesson('Запомнил твой вариант. Сейчас разберёмся, а в конце спрошу ещё раз.', 'happy', 'bounce');
+    setLessonButtons('Начать урок', true, null);
+}
+
 function renderLessonCheck() {
     const c = lessonState.checks[lessonState.idx];
     clearLessonExtras();
@@ -175,7 +212,9 @@ function answerLessonCheck(choice) {
     });
 
     // Реакция кота на ответ — главный момент эмоций
-    const verdict = correct ? 'Верно!' : 'Не совсем.';
+    let verdict = correct ? 'Верно!' : 'Не совсем.';
+    const pre = lessonState.idx === 0 ? lessonState.pretestChoice : null;
+    if (correct && pre !== null && pre !== c.answer) verdict = 'Верно! До урока ты выбрал другое — вот это прогресс.';
     sayLesson(c.why ? `${verdict} ${c.why}` : verdict, correct ? 'happy' : 'confused', correct ? 'bounce' : 'shake');
 
     const isLast = lessonState.idx === lessonState.checks.length - 1;
@@ -215,6 +254,16 @@ async function finishLesson() {
     }
 
     const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    // В режиме «Продолжить путь» карточки темы идут сразу: вспоминание сразу после урока
+    if (window.pathRun && window.pathRun.active) {
+        sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках, пока свежо.`, 'happy', 'bounce');
+        setLessonButtons('Дальше', true, null);
+        lessonState.onNext = () => {
+            closeLesson();
+            window.pathRun.stepFinished();
+        };
+        return;
+    }
     sayLesson(`Урок пройден!${scoreLine} Карточки этой темы уже ждут тебя в тренировке.`, 'happy', 'bounce');
     setLessonButtons('К графу', true, null);
     lessonState.onNext = () => {
@@ -243,7 +292,11 @@ window.lessonNext = function() {
         lessonState.onNext();
         return;
     }
-    if (lessonState.phase === 'screens') {
+    if (lessonState.phase === 'pretest') {
+        lessonState.phase = 'screens';
+        lessonState.idx = 0;
+        renderLessonScreen();
+    } else if (lessonState.phase === 'screens') {
         if (lessonState.idx < lessonState.screens.length - 1) {
             lessonState.idx += 1;
             renderLessonScreen();
@@ -293,7 +346,17 @@ window.openLesson = async function(nodeId) {
         return;
     }
     if (!data.lesson || !(data.lesson.screens || []).length) {
-        alert('Для этой темы урок не сгенерировался.');
+        // Урок не сгенерировался — не блокируем путь: сразу открываем карточки узла
+        try {
+            await apiFetch(`/api/path/node/${nodeId}/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ checkpoint_score: 0 })
+            });
+        } catch (e) { console.error('Сбой открытия узла без урока:', e); }
+        alert('Урока для этой темы нет — её карточки уже открыты в тренировке.');
+        if (window.pathRun && window.pathRun.active) window.pathRun.stepFinished();
+        else if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
         return;
     }
 
@@ -301,7 +364,9 @@ window.openLesson = async function(nodeId) {
         nodeId,
         screens: data.lesson.screens,
         checks: data.lesson.check || [],
-        phase: 'screens',
+        hasPretest: (data.lesson.check || []).length > 0,
+        pretestChoice: null,
+        phase: (data.lesson.check || []).length > 0 ? 'pretest' : 'screens',
         idx: 0,
         score: 0,
         answered: false,
@@ -315,7 +380,8 @@ window.openLesson = async function(nodeId) {
     if (tierEl) tierEl.textContent = LESSON_TIER_NAMES[data.node.tier] || '';
 
     modal.classList.remove('hidden');
-    renderLessonScreen();
+    if (lessonState.phase === 'pretest') renderLessonPretest();
+    else renderLessonScreen();
 };
 
 window.closeLesson = function() {

@@ -1,6 +1,6 @@
 # app/api/endpoints/path.py
 """API «Пути знаний»: состояние графа предмета, урок узла и отметка о его прохождении."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user_id
 from app.database.models import KnowledgeNode
 from app.database.session import get_db
-from app.services.knowledge_path import get_path_state, is_node_open, complete_lesson
+from app.services.knowledge_path import get_path_state, is_node_open, complete_lesson, next_path_step, RUN_STEP_LIMITS
 
 router = APIRouter()
 
@@ -30,6 +30,18 @@ async def _get_own_node(db: AsyncSession, user_id: str, node_id: int) -> Knowled
 async def get_path(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     """Все узлы предмета со статусами locked | open | lesson_done | mastered и связи для графа."""
     return await get_path_state(db, current_user, subject)
+
+
+@router.get("/path/{subject}/next")
+async def get_next_step(
+    subject: str,
+    done: str = Query("", max_length=200, description="Типы шагов, уже выданных в этом запуске, через запятую"),
+    current_user: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Следующий шаг занятия «Продолжить путь»: review | cards | lesson | practice | done."""
+    done_steps = [t for t in done.split(",") if t in RUN_STEP_LIMITS]
+    return await next_path_step(db, current_user, subject, done_steps)
 
 
 @router.get("/path/node/{node_id}/lesson")

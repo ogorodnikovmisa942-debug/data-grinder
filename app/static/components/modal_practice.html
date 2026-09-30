@@ -34,6 +34,13 @@
 
                 <!-- Карточка задания -->
                 <div id="practice-card-container" class="w-full flex flex-col gap-3 py-1">
+                    <!-- Кот-напарник: объявляет задание и реагирует на ответ -->
+                    <div class="practice-cat-row">
+                        <pre id="practice-cat" class="lesson-cat intro-cat font-mono text-primary" aria-hidden="true"></pre>
+                        <div class="intro-cat-bubble">
+                            <p id="practice-cat-say" aria-live="polite"></p>
+                        </div>
+                    </div>
                     <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
                     <div class="flex items-center justify-between">
                         <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5">
@@ -82,9 +89,7 @@
 
                 <!-- Экран завершения практики -->
                 <div id="practice-finish-screen" class="hidden w-full flex flex-col items-center justify-center p-6 text-center gap-4 my-auto animate-fade-in">
-                    <div class="w-16 h-16 rounded-3xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center text-primary">
-                        <span class="material-symbols-outlined text-3xl">military_tech</span>
-                    </div>
+                    <pre id="practice-finish-cat" class="lesson-cat intro-cat practice-finish-cat font-mono text-primary" aria-hidden="true"></pre>
                     <h3 class="font-bold font-mono text-base text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Сессия практики завершена!</h3>
                     <div class="p-4 rounded-2xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 w-full flex flex-col gap-1 font-mono shadow-xs">
                         <div class="text-neutral-400 text-xs uppercase">ТОЧНОСТЬ ОТВЕТОВ:</div>

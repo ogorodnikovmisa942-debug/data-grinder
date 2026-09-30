@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=16">
+    <link rel="stylesheet" href="/css/main.css?v=23">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -95,6 +95,18 @@
                     <div class="flex items-center gap-2 mb-1">
                         <span class="material-symbols-outlined text-primary text-xl">school</span>
                         <h2 class="font-mono font-bold text-sm text-primary tracking-wider uppercase text-center">Выбор сессии</h2>
+                    </div>
+                    <button id="btn-path-run" onclick="startPathRun()" class="path-run-start w-full flex items-center justify-between gap-3 px-4 py-3 bg-primary text-on-primary rounded-xl shadow-md transition-all cursor-pointer text-left">
+                        <span class="flex flex-col min-w-0">
+                            <span class="font-mono font-bold text-sm uppercase tracking-wide">Продолжить путь</span>
+                            <span id="btn-path-run-sub" class="text-[11px] opacity-80 truncate">Кот проведёт по шагам</span>
+                        </span>
+                        <span class="material-symbols-outlined text-2xl shrink-0">play_arrow</span>
+                    </button>
+                    <div class="w-full flex items-center gap-2 text-[10px] font-mono uppercase text-neutral-400 my-0.5">
+                        <span class="flex-1 h-px bg-neutral-200 dark:bg-neutral-800"></span>
+                        <span>или вручную</span>
+                        <span class="flex-1 h-px bg-neutral-200 dark:bg-neutral-800"></span>
                     </div>
                     <button id="btn-session-new" onclick="startSession('new')" class="w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
                         <span id="btn-session-new-text">[ УЧИТЬ НОВОЕ ]</span>
@@ -195,44 +207,41 @@
                             </div>
                         </div>
 
-                        <!-- Режим знакомства (Поэтапное раскрытие: 2 шага, единый плавный скролл без обрезки) -->
-                        <div id="card-front-intro" class="hidden w-full h-full min-h-0 flex-1 flex flex-col justify-between pt-1 pb-1 overflow-hidden">
-                            <!-- Единая скроллируемая область контента карточки -->
+                        <!-- Режим знакомства: кот ведёт по карточке (вопрос → вспомни → открой ответ → честная оценка) -->
+                        <div id="card-front-intro" class="hidden w-full h-full min-h-0 flex-1 flex flex-col justify-between overflow-hidden intro-card">
+                            <!-- Кот и его реплика -->
+                            <div class="intro-cat-row shrink-0">
+                                <pre id="train-cat" class="lesson-cat intro-cat font-mono text-primary" aria-hidden="true"></pre>
+                                <div class="intro-cat-bubble">
+                                    <p id="train-cat-say" aria-live="polite"></p>
+                                </div>
+                            </div>
+
                             <div class="w-full flex-1 min-h-0 flex flex-col items-stretch overflow-y-auto card-scroll-clean card-scroll-masked px-1 py-1" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
-                                <!-- Шапка с бейджами и вопросом -->
-                                <div class="w-full shrink-0 flex flex-col items-center pb-2 mb-1.5 border-b border-neutral-200/60 dark:border-neutral-800">
-                                    <div class="flex items-center gap-1.5 mb-1.5 flex-wrap justify-center">
-                                        <div id="card-intro-subject-badge" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
-                                            <span class="material-symbols-outlined text-[12px]">folder</span>
-                                            <span id="card-intro-subject-text"></span>
-                                        </div>
-                                        <div id="card-intro-mode-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold font-mono uppercase tracking-wider">
-                                            <span id="card-intro-mode-icon" class="material-symbols-outlined text-[13px]">school</span>
-                                            <span id="card-intro-mode-text">РЕЖИМ ЗНАКОМСТВА</span>
-                                        </div>
-                                        <button type="button" id="card-intro-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 hover:bg-primary/10 hover:text-primary dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-[10px] font-mono text-neutral-500 transition-colors" title="Показать в графе знаний">
-                                            <span class="material-symbols-outlined text-[12px]">account_tree</span>
-                                            <span>В графе</span>
-                                        </button>
-                                        <div id="card-intro-chapter-badge" class="hidden inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300 text-[10px] font-mono max-w-[220px] truncate">
-                                            <span class="material-symbols-outlined text-[12px] text-primary">menu_book</span>
+                                <!-- Тема и вопрос -->
+                                <div class="intro-question-block w-full shrink-0 flex flex-col items-center">
+                                    <div class="intro-chips">
+                                        <span id="card-intro-chapter-badge" class="intro-chip hidden">
+                                            <span class="material-symbols-outlined">menu_book</span>
                                             <span id="card-intro-chapter-text" class="truncate"></span>
-                                        </div>
+                                        </span>
+                                        <span id="card-intro-subject-badge" class="intro-chip intro-chip-muted hidden">
+                                            <span id="card-intro-subject-text" class="truncate"></span>
+                                        </span>
+                                        <button type="button" id="card-intro-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" class="intro-chip intro-chip-muted intro-chip-btn" title="Показать в графе знаний">
+                                            <span class="material-symbols-outlined">account_tree</span>
+                                        </button>
                                     </div>
-                                    <div id="card-intro-term" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 text-center px-2 break-words leading-snug">---</div>
-                                    <div id="card-intro-secondary" class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mt-1 hidden">---</div>
+                                    <div id="card-intro-term" class="intro-term dynamic-card-text">---</div>
+                                    <div id="card-intro-secondary" class="intro-secondary hidden">---</div>
                                 </div>
 
-                                <!-- Центральная область с содержимым (Определение / Самопроверка / Мнемоника) -->
-                                <div id="card-intro-body" class="w-full flex-1 flex flex-col justify-start items-stretch gap-2 py-1 select-text">
-                                    <!-- Динамическое наполнение шага 1 (Обзор) или шага 2 (Самопроверка) -->
-                                </div>
+                                <!-- Ответ: скрыт / открыт / обзор -->
+                                <div id="card-intro-body" class="w-full flex-1 flex flex-col justify-start items-stretch gap-2 py-2 select-text"></div>
                             </div>
 
-                            <!-- Закрепленный внизу блок кнопок управления -->
-                            <div id="card-intro-footer" class="w-full shrink-0 flex flex-col gap-1.5 pt-2 border-t border-neutral-200/60 dark:border-neutral-800">
-                                <!-- Динамические кнопки -->
-                            </div>
+                            <!-- Кнопки -->
+                            <div id="card-intro-footer" class="intro-footer w-full shrink-0"></div>
                         </div>
                         
                         <!-- Когнитивный опрос FSRS -->
@@ -1455,6 +1464,13 @@
 
                 <!-- Карточка задания -->
                 <div id="practice-card-container" class="w-full flex flex-col gap-3 py-1">
+                    <!-- Кот-напарник: объявляет задание и реагирует на ответ -->
+                    <div class="practice-cat-row">
+                        <pre id="practice-cat" class="lesson-cat intro-cat font-mono text-primary" aria-hidden="true"></pre>
+                        <div class="intro-cat-bubble">
+                            <p id="practice-cat-say" aria-live="polite"></p>
+                        </div>
+                    </div>
                     <!-- Тип задания (Situational Case / Contrast Pair / Slot Filling) -->
                     <div class="flex items-center justify-between">
                         <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5">
@@ -1503,9 +1519,7 @@
 
                 <!-- Экран завершения практики -->
                 <div id="practice-finish-screen" class="hidden w-full flex flex-col items-center justify-center p-6 text-center gap-4 my-auto animate-fade-in">
-                    <div class="w-16 h-16 rounded-3xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center text-primary">
-                        <span class="material-symbols-outlined text-3xl">military_tech</span>
-                    </div>
+                    <pre id="practice-finish-cat" class="lesson-cat intro-cat practice-finish-cat font-mono text-primary" aria-hidden="true"></pre>
                     <h3 class="font-bold font-mono text-base text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Сессия практики завершена!</h3>
                     <div class="p-4 rounded-2xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 w-full flex flex-col gap-1 font-mono shadow-xs">
                         <div class="text-neutral-400 text-xs uppercase">ТОЧНОСТЬ ОТВЕТОВ:</div>
@@ -1537,6 +1551,56 @@
         </div>
     </div>
 
+
+        <!-- «Продолжить путь»: кот ведёт между шагами занятия (повторение → урок → карточки → практика → итог) -->
+    <div id="path-run-overlay" role="dialog" aria-modal="true" aria-label="Продолжить путь" class="hidden fixed inset-0 z-[120] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">route</span>
+                    <h3 id="path-run-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Путь знаний</h3>
+                </div>
+                <button onclick="pathRun.stop()" aria-label="Закончить занятие" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto flex flex-col justify-center gap-5 px-5 py-6">
+                <div id="path-run-steps" class="path-run-steps" aria-hidden="true"></div>
+                <div class="lesson-row">
+                    <div class="lesson-cat-wrap shrink-0">
+                        <pre id="path-run-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                    </div>
+                    <div class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700">
+                        <p id="path-run-text" class="text-sm leading-relaxed" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div id="path-run-card" class="path-run-card hidden">
+                    <span id="path-run-card-icon" class="material-symbols-outlined text-primary text-2xl shrink-0">school</span>
+                    <div class="flex flex-col min-w-0">
+                        <span id="path-run-card-kind" class="text-[10px] font-mono uppercase text-neutral-500"></span>
+                        <span id="path-run-card-name" class="text-sm font-bold leading-snug"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 py-3 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2 shrink-0">
+                <button id="path-run-secondary" onclick="pathRun.stop()" class="lesson-btn lesson-btn-secondary flex-1 rounded-xl text-sm font-mono font-bold transition-all cursor-pointer">Хватит на сегодня</button>
+                <button id="path-run-go" onclick="pathRun.go()" class="lesson-btn lesson-btn-primary flex-1 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">Поехали</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Итог дня: большой ASCII-кот на весь экран -->
+    <div id="day-celebration" role="dialog" aria-modal="true" aria-label="День закрыт" class="hidden fixed inset-0 z-[140] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col items-center justify-center font-sans select-none overflow-hidden" style="padding: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 32px) 16px calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);" onclick="dayCelebrationSkip()">
+        <div class="day-scene" aria-hidden="true">
+            <pre id="day-confetti" class="day-layer day-confetti font-mono"></pre>
+            <pre id="day-cat" class="day-layer day-face font-mono text-primary"></pre>
+        </div>
+        <h2 id="day-title" class="font-mono font-bold text-base uppercase tracking-widest text-primary mt-4 text-center">День закрыт</h2>
+        <div id="day-stats" class="day-stats font-mono text-xs text-neutral-600 dark:text-neutral-300 mt-3 text-center"></div>
+        <button id="day-close" onclick="event.stopPropagation(); closeDayCelebration()" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer opacity-0">Мур. До завтра</button>
+    </div>
 
         <!-- ===================================================================== -->
     <!-- МОДАЛЬНОЕ ОКНО ФИЛЬТРОВ И ПОИСКА КАРТОЧЕК (MODAL FILTERS)             -->
@@ -1585,6 +1649,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=105"></script>
+    <script src="/js/app.js?v=115"></script>
 </body>
 </html>

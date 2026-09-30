@@ -1,0 +1,49 @@
+    <!-- «Продолжить путь»: кот ведёт между шагами занятия (повторение → урок → карточки → практика → итог) -->
+    <div id="path-run-overlay" role="dialog" aria-modal="true" aria-label="Продолжить путь" class="hidden fixed inset-0 z-[120] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="touch-action: manipulation; isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">route</span>
+                    <h3 id="path-run-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Путь знаний</h3>
+                </div>
+                <button onclick="pathRun.stop()" aria-label="Закончить занятие" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto flex flex-col justify-center gap-5 px-5 py-6">
+                <div id="path-run-steps" class="path-run-steps" aria-hidden="true"></div>
+                <div class="lesson-row">
+                    <div class="lesson-cat-wrap shrink-0">
+                        <pre id="path-run-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                    </div>
+                    <div class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700">
+                        <p id="path-run-text" class="text-sm leading-relaxed" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div id="path-run-card" class="path-run-card hidden">
+                    <span id="path-run-card-icon" class="material-symbols-outlined text-primary text-2xl shrink-0">school</span>
+                    <div class="flex flex-col min-w-0">
+                        <span id="path-run-card-kind" class="text-[10px] font-mono uppercase text-neutral-500"></span>
+                        <span id="path-run-card-name" class="text-sm font-bold leading-snug"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 py-3 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2 shrink-0">
+                <button id="path-run-secondary" onclick="pathRun.stop()" class="lesson-btn lesson-btn-secondary flex-1 rounded-xl text-sm font-mono font-bold transition-all cursor-pointer">Хватит на сегодня</button>
+                <button id="path-run-go" onclick="pathRun.go()" class="lesson-btn lesson-btn-primary flex-1 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">Поехали</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Итог дня: большой ASCII-кот на весь экран -->
+    <div id="day-celebration" role="dialog" aria-modal="true" aria-label="День закрыт" class="hidden fixed inset-0 z-[140] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col items-center justify-center font-sans select-none overflow-hidden" style="padding: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 32px) 16px calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);" onclick="dayCelebrationSkip()">
+        <div class="day-scene" aria-hidden="true">
+            <pre id="day-confetti" class="day-layer day-confetti font-mono"></pre>
+            <pre id="day-cat" class="day-layer day-face font-mono text-primary"></pre>
+        </div>
+        <h2 id="day-title" class="font-mono font-bold text-base uppercase tracking-widest text-primary mt-4 text-center">День закрыт</h2>
+        <div id="day-stats" class="day-stats font-mono text-xs text-neutral-600 dark:text-neutral-300 mt-3 text-center"></div>
+        <button id="day-close" onclick="event.stopPropagation(); closeDayCelebration()" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer opacity-0">Мур. До завтра</button>
+    </div>

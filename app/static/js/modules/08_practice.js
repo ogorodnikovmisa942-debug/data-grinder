@@ -10,6 +10,17 @@ let practiceScore = 0;
 let practiceAnswerSubmitted = false;
 let isRetrySession = false;
 let currentPracticeSubject = '';
+let practiceStreak = 0;
+
+const PRACTICE_CAT_INTRO = {
+    recall: 'Варианты похожи — выбирай внимательно.',
+    situational: 'Разберём ситуацию: какое правило здесь работает?',
+    relation: 'Как связаны эти темы?'
+};
+
+function practiceCat(emotion, text, reaction) {
+    if (typeof setCatWidget === 'function') setCatWidget('practice-cat', 'practice-cat-say', emotion, text, reaction);
+}
 
 function normalizeAnswer(str) {
     if (!str) return '';
@@ -58,10 +69,12 @@ window.startPracticeSession = async function(customSub) {
     practiceFailedItems = [];
     practiceCurrentIndex = 0;
     practiceScore = 0;
+    practiceStreak = 0;
     practiceAnswerSubmitted = false;
 
     try {
-        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=10`);
+        const count = (window.pathRun && window.pathRun.active && window.pathRun.practiceCount) || 10;
+        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=${count}`);
         if (res.ok) {
             practiceItems = await res.json();
         }
@@ -117,6 +130,12 @@ function renderPracticeQuestion() {
     // Prompt
     const promptEl = document.getElementById('practice-prompt');
     if (promptEl) promptEl.textContent = item.prompt;
+
+    // Кот объявляет задание; на первом — напоминает, что ошибаться здесь нормально
+    const catLine = PRACTICE_CAT_INTRO[item.type] || 'Выбери верный вариант.';
+    practiceCat('think', practiceCurrentIndex === 0 && !isRetrySession
+        ? `Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально. ${catLine}`
+        : (isRetrySession ? `Работа над ошибками. ${catLine}` : catLine));
 
     // Hide feedback container
     const feedbackBox = document.getElementById('practice-feedback-container');
@@ -197,6 +216,15 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (spinner) spinner.remove();
 
         const isCorrect = data.correct;
+        const why = (data.explanation && data.explanation !== `Правильный ответ: ${data.correct_answer}`) ? ` ${data.explanation}` : '';
+        if (isCorrect) {
+            practiceStreak++;
+            const praise = practiceStreak >= 3 ? `${practiceStreak} подряд!` : 'Верно!';
+            practiceCat('happy', `${praise}${why}`, 'bounce');
+        } else {
+            practiceStreak = 0;
+            practiceCat('confused', `Не совсем. Правильно: «${String(data.correct_answer || '').replace(/[.!]+$/, '')}».${why}`, 'shake');
+        }
         if (isCorrect) {
             practiceScore++;
             clickedBtn.classList.add('practice-option-correct');
@@ -239,7 +267,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         }
 
         if (goldBox && goldText) {
-            if (data.gold_standard) {
+            if (data.gold_standard && normalizeAnswer(data.gold_standard) !== normalizeAnswer(data.correct_answer)) {
                 goldBox.classList.remove('hidden');
                 goldText.textContent = data.gold_standard;
             } else {
@@ -250,6 +278,9 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (explText) {
             explText.textContent = data.explanation || 'Обоснование отсутствует.';
         }
+        // Разъяснение уже сказал кот — не дублируем его ниже
+        const explBox = document.getElementById('practice-explanation-box');
+        if (explBox) explBox.classList.toggle('hidden', !!why);
 
         if (feedbackContainer) {
             feedbackContainer.classList.remove('hidden');
@@ -284,15 +315,27 @@ function showPracticeFinish() {
         scoreEl.textContent = `${practiceScore} / ${total} (${percent}%)`;
     }
 
+    let finishEmo = 'happy';
     if (msgEl) {
         if (isRetrySession) {
-            msgEl.textContent = "Ошибки успешно проработаны! Спорные узлы и критерии закреплены в памяти.";
+            msgEl.textContent = "Ошибки разобраны — теперь эти различия твои.";
         } else if (percent >= 80) {
-            msgEl.textContent = "Превосходно! Вы безошибочно различаете правовые режимы, звенья инстанций и водоразделы.";
+            msgEl.textContent = "Отлично различаешь похожее. Мур!";
         } else if (percent >= 50) {
-            msgEl.textContent = "Хороший результат. Рекомендуем повторить спорные узлы через Каркас знаний или колоду FSRS.";
+            msgEl.textContent = "Неплохо! Ошибки — это как раз то, что стоит разобрать ещё раз.";
+            finishEmo = 'think';
         } else {
-            msgEl.textContent = "Материал требует закрепления. Изучите структуру понятий в Каркасе знаний перед следующей практикой.";
+            msgEl.textContent = "Пока путается — это нормально. Разбери ошибки, и в следующий раз будет легче.";
+            finishEmo = 'confused';
+        }
+    }
+    const finishCat = document.getElementById('practice-finish-cat');
+    if (finishCat && typeof LESSON_CAT !== 'undefined') {
+        finishCat.textContent = (LESSON_CAT[finishEmo] || LESSON_CAT.happy).frames[0].join('\n');
+        if (!prefersReducedMotion() && finishEmo === 'happy') {
+            finishCat.classList.remove('cat-react-bounce');
+            void finishCat.offsetWidth;
+            finishCat.classList.add('cat-react-bounce');
         }
     }
 
@@ -333,10 +376,16 @@ function showPracticeFinish() {
         }
     }
 
-    // Настройка кнопки прохождения новой сессии
+    // Настройка кнопки прохождения новой сессии; в «Продолжить путь» она ведёт к следующему шагу
     const newSessionBtn = document.getElementById('practice-new-session-btn');
     if (newSessionBtn) {
-        newSessionBtn.onclick = () => startPracticeSession(currentPracticeSubject);
+        const inRun = window.pathRun && window.pathRun.active;
+        newSessionBtn.innerHTML = inRun
+            ? '<span class="material-symbols-outlined text-sm">arrow_forward</span><span>Дальше по пути</span>'
+            : '<span class="material-symbols-outlined text-sm">refresh</span><span>Пройти новую сессию</span>';
+        newSessionBtn.onclick = inRun
+            ? () => { closePracticeModal(); window.pathRun.stepFinished(); }
+            : () => startPracticeSession(currentPracticeSubject);
     }
 }
 
