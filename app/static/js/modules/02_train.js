@@ -226,6 +226,7 @@ function initTrainGestures() {
         trainDrag.currentX = clientX;
         trainDrag.currentY = clientY;
         card.style.transition = 'none';
+        cardEnter3D(card);
     };
 
     const onMove = (clientX, clientY) => {
@@ -261,6 +262,8 @@ function initTrainGestures() {
     const onEnd = () => {
         if (!trainDrag.isDragging) return;
         trainDrag.isDragging = false;
+        // Все анимации свайпа укладываются в 0.25 с — потом карточка снова плоская и чёткая
+        cardSettle(card, 300);
         const deltaX = trainDrag.currentX - trainDrag.startX;
         const badgeGood = document.getElementById('train-badge-good');
         const badgeAgain = document.getElementById('train-badge-again');
@@ -579,7 +582,11 @@ window.flipCard = function() {
     if (!isFlipped) {
         isFlipped = true;
         window.isAnswerRevealed = true;
-        if (flashcard) flashcard.classList.add('rotate-y-180');
+        if (flashcard) {
+            cardEnter3D(flashcard);
+            flashcard.classList.add('rotate-y-180');
+            cardSettle(flashcard, 550);
+        }
         if (actionButtons) { actionButtons.classList.remove('hidden'); actionButtons.classList.add('flex'); }
         const trainAns = document.getElementById('train-answer');
         if (trainAns) trainAns.classList.remove('hidden');
@@ -588,12 +595,43 @@ window.flipCard = function() {
     } else {
         isFlipped = false;
         window.isAnswerRevealed = false;
-        if (flashcard) flashcard.classList.remove('rotate-y-180');
+        if (flashcard) {
+            cardEnter3D(flashcard);
+            flashcard.classList.remove('rotate-y-180');
+            cardSettle(flashcard, 550);
+        }
         if (actionButtons) { actionButtons.classList.add('hidden'); actionButtons.classList.remove('flex'); }
         const trainAns = document.getElementById('train-answer');
         if (trainAns) trainAns.classList.add('hidden');
     }
 };
+
+// Чёткость текста: 3D (перспектива, поворот) включено, только пока карточка переворачивается
+// или её тянут свайпом. В покое карточка плоская — браузер рисует текст по пикселям,
+// а не растягивает размытый 3D-слой (на ПК в фокус-режиме это было заметно сильнее всего).
+function cardEnter3D(card) {
+    if (!card) return;
+    clearTimeout(card._settleTimer);
+    if (card.classList.contains('card-3d')) return;
+    // Без анимации: переход «плоская → 3D» должен выглядеть одинаково, а не проворачиваться
+    const prev = card.style.transition;
+    card.style.transition = 'none';
+    card.classList.add('card-3d');
+    void card.offsetWidth;
+    card.style.transition = prev;
+}
+
+function cardSettle(card, delay = 0) {
+    if (!card) return;
+    clearTimeout(card._settleTimer);
+    card._settleTimer = setTimeout(() => {
+        const prev = card.style.transition;
+        card.style.transition = 'none';
+        card.classList.remove('card-3d');
+        void card.offsetWidth;
+        card.style.transition = prev;
+    }, delay);
+}
 window.showAnswer = window.flipCard;
 
 window.rateCard = function(rating) {

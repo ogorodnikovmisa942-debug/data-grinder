@@ -45,6 +45,26 @@ html, body {
     -webkit-transform: rotateY(180deg);
 }
 
+/* Покой (класс card-3d снимается через 0.55 с после переворота или свайпа): карточка плоская,
+   видна одна сторона без поворотов. Ни одного 3D-слоя — текст рисуется чётко на любом экране. */
+#flashcard:not(.card-3d) {
+    transform: none !important;
+    -webkit-transform: none !important;
+    transform-style: flat;
+    -webkit-transform-style: flat;
+}
+#flashcard:not(.card-3d) #card-front,
+#flashcard:not(.card-3d) #card-back {
+    transform: none !important;
+    -webkit-transform: none !important;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+}
+#flashcard:not(.card-3d):not(.rotate-y-180) #card-back,
+#flashcard:not(.card-3d).rotate-y-180 #card-front {
+    visibility: hidden;
+}
+
 /* iOS Safari без сдвига по Z путает грани при повороте — там оставляем прежний приём */
 @supports (-webkit-touch-callout: none) {
     #card-front {
