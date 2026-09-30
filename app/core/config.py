@@ -53,6 +53,8 @@ class Settings:
     ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")
     EXPERIMENT_DAILY_LIMIT: int = int(os.getenv("EXPERIMENT_DAILY_LIMIT", "10"))
 
+    DEFAULT_TIMEZONE: str = os.getenv("DEFAULT_TIMEZONE", "Europe/Moscow").strip()
+
     # Защита от неконтролируемых трат на ИИ: размер материала и число задач на пользователя
     MAX_IMPORT_CHARS: int = int(os.getenv("MAX_IMPORT_CHARS", "1500000"))
     MAX_IMPORT_FILE_BYTES: int = int(os.getenv("MAX_IMPORT_FILE_BYTES", str(30 * 1024 * 1024)))

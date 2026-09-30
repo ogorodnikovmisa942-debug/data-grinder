@@ -124,6 +124,15 @@ def calculate_intervals(
         if rating == 1:
             next_review = now + timedelta(minutes=5)
             return float(card.stability), float(card.difficulty), card.state, next_review, elapsed_days
+        elif card.state == 3:
+            # Переобучение: сохраняем пост-лапсную стабильность (её посчитал провал в Review), а не сбрасываем к W[·]
+            floor = W[3] if rating == 4 else (W[2] if rating == 3 else W[1])
+            keep = card.stability * {2: 0.8, 3: 1.0, 4: 1.3}[rating]
+            new_stability = max(floor, keep) if card.stability and card.stability > 0 else floor
+            new_difficulty = max(1.0, min(10.0, card.difficulty - W[6] * (rating - 3) + latency_penalty))
+            calculated_days = calculate_target_interval(new_stability, safe_retention)
+            interval_days = apply_fuzz(max(1, round(calculated_days * clamped_factor)))
+            return float(new_stability), max(1.0, min(10.0, float(new_difficulty))), 2, now + timedelta(days=interval_days), elapsed_days
         else:
             new_stability = W[3] if rating == 4 else (W[2] if rating == 3 else W[1])
             new_difficulty = max(1.0, min(10.0, card.difficulty - W[6] * (rating - 3) + latency_penalty))
@@ -136,7 +145,9 @@ def calculate_intervals(
     # 3. Основной цикл повторения (Review)
     elif card.state == 2:
         if card.stability > 0:
-            retrievability = math.exp(math.log(safe_retention) * elapsed_days / card.stability)
+            # R(t) = 0.9^(t/S): стабильность S по определению — время падения удержания до 90%,
+            # поэтому основание всегда 0.9, а не целевой retention пользователя (он влияет только на интервал)
+            retrievability = math.exp(math.log(0.9) * elapsed_days / card.stability)
         else:
             retrievability = 0.0
 

@@ -78,6 +78,7 @@ class Card(Base):
     # Путь знаний: привязка к узлу графа и готовые дистракторы для практики
     node_id = Column(Integer, ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
     answer_type = Column(String, nullable=True)   # term | date | number | organ | rule | criterion
+    key_points = Column(JSON, nullable=True)      # открытые вопросы: [{"text", "variants": [...], "weight"}] для проверки без ИИ
     distractors = Column(JSON, nullable=True)     # 3 правдоподобных неверных ответа того же answer_type
 
     # Реляционные связи
@@ -108,6 +109,7 @@ class ReviewLog(Base):
     timestamp = Column(DateTime, default=utc_now) # точное время повторения
     is_outlier = Column(Boolean, default=False, nullable=False) # фильтрация невалидных задержек / мисскликов
     is_cram = Column(Boolean, default=False, nullable=False) # флаг сессии режима штурма
+    client_id = Column(String(64), nullable=True, index=True)  # идемпотентность: повторная отправка ответа не дублирует лог
 
     # Обратная связь
     card = relationship("Card", back_populates="logs")
@@ -166,6 +168,7 @@ class UserSetting(Base):
     subject_limits = Column(JSON, nullable=True) # например {"law_civil_rb": 15, "all": 10}
     is_experiment_participant = Column(Boolean, default=False, nullable=False)
     experiment_phase = Column(Integer, default=1, nullable=False)
+    timezone = Column(String(64), nullable=True)  # IANA, например Europe/Moscow: границы суток и уведомления
 
 
 class GenerationJob(Base):

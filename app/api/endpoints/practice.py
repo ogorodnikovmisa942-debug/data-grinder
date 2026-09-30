@@ -198,8 +198,10 @@ async def get_practice_stats(
             today_count=0
         )
 
-    today = utc_now().date()
-    today_logs = [l for l in logs if l.created_at and l.created_at.date() == today]
+    from app.core.timeutil import get_user_timezone, local_now, to_local_date
+    tz_name = await get_user_timezone(db, current_user)
+    today = local_now(tz_name).date()
+    today_logs = [l for l in logs if l.created_at and to_local_date(l.created_at, tz_name) == today]
     today_log = today_logs[0] if today_logs else None
     latest_log = logs[0] if logs else None
     best_pct = max((l.percentage for l in logs), default=0.0)

@@ -9,6 +9,8 @@
 """
 from sqlalchemy import select, delete, func, case
 
+from app.core.timeutil import user_day_start
+
 from app.database.models import (
     Card, Phrase, ReviewLog, PracticeItem, PracticeSessionLog, KnowledgeNode, KnowledgeEdge, NodeProgress,
     GenerationJob, UserSetting, utc_now,
@@ -244,8 +246,9 @@ RUN_REVIEW_BATCH = 15      # повторений за шаг: короткие 
 PRACTICE_MIN_ITEMS = 4
 
 
-def _today_start():
-    return utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+async def _today_start(db, user_id: str):
+    """Начало суток пользователя в его часовом поясе (наивный UTC)."""
+    return await user_day_start(db, user_id)
 
 
 async def _new_cards_budget(db, user_id: str, subject: str) -> int:
@@ -257,7 +260,7 @@ async def _new_cards_budget(db, user_id: str, subject: str) -> int:
     learned_today = (await db.execute(
         select(func.count(ReviewLog.id)).join(Card, ReviewLog.card_id == Card.id).where(
             ReviewLog.user_id == user_id, ReviewLog.state == 0,
-            ReviewLog.review_time >= _today_start(), Card.subject == subject,
+            ReviewLog.review_time >= await _today_start(db, user_id), Card.subject == subject,
         )
     )).scalar() or 0
     return max(0, limit - learned_today)
@@ -265,7 +268,7 @@ async def _new_cards_budget(db, user_id: str, subject: str) -> int:
 
 async def get_today_summary(db, user_id: str, subject: str) -> dict:
     """Что сделано сегодня по предмету — для итога дня и праздничного кота."""
-    today = _today_start()
+    today = await _today_start(db, user_id)
     answered, correct = (await db.execute(
         select(func.count(ReviewLog.id), func.sum(case((ReviewLog.rating > 1, 1), else_=0)))
         .join(Card, ReviewLog.card_id == Card.id)
@@ -343,7 +346,7 @@ async def next_path_step(db, user_id: str, subject: str, done: list[str]) -> dic
         practiced_today = (await db.execute(
             select(func.count(PracticeSessionLog.id)).where(
                 PracticeSessionLog.user_id == user_id, PracticeSessionLog.subject == subject,
-                PracticeSessionLog.created_at >= _today_start(),
+                PracticeSessionLog.created_at >= await _today_start(db, user_id),
             )
         )).scalar() or 0
         practicable = (await db.execute(

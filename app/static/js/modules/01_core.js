@@ -109,6 +109,139 @@ async function apiFetch(url, options = {}) {
 }
 
 // ============================================================================
+// НАДЁЖНАЯ ОТПРАВКА ОТВЕТОВ: очередь в localStorage, повторы, идемпотентность (client_id)
+// Ответ ставится в очередь сразу, уходит на сервер по порядку; при сбое сети остаётся и уходит позже.
+// ============================================================================
+const ANSWER_QUEUE_KEY = 'dg_answer_queue_v1';
+const ANSWER_QUEUE_MAX = 500;
+let answerQueue = [];
+let answerFlushing = false;
+let answerRetryTimer = null;
+let answerRetryDelay = 4000;
+let answerLastFailed = false;
+
+function newClientId() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (_) {}
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function persistAnswerQueue() {
+    try { localStorage.setItem(ANSWER_QUEUE_KEY, JSON.stringify(answerQueue)); } catch (_) {}
+}
+
+function restoreAnswerQueue() {
+    try {
+        const raw = localStorage.getItem(ANSWER_QUEUE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) answerQueue = parsed.filter(x => x && x.card_id && x.client_id).slice(-ANSWER_QUEUE_MAX);
+    } catch (_) { answerQueue = []; }
+}
+
+function renderAnswerSyncBadge() {
+    let el = document.getElementById('answer-sync-badge');
+    const pending = answerQueue.length;
+    if (!pending || !answerLastFailed) {
+        if (el) el.remove();
+        return;
+    }
+    if (!el) {
+        el = document.createElement('button');
+        el.id = 'answer-sync-badge';
+        el.type = 'button';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tg-safe-bottom,0px) + 72px);z-index:9999;' +
+            'padding:8px 14px;border-radius:999px;border:1px solid #f59e0b;background:#1c1917;color:#fbbf24;font:600 12px/1.2 monospace;cursor:pointer;';
+        el.onclick = () => flushAnswerQueue(true);
+        document.body.appendChild(el);
+    }
+    el.textContent = `Не отправлено ответов: ${pending}. Нажмите, чтобы повторить`;
+}
+
+function scheduleAnswerRetry() {
+    answerLastFailed = true;
+    renderAnswerSyncBadge();
+    if (answerRetryTimer) return;
+    answerRetryTimer = setTimeout(() => {
+        answerRetryTimer = null;
+        flushAnswerQueue();
+    }, answerRetryDelay);
+    answerRetryDelay = Math.min(answerRetryDelay * 2, 60000);
+}
+
+async function flushAnswerQueue(manual = false) {
+    if (answerFlushing) return;
+    if (manual && answerRetryTimer) { clearTimeout(answerRetryTimer); answerRetryTimer = null; }
+    answerFlushing = true;
+    let sentAny = false;
+    try {
+        while (answerQueue.length) {
+            const item = answerQueue[0];
+            let res;
+            try {
+                res = await apiFetch('/api/answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(item)
+                });
+            } catch (_) {
+                scheduleAnswerRetry();
+                return;
+            }
+            if (res.ok) {
+                answerQueue.shift();
+                persistAnswerQueue();
+                sentAny = true;
+                answerRetryDelay = 4000;
+            } else if (res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)) {
+                // Ответ невозможно принять (карточка удалена и т.п.) — повторять бессмысленно
+                console.warn('[Data Grinder] Ответ отклонён сервером, пропускаю:', res.status, item.card_id);
+                answerQueue.shift();
+                persistAnswerQueue();
+            } else {
+                scheduleAnswerRetry();
+                return;
+            }
+        }
+        answerLastFailed = false;
+    } finally {
+        answerFlushing = false;
+        renderAnswerSyncBadge();
+        if (sentAny && typeof updateGlobalBadges === 'function') {
+            try { updateGlobalBadges(); } catch (_) {}
+        }
+    }
+}
+
+// Единая точка отправки ответа: ставит в очередь и запускает отправку
+window.queueAnswer = function(payload) {
+    answerQueue.push({ ...payload, client_id: newClientId(), answered_at: Date.now() });
+    if (answerQueue.length > ANSWER_QUEUE_MAX) answerQueue.shift();
+    persistAnswerQueue();
+    return flushAnswerQueue();
+};
+
+restoreAnswerQueue();
+
+// Часовой пояс пользователя: сервер считает по нему «сегодня», лимит новых карточек и время уведомлений
+async function syncUserTimezone() {
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (!tz || localStorage.getItem('dg_tz_sent') === tz) return;
+        const res = await apiFetch('/api/config/timezone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timezone: tz })
+        });
+        if (res.ok) localStorage.setItem('dg_tz_sent', tz);
+    } catch (_) {}
+}
+window.addEventListener('load', () => { setTimeout(syncUserTimezone, 1500); });
+window.addEventListener('online', () => flushAnswerQueue(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') flushAnswerQueue(); });
+window.addEventListener('load', () => { if (answerQueue.length) flushAnswerQueue(); });
+
+// ============================================================================
 // ВСТРОЕННАЯ МОБИЛЬНАЯ КОНСОЛЬ ОТЛАДКИ (Eruda DevTools)
 // ============================================================================
 window.enableEruda = function() {

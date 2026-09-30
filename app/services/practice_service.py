@@ -112,8 +112,9 @@ async def generate_practice_session(
 
 async def _fresh_node_ids(db: AsyncSession, user_id: str) -> set[int]:
     """Узлы, урок которых пройден сегодня: по ним практика нужнее всего."""
-    from app.database.models import NodeProgress, utc_now
-    today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    from app.database.models import NodeProgress
+    from app.core.timeutil import user_day_start
+    today = await user_day_start(db, user_id)
     return set((await db.execute(
         select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= today)
     )).scalars().all())
