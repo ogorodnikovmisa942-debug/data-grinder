@@ -22,15 +22,37 @@ def normalize_subject(subject: str) -> str:
     return (subject or "").strip().lower() or "general"
 
 
-async def wipe_subject(db, user_id: str, subject: str) -> None:
-    """Повторная загрузка предмета заменяет его целиком: граф, уроки, карточки, прогресс, практику."""
-    card_ids = select(Card.id).where(Card.user_id == user_id, Card.subject == subject)
+async def generated_path_stats(db, user_id: str, subject: str) -> dict:
+    """Что будет заменено повторной нарезкой: сгенерированные карточки (node_id задан) и их повторения."""
+    card_ids = select(Card.id).where(Card.user_id == user_id, Card.subject == subject, Card.node_id.isnot(None))
+    cards = (await db.execute(select(func.count()).select_from(card_ids.subquery()))).scalar() or 0
+    reviews = (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.card_id.in_(card_ids)))).scalar() or 0
+    return {"cards": cards, "reviews": reviews}
+
+
+async def wipe_subject(db, user_id: str, subject: str, only_generated: bool = False) -> None:
+    """Удаляет граф, уроки, прогресс и практику предмета.
+
+    only_generated=True (повторная нарезка): удаляются только карточки, созданные конвейером (node_id задан);
+    карточки, добавленные вручную или импортом CSV, сохраняются вместе с историей повторений.
+    False (пользователь удаляет предмет целиком): удаляется всё.
+    """
+    card_filter = [Card.user_id == user_id, Card.subject == subject]
+    if only_generated:
+        card_filter.append(Card.node_id.isnot(None))
+    card_ids = select(Card.id).where(*card_filter)
     node_ids = select(KnowledgeNode.id).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
     await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
     await db.execute(delete(NodeProgress).where(NodeProgress.node_id.in_(node_ids)))
     await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
-    await db.execute(delete(Card).where(Card.user_id == user_id, Card.subject == subject))
-    await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject))
+    await db.execute(delete(Card).where(*card_filter))
+    if only_generated:
+        # Фразы-обложки узлов удаляем, только если под ними не осталось ручных карточек
+        has_cards = select(Card.phrase_id).where(Card.user_id == user_id, Card.phrase_id.isnot(None))
+        await db.execute(delete(Phrase).where(
+            Phrase.user_id == user_id, Phrase.subject == subject, Phrase.id.notin_(has_cards)))
+    else:
+        await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject))
     await db.execute(delete(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject))
     await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject))
 
@@ -39,7 +61,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
     """Сохраняет карту, уроки и карточки. Порядок карточек: ярус → порядок узла → слой."""
     subject = normalize_subject(subject)
     path_map, packs = result["map"], result["packs"]
-    await wipe_subject(db, user_id, subject)
+    await wipe_subject(db, user_id, subject, only_generated=True)
 
     now = utc_now()
     node_rows: dict[str, KnowledgeNode] = {}

@@ -9,10 +9,11 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status, UploadFile, Request
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import timedelta
+from sqlalchemy import select, func
 
 from app.database.session import get_db
-from app.database.models import GenerationJob
+from app.database.models import GenerationJob, utc_now
 from app.services.generation_worker import is_deepseek_offpeak
 from app.services.ai_gateway.client import format_offpeak_start_msk
 from app.services.graph_service import resolve_subject_alias
@@ -22,6 +23,8 @@ from app.services.card_db_sync import (
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 
+import logging
+logger = logging.getLogger("grinder.imports")
 router = APIRouter()
 
 
@@ -44,6 +47,48 @@ def plan_queue(is_deferred_requested: bool, char_count: int) -> tuple[bool, bool
     return False, True, False, f"Материал ({char_count} знаков) взят в работу по пиковому тарифу: ИИ строит путь знаний."
 
 
+async def guard_new_job(db: AsyncSession, user_id: str, char_count: int) -> None:
+    """Не даёт одному пользователю сжечь бюджет ИИ: лимит размера, активных задач и задач в час."""
+    from app.services.card_db_sync import is_admin_or_dev
+    if char_count > settings.MAX_IMPORT_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Материал слишком большой ({char_count:,} знаков, максимум {settings.MAX_IMPORT_CHARS:,}). Разбейте его на части.".replace(",", " "),
+        )
+    if is_admin_or_dev(user_id):
+        return
+    active = (await db.execute(
+        select(func.count(GenerationJob.id)).where(
+            GenerationJob.user_id == user_id, GenerationJob.status.in_(("pending", "processing"))
+        )
+    )).scalar() or 0
+    if active >= settings.MAX_ACTIVE_JOBS_PER_USER:
+        raise HTTPException(status_code=429, detail="У вас уже есть задачи в обработке. Дождитесь их завершения или отмените лишние.")
+    recent = (await db.execute(
+        select(func.count(GenerationJob.id)).where(
+            GenerationJob.user_id == user_id, GenerationJob.created_at >= utc_now() - timedelta(hours=1)
+        )
+    )).scalar() or 0
+    if recent >= settings.MAX_JOBS_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Слишком много загрузок за час. Попробуйте позже.")
+
+
+async def require_replace_confirmation(db: AsyncSession, user_id: str, subject: str, confirmed: bool) -> None:
+    """Повторная нарезка заменяет путь предмета. Если по нему уже есть повторения — только с явным согласием."""
+    from app.services.knowledge_path import generated_path_stats
+    stats = await generated_path_stats(db, user_id, subject)
+    if stats["reviews"] > 0 and not confirmed:
+        raise HTTPException(status_code=409, detail={
+            "code": "replace_confirm",
+            "cards": stats["cards"],
+            "reviews": stats["reviews"],
+            "message": (
+                f"Предмет уже изучается: {stats['cards']} карточек и {stats['reviews']} ответов. "
+                "Новая нарезка заменит карточки и прогресс этого предмета. Продолжить?"
+            ),
+        })
+
+
 class ImportIn(BaseModel):
     text: str
     subject: str = ""                    # Целевой предмет, выбранный человеком
@@ -54,6 +99,7 @@ class ImportIn(BaseModel):
     granularity_mode: str = "atomic"     # "atomic" | "single_deep" | "cheatsheet"
     custom_instruction: str = ""        # Свободные пожелания пользователя
     commit_now: bool = False            # False = вернуть в Песочницу (Staging)
+    confirm_replace: bool = False       # согласие заменить уже изучаемый путь предмета
     is_deferred: bool = False           # True = отправить в очередь Ночного Грайндера (-50% стоимости)
 
 
@@ -107,6 +153,8 @@ async def import_raw_text(
     if not target_sub:
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
+    await require_replace_confirmation(db, current_user, target_sub, payload.confirm_replace)
+    await guard_new_job(db, current_user, len(payload.text.strip()))
     effective_deferred, is_immediate, is_offpeak, msg = plan_queue(payload.is_deferred, len(payload.text.strip()))
 
     meaningful_lines = [
@@ -186,7 +234,8 @@ async def commit_staging_cards(
         }
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Ошибка сохранения из песочницы: {str(e)}")
+        logger.exception("Ошибка сохранения из песочницы")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить карточки. Попробуйте ещё раз.")
 
 
 # --- 4.2 ЗАГРУЗКА ПАЧЕК ФАЙЛОВ НА КОДОВОМ УРОВНЕ (PDF, TXT, MD, CSV) ---
@@ -209,6 +258,8 @@ async def import_file_at_code_level(
     ]
     if not upload_list:
         raise HTTPException(status_code=400, detail="Не передано ни одного файла.")
+    if len(upload_list) > settings.MAX_IMPORT_FILES:
+        raise HTTPException(status_code=413, detail=f"Слишком много файлов за раз (максимум {settings.MAX_IMPORT_FILES}).")
 
     target_sub = resolve_subject_alias(str(form.get("subject", "")).strip().lower())
     if not target_sub:
@@ -230,7 +281,12 @@ async def import_file_at_code_level(
     for up_file in upload_list:
         filename = (up_file.filename or "file").lower()
         file_titles.append(up_file.filename or "файл")
-        contents = await up_file.read()
+        contents = await up_file.read(settings.MAX_IMPORT_FILE_BYTES + 1)
+        if len(contents) > settings.MAX_IMPORT_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Файл «{up_file.filename}» больше {settings.MAX_IMPORT_FILE_BYTES // (1024 * 1024)} МБ.",
+            )
         extracted_text = ""
 
         # 1. Формат PDF: извлечение через pypdf
@@ -321,6 +377,8 @@ async def import_file_at_code_level(
 
     if all_extracted_texts:
         combined_text = "\n\n".join(all_extracted_texts)
+        await require_replace_confirmation(db, current_user, target_sub, str(form.get("confirm_replace", "")).lower() == "true")
+        await guard_new_job(db, current_user, len(combined_text))
         effective_deferred, is_immediate, is_offpeak, msg = plan_queue(is_deferred, len(combined_text))
 
         theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
@@ -384,7 +442,8 @@ async def get_staging_job_cards(
     try:
         cards = json.loads(job.result_cards_json)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка распаковки карточек: {str(e)}")
+        logger.exception("Ошибка распаковки карточек job=%s", job_id)
+        raise HTTPException(status_code=500, detail="Не удалось прочитать результат нарезки.")
 
     return {
         "status": "staging",
@@ -491,7 +550,8 @@ async def import_preset_library(
         with open(preset_path, "r", encoding="utf-8") as f:
             parsed_data = json.load(f)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка чтения файла пресета: {str(e)}")
+        logger.exception("Ошибка чтения пресета")
+        raise HTTPException(status_code=500, detail="Не удалось прочитать файл пресета.")
         
     subject_slug = parsed_data.get("subject_slug", "generic").lower()
     phrase_title = parsed_data.get("phrase_title", "Новый блок знаний")
@@ -521,4 +581,5 @@ async def import_preset_library(
             return {"status": "error", "message": "В библиотеке нет валидных карточек."}
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Ошибка БД: {str(e)}")
+        logger.exception("Ошибка БД при импорте пресета")
+        raise HTTPException(status_code=500, detail="Ошибка базы данных. Попробуйте ещё раз.")

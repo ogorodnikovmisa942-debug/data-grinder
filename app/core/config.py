@@ -53,6 +53,13 @@ class Settings:
     ADMIN_TELEGRAM_ID: str = os.getenv("ADMIN_TELEGRAM_ID", "")
     EXPERIMENT_DAILY_LIMIT: int = int(os.getenv("EXPERIMENT_DAILY_LIMIT", "10"))
 
+    # Защита от неконтролируемых трат на ИИ: размер материала и число задач на пользователя
+    MAX_IMPORT_CHARS: int = int(os.getenv("MAX_IMPORT_CHARS", "1500000"))
+    MAX_IMPORT_FILE_BYTES: int = int(os.getenv("MAX_IMPORT_FILE_BYTES", str(30 * 1024 * 1024)))
+    MAX_IMPORT_FILES: int = int(os.getenv("MAX_IMPORT_FILES", "10"))
+    MAX_ACTIVE_JOBS_PER_USER: int = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
+    MAX_JOBS_PER_HOUR: int = int(os.getenv("MAX_JOBS_PER_HOUR", "10"))
+
     # Максимальный возраст подписанного initData (Telegram кэширует WebView, поэтому с запасом)
     INIT_DATA_MAX_AGE_SECONDS: int = int(os.getenv("INIT_DATA_MAX_AGE_SECONDS", str(7 * 24 * 3600)))
 

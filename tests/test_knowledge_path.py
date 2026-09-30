@@ -256,3 +256,53 @@ def test_next_step_guides_through_path():
             await cleanup()
 
     asyncio.run(scenario())
+
+
+# --- Повторная нарезка не уничтожает ручные карточки; лимиты импорта ---
+def test_replace_keeps_manual_cards_and_requires_confirmation():
+    import asyncio
+    from sqlalchemy import select, func
+    from app.database.session import AsyncSessionLocal
+    from app.database.models import Card, ReviewLog, utc_now
+    from app.services.knowledge_path import wipe_subject, generated_path_stats
+
+    uid, sub = "replace_test_user", "replace_test_sub"
+
+    async def run():
+        async with AsyncSessionLocal() as db:
+            from app.database.models import Phrase
+            ph = Phrase(text="p", subject=sub, user_id=uid)
+            db.add(ph); await db.flush()
+            gen = Card(phrase_id=ph.id, user_id=uid, subject=sub, text="g", translation="g", state=2, next_review=utc_now())
+            man = Card(phrase_id=ph.id, user_id=uid, subject=sub, text="m", translation="m", state=2, next_review=utc_now())
+            db.add_all([gen, man]); await db.flush()
+            from app.database.models import KnowledgeNode
+            n = KnowledgeNode(user_id=uid, subject=sub, node_key="k", name="k", tier=0, order_idx=0,
+                              prereq_keys=[], summary="", source_hint="", lesson_status="ready")
+            db.add(n); await db.flush()
+            gen.node_id = n.id
+            db.add_all([ReviewLog(card_id=gen.id, user_id=uid, rating=3, review_time=utc_now()),
+                        ReviewLog(card_id=man.id, user_id=uid, rating=3, review_time=utc_now())])
+            await db.commit()
+
+            assert await generated_path_stats(db, uid, sub) == {"cards": 1, "reviews": 1}
+            await wipe_subject(db, uid, sub, only_generated=True)
+            await db.commit()
+            left = (await db.execute(select(Card.text).where(Card.user_id == uid, Card.subject == sub))).scalars().all()
+            logs = (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.user_id == uid))).scalar()
+            assert left == ["m"] and logs == 1
+            await wipe_subject(db, uid, sub)
+            await db.commit()
+
+    asyncio.run(run())
+
+
+def test_import_limits(monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "MAX_IMPORT_CHARS", 100)
+    with TestClient(app) as client:
+        r = client.post("/api/config/import", json={"text": "x" * 500, "subject": "limits_sub"},
+                        headers={"X-User-Id": "limits_user"})
+        assert r.status_code == 413 and "слишком большой" in r.json()["detail"]
