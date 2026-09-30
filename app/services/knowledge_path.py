@@ -7,6 +7,8 @@
 (так же устроена Math Academy: тема открывается после урока, закрепление идёт повторениями).
 Новые карточки узла попадают в очередь только после прохождения урока.
 """
+from datetime import timedelta
+
 from sqlalchemy import select, delete, func, case
 
 from app.database.models import (
@@ -15,6 +17,22 @@ from app.database.models import (
 )
 
 MASTERY_ANSWERED_SHARE = 0.8
+# Учебный день считается по Москве (UTC+3 круглый год): полночь по UTC — это 03:00 у пользователя
+DAY_TZ_OFFSET = timedelta(hours=3)
+# Урок и его карточки неделимы. Новый урок начинается, если до дневной нормы осталось
+# место хотя бы на столько карточек; начатый урок доучивается целиком, даже сверх нормы.
+LESSON_MIN_ROOM = 3
+
+
+def day_start_utc(now=None):
+    """Начало текущего учебного дня (полночь по Москве) в наивном UTC, как хранится в БД."""
+    local = (now or utc_now()) + DAY_TZ_OFFSET
+    return local.replace(hour=0, minute=0, second=0, microsecond=0) - DAY_TZ_OFFSET
+
+
+def day_key(now=None) -> str:
+    """Дата учебного дня (YYYY-MM-DD по Москве) — ключ «награда уже показана»."""
+    return ((now or utc_now()) + DAY_TZ_OFFSET).date().isoformat()
 DIFFICULTY_BY_TIER = {"easy": 3.5, "medium": 5.5, "hard": 7.5}
 
 
@@ -213,37 +231,103 @@ def unlocked_node_ids_subquery(user_id: str):
 
 
 # ---------------------------------------------------------------------------
-# «Продолжить путь»: следующий шаг занятия одной кнопкой
+# План дня и «Продолжить путь»: следующий шаг занятия одной кнопкой
 # ---------------------------------------------------------------------------
 
-# Сколько раз шаг каждого типа может встретиться за один запуск (защита от зацикливания)
-RUN_STEP_LIMITS = {"review": 3, "cards": 3, "lesson": 2, "practice": 1}
+# Сколько раз шаг каждого типа может встретиться за один запуск (защита от зацикливания;
+# сколько уроков пройти за день, решает дневная норма, а не этот предохранитель)
+RUN_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 6, "practice": 1}
 RUN_REVIEW_BATCH = 15      # повторений за шаг: короткие подходы вместо стены из 80 карточек
 PRACTICE_MIN_ITEMS = 4
 
 
-def _today_start():
-    return utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-async def _new_cards_budget(db, user_id: str, subject: str) -> int:
-    """Дневной лимит новых карточек предмета минус уже начатые сегодня."""
+async def _daily_new_limit(db, user_id: str, subject: str) -> int:
     setting = (await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))).scalar_one_or_none()
     limit = setting.daily_limit if setting and setting.daily_limit else 10
     if setting and setting.subject_limits:
         limit = setting.subject_limits.get(subject, limit)
-    learned_today = (await db.execute(
-        select(func.count(ReviewLog.id)).join(Card, ReviewLog.card_id == Card.id).where(
+    return limit
+
+
+async def _learned_today(db, user_id: str, subject: str) -> int:
+    """Сколько новых карточек предмета впервые показано сегодня (повторные «Не вспомнил» не в счёт)."""
+    return (await db.execute(
+        select(func.count(func.distinct(ReviewLog.card_id))).join(Card, ReviewLog.card_id == Card.id).where(
             ReviewLog.user_id == user_id, ReviewLog.state == 0,
-            ReviewLog.review_time >= _today_start(), Card.subject == subject,
+            ReviewLog.review_time >= day_start_utc(), Card.subject == subject,
         )
     )).scalar() or 0
-    return max(0, limit - learned_today)
+
+
+def seen_practice_cards_filter(user_id: str, subject: str) -> list:
+    """Карточки, из которых можно собрать тест: урок темы пройден и карточка уже хоть раз выучена."""
+    return [
+        Card.user_id == user_id, Card.subject == subject, Card.state != 0,
+        Card.distractors.isnot(None), Card.node_id.in_(unlocked_node_ids_subquery(user_id)),
+    ]
+
+
+async def get_day_plan(db, user_id: str, subject: str) -> dict:
+    """
+    Единый счётчик дня для всех кнопок: сколько места под новые карточки, какую тему доучить,
+    какой урок следующий и выполнена ли цель дня (для победной мордочки).
+
+    Урок + его карточки — неделимая порция. Цель дня: сегодня пройден хотя бы один урок,
+    карточки начатых уроков доучены и новый урок уже не помещается в норму (или открывать нечего).
+    """
+    subject = normalize_subject(subject)
+    has_path = (await db.execute(
+        select(func.count(KnowledgeNode.id)).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
+    )).scalar() or 0
+    limit = await _daily_new_limit(db, user_id, subject)
+    learned = await _learned_today(db, user_id, subject)
+    room = max(0, limit - learned)
+    plan = {
+        "day": day_key(), "is_path": bool(has_path), "limit": limit, "learned_today": learned, "room": room,
+        "lessons_today": 0, "unfinished": None, "next_lesson": None, "can_start_lesson": room >= LESSON_MIN_ROOM,
+        "practice_items": 0, "goal_met": False,
+    }
+    if not has_path:
+        return plan
+
+    # Урок пройден, а его карточки выучены не все — доучить в первую очередь (самый ранний узел пути)
+    row = (await db.execute(
+        select(Card.node_id, KnowledgeNode.name, func.count(Card.id))
+        .join(KnowledgeNode, Card.node_id == KnowledgeNode.id)
+        .where(Card.user_id == user_id, Card.subject == subject, Card.state == 0,
+               Card.node_id.in_(unlocked_node_ids_subquery(user_id)))
+        .group_by(Card.node_id, KnowledgeNode.name, KnowledgeNode.tier, KnowledgeNode.order_idx)
+        .order_by(KnowledgeNode.tier, KnowledgeNode.order_idx)
+        .limit(1)
+    )).first()
+    if row:
+        plan["unfinished"] = {"node_id": row[0], "node_name": row[1], "count": row[2]}
+
+    state = await get_path_state(db, user_id, subject)
+    opened = sorted((x for x in state["nodes"] if x["status"] == "open"), key=lambda x: (x["tier"], x["order"]))
+    if opened:
+        n = opened[0]
+        plan["next_lesson"] = {"node_id": n["id"], "node_name": n["name"], "tier": n["tier"],
+                               "cards": n["cards_total"], "has_lesson": n.get("lesson_status") == "ready"}
+
+    plan["lessons_today"] = (await db.execute(
+        select(func.count(NodeProgress.id)).join(KnowledgeNode, NodeProgress.node_id == KnowledgeNode.id)
+        .where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= day_start_utc(),
+               KnowledgeNode.subject == subject)
+    )).scalar() or 0
+    plan["practice_items"] = (await db.execute(
+        select(func.count(Card.id)).where(*seen_practice_cards_filter(user_id, subject))
+    )).scalar() or 0
+    plan["goal_met"] = (
+        plan["lessons_today"] >= 1 and plan["unfinished"] is None
+        and (not plan["can_start_lesson"] or plan["next_lesson"] is None)
+    )
+    return plan
 
 
 async def get_today_summary(db, user_id: str, subject: str) -> dict:
     """Что сделано сегодня по предмету — для итога дня и праздничного кота."""
-    today = _today_start()
+    today = day_start_utc()
     answered, correct = (await db.execute(
         select(func.count(ReviewLog.id), func.sum(case((ReviewLog.rating > 1, 1), else_=0)))
         .join(Card, ReviewLog.card_id == Card.id)
@@ -267,77 +351,80 @@ async def get_today_summary(db, user_id: str, subject: str) -> dict:
     }
 
 
-async def next_path_step(db, user_id: str, subject: str, done: list[str]) -> dict:
+async def next_path_step(db, user_id: str, subject: str, done: list[str], scope: str = "day", extra: bool = False) -> dict:
     """
-    Следующий шаг занятия «одной кнопкой» (составитель сессии в духе Math Academy / Duolingo):
+    Следующий шаг занятия (составитель сессии в духе Math Academy / Duolingo).
+
+    scope="day" — «Продолжить путь»:
     1. разминка — повторения по FSRS короткими подходами;
-    2. новые карточки уже пройденных уроков (вспоминание сразу после урока);
-    3. урок следующего открытого узла (не больше двух за запуск и пока есть лимит новых карточек);
-    4. практика на различение по изученным узлам (раз в день);
+    2. карточки уже пройденного урока — все, урок неделим (даже сверх нормы);
+    3. урок следующего открытого узла, пока до нормы остаётся место на LESSON_MIN_ROOM карточек;
+    4. практика-тест по выученному (раз в день);
     5. итог дня.
+    scope="topic" — кнопка «Новая тема»: одна порция «урок → все его карточки» (или доучить начатую).
+    extra=True — тема сверх нормы по явному выбору пользователя.
     done — типы шагов, уже выданных в этом запуске.
     """
     subject = normalize_subject(subject)
     used = {t: done.count(t) for t in RUN_STEP_LIMITS}
     now = utc_now()
     base = [Card.user_id == user_id, Card.subject == subject]
+    topic = scope == "topic"
 
     # 1. Повторения, у которых подошёл срок (Review и заучивание). Только что выученные
     # карточки ждут своего шага заучивания, а не возвращаются сразу же.
     due = (await db.execute(
         select(func.count(Card.id)).where(*base, Card.state.in_([1, 2, 3]), Card.next_review <= now)
     )).scalar() or 0
-    if due and used["review"] < RUN_STEP_LIMITS["review"]:
+    if not topic and due and used["review"] < RUN_STEP_LIMITS["review"]:
         return {"type": "review", "count": min(due, RUN_REVIEW_BATCH), "remaining": due}
 
-    budget = await _new_cards_budget(db, user_id, subject)
+    plan = await get_day_plan(db, user_id, subject)
 
-    # 2. Новые карточки узлов с пройденным уроком — первым идёт самый ранний узел пути
-    if budget and used["cards"] < RUN_STEP_LIMITS["cards"]:
-        row = (await db.execute(
-            select(Card.node_id, KnowledgeNode.name, func.count(Card.id))
-            .join(KnowledgeNode, Card.node_id == KnowledgeNode.id)
-            .where(*base, Card.state == 0, Card.node_id.in_(unlocked_node_ids_subquery(user_id)))
-            .group_by(Card.node_id, KnowledgeNode.name, KnowledgeNode.tier, KnowledgeNode.order_idx)
-            .order_by(KnowledgeNode.tier, KnowledgeNode.order_idx)
-            .limit(1)
-        )).first()
-        if row:
-            return {"type": "cards", "node_id": row[0], "node_name": row[1], "count": min(row[2], budget)}
+    # 2. Доучить карточки пройденного урока — все сразу, чтобы тема не осталась наполовину
+    if plan["unfinished"] and used["cards"] < RUN_STEP_LIMITS["cards"]:
+        u = plan["unfinished"]
+        return {"type": "cards", "node_id": u["node_id"], "node_name": u["node_name"], "count": u["count"]}
+
+    # «Новая тема» — ровно одна порция за нажатие
+    topic_finished = topic and bool(used["lesson"] or used["cards"])
 
     # 3. Урок следующего открытого узла
-    if budget and used["lesson"] < RUN_STEP_LIMITS["lesson"]:
-        state = await get_path_state(db, user_id, subject)
-        for n in sorted((x for x in state["nodes"] if x["status"] == "open"), key=lambda x: (x["tier"], x["order"])):
-            if n.get("lesson_status") != "ready":
-                # Урок не сгенерировался — не блокируем путь: сразу открываем карточки узла
-                await complete_lesson(db, user_id, n["id"], 0)
-                await db.commit()
-                return await next_path_step(db, user_id, subject, done)
-            return {"type": "lesson", "node_id": n["id"], "node_name": n["name"], "tier": n["tier"]}
+    nl = plan["next_lesson"]
+    if nl and not topic_finished and (plan["can_start_lesson"] or extra) and used["lesson"] < RUN_STEP_LIMITS["lesson"]:
+        if not nl["has_lesson"]:
+            # Урок не сгенерировался — не блокируем путь: сразу открываем карточки узла
+            await complete_lesson(db, user_id, nl["node_id"], 0)
+            await db.commit()
+            return await next_path_step(db, user_id, subject, done, scope, extra)
+        return {"type": "lesson", "node_id": nl["node_id"], "node_name": nl["node_name"],
+                "tier": nl["tier"], "cards": nl["cards"]}
 
-    # 4. Практика — раз в день, если уже есть что различать
-    if used["practice"] < RUN_STEP_LIMITS["practice"]:
+    # 4. Практика — раз в день, если уже есть из чего собрать тест
+    if not topic and used["practice"] < RUN_STEP_LIMITS["practice"]:
         practiced_today = (await db.execute(
             select(func.count(PracticeSessionLog.id)).where(
                 PracticeSessionLog.user_id == user_id, PracticeSessionLog.subject == subject,
-                PracticeSessionLog.created_at >= _today_start(),
+                PracticeSessionLog.created_at >= day_start_utc(),
             )
         )).scalar() or 0
-        practicable = (await db.execute(
-            select(func.count(Card.id)).where(
-                *base, Card.distractors.isnot(None), Card.node_id.in_(unlocked_node_ids_subquery(user_id))
-            )
-        )).scalar() or 0
-        if not practiced_today and practicable >= PRACTICE_MIN_ITEMS:
-            return {"type": "practice", "count": min(8, practicable)}
+        if not practiced_today and plan["practice_items"] >= PRACTICE_MIN_ITEMS:
+            return {"type": "practice", "count": min(8, plan["practice_items"])}
 
-    # 5. Итог дня: что сделано и что будет дальше
-    state = await get_path_state(db, user_id, subject)
-    upcoming = next((x["name"] for x in state["nodes"] if x["status"] in ("open", "locked")), None)
+    # 5. Итог: что сделано и что будет дальше
+    if topic_finished:
+        reason = "topic_done"
+    elif nl and not plan["can_start_lesson"]:
+        reason = "limit"
+    elif due and not topic:
+        reason = "reviews_left"
+    else:
+        reason = "waiting"
     return {
         "type": "done",
-        "reason": "reviews_left" if due else ("limit" if not budget else "waiting"),
-        "next_up": upcoming,
+        "scope": scope,
+        "reason": reason,
+        "next_up": nl["node_name"] if nl else None,
+        "plan": plan,
         "today": await get_today_summary(db, user_id, subject),
     }

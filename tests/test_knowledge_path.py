@@ -171,31 +171,66 @@ def test_path_api_and_train_gating():
         asyncio.run(cleanup())
 
 
-def test_practice_uses_stored_distractors_and_graph_edges():
+
+
+async def build_path() -> dict:
+    await cleanup()
+    with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
+        await process_generation_job(await create_job(), is_offpeak=True)
+    async with AsyncSessionLocal() as db:
+        return {n.node_key: n.id for n in (await db.execute(
+            select(KnowledgeNode).where(KnowledgeNode.user_id == USER))).scalars().all()}
+
+
+async def learn_node_cards(db, node_id: int, count: int | None = None) -> None:
+    """Карточки узла впервые выучены сегодня и ушли в Review на завтра."""
+    from datetime import timedelta
+    cards = (await db.execute(select(Card).where(Card.node_id == node_id).order_by(Card.id))).scalars().all()
+    for c in cards[:count]:
+        c.state, c.next_review = 2, utc_now() + timedelta(days=5)
+        db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=0))
+    await db.commit()
+
+
+async def set_daily_limit(limit: int | None) -> None:
+    from app.database.models import UserSetting
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(UserSetting).where(UserSetting.user_id == USER))
+        if limit is not None:
+            db.add(UserSetting(user_id=USER, daily_limit=limit))
+        await db.commit()
+
+
+def test_practice_only_from_learned_cards():
+    """Практика — тест только по выученному: урок пройден и карточка уже хоть раз выучена."""
     from app.services.practice_service import generate_practice_session
     from app.database.models import PracticeItem
 
     async def scenario():
-        await cleanup()
+        nodes = await build_path()
         try:
-            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
-                await process_generation_job(await create_job(), is_offpeak=True)
             async with AsyncSessionLocal() as db:
                 assert await generate_practice_session(USER, SUBJECT, count=20, db=db) == []  # уроков нет — практики нет
 
-                nodes = {n.node_key: n for n in (await db.execute(
-                    select(KnowledgeNode).where(KnowledgeNode.user_id == USER))).scalars().all()}
                 for key in ("base", "topic"):
-                    await complete_lesson(db, USER, nodes[key].id, 1)
+                    await complete_lesson(db, USER, nodes[key], 1)
                 await db.commit()
+                # Урок пройден, но карточки ещё не выучены — угадывать нечего
+                assert await generate_practice_session(USER, SUBJECT, count=20, db=db) == []
 
+                await learn_node_cards(db, nodes["base"], 3)
                 items = await generate_practice_session(USER, SUBJECT, count=20, db=db)
-                assert len(items) == 6  # 5 карточек основы + 1 карточка темы; подтема не пройдена
+                assert len(items) == 3
                 stored = (await db.execute(select(PracticeItem).where(PracticeItem.user_id == USER))).scalars().all()
+                assert {it.prompt for it in stored} == {f"Вопрос основы {i}?" for i in range(3)}
                 for it in stored:
-                    assert set(it.options) == {"Ответ.", "Неверно 1.", "Неверно 2.", "Неверно 3."}
                     assert it.correct_answer == "Ответ."
-                # Вопрос на связь нужен ≥2 других узла того же яруса — в мини-графе его нет
+                    if it.item_type == "open":
+                        assert it.options == []  # открытый вопрос: ответ вводится вручную
+                    else:
+                        assert set(it.options) == {"Ответ.", "Неверно 1.", "Неверно 2.", "Неверно 3."}
+                # ~20% открытых: из 3 заданий одно
+                assert sum(it.item_type == "open" for it in stored) == 1
                 assert all(it.item_type != "relation" for it in stored)
         finally:
             async with AsyncSessionLocal() as db:
@@ -206,22 +241,85 @@ def test_practice_uses_stored_distractors_and_graph_edges():
     asyncio.run(scenario())
 
 
-def test_next_step_guides_through_path():
-    """«Продолжить путь»: урок → его карточки → следующий урок → практика → итог; пустой урок не блокирует путь."""
+def test_practice_mistake_pulls_card_review_and_open_answers():
     from datetime import timedelta
-    from app.database.models import utc_now
-    from app.services.knowledge_path import next_path_step
+    from app.services.practice_service import (
+        generate_practice_session, verify_practice_answer, open_answer_matches,
+    )
+    from app.services.knowledge_path import day_start_utc
+    from app.database.models import PracticeItem
+
+    assert open_answer_matches("прокурора", "Прокурор.")
+    assert open_answer_matches("Конституционный суд", "Конституционный Суд.")
+    assert open_answer_matches("конституционый суд", "Конституционный суд.")  # опечатка
+    assert open_answer_matches("15", "15.")
+    assert not open_answer_matches("", "Прокурор.")
+    assert not open_answer_matches("суд", "Прокурор.")
+    assert not open_answer_matches("прокурор или судья или адвокат", "Прокурор.")
 
     async def scenario():
-        await cleanup()
+        nodes = await build_path()
         try:
-            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
-                await process_generation_job(await create_job(), is_offpeak=True)
-
             async with AsyncSessionLocal() as db:
-                nodes = {n.node_key: n.id for n in (await db.execute(
-                    select(KnowledgeNode).where(KnowledgeNode.user_id == USER))).scalars().all()}
+                await complete_lesson(db, USER, nodes["base"], 1)
+                await db.commit()
+                await learn_node_cards(db, nodes["base"])
+                items = await generate_practice_session(USER, SUBJECT, count=20, db=db)
+                item = items[0]
+                res = await verify_practice_answer(USER, item["id"], "Неверно 1.", db=db)
+                assert res["correct"] is False
+                stored = (await db.execute(select(PracticeItem).where(PracticeItem.item_id == item["id"]))).scalar_one()
+                card_row = (await db.execute(select(Card).where(Card.text == stored.prompt, Card.user_id == USER))).scalar_one()
+                assert card_row.next_review == day_start_utc() + timedelta(days=1)
 
+                ok = await verify_practice_answer(USER, items[1]["id"], "Ответ.", db=db)
+                assert ok["correct"] is True
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(PracticeItem).where(PracticeItem.user_id == USER))
+                await db.commit()
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_lesson_and_its_cards_are_one_portion():
+    """Урок + его карточки неделимы: после урока выдаются все его карточки, даже сверх нормы."""
+    from fastapi.testclient import TestClient
+    from main import app
+
+    nodes = asyncio.run(build_path())
+    asyncio.run(set_daily_limit(2))
+    try:
+        with patch("app.services.generation_worker.claim_next_pending_job", return_value=None):
+            client = TestClient(app)
+            h = {"X-User-Id": USER}
+            plan = client.get(f"/api/path/{SUBJECT}/day", headers=h).json()
+            assert plan["is_path"] and plan["room"] == 2 and plan["can_start_lesson"] is False
+            assert plan["next_lesson"]["node_id"] == nodes["base"]
+
+            # Норма 2, но в уроке 5 карточек: после урока — все 5, а не половина
+            assert client.post(f"/api/path/node/{nodes['base']}/complete", json={"checkpoint_score": 1}, headers=h).status_code == 200
+            cards = client.get(f"/api/session?subject={SUBJECT}&mode=new&node_id={nodes['base']}", headers=h).json()
+            assert len(cards) == 5
+
+            plan = client.get(f"/api/path/{SUBJECT}/day", headers=h).json()
+            assert plan["unfinished"] == {"node_id": nodes["base"], "node_name": "Основа", "count": 5}
+            stats = client.get(f"/api/stats/dashboard?subject={SUBJECT}", headers=h).json()
+            assert stats["path_day"]["unfinished"]["count"] == 5
+    finally:
+        asyncio.run(set_daily_limit(None))
+        asyncio.run(cleanup())
+
+
+def test_next_step_guides_through_path():
+    """«Продолжить путь»: урок → все его карточки → следующий урок, пока есть место → практика → итог с целью дня."""
+    from app.services.knowledge_path import next_path_step, get_day_plan
+
+    async def scenario():
+        nodes = await build_path()
+        try:
+            async with AsyncSessionLocal() as db:
                 step = await next_path_step(db, USER, SUBJECT, [])
                 assert step["type"] == "lesson" and step["node_id"] == nodes["base"]
 
@@ -230,29 +328,61 @@ def test_next_step_guides_through_path():
                 step = await next_path_step(db, USER, SUBJECT, ["lesson"])
                 assert step["type"] == "cards" and step["node_id"] == nodes["base"] and step["count"] == 5
 
-                # Карточки основы вспомнены и ушли в Review на завтра → открывается тема
-                for c in (await db.execute(select(Card).where(Card.node_id == nodes["base"]))).scalars().all():
-                    c.state, c.next_review = 2, utc_now() + timedelta(days=1)
-                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=0))
-                await db.commit()
+                # Карточки основы выучены (5 из нормы 10) → место есть, открывается урок темы
+                await learn_node_cards(db, nodes["base"])
                 step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards"])
                 assert step["type"] == "lesson" and step["node_id"] == nodes["topic"]
+                assert (await get_day_plan(db, USER, SUBJECT))["goal_met"] is False
 
-                # Лимит уроков за запуск исчерпан → практика по изученному
-                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards", "lesson"])
-                assert step["type"] == "practice"
-                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards", "lesson", "practice"])
-                assert step["type"] == "done" and step["today"]["lessons"] == 1
-
-                # Подтема без урока: после освоения темы сразу открываются её карточки
-                await complete_lesson(db, USER, nodes["topic"], 1)
-                for c in (await db.execute(select(Card).where(Card.node_id == nodes["topic"]))).scalars().all():
-                    c.state, c.next_review = 2, utc_now() + timedelta(days=1)
-                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=0))
-                await db.commit()
-                step = await next_path_step(db, USER, SUBJECT, ["lesson"])
-                assert step["type"] == "cards" and step["node_id"] == nodes["sub"]
+                # «Новая тема» — ровно одна порция за нажатие
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards"], scope="topic")
+                assert step["type"] == "done" and step["reason"] == "topic_done"
+                step = await next_path_step(db, USER, SUBJECT, [], scope="topic")
+                assert step["type"] == "lesson" and step["node_id"] == nodes["topic"]
         finally:
             await cleanup()
 
+    async def limit_reached():
+        nodes = await build_path()
+        await set_daily_limit(6)
+        try:
+            async with AsyncSessionLocal() as db:
+                await complete_lesson(db, USER, nodes["base"], 1)
+                await db.commit()
+                await learn_node_cards(db, nodes["base"])  # 5 из 6 — на новый урок места нет
+
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards"])
+                assert step["type"] == "practice" and step["count"] == 5
+                step = await next_path_step(db, USER, SUBJECT, ["lesson", "cards", "practice"])
+                assert step["type"] == "done" and step["reason"] == "limit"
+                assert step["plan"]["goal_met"] is True and step["today"]["lessons"] == 1
+
+                # Тема сверх нормы — только по явному выбору
+                step = await next_path_step(db, USER, SUBJECT, [], scope="topic")
+                assert step["type"] == "done" and step["reason"] == "limit"
+                step = await next_path_step(db, USER, SUBJECT, [], scope="topic", extra=True)
+                assert step["type"] == "lesson" and step["node_id"] == nodes["topic"]
+
+                # Подтема без урока: после освоения темы сразу открываются её карточки
+                await complete_lesson(db, USER, nodes["topic"], 1)
+                await db.commit()
+                await learn_node_cards(db, nodes["topic"])
+                step = await next_path_step(db, USER, SUBJECT, [], scope="topic", extra=True)
+                assert step["type"] == "cards" and step["node_id"] == nodes["sub"]
+        finally:
+            await set_daily_limit(None)
+            await cleanup()
+
     asyncio.run(scenario())
+    asyncio.run(limit_reached())
+
+
+def test_day_starts_at_moscow_midnight():
+    from datetime import datetime
+    from app.services.knowledge_path import day_start_utc, day_key
+
+    # 01:30 по Москве 1 октября = 22:30 UTC 30 сентября: учебный день уже 1 октября
+    now = datetime(2026, 9, 30, 22, 30)
+    assert day_start_utc(now) == datetime(2026, 9, 30, 21, 0)
+    assert day_key(now) == "2026-10-01"
+    assert day_start_utc(datetime(2026, 9, 30, 20, 59)) == datetime(2026, 9, 29, 21, 0)

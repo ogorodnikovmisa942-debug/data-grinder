@@ -20,7 +20,10 @@ const pathRun = {
     step: null,
     stepStarted: false,
     note: '',
-    practiceCount: null
+    practiceCount: null,
+    scope: 'day',   // day — «Продолжить путь», topic — кнопка «Новая тема» (одна порция урок → карточки)
+    extra: false,   // тема сверх дневной нормы по явному выбору
+    onDoneGo: null
 };
 window.pathRun = pathRun;
 
@@ -71,7 +74,7 @@ function describePathStep(step, isFirst) {
             };
         case 'lesson':
             return {
-                name: step.node_name,
+                name: step.cards ? `${step.node_name} · ${step.cards} ${pathRunPlural(step.cards, 'карточка', 'карточки', 'карточек')}` : step.node_name,
                 say: 'Новая тема! Сначала угадай ответ, потом я объясню. Минуты три.',
                 emo: 'surprised'
             };
@@ -133,18 +136,22 @@ function showPathRunOverlay(visible) {
 }
 
 async function fetchPathStep(done) {
-    const res = await apiFetch(`/api/path/${encodeURIComponent(pathRun.subject)}/next?done=${encodeURIComponent(done.join(','))}`);
+    const q = `done=${encodeURIComponent(done.join(','))}&scope=${pathRun.scope}${pathRun.extra ? '&extra=true' : ''}`;
+    const res = await apiFetch(`/api/path/${encodeURIComponent(pathRun.subject)}/next?${q}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
 }
 
-pathRun.start = async function(subject) {
+pathRun.start = async function(subject, opts = {}) {
     if (!subject || subject === 'all') {
         alert('Сначала выбери предмет.');
         return;
     }
     triggerHaptic('medium');
-    Object.assign(pathRun, { active: true, subject, done: [], step: null, stepStarted: false, note: '', practiceCount: null });
+    Object.assign(pathRun, {
+        active: true, subject, done: [], step: null, stepStarted: false, note: '', practiceCount: null,
+        scope: opts.scope || 'day', extra: !!opts.extra, onDoneGo: null
+    });
     showPathRunOverlay(true);
     await pathRun.loadNext();
 };
@@ -185,7 +192,9 @@ pathRun.go = function() {
         return;
     }
     if (step.type === 'done') {
+        const next = pathRun.onDoneGo;
         pathRun.stop();
+        if (next) next();
         return;
     }
     triggerHaptic('light');
@@ -249,26 +258,72 @@ pathRun.stop = function() {
     if (typeof showSessionStarter === 'function') showSessionStarter();
 };
 
-function dayCelebratedKey(subject) {
-    return `dg_day_celebrated_${subject}_${new Date().toISOString().slice(0, 10)}`;
+// Победная мордочка — один раз за учебный день (день считает сервер, по Москве)
+function dayCelebratedKey(subject, day) {
+    return `dg_day_celebrated_${subject}_${day || new Date().toISOString().slice(0, 10)}`;
 }
 
-pathRun.finish = function(result) {
-    const t = result.today || {};
-    const didSomething = pathRun.done.length > 0 && ((t.answered || 0) > 0 || (t.lessons || 0) > 0);
-    let celebrated = false;
-    try { celebrated = localStorage.getItem(dayCelebratedKey(pathRun.subject)) === '1'; } catch (_) {}
+// Цель дня выполнена и мордочку сегодня ещё не показывали → показываем. Возвращает true, если показали.
+function celebrateIfGoalMet(subject, plan, result) {
+    if (!plan || !plan.goal_met) return false;
+    const key = dayCelebratedKey(subject, plan.day);
+    try {
+        if (localStorage.getItem(key) === '1') return false;
+        localStorage.setItem(key, '1');
+    } catch (_) { /* без хранилища просто покажем */ }
+    showDayCelebration(result);
+    return true;
+}
 
-    if (didSomething && !celebrated) {
-        try { localStorage.setItem(dayCelebratedKey(pathRun.subject), '1'); } catch (_) {}
+// Проверка цели дня после любого действия вне «Продолжить путь»: урок, карточки, практика
+window.checkDayGoal = async function(subject) {
+    subject = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    if (!subject || subject === 'all' || pathRun.active) return;
+    try {
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/day`);
+        if (!res.ok) return;
+        const plan = await res.json();
+        if (!plan.is_path) return;
+        const nextUp = plan.next_lesson ? plan.next_lesson.node_name : null;
+        celebrateIfGoalMet(subject, plan, { today: plan.today, next_up: nextUp });
+    } catch (_) { /* награда не критична */ }
+};
+
+pathRun.finish = function(result) {
+    const didSomething = pathRun.done.length > 0;
+    const subject = pathRun.subject;
+    if (celebrateIfGoalMet(subject, result.plan, result)) {
         pathRun.stop();
-        showDayCelebration(result);
+        return;
+    }
+
+    const plan = result.plan || {};
+
+    if (pathRun.scope === 'topic') {
+        let say, goLabel = 'Отлично', secondaryLabel = null;
+        if (result.reason === 'topic_done') {
+            say = 'Тема закрыта! Её карточки ушли в повторение — я напомню, когда пора.';
+            if (plan.next_lesson && plan.can_start_lesson) {
+                say += ` Место на сегодня ещё есть: «${plan.next_lesson.node_name}».`;
+                goLabel = 'Следующая тема';
+                secondaryLabel = 'Хватит на сегодня';
+                pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic' });
+            }
+        } else if (result.reason === 'limit') {
+            say = `Норма новых на сегодня закрыта (${plan.learned_today} из ${plan.limit}). Можно взять ещё тему сверх нормы — но мозгу нужно время, чтобы всё улеглось.`;
+            goLabel = 'Ещё тема';
+            secondaryLabel = 'Хватит на сегодня';
+            pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
+        } else {
+            say = 'Новых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.';
+        }
+        setPathRunView({ say, emo: 'happy', goLabel, secondaryLabel });
         return;
     }
 
     const reasonText = {
         reviews_left: 'Остальные повторения лучше оставить на потом — короткие подходы работают лучше марафона.',
-        limit: 'Лимит новых карточек на сегодня исчерпан — мозгу нужно время, чтобы всё улеглось.',
+        limit: 'Норма новых тем на сегодня закрыта — мозгу нужно время, чтобы всё улеглось.',
         waiting: 'Новые темы откроются, когда пройденные закрепятся в повторениях. Загляни завтра.'
     }[result.reason] || '';
     const nextUp = result.next_up ? ` Дальше по пути: «${result.next_up}».` : '';
@@ -283,6 +338,12 @@ pathRun.finish = function(result) {
 window.startPathRun = function() {
     const sub = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
     pathRun.start(sub);
+};
+
+// Кнопка «Новая тема» / «Доучить тему» / «Ещё тема»: одна порция урок → все его карточки
+window.startTopicRun = function(extra = false, subject = null) {
+    const sub = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    pathRun.start(sub, { scope: 'topic', extra });
 };
 
 // Подпись под кнопкой: что будет первым шагом

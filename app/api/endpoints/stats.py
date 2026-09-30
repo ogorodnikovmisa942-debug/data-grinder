@@ -15,6 +15,7 @@ from app.services.graph_service import resolve_subject_alias, get_all_subject_al
 from app.services.card_db_sync import is_admin_or_dev, get_user_experiment_status
 from app.core.auth import get_current_user_id
 from app.core.config import settings
+from app.services.knowledge_path import day_start_utc, get_day_plan
 
 router = APIRouter()
 
@@ -171,8 +172,8 @@ async def get_analytics(
         daily_new_limit = subject_limits.get(canonical_sub, subject_limits.get(subject, user_daily_limit))
 
     # Сколько новых карточек изучено сегодня
-    today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
-    new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
+    today_start = day_start_utc()
+    new_today_stmt = select(ReviewLog.card_id).distinct().join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.state == 0,
         ReviewLog.review_time >= today_start
@@ -185,6 +186,10 @@ async def get_analytics(
     unlearned_in_deck = states_dict[0]
     allowed_new_count = max(0, daily_new_limit - already_learned_today)
     new_remaining_today = min(allowed_new_count, unlearned_in_deck)
+    # Путь знаний: кнопка «Новая тема» живёт по плану дня (урок + его карточки неделимы)
+    path_day = await get_day_plan(db, current_user, subject) if subject != 'all' else None
+    if path_day and not path_day["is_path"]:
+        path_day = None
 
     # 1. Распределение зрелости колоды по FSRS стабильности:
     maturity = {
@@ -234,6 +239,7 @@ async def get_analytics(
         "daily_new_limit": daily_new_limit,
         "already_learned_today": already_learned_today,
         "unlearned_in_deck": unlearned_in_deck,
+        "path_day": path_day,
         "progress_percent": f"{progress_percent}%", 
         "retention_rate_30d": f"{retention_rate}%", 
         "streak_days": streak, 

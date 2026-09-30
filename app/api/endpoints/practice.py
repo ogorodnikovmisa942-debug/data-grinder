@@ -19,7 +19,7 @@ router = APIRouter()
 
 class PracticeItemResponse(BaseModel):
     id: str = Field(..., description="Unique practice item identifier")
-    type: str = Field(..., description="situational | contrast_pair | slot_filling")
+    type: str = Field(..., description="recall | situational | relation | check | open (open — без вариантов, ответ вводится)")
     prompt: str = Field(..., description="Task prompt or case scenario")
     options: List[str] = Field(..., description="List of answer choices")
     subject: str = Field(..., description="Subject domain slug")
@@ -27,7 +27,7 @@ class PracticeItemResponse(BaseModel):
 
 class VerifyPracticeIn(BaseModel):
     item_id: str = Field(..., description="Practice item identifier")
-    selected_answer: str = Field(..., description="User selected answer text")
+    selected_answer: str = Field(..., max_length=500, description="Выбранный или введённый ответ («» — «Не знаю»)")
 
 
 class VerifyPracticeResponse(BaseModel):
@@ -198,8 +198,9 @@ async def get_practice_stats(
             today_count=0
         )
 
-    today = utc_now().date()
-    today_logs = [l for l in logs if l.created_at and l.created_at.date() == today]
+    from app.services.knowledge_path import day_start_utc
+    today_start = day_start_utc()
+    today_logs = [l for l in logs if l.created_at and l.created_at >= today_start]
     today_log = today_logs[0] if today_logs else None
     latest_log = logs[0] if logs else None
     best_pct = max((l.percentage for l in logs), default=0.0)

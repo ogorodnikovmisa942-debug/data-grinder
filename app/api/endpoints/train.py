@@ -13,7 +13,7 @@ from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
-from app.services.knowledge_path import unlocked_node_ids_subquery
+from app.services.knowledge_path import unlocked_node_ids_subquery, day_start_utc
 from datetime import datetime
 
 router = APIRouter()
@@ -186,9 +186,9 @@ async def get_session_cards(
     intra_day_cards = intra_res.scalars().all()
 
     # 3. Расчет квот на новые карты с учетом уже изученных именно этим пользователем за день
-    today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = day_start_utc()
     
-    new_today_stmt = select(ReviewLog.id).join(Card, ReviewLog.card_id == Card.id).filter(
+    new_today_stmt = select(ReviewLog.card_id).distinct().join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.state == 0,
         ReviewLog.review_time >= today_start
@@ -202,7 +202,17 @@ async def get_session_cards(
     allowed_new_count = max(0, limit - already_learned_today)
 
     new_cards = []
-    if allowed_new_count > 0:
+    if node_id is not None:
+        # Путь знаний: урок и его карточки неделимы — после урока выдаём все его новые карточки,
+        # даже сверх дневной нормы (решение, начинать ли урок, принимает план дня)
+        node_stmt = select(Card).filter(
+            Card.user_id == current_user,
+            Card.state == 0,
+            Card.node_id == node_id,
+            Card.node_id.in_(unlocked_node_ids_subquery(current_user))
+        ).order_by(Card.topological_rank.asc(), Card.id.asc())
+        new_cards = (await db.execute(node_stmt)).scalars().all()
+    elif allowed_new_count > 0:
         new_stmt = select(Card).filter(
             Card.user_id == current_user,
             Card.state == 0,
@@ -211,8 +221,6 @@ async def get_session_cards(
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
-        if node_id is not None:
-            new_stmt = new_stmt.filter(Card.node_id == node_id)
         new_stmt = new_stmt.order_by(Card.topological_rank.asc(), Card.subject.asc(), Card.id.asc()).limit(allowed_new_count)
         new_res = await db.execute(new_stmt)
         new_cards = new_res.scalars().all()
@@ -228,8 +236,6 @@ async def get_session_cards(
         )
         if subject != 'all':
             extra_stmt = extra_stmt.filter(Card.subject.in_(sub_aliases))
-        if node_id is not None:
-            extra_stmt = extra_stmt.filter(Card.node_id == node_id)
         extra_stmt = extra_stmt.order_by(Card.topological_rank.asc(), Card.subject.asc(), Card.id.asc()).limit(extra_limit)
         extra_res = await db.execute(extra_stmt)
         new_cards = extra_res.scalars().all()

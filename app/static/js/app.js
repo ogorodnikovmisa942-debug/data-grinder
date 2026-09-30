@@ -892,6 +892,16 @@ async function initApplicationLifecycle() {
         if (btnNew) {
             btnNew.onclick = (e) => { 
                 if (e) { e.preventDefault(); e.stopPropagation(); } 
+                // Путь знаний: урок и его карточки — одна порция, её ведёт кот
+                if (window.pathDayPlan && typeof startTopicRun === 'function') {
+                    const plan = window.pathDayPlan;
+                    if (!plan.unfinished && !plan.next_lesson) {
+                        alert('Открытых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.');
+                        return;
+                    }
+                    startTopicRun(!plan.unfinished && !plan.can_start_lesson);
+                    return;
+                }
                 startSession('new'); 
             };
         }
@@ -1275,6 +1285,7 @@ window.showSessionDebrief = async function() {
     }
     triggerHaptic('success');
     resetCardDOM();
+    if (typeof checkDayGoal === 'function') checkDayGoal();
     
     const debriefContainer = document.getElementById('session-debrief-container');
     const normalFront = document.getElementById('card-front-normal');
@@ -2466,11 +2477,20 @@ function renderSessionStarterButtons(data) {
         }
     }
 
+    // 2. Путь знаний: «Новая тема» / «Доучить тему» / «Ещё тема» по плану дня (урок + его карточки неделимы)
+    window.pathDayPlan = data.path_day || null;
+    if (window.pathDayPlan && btnNew && btnNewBadge && btnNewText) {
+        renderTopicButton(window.pathDayPlan, btnNew, btnNewText, btnNewBadge);
+    } else if (currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
+        // «Все предметы»: тему берём из активной колоды — как и «Продолжить путь»
+        loadTopicButtonPlan(getActiveDeckSubject());
+    }
+
     // 2. Учить новое (new_remaining_today с учетом дневного лимита)
     const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
     const dailyLimit = data.daily_new_limit || 20;
     const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
-    if (btnNew && btnNewBadge && btnNewText) {
+    if (btnNew && btnNewBadge && btnNewText && !window.pathDayPlan) {
         if (newRemaining > 0) {
             btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
             btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
@@ -2511,6 +2531,53 @@ function renderSessionStarterButtons(data) {
                 btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed cursor-pointer";
             }
         }
+    }
+}
+
+async function loadTopicButtonPlan(subject) {
+    if (!subject || subject === 'all') return;
+    try {
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/day`);
+        if (!res.ok) return;
+        const plan = await res.json();
+        if (!plan.is_path || currentSubject !== 'all') return;
+        window.pathDayPlan = plan;
+        const btn = document.getElementById('btn-session-new');
+        const textEl = document.getElementById('btn-session-new-text');
+        const badgeEl = document.getElementById('btn-session-new-badge');
+        if (btn && textEl && badgeEl) renderTopicButton(plan, btn, textEl, badgeEl);
+    } catch (_) { /* останется обычная кнопка */ }
+}
+
+function renderTopicButton(plan, btn, textEl, badgeEl) {
+    const badgeBase = "px-2 py-0.5 rounded-md text-[10px] font-bold";
+    const btnBase = "w-full flex items-center justify-between px-4 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl cursor-pointer";
+    if (plan.unfinished) {
+        const n = plan.unfinished.count;
+        textEl.textContent = "[ ДОУЧИТЬ ТЕМУ ]";
+        badgeEl.textContent = `${n} КАРТ.`;
+        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
+        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
+        btn.title = `Урок «${plan.unfinished.node_name}» пройден — осталось выучить его карточки`;
+    } else if (plan.next_lesson && plan.can_start_lesson) {
+        textEl.textContent = "[ НОВАЯ ТЕМА ]";
+        badgeEl.textContent = `${plan.learned_today} ИЗ ${plan.limit}`;
+        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
+        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
+        btn.title = `Урок «${plan.next_lesson.node_name}» и его карточки`;
+    } else if (plan.next_lesson) {
+        // Норма закрыта — ещё одна тема только по явному выбору
+        textEl.textContent = "[ ЕЩЁ ТЕМА ]";
+        badgeEl.textContent = "СВЕРХ НОРМЫ";
+        badgeEl.className = `${badgeBase} bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20`;
+        btn.className = `${btnBase} border border-amber-500/60 text-amber-600 dark:text-amber-400 hover:bg-amber-500 hover:text-white shadow-xs`;
+        btn.title = `Норма на сегодня закрыта (${plan.learned_today} из ${plan.limit})`;
+    } else {
+        textEl.textContent = "[ НОВАЯ ТЕМА ]";
+        badgeEl.textContent = "НЕТ ОТКРЫТЫХ";
+        badgeEl.className = `${badgeBase} bg-neutral-100 dark:bg-neutral-800 text-neutral-400`;
+        btn.className = `${btnBase} border border-neutral-200 dark:border-neutral-800 text-neutral-400 opacity-75`;
+        btn.title = "Следующие темы откроются, когда освоишь пройденные";
     }
 }
 
@@ -8246,8 +8313,12 @@ let practiceStreak = 0;
 const PRACTICE_CAT_INTRO = {
     recall: 'Варианты похожи — выбирай внимательно.',
     situational: 'Разберём ситуацию: какое правило здесь работает?',
-    relation: 'Как связаны эти темы?'
+    relation: 'Как связаны эти темы?',
+    check: 'Вопрос из урока — помнишь, о чём мы говорили?',
+    open: 'Без подсказок: напиши ответ сам. Окончания и опечатки прощаю.'
 };
+// Меньше заданий — это не тест, а угадайка
+const PRACTICE_MIN_ITEMS = 4;
 
 function practiceCat(emotion, text, reaction) {
     if (typeof setCatWidget === 'function') setCatWidget('practice-cat', 'practice-cat-say', emotion, text, reaction);
@@ -8310,8 +8381,9 @@ window.startPracticeSession = async function(customSub) {
             practiceItems = await res.json();
         }
 
-        if (!practiceItems || practiceItems.length === 0) {
-            alert("Для этого предмета еще нет карточек практики. Загрузите конспект или учебник для автоматической нарезки практических кейсов.");
+        // Тест собирается только из выученного: пройденные уроки и их выученные карточки
+        if (!practiceItems || practiceItems.length < PRACTICE_MIN_ITEMS) {
+            alert("Тест собирается только из того, что ты уже выучил. Пройди ещё тему и выучи её карточки — тогда будет из чего собрать практику.");
             closePracticeModal();
             return;
         }
@@ -8349,6 +8421,8 @@ function renderPracticeQuestion() {
             'situational': { icon: 'psychology', label: 'СИТУАЦИОННЫЙ КЕЙС' },
             'recall': { icon: 'quiz', label: 'ВСПОМНИ ОТВЕТ' },
             'relation': { icon: 'hub', label: 'СВЯЗЬ ТЕМ' },
+            'check': { icon: 'school', label: 'ВОПРОС ИЗ УРОКА' },
+            'open': { icon: 'keyboard', label: 'ОТКРЫТЫЙ ВОПРОС' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
@@ -8377,6 +8451,11 @@ function renderPracticeQuestion() {
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
 
+    if (item.type === 'open') {
+        renderPracticeOpenAnswer(item, optionsContainer);
+        return;
+    }
+
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
         const btn = document.createElement('button');
@@ -8394,6 +8473,37 @@ function renderPracticeQuestion() {
 
         optionsContainer.appendChild(btn);
     });
+}
+
+// Открытый вопрос: поле ввода, «Проверить» и «Не знаю» (показывает ответ; карточка раньше придёт на повторение)
+function renderPracticeOpenAnswer(item, container) {
+    const form = document.createElement('form');
+    form.className = 'flex flex-col gap-2';
+    form.innerHTML = `
+        <input id="practice-open-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"
+            placeholder="Твой ответ"
+            aria-label="Твой ответ"
+            class="w-full p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 focus:border-primary outline-none text-sm text-neutral-800 dark:text-neutral-200">
+        <div class="flex gap-2">
+            <button type="button" id="practice-open-skip" class="flex-1 p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-500 text-xs font-mono font-bold uppercase cursor-pointer hover:border-neutral-400 transition-all">Не знаю</button>
+            <button type="submit" id="practice-open-submit" class="flex-1 p-2.5 rounded-xl bg-primary text-on-primary text-xs font-mono font-bold uppercase cursor-pointer transition-all disabled:opacity-50" disabled>Проверить</button>
+        </div>`;
+    container.appendChild(form);
+
+    const input = form.querySelector('#practice-open-input');
+    const submit = form.querySelector('#practice-open-submit');
+    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); });
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        if (!input.value.trim()) return;
+        input.disabled = true;
+        selectPracticeOption(item.id, input.value.trim(), submit);
+    };
+    form.querySelector('#practice-open-skip').onclick = () => {
+        input.disabled = true;
+        selectPracticeOption(item.id, '', form.querySelector('#practice-open-skip'));
+    };
+    setTimeout(() => input.focus(), 50);
 }
 
 async function selectPracticeOption(itemId, selectedText, clickedBtn) {
@@ -8418,6 +8528,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             b.classList.add('hover:border-neutral-400', 'cursor-pointer');
         });
         practiceAnswerSubmitted = false;
+        const openInput = document.getElementById('practice-open-input');
+        if (openInput) openInput.disabled = false;
         if (typeof window.showNotification === 'function') {
             window.showNotification("Ошибка проверки ответа. Попробуйте еще раз.", "error");
         } else {
@@ -8454,7 +8566,13 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             practiceCat('happy', `${praise}${why}`, 'bounce');
         } else {
             practiceStreak = 0;
-            practiceCat('confused', `Не совсем. Правильно: «${String(data.correct_answer || '').replace(/[.!]+$/, '')}».${why}`, 'shake');
+            const rightAnswer = String(data.correct_answer || '').replace(/[.!]+$/, '');
+            if (selectedText === '') {
+                // «Не знаю» — не ошибка, а повод повторить: кот не ругается, карточка придёт пораньше
+                practiceCat('think', `Ничего страшного. Ответ: «${rightAnswer}». Эту карточку повторим пораньше.${why}`);
+            } else {
+                practiceCat('confused', `Не совсем. Правильно: «${rightAnswer}».${why}`, 'shake');
+            }
         }
         if (isCorrect) {
             practiceScore++;
@@ -8590,6 +8708,7 @@ function showPracticeFinish() {
             })
         }).then(() => {
             if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
+            if (typeof checkDayGoal === 'function') checkDayGoal(curSub);
         }).catch(err => {
             console.warn("Сбой фиксации результатов практики:", err);
         });
@@ -8925,11 +9044,18 @@ async function finishLesson() {
         };
         return;
     }
-    sayLesson(`Урок пройден!${scoreLine} Карточки этой темы уже ждут тебя в тренировке.`, 'happy', 'bounce');
-    setLessonButtons('К графу', true, null);
+    // Урок и его карточки неделимы: сразу ведём к карточкам темы, пока свежо
+    const kgSubject = typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined;
+    sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках этой темы, пока свежо.`, 'happy', 'bounce');
+    setLessonButtons('К карточкам', true, 'К графу');
     lessonState.onNext = () => {
         closeLesson();
-        if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
+        if (typeof closeKnowledgeGraphModal === 'function') closeKnowledgeGraphModal();
+        if (typeof startTopicRun === 'function') startTopicRun(false, kgSubject);
+    };
+    lessonState.onSecondary = () => {
+        closeLesson();
+        if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(kgSubject);
     };
 }
 
@@ -9074,7 +9200,10 @@ const pathRun = {
     step: null,
     stepStarted: false,
     note: '',
-    practiceCount: null
+    practiceCount: null,
+    scope: 'day',   // day — «Продолжить путь», topic — кнопка «Новая тема» (одна порция урок → карточки)
+    extra: false,   // тема сверх дневной нормы по явному выбору
+    onDoneGo: null
 };
 window.pathRun = pathRun;
 
@@ -9125,7 +9254,7 @@ function describePathStep(step, isFirst) {
             };
         case 'lesson':
             return {
-                name: step.node_name,
+                name: step.cards ? `${step.node_name} · ${step.cards} ${pathRunPlural(step.cards, 'карточка', 'карточки', 'карточек')}` : step.node_name,
                 say: 'Новая тема! Сначала угадай ответ, потом я объясню. Минуты три.',
                 emo: 'surprised'
             };
@@ -9187,18 +9316,22 @@ function showPathRunOverlay(visible) {
 }
 
 async function fetchPathStep(done) {
-    const res = await apiFetch(`/api/path/${encodeURIComponent(pathRun.subject)}/next?done=${encodeURIComponent(done.join(','))}`);
+    const q = `done=${encodeURIComponent(done.join(','))}&scope=${pathRun.scope}${pathRun.extra ? '&extra=true' : ''}`;
+    const res = await apiFetch(`/api/path/${encodeURIComponent(pathRun.subject)}/next?${q}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
 }
 
-pathRun.start = async function(subject) {
+pathRun.start = async function(subject, opts = {}) {
     if (!subject || subject === 'all') {
         alert('Сначала выбери предмет.');
         return;
     }
     triggerHaptic('medium');
-    Object.assign(pathRun, { active: true, subject, done: [], step: null, stepStarted: false, note: '', practiceCount: null });
+    Object.assign(pathRun, {
+        active: true, subject, done: [], step: null, stepStarted: false, note: '', practiceCount: null,
+        scope: opts.scope || 'day', extra: !!opts.extra, onDoneGo: null
+    });
     showPathRunOverlay(true);
     await pathRun.loadNext();
 };
@@ -9239,7 +9372,9 @@ pathRun.go = function() {
         return;
     }
     if (step.type === 'done') {
+        const next = pathRun.onDoneGo;
         pathRun.stop();
+        if (next) next();
         return;
     }
     triggerHaptic('light');
@@ -9303,26 +9438,72 @@ pathRun.stop = function() {
     if (typeof showSessionStarter === 'function') showSessionStarter();
 };
 
-function dayCelebratedKey(subject) {
-    return `dg_day_celebrated_${subject}_${new Date().toISOString().slice(0, 10)}`;
+// Победная мордочка — один раз за учебный день (день считает сервер, по Москве)
+function dayCelebratedKey(subject, day) {
+    return `dg_day_celebrated_${subject}_${day || new Date().toISOString().slice(0, 10)}`;
 }
 
-pathRun.finish = function(result) {
-    const t = result.today || {};
-    const didSomething = pathRun.done.length > 0 && ((t.answered || 0) > 0 || (t.lessons || 0) > 0);
-    let celebrated = false;
-    try { celebrated = localStorage.getItem(dayCelebratedKey(pathRun.subject)) === '1'; } catch (_) {}
+// Цель дня выполнена и мордочку сегодня ещё не показывали → показываем. Возвращает true, если показали.
+function celebrateIfGoalMet(subject, plan, result) {
+    if (!plan || !plan.goal_met) return false;
+    const key = dayCelebratedKey(subject, plan.day);
+    try {
+        if (localStorage.getItem(key) === '1') return false;
+        localStorage.setItem(key, '1');
+    } catch (_) { /* без хранилища просто покажем */ }
+    showDayCelebration(result);
+    return true;
+}
 
-    if (didSomething && !celebrated) {
-        try { localStorage.setItem(dayCelebratedKey(pathRun.subject), '1'); } catch (_) {}
+// Проверка цели дня после любого действия вне «Продолжить путь»: урок, карточки, практика
+window.checkDayGoal = async function(subject) {
+    subject = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    if (!subject || subject === 'all' || pathRun.active) return;
+    try {
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/day`);
+        if (!res.ok) return;
+        const plan = await res.json();
+        if (!plan.is_path) return;
+        const nextUp = plan.next_lesson ? plan.next_lesson.node_name : null;
+        celebrateIfGoalMet(subject, plan, { today: plan.today, next_up: nextUp });
+    } catch (_) { /* награда не критична */ }
+};
+
+pathRun.finish = function(result) {
+    const didSomething = pathRun.done.length > 0;
+    const subject = pathRun.subject;
+    if (celebrateIfGoalMet(subject, result.plan, result)) {
         pathRun.stop();
-        showDayCelebration(result);
+        return;
+    }
+
+    const plan = result.plan || {};
+
+    if (pathRun.scope === 'topic') {
+        let say, goLabel = 'Отлично', secondaryLabel = null;
+        if (result.reason === 'topic_done') {
+            say = 'Тема закрыта! Её карточки ушли в повторение — я напомню, когда пора.';
+            if (plan.next_lesson && plan.can_start_lesson) {
+                say += ` Место на сегодня ещё есть: «${plan.next_lesson.node_name}».`;
+                goLabel = 'Следующая тема';
+                secondaryLabel = 'Хватит на сегодня';
+                pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic' });
+            }
+        } else if (result.reason === 'limit') {
+            say = `Норма новых на сегодня закрыта (${plan.learned_today} из ${plan.limit}). Можно взять ещё тему сверх нормы — но мозгу нужно время, чтобы всё улеглось.`;
+            goLabel = 'Ещё тема';
+            secondaryLabel = 'Хватит на сегодня';
+            pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
+        } else {
+            say = 'Новых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.';
+        }
+        setPathRunView({ say, emo: 'happy', goLabel, secondaryLabel });
         return;
     }
 
     const reasonText = {
         reviews_left: 'Остальные повторения лучше оставить на потом — короткие подходы работают лучше марафона.',
-        limit: 'Лимит новых карточек на сегодня исчерпан — мозгу нужно время, чтобы всё улеглось.',
+        limit: 'Норма новых тем на сегодня закрыта — мозгу нужно время, чтобы всё улеглось.',
         waiting: 'Новые темы откроются, когда пройденные закрепятся в повторениях. Загляни завтра.'
     }[result.reason] || '';
     const nextUp = result.next_up ? ` Дальше по пути: «${result.next_up}».` : '';
@@ -9337,6 +9518,12 @@ pathRun.finish = function(result) {
 window.startPathRun = function() {
     const sub = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
     pathRun.start(sub);
+};
+
+// Кнопка «Новая тема» / «Доучить тему» / «Ещё тема»: одна порция урок → все его карточки
+window.startTopicRun = function(extra = false, subject = null) {
+    const sub = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    pathRun.start(sub, { scope: 'topic', extra });
 };
 
 // Подпись под кнопкой: что будет первым шагом

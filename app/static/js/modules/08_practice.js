@@ -15,8 +15,12 @@ let practiceStreak = 0;
 const PRACTICE_CAT_INTRO = {
     recall: 'Варианты похожи — выбирай внимательно.',
     situational: 'Разберём ситуацию: какое правило здесь работает?',
-    relation: 'Как связаны эти темы?'
+    relation: 'Как связаны эти темы?',
+    check: 'Вопрос из урока — помнишь, о чём мы говорили?',
+    open: 'Без подсказок: напиши ответ сам. Окончания и опечатки прощаю.'
 };
+// Меньше заданий — это не тест, а угадайка
+const PRACTICE_MIN_ITEMS = 4;
 
 function practiceCat(emotion, text, reaction) {
     if (typeof setCatWidget === 'function') setCatWidget('practice-cat', 'practice-cat-say', emotion, text, reaction);
@@ -79,8 +83,9 @@ window.startPracticeSession = async function(customSub) {
             practiceItems = await res.json();
         }
 
-        if (!practiceItems || practiceItems.length === 0) {
-            alert("Для этого предмета еще нет карточек практики. Загрузите конспект или учебник для автоматической нарезки практических кейсов.");
+        // Тест собирается только из выученного: пройденные уроки и их выученные карточки
+        if (!practiceItems || practiceItems.length < PRACTICE_MIN_ITEMS) {
+            alert("Тест собирается только из того, что ты уже выучил. Пройди ещё тему и выучи её карточки — тогда будет из чего собрать практику.");
             closePracticeModal();
             return;
         }
@@ -118,6 +123,8 @@ function renderPracticeQuestion() {
             'situational': { icon: 'psychology', label: 'СИТУАЦИОННЫЙ КЕЙС' },
             'recall': { icon: 'quiz', label: 'ВСПОМНИ ОТВЕТ' },
             'relation': { icon: 'hub', label: 'СВЯЗЬ ТЕМ' },
+            'check': { icon: 'school', label: 'ВОПРОС ИЗ УРОКА' },
+            'open': { icon: 'keyboard', label: 'ОТКРЫТЫЙ ВОПРОС' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
@@ -146,6 +153,11 @@ function renderPracticeQuestion() {
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
 
+    if (item.type === 'open') {
+        renderPracticeOpenAnswer(item, optionsContainer);
+        return;
+    }
+
     const letters = ['A', 'B', 'C', 'D', 'E'];
     item.options.forEach((optText, idx) => {
         const btn = document.createElement('button');
@@ -163,6 +175,37 @@ function renderPracticeQuestion() {
 
         optionsContainer.appendChild(btn);
     });
+}
+
+// Открытый вопрос: поле ввода, «Проверить» и «Не знаю» (показывает ответ; карточка раньше придёт на повторение)
+function renderPracticeOpenAnswer(item, container) {
+    const form = document.createElement('form');
+    form.className = 'flex flex-col gap-2';
+    form.innerHTML = `
+        <input id="practice-open-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"
+            placeholder="Твой ответ"
+            aria-label="Твой ответ"
+            class="w-full p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 focus:border-primary outline-none text-sm text-neutral-800 dark:text-neutral-200">
+        <div class="flex gap-2">
+            <button type="button" id="practice-open-skip" class="flex-1 p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-500 text-xs font-mono font-bold uppercase cursor-pointer hover:border-neutral-400 transition-all">Не знаю</button>
+            <button type="submit" id="practice-open-submit" class="flex-1 p-2.5 rounded-xl bg-primary text-on-primary text-xs font-mono font-bold uppercase cursor-pointer transition-all disabled:opacity-50" disabled>Проверить</button>
+        </div>`;
+    container.appendChild(form);
+
+    const input = form.querySelector('#practice-open-input');
+    const submit = form.querySelector('#practice-open-submit');
+    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); });
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        if (!input.value.trim()) return;
+        input.disabled = true;
+        selectPracticeOption(item.id, input.value.trim(), submit);
+    };
+    form.querySelector('#practice-open-skip').onclick = () => {
+        input.disabled = true;
+        selectPracticeOption(item.id, '', form.querySelector('#practice-open-skip'));
+    };
+    setTimeout(() => input.focus(), 50);
 }
 
 async function selectPracticeOption(itemId, selectedText, clickedBtn) {
@@ -187,6 +230,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             b.classList.add('hover:border-neutral-400', 'cursor-pointer');
         });
         practiceAnswerSubmitted = false;
+        const openInput = document.getElementById('practice-open-input');
+        if (openInput) openInput.disabled = false;
         if (typeof window.showNotification === 'function') {
             window.showNotification("Ошибка проверки ответа. Попробуйте еще раз.", "error");
         } else {
@@ -223,7 +268,13 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             practiceCat('happy', `${praise}${why}`, 'bounce');
         } else {
             practiceStreak = 0;
-            practiceCat('confused', `Не совсем. Правильно: «${String(data.correct_answer || '').replace(/[.!]+$/, '')}».${why}`, 'shake');
+            const rightAnswer = String(data.correct_answer || '').replace(/[.!]+$/, '');
+            if (selectedText === '') {
+                // «Не знаю» — не ошибка, а повод повторить: кот не ругается, карточка придёт пораньше
+                practiceCat('think', `Ничего страшного. Ответ: «${rightAnswer}». Эту карточку повторим пораньше.${why}`);
+            } else {
+                practiceCat('confused', `Не совсем. Правильно: «${rightAnswer}».${why}`, 'shake');
+            }
         }
         if (isCorrect) {
             practiceScore++;
@@ -359,6 +410,7 @@ function showPracticeFinish() {
             })
         }).then(() => {
             if (typeof checkTodayPracticeStats === 'function') checkTodayPracticeStats(curSub);
+            if (typeof checkDayGoal === 'function') checkDayGoal(curSub);
         }).catch(err => {
             console.warn("Сбой фиксации результатов практики:", err);
         });

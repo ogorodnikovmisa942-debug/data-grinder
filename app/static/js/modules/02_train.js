@@ -482,6 +482,16 @@ async function initApplicationLifecycle() {
         if (btnNew) {
             btnNew.onclick = (e) => { 
                 if (e) { e.preventDefault(); e.stopPropagation(); } 
+                // Путь знаний: урок и его карточки — одна порция, её ведёт кот
+                if (window.pathDayPlan && typeof startTopicRun === 'function') {
+                    const plan = window.pathDayPlan;
+                    if (!plan.unfinished && !plan.next_lesson) {
+                        alert('Открытых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.');
+                        return;
+                    }
+                    startTopicRun(!plan.unfinished && !plan.can_start_lesson);
+                    return;
+                }
                 startSession('new'); 
             };
         }
@@ -865,6 +875,7 @@ window.showSessionDebrief = async function() {
     }
     triggerHaptic('success');
     resetCardDOM();
+    if (typeof checkDayGoal === 'function') checkDayGoal();
     
     const debriefContainer = document.getElementById('session-debrief-container');
     const normalFront = document.getElementById('card-front-normal');
@@ -2056,11 +2067,20 @@ function renderSessionStarterButtons(data) {
         }
     }
 
+    // 2. Путь знаний: «Новая тема» / «Доучить тему» / «Ещё тема» по плану дня (урок + его карточки неделимы)
+    window.pathDayPlan = data.path_day || null;
+    if (window.pathDayPlan && btnNew && btnNewBadge && btnNewText) {
+        renderTopicButton(window.pathDayPlan, btnNew, btnNewText, btnNewBadge);
+    } else if (currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
+        // «Все предметы»: тему берём из активной колоды — как и «Продолжить путь»
+        loadTopicButtonPlan(getActiveDeckSubject());
+    }
+
     // 2. Учить новое (new_remaining_today с учетом дневного лимита)
     const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
     const dailyLimit = data.daily_new_limit || 20;
     const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
-    if (btnNew && btnNewBadge && btnNewText) {
+    if (btnNew && btnNewBadge && btnNewText && !window.pathDayPlan) {
         if (newRemaining > 0) {
             btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
             btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
@@ -2101,6 +2121,53 @@ function renderSessionStarterButtons(data) {
                 btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed cursor-pointer";
             }
         }
+    }
+}
+
+async function loadTopicButtonPlan(subject) {
+    if (!subject || subject === 'all') return;
+    try {
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/day`);
+        if (!res.ok) return;
+        const plan = await res.json();
+        if (!plan.is_path || currentSubject !== 'all') return;
+        window.pathDayPlan = plan;
+        const btn = document.getElementById('btn-session-new');
+        const textEl = document.getElementById('btn-session-new-text');
+        const badgeEl = document.getElementById('btn-session-new-badge');
+        if (btn && textEl && badgeEl) renderTopicButton(plan, btn, textEl, badgeEl);
+    } catch (_) { /* останется обычная кнопка */ }
+}
+
+function renderTopicButton(plan, btn, textEl, badgeEl) {
+    const badgeBase = "px-2 py-0.5 rounded-md text-[10px] font-bold";
+    const btnBase = "w-full flex items-center justify-between px-4 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl cursor-pointer";
+    if (plan.unfinished) {
+        const n = plan.unfinished.count;
+        textEl.textContent = "[ ДОУЧИТЬ ТЕМУ ]";
+        badgeEl.textContent = `${n} КАРТ.`;
+        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
+        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
+        btn.title = `Урок «${plan.unfinished.node_name}» пройден — осталось выучить его карточки`;
+    } else if (plan.next_lesson && plan.can_start_lesson) {
+        textEl.textContent = "[ НОВАЯ ТЕМА ]";
+        badgeEl.textContent = `${plan.learned_today} ИЗ ${plan.limit}`;
+        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
+        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
+        btn.title = `Урок «${plan.next_lesson.node_name}» и его карточки`;
+    } else if (plan.next_lesson) {
+        // Норма закрыта — ещё одна тема только по явному выбору
+        textEl.textContent = "[ ЕЩЁ ТЕМА ]";
+        badgeEl.textContent = "СВЕРХ НОРМЫ";
+        badgeEl.className = `${badgeBase} bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20`;
+        btn.className = `${btnBase} border border-amber-500/60 text-amber-600 dark:text-amber-400 hover:bg-amber-500 hover:text-white shadow-xs`;
+        btn.title = `Норма на сегодня закрыта (${plan.learned_today} из ${plan.limit})`;
+    } else {
+        textEl.textContent = "[ НОВАЯ ТЕМА ]";
+        badgeEl.textContent = "НЕТ ОТКРЫТЫХ";
+        badgeEl.className = `${badgeBase} bg-neutral-100 dark:bg-neutral-800 text-neutral-400`;
+        btn.className = `${btnBase} border border-neutral-200 dark:border-neutral-800 text-neutral-400 opacity-75`;
+        btn.title = "Следующие темы откроются, когда освоишь пройденные";
     }
 }
 

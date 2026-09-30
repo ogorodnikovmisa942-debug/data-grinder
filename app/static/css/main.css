@@ -23,8 +23,10 @@ html, body {
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+/* Чёткость текста: без will-change и без translateZ. will-change замораживает карточку картинкой
+   исходного размера (в фокус-режиме её растягивало — мыло), а translateZ(1px) при perspective
+   масштабирует грань на 1000/999 — текст уезжает на доли пикселя и размывается на большой карточке. */
 #flashcard {
-    will-change: transform;
     transform-style: preserve-3d;
     -webkit-transform-style: preserve-3d;
 }
@@ -32,18 +34,27 @@ html, body {
 #card-front, #card-back {
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
-    transform-style: preserve-3d;
-    -webkit-transform-style: preserve-3d;
 }
 
 #card-front {
-    transform: rotateY(0deg) translateZ(1px);
-    -webkit-transform: rotateY(0deg) translateZ(1px);
+    transform: none;
 }
 
 #card-back {
-    transform: rotateY(180deg) translateZ(1px);
-    -webkit-transform: rotateY(180deg) translateZ(1px);
+    transform: rotateY(180deg);
+    -webkit-transform: rotateY(180deg);
+}
+
+/* iOS Safari без сдвига по Z путает грани при повороте — там оставляем прежний приём */
+@supports (-webkit-touch-callout: none) {
+    #card-front {
+        -webkit-transform: rotateY(0deg) translateZ(1px);
+        transform: rotateY(0deg) translateZ(1px);
+    }
+    #card-back {
+        -webkit-transform: rotateY(180deg) translateZ(1px);
+        transform: rotateY(180deg) translateZ(1px);
+    }
 }
 
 /* Изменение прозрачности для плавного скрытия статус-бара */
@@ -741,3 +752,9 @@ html, body {
 .practice-cat-row { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-bottom: 10px; }
 .practice-cat-row .intro-cat-bubble p { min-height: 1.4em; }
 .practice-finish-cat { font-size: 16px; }
+
+/* Практика: открытый вопрос — «Проверить» неактивна, пока поле пустое */
+#practice-open-submit:disabled {
+    opacity: 0.45;
+    cursor: default;
+}

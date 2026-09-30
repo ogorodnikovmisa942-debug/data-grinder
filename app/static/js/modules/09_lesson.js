@@ -264,11 +264,18 @@ async function finishLesson() {
         };
         return;
     }
-    sayLesson(`Урок пройден!${scoreLine} Карточки этой темы уже ждут тебя в тренировке.`, 'happy', 'bounce');
-    setLessonButtons('К графу', true, null);
+    // Урок и его карточки неделимы: сразу ведём к карточкам темы, пока свежо
+    const kgSubject = typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined;
+    sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках этой темы, пока свежо.`, 'happy', 'bounce');
+    setLessonButtons('К карточкам', true, 'К графу');
     lessonState.onNext = () => {
         closeLesson();
-        if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
+        if (typeof closeKnowledgeGraphModal === 'function') closeKnowledgeGraphModal();
+        if (typeof startTopicRun === 'function') startTopicRun(false, kgSubject);
+    };
+    lessonState.onSecondary = () => {
+        closeLesson();
+        if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(kgSubject);
     };
 }
 
