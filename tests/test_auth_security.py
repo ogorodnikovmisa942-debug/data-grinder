@@ -181,14 +181,13 @@ def test_service_ids_are_not_admin_in_prod(monkeypatch):
     assert is_admin_or_dev("777")
 
 
-def test_admin_page_does_not_leak_token(monkeypatch):
-    """GET /admin без токена не содержит ADMIN_TOKEN; с верным токеном — панель."""
+def test_admin_web_page_is_removed(monkeypatch):
+    """Веб-страницы /admin больше нет: токен не может утечь через HTML (админ-API защищено токеном)."""
     _prod(monkeypatch)
     with TestClient(app) as client:
-        anon = client.get("/admin")
-        assert anon.status_code == 403 and "s3cret-admin" not in anon.text
-        assert client.get("/admin?token=wrong").status_code == 403
-        assert client.get("/admin?token=s3cret-admin").status_code == 200
+        for url in ("/admin", "/admin?token=s3cret-admin"):
+            r = client.get(url)
+            assert r.status_code == 404 and "s3cret-admin" not in r.text
 
 
 def test_admin_api_rejects_empty_configured_token(monkeypatch):
