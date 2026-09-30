@@ -22,6 +22,7 @@ from app.services.card_db_sync import (
 )
 from app.core.auth import get_current_user_id
 from app.core.config import settings
+from app.core.limiter import limiter
 
 import logging
 logger = logging.getLogger("grinder.imports")
@@ -140,7 +141,9 @@ class StagingCommitIn(BaseModel):
 
 # --- 4. ИИ-КОНВЕЙЕР ИМПОРТА И ПЕСОЧНИЦА (STAGING SANDBOX) ---
 @router.post("/config/import")
+@limiter.limit("60/hour")
 async def import_raw_text(
+    request: Request,
     payload: ImportIn, 
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
@@ -240,6 +243,7 @@ async def commit_staging_cards(
 
 # --- 4.2 ЗАГРУЗКА ПАЧЕК ФАЙЛОВ НА КОДОВОМ УРОВНЕ (PDF, TXT, MD, CSV) ---
 @router.post("/config/import/file")
+@limiter.limit("60/hour")
 async def import_file_at_code_level(
     request: Request,
     current_user: str = Depends(get_current_user_id),

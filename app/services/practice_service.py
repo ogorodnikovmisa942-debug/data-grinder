@@ -12,10 +12,12 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import PracticeItem, Card
+from datetime import timedelta
+from app.database.models import PracticeItem, Card, utc_now
 from app.database.session import AsyncSessionLocal
 
 
+PRACTICE_ITEM_TTL_HOURS = 6
 PRACTICE_TYPE_BY_LAYER = {0: "recall", 1: "recall", 2: "situational"}
 
 
@@ -99,7 +101,11 @@ async def generate_practice_session(
 
         records = _pick_interleaved(records, count, await _fresh_node_ids(db, user_id))
 
-        await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
+        # Прошлые задания не стираем сразу: вторая вкладка или перезапрос не должны ломать открытую сессию
+        await db.execute(delete(PracticeItem).where(
+            PracticeItem.user_id == user_id, PracticeItem.subject == subject,
+            PracticeItem.created_at < utc_now() - timedelta(hours=PRACTICE_ITEM_TTL_HOURS),
+        ))
         for pi in records:
             db.add(pi)
         await db.commit()

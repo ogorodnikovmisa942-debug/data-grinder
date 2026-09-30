@@ -70,8 +70,8 @@ class PracticeStatsResponse(BaseModel):
     last_practiced_at: Optional[str] = None
 
 
-@limiter.limit("10/minute")
 @router.get("/practice/session", response_model=List[PracticeItemResponse])
+@limiter.limit("30/minute")
 async def get_practice_session(
     request: Request,
     subject: Optional[str] = Query(default=None, max_length=128),

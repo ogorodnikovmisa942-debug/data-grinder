@@ -10,6 +10,7 @@
 from sqlalchemy import select, delete, func, case
 
 from app.core.timeutil import user_day_start
+from app.services.graph_service import get_all_subject_aliases
 
 from app.database.models import (
     Card, Phrase, ReviewLog, PracticeItem, PracticeSessionLog, KnowledgeNode, KnowledgeEdge, NodeProgress,
@@ -260,7 +261,7 @@ async def _new_cards_budget(db, user_id: str, subject: str) -> int:
     learned_today = (await db.execute(
         select(func.count(ReviewLog.id)).join(Card, ReviewLog.card_id == Card.id).where(
             ReviewLog.user_id == user_id, ReviewLog.state == 0,
-            ReviewLog.review_time >= await _today_start(db, user_id), Card.subject == subject,
+            ReviewLog.review_time >= await _today_start(db, user_id), Card.subject.in_(get_all_subject_aliases(subject)),
         )
     )).scalar() or 0
     return max(0, limit - learned_today)

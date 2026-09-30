@@ -182,3 +182,47 @@ def test_timezone_endpoint_validates_and_stores():
         return tz
 
     assert run(check()) == "Asia/Almaty"
+
+
+# ---------- лимитер ----------
+def test_rate_limit_is_actually_registered_on_routes():
+    """Раньше @limiter.limit стоял выше @router.get, и лимит не применялся вовсе."""
+    from app.core.limiter import limiter, HAS_SLOWAPI
+    if not HAS_SLOWAPI:
+        pytest.skip("slowapi не установлен")
+    registered = set(limiter._route_limits)
+    assert "app.api.endpoints.practice.get_practice_session" in registered
+    assert "app.api.endpoints.imports.import_raw_text" in registered
+    assert "app.api.endpoints.imports.import_file_at_code_level" in registered
+
+
+def test_limiter_key_uses_real_ip_behind_proxy_only():
+    from app.core.limiter import client_key
+    mk = lambda host, hdr: SimpleNamespace(client=SimpleNamespace(host=host), headers=hdr)
+    assert client_key(mk("127.0.0.1", {"x-real-ip": "203.0.113.5"})) == "203.0.113.5"
+    # прямой клиент не может подсунуть чужой X-Real-IP
+    assert client_key(mk("198.51.100.7", {"x-real-ip": "203.0.113.5"})) == "198.51.100.7"
+
+
+# ---------- практика ----------
+def test_practice_regeneration_keeps_active_session_items():
+    from app.services.practice_service import verify_practice_answer
+    from app.database.models import PracticeItem
+    uid = "rel_practice_user"
+
+    async def go():
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(PracticeItem).where(PracticeItem.user_id == uid))
+            db.add(PracticeItem(item_id="keep-me-1", user_id=uid, subject="p_sub", item_type="recall",
+                                prompt="q", options=["a", "b"], correct_answer="a"))
+            await db.commit()
+        from app.services.practice_service import generate_practice_session
+        async with AsyncSessionLocal() as db:
+            await generate_practice_session(uid, "p_sub", 5, db=db)   # пустой путь — новых заданий нет
+        async with AsyncSessionLocal() as db:
+            res = await verify_practice_answer(uid, "keep-me-1", "a", db=db)
+            await db.execute(delete(PracticeItem).where(PracticeItem.user_id == uid))
+            await db.commit()
+        assert res["correct"] is True
+
+    run(go())
