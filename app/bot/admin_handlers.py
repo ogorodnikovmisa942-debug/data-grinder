@@ -1,3 +1,4 @@
+import hmac
 # app/bot/admin_handlers.py
 import json
 import csv
@@ -95,21 +96,18 @@ async def cmd_admin(message: types.Message):
     token = args[1].strip() if len(args) > 1 else ""
     
     # 1. Проверяем токен из команды
-    if token and token == settings.ADMIN_TOKEN:
+    if token and settings.ADMIN_TOKEN and hmac.compare_digest(token.encode(), settings.ADMIN_TOKEN.encode()):
         ADMIN_USERS.add(user_id)
         await message.answer("🔑 <b>Авторизация администратора успешно пройдена!</b>", parse_mode="HTML")
     # 2. Проверяем, совпадает ли user_id с ADMIN_TELEGRAM_ID из настроек
     elif getattr(settings, "ADMIN_TELEGRAM_ID", None) and str(user_id) in [x.strip() for x in str(settings.ADMIN_TELEGRAM_ID).split(",") if x.strip()]:
         ADMIN_USERS.add(user_id)
-    # 3. Если не админ, выводим понятную инструкцию с кликабельным токеном и его ID
+    # 3. Не админ: токен никогда не показываем — только Telegram ID, который владелец вносит в .env сам
     elif not is_admin(user_id):
-        curr_token = settings.ADMIN_TOKEN or "secret-admin-token"
         await message.answer(
             "🔒 <b>Панель администратора Data Grinder</b>\n\n"
-            "Доступ ограничен. Для входа скопируйте и отправьте команду:\n"
-            f"<code>/admin {curr_token}</code>\n\n"
-            f"<i>Ваш Telegram ID: <code>{user_id}</code>\n"
-            f"(Вы также можете прописать его в файле .env: ADMIN_TELEGRAM_ID=\"{user_id}\")</i>",
+            "Доступ ограничен. Отправьте <code>/admin &lt;токен&gt;</code> или попросите владельца добавить ваш ID в ADMIN_TELEGRAM_ID.\n\n"
+            f"<i>Ваш Telegram ID: <code>{user_id}</code></i>",
             parse_mode="HTML"
         )
         return

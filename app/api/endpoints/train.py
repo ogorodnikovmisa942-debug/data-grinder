@@ -58,23 +58,6 @@ class AnswerIn(BaseModel):
     is_introduction: bool = False
     is_fast_track: bool = False
 
-def is_admin_or_dev(user_id: str) -> bool:
-    user_clean = str(user_id or "").strip()
-    if not user_clean:
-        return False
-    if user_clean in ("default_user", "dev_user"):
-        return True
-    try:
-        from app.core.config import settings
-        admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
-        if admin_id_str:
-            admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
-            if user_clean in admins:
-                return True
-    except Exception:
-        pass
-    return False
-
 def apply_interleaving(cards_list: list, max_consecutive: int = 1, key=lambda c: c.subject) -> list:
     """
     Алгоритмический балансировщик (интерливинг).

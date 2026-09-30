@@ -2,13 +2,14 @@ import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from jinja2 import Template
 
 from app.api.endpoints import train, management, admin, practice
 from app.api.endpoints import path as knowledge_path_api
+from app.api.endpoints.admin import verify_admin_token
 from app.core.config import settings
 from sqlalchemy import select, func
 from app.database.session import engine, AsyncSessionLocal
@@ -21,6 +22,12 @@ from app.services.frontend_bundler import bundle_modules, bundle_html
 from app.core.limiter import limiter, RateLimitExceeded, _rate_limit_exceeded_handler, HAS_SLOWAPI
 
 ADMIN_TEMPLATE_PATH = Path("app/templates/admin.html")
+ADMIN_LOGIN_HTML = (
+    '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    '<title>Вход</title><body style="font-family:sans-serif;background:#0a0a0a;color:#f1f5f9;padding:24px">'
+    '<h2>Панель администратора</h2><form method="get"><input type="password" name="token" placeholder="ADMIN_TOKEN" '
+    'autofocus style="padding:8px"> <button style="padding:8px">Войти</button></form></body>'
+)
 
 
 @asynccontextmanager
@@ -97,11 +104,16 @@ async def favicon():
 
 # Веб-страница панели администратора
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_web_page():
+async def admin_web_page(request: Request):
+    # Страница содержит токен для JS-запросов панели — без валидного токена не отдаём ничего
+    if not settings.ADMIN_TOKEN:
+        return HTMLResponse("<h1>ADMIN_TOKEN not configured in .env</h1>", status_code=503)
+    try:
+        verify_admin_token(request)
+    except HTTPException:
+        return HTMLResponse(ADMIN_LOGIN_HTML, status_code=403)
     curr_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
     admin_token = settings.ADMIN_TOKEN
-    if not admin_token:
-        return HTMLResponse("<h1>ADMIN_TOKEN not configured in .env</h1>", status_code=503)
     ds_key_badge = (
         '<span style="color:#4ade80;">🔑 Ключ OK</span>'
         if settings.DEEPSEEK_API_KEY
