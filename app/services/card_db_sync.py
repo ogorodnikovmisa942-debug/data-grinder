@@ -101,7 +101,8 @@ def is_admin_or_dev(user_id: str) -> bool:
     if not user_clean:
         return False
     if user_clean in ("default_user", "dev_user"):
-        return True
+        # Служебные id — админы только в разработке/тестах; в проде их нельзя получить, но и не доверяем им
+        return settings.is_dev_mode()
     admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
     if admin_id_str:
         admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
@@ -138,7 +139,7 @@ async def check_experiment_lock(current_user: str, db: AsyncSession):
     if is_part and phase == 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Действие заблокировано на период проведения научного эксперимента (Фаза 1: нарезка материалов отключена, проводится тестирование карточек с лимитом 10 карт/день)."
+            detail="Действие заблокировано на период проведения научного эксперимента. Сейчас доступны только готовые карточки (10 в день)."
         )
 
 

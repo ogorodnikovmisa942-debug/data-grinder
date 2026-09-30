@@ -868,6 +868,7 @@ let currentSessionStats = {
 
 function resetCardDOM() {
     isFlipped = false;
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
     const flashcardEl = document.getElementById('flashcard');
     if (flashcardEl) {
         flashcardEl.style.transform = '';
@@ -1145,6 +1146,37 @@ async function startSession(mode) {
     }
 }
 
+// Ошибка загрузки очереди: понятный текст и кнопки повтора (status 0 — сеть/таймаут)
+function renderSessionError(mode, status) {
+    cardsQueue = [];
+    resetCardDOM();
+    if (cardText) {
+        cardText.classList.remove('hidden');
+        cardText.textContent = status === 401 ? "Требуется авторизация" : "Ошибка сессии";
+    }
+    const frontHint = document.getElementById('card-front-hint');
+    if (frontHint) {
+        frontHint.classList.remove('hidden');
+        frontHint.className = "mt-4 flex flex-col items-center gap-2";
+        frontHint.innerHTML = `
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
+                ${status === 401 ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу." : (status === 0 ? "Нет связи с сервером. Проверьте интернет и повторите." : "Не удалось загрузить карточки. Проверьте подключение к серверу.")}
+            </p>
+            <div class="flex gap-2">
+                <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
+                    [ ПОВТОРИТЬ ПОПЫТКУ ]
+                </button>
+                <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
+                    [ В МЕНЮ СЕССИЙ ]
+                </button>
+            </div>
+        `;
+    }
+    currentSessionCounters = { new: 0, learning: 0, review: 0 };
+    renderTopCounters();
+    updateGlobalBadges();
+}
+
 async function fetchActiveSession(mode = 'mixed') {
     try {
         currentSessionMode = mode;
@@ -1154,33 +1186,7 @@ async function fetchActiveSession(mode = 'mixed') {
         const response = await apiFetch(`/api/session?subject=${encodeURIComponent(targetSub)}&mode=${mode}${runParams}`);
         if (!response.ok) {
             console.error("[Data Grinder] Сбой ответа сессии:", response.status);
-            cardsQueue = [];
-            resetCardDOM();
-            if (cardText) {
-                cardText.classList.remove('hidden');
-                cardText.textContent = response.status === 401 ? "Требуется авторизация" : "Ошибка сессии";
-            }
-            const frontHint = document.getElementById('card-front-hint');
-            if (frontHint) {
-                frontHint.classList.remove('hidden');
-                frontHint.className = "mt-4 flex flex-col items-center gap-2";
-                frontHint.innerHTML = `
-                    <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans max-w-[280px] leading-relaxed text-center mb-1">
-                        ${response.status === 401 ? "Пожалуйста, откройте приложение через Telegram-бота для доступа к учебному процессу." : "Не удалось загрузить карточки. Проверьте подключение к серверу."}
-                    </p>
-                    <div class="flex gap-2">
-                        <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                            [ ПОВТОРИТЬ ПОПЫТКУ ]
-                        </button>
-                        <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
-                            [ В МЕНЮ СЕССИЙ ]
-                        </button>
-                    </div>
-                `;
-            }
-            currentSessionCounters = { new: 0, learning: 0, review: 0 };
-            renderTopCounters();
-            updateGlobalBadges();
+            renderSessionError(mode, response.status);
             return;
         }
         const data = await response.json();
@@ -1241,7 +1247,10 @@ async function fetchActiveSession(mode = 'mixed') {
         }
         
         currentIndex = 0; recalculateQueueCounters(); renderCurrentCard(); updateGlobalBadges();
-    } catch (error) { console.error("[Data Grinder] Ошибка загрузки сессии:", error); }
+    } catch (error) {
+        console.error("[Data Grinder] Ошибка загрузки сессии:", error);
+        renderSessionError(mode, 0);
+    }
 }
 
 function recalculateQueueCounters() {
@@ -1269,7 +1278,15 @@ function renderCurrentCard() {
     
     const card = cardsQueue[currentIndex];
     const isNewCard = (card.state === 0) && !card.has_seen_intro;
-    
+
+    // Вопрос с открытым ответом: своя панель (написать ответ → разбор по тезисам → оценка)
+    // Копия после «Снова» показывается обычно: сразу после провала вспомнить письменно труднее, успех важнее формата
+    if ((card.content_type === 'open' || (card.presentation === 'open' && !card._intra_relearn)) && typeof window.renderOpenCard === 'function') {
+        window.renderOpenCard(card);
+        return;
+    }
+    if (typeof window.teardownOpenPanel === 'function') window.teardownOpenPanel();
+
     if (isNewCard) {
         renderIntroductionCard(card);
     } else {
@@ -1496,17 +1513,7 @@ function completeIntroduction() {
     currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            card_id: card.id,
-            rating: 3, // Good
-            response_time: responseTimeMs,
-            is_introduction: true
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка синхронизации ознакомления:", err));
+    window.queueAnswer({ card_id: card.id, rating: 3 /* Good */, response_time: responseTimeMs, is_introduction: true });
     
     currentIndex++;
     recalculateQueueCounters();
@@ -1524,12 +1531,7 @@ window.failIntroduction = function() {
     if (!card._retry) currentSessionStats.newCount = (currentSessionStats.newCount || 0) + 1;
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_id: card.id, rating: 1, response_time: responseTimeMs, is_introduction: true })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка синхронизации «Не вспомнил»:", err));
+    window.queueAnswer({ card_id: card.id, rating: 1, response_time: responseTimeMs, is_introduction: true });
 
     const retry = (card._retry || 0) + 1;
     if (retry <= 2) {
@@ -1558,18 +1560,7 @@ window.fastTrackIntroduction = function() {
     currentSessionStats.reviewedCards.push(card);
 
     const responseTimeMs = cardShowTimestamp ? (Date.now() - cardShowTimestamp) : 0;
-    apiFetch('/api/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            card_id: card.id,
-            rating: 4, // Easy
-            response_time: responseTimeMs,
-            is_introduction: true,
-            is_fast_track: true
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("Ошибка fast-track синхронизации:", err));
+    window.queueAnswer({ card_id: card.id, rating: 4 /* Easy */, response_time: responseTimeMs, is_introduction: true, is_fast_track: true });
     
     currentIndex++;
     recalculateQueueCounters();
@@ -2001,18 +1992,18 @@ window.submitCardRating = function(rating) {
     recalculateQueueCounters(); 
     renderCurrentCard();
 
-    apiFetch('/api/answer', {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            card_id: payloadCardId, 
-            rating: rating,
-            response_time: responseTimeMs,
-            has_association: hasAssoc,
-            is_cram: currentSessionMode === 'cram'
-        })
-    }).then(res => { if (res.ok) updateGlobalBadges(); })
-      .catch(err => console.error("[Data Grinder] Фоновая ошибка синхронизации:", err));
+    // Письменный ответ: сообщаем формат и оценку проверяющего (для подстройки доли и сверки самооценки)
+    const openMeta = window.__openMeta || {};
+    window.__openMeta = null;
+    window.queueAnswer({
+        card_id: payloadCardId,
+        rating: rating,
+        response_time: responseTimeMs,
+        has_association: hasAssoc,
+        is_cram: currentSessionMode === 'cram',
+        answer_format: openMeta.answer_format || 'flip',
+        ...(openMeta.auto_score != null ? { auto_score: openMeta.auto_score } : {})
+    });
 };
 
 function submitCardRating(rating) {

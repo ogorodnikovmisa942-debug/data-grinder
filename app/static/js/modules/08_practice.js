@@ -16,8 +16,7 @@ const PRACTICE_CAT_INTRO = {
     recall: 'Варианты похожи — выбирай внимательно.',
     situational: 'Разберём ситуацию: какое правило здесь работает?',
     relation: 'Как связаны эти темы?',
-    check: 'Вопрос из урока — помнишь, о чём мы говорили?',
-    open: 'Без подсказок: напиши ответ сам. Окончания и опечатки прощаю.'
+    check: 'Вопрос из урока — помнишь, о чём мы говорили?'
 };
 // Меньше заданий — это не тест, а угадайка
 const PRACTICE_MIN_ITEMS = 4;
@@ -124,11 +123,11 @@ function renderPracticeQuestion() {
             'recall': { icon: 'quiz', label: 'ВСПОМНИ ОТВЕТ' },
             'relation': { icon: 'hub', label: 'СВЯЗЬ ТЕМ' },
             'check': { icon: 'school', label: 'ВОПРОС ИЗ УРОКА' },
-            'open': { icon: 'keyboard', label: 'ОТКРЫТЫЙ ВОПРОС' },
             'contrast_pair': { icon: 'compare_arrows', label: 'КОНТРАСТНАЯ ПАРА' },
             'slot_filling': { icon: 'edit_note', label: 'ЗАПОЛНЕНИЕ ПРОПУСКА' },
             'conceptual': { icon: 'quiz', label: 'ТЕСТОВЫЙ ВОПРОС' },
-            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' }
+            'taxonomy': { icon: 'account_tree', label: 'КЛАССИФИКАЦИЯ' },
+            'open_recall': { icon: 'edit_note', label: 'ВПИШИ ОТВЕТ' }
         };
         const cfg = typeConfigs[item.type] || { icon: 'quiz', label: 'ПРАКТИЧЕСКИЙ ТЕСТ' };
         typeBadge.innerHTML = `<span class="material-symbols-outlined text-[13px]">${cfg.icon}</span><span>${cfg.label}</span>`;
@@ -139,7 +138,8 @@ function renderPracticeQuestion() {
     if (promptEl) promptEl.textContent = item.prompt;
 
     // Кот объявляет задание; на первом — напоминает, что ошибаться здесь нормально
-    const catLine = PRACTICE_CAT_INTRO[item.type] || 'Выбери верный вариант.';
+    const isOpenItem = !item.options || item.options.length === 0;
+    const catLine = PRACTICE_CAT_INTRO[item.type] || (isOpenItem ? 'Напиши ответ своими словами, вариантов не будет.' : 'Выбери верный вариант.');
     practiceCat('think', practiceCurrentIndex === 0 && !isRetrySession
         ? `Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально. ${catLine}`
         : (isRetrySession ? `Работа над ошибками. ${catLine}` : catLine));
@@ -153,8 +153,33 @@ function renderPracticeQuestion() {
     if (!optionsContainer) return;
     optionsContainer.innerHTML = '';
 
-    if (item.type === 'open') {
-        renderPracticeOpenAnswer(item, optionsContainer);
+    if (isOpenItem) {
+        // Письменный ответ вместо выбора из вариантов: проверяется по ключевым тезисам на сервере
+        const input = document.createElement('textarea');
+        input.className = 'oq-textarea';
+        input.rows = 3;
+        input.maxLength = 3000;
+        input.setAttribute('aria-label', 'Ваш ответ');
+        input.placeholder = 'Напишите ответ своими словами…';
+        const send = document.createElement('button');
+        send.type = 'button';
+        send.className = 'oq-btn oq-btn-primary';
+        send.style.marginTop = '8px';
+        send.textContent = 'Проверить';
+        send.disabled = true;
+        input.addEventListener('input', () => { send.disabled = !input.value.trim(); });
+        send.onclick = () => { input.disabled = true; selectPracticeOption(item.id, input.value, send); };
+        const skip = document.createElement('button');
+        skip.type = 'button';
+        skip.className = 'oq-btn';
+        skip.style.marginTop = '8px';
+        skip.style.marginRight = '8px';
+        skip.textContent = 'Не знаю';
+        skip.onclick = () => { input.disabled = true; selectPracticeOption(item.id, '', skip); };
+        optionsContainer.appendChild(input);
+        optionsContainer.appendChild(skip);
+        optionsContainer.appendChild(send);
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
         return;
     }
 
@@ -177,37 +202,6 @@ function renderPracticeQuestion() {
     });
 }
 
-// Открытый вопрос: поле ввода, «Проверить» и «Не знаю» (показывает ответ; карточка раньше придёт на повторение)
-function renderPracticeOpenAnswer(item, container) {
-    const form = document.createElement('form');
-    form.className = 'flex flex-col gap-2';
-    form.innerHTML = `
-        <input id="practice-open-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"
-            placeholder="Твой ответ"
-            aria-label="Твой ответ"
-            class="w-full p-3 rounded-xl bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 focus:border-primary outline-none text-sm text-neutral-800 dark:text-neutral-200">
-        <div class="flex gap-2">
-            <button type="button" id="practice-open-skip" class="flex-1 p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 text-neutral-500 text-xs font-mono font-bold uppercase cursor-pointer hover:border-neutral-400 transition-all">Не знаю</button>
-            <button type="submit" id="practice-open-submit" class="flex-1 p-2.5 rounded-xl bg-primary text-on-primary text-xs font-mono font-bold uppercase cursor-pointer transition-all disabled:opacity-50" disabled>Проверить</button>
-        </div>`;
-    container.appendChild(form);
-
-    const input = form.querySelector('#practice-open-input');
-    const submit = form.querySelector('#practice-open-submit');
-    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); });
-    form.onsubmit = (e) => {
-        e.preventDefault();
-        if (!input.value.trim()) return;
-        input.disabled = true;
-        selectPracticeOption(item.id, input.value.trim(), submit);
-    };
-    form.querySelector('#practice-open-skip').onclick = () => {
-        input.disabled = true;
-        selectPracticeOption(item.id, '', form.querySelector('#practice-open-skip'));
-    };
-    setTimeout(() => input.focus(), 50);
-}
-
 async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     if (practiceAnswerSubmitted) return;
     practiceAnswerSubmitted = true;
@@ -223,6 +217,8 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
     clickedBtn.innerHTML += ` <span class="material-symbols-outlined text-sm animate-spin ml-auto">sync</span>`;
 
     const handleVerifyFailure = () => {
+        const openInput = document.querySelector('#practice-options-list textarea');
+        if (openInput) openInput.disabled = false;
         const spinner = clickedBtn.querySelector('.animate-spin');
         if (spinner) spinner.remove();
         allButtons.forEach(b => {
@@ -230,8 +226,6 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             b.classList.add('hover:border-neutral-400', 'cursor-pointer');
         });
         practiceAnswerSubmitted = false;
-        const openInput = document.getElementById('practice-open-input');
-        if (openInput) openInput.disabled = false;
         if (typeof window.showNotification === 'function') {
             window.showNotification("Ошибка проверки ответа. Попробуйте еще раз.", "error");
         } else {
@@ -310,10 +304,10 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         if (statusEl) {
             if (isCorrect) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>ВЕРНО! ТОЧНЫЙ ВЫБОР</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
-                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: ${escapeHTML(data.correct_answer)}</span>`;
+                statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
 

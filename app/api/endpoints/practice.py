@@ -21,13 +21,13 @@ class PracticeItemResponse(BaseModel):
     id: str = Field(..., description="Unique practice item identifier")
     type: str = Field(..., description="recall | situational | relation | check | open (open — без вариантов, ответ вводится)")
     prompt: str = Field(..., description="Task prompt or case scenario")
-    options: List[str] = Field(..., description="List of answer choices")
+    options: List[str] = Field(..., description="List of answer choices; пусто — письменный ответ")
     subject: str = Field(..., description="Subject domain slug")
 
 
 class VerifyPracticeIn(BaseModel):
     item_id: str = Field(..., description="Practice item identifier")
-    selected_answer: str = Field(..., max_length=500, description="Выбранный или введённый ответ («» — «Не знаю»)")
+    selected_answer: str = Field(..., max_length=3000, description="Выбранный или введённый ответ («» — «Не знаю»)")
 
 
 class VerifyPracticeResponse(BaseModel):
@@ -36,6 +36,9 @@ class VerifyPracticeResponse(BaseModel):
     correct_answer: str = Field(..., description="Authoritative correct answer")
     explanation: Optional[str] = Field(default=None, description="Detailed statutory or factual explanation")
     gold_standard: Optional[str] = Field(default=None, description="Decisive dividing criterion or formula")
+    open: bool = Field(default=False, description="Письменный ответ: проверен по ключевым тезисам")
+    score: Optional[float] = Field(default=None, description="Доля совпавших тезисов 0..1 (только для письменных)")
+    points: Optional[list] = Field(default=None, description="Разбор по тезисам (только для письменных)")
 
 
 class CompletePracticeIn(BaseModel):
@@ -70,8 +73,8 @@ class PracticeStatsResponse(BaseModel):
     last_practiced_at: Optional[str] = None
 
 
-@limiter.limit("10/minute")
 @router.get("/practice/session", response_model=List[PracticeItemResponse])
+@limiter.limit("30/minute")
 async def get_practice_session(
     request: Request,
     subject: Optional[str] = Query(default=None, max_length=128),
@@ -198,9 +201,10 @@ async def get_practice_stats(
             today_count=0
         )
 
-    from app.services.knowledge_path import day_start_utc
-    today_start = day_start_utc()
-    today_logs = [l for l in logs if l.created_at and l.created_at >= today_start]
+    from app.core.timeutil import get_user_timezone, local_now, to_local_date
+    tz_name = await get_user_timezone(db, current_user)
+    today = local_now(tz_name).date()
+    today_logs = [l for l in logs if l.created_at and to_local_date(l.created_at, tz_name) == today]
     today_log = today_logs[0] if today_logs else None
     latest_log = logs[0] if logs else None
     best_pct = max((l.percentage for l in logs), default=0.0)

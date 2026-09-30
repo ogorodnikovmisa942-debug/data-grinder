@@ -504,7 +504,14 @@ window.loadKnowledgeGraph = async function(subject) {
         currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
-        if (countBadge) countBadge.textContent = `${nodesCount} узлов`;
+        if (countBadge) {
+            const plan = data && data.plan;
+            countBadge.textContent = `${nodesCount} узлов`;
+            if (plan && plan.new_cards_left > 0) {
+                countBadge.textContent += ` · ещё ${plan.new_cards_left} карт ≈ ${plan.days_left} дн. по ${plan.daily_limit}/день`;
+                countBadge.title = 'Оценка: новых карточек осталось / дневной лимит. Лимит меняется в настройках.';
+            }
+        }
 
         if (nodesCount === 0) {
             if (emptyState) emptyState.classList.remove('hidden');

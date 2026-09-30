@@ -62,6 +62,13 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
             await db.execute(text("ALTER TABLE review_logs ADD COLUMN is_outlier BOOLEAN DEFAULT 0"))
         if "is_cram" not in columns:
             await db.execute(text("ALTER TABLE review_logs ADD COLUMN is_cram BOOLEAN DEFAULT 0"))
+        if "answer_format" not in columns:
+            await db.execute(text("ALTER TABLE review_logs ADD COLUMN answer_format VARCHAR(16)"))
+        if "auto_score" not in columns:
+            await db.execute(text("ALTER TABLE review_logs ADD COLUMN auto_score FLOAT"))
+        if "client_id" not in columns:
+            await db.execute(text("ALTER TABLE review_logs ADD COLUMN client_id VARCHAR(64)"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS ix_review_logs_client_id ON review_logs (client_id)"))
         
         # 2. Миграции для cards
         res_cards = await db.execute(text("PRAGMA table_info(cards)"))
@@ -84,6 +91,8 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
             await db.execute(text("ALTER TABLE cards ADD COLUMN node_id INTEGER"))
         if "answer_type" not in columns_cards:
             await db.execute(text("ALTER TABLE cards ADD COLUMN answer_type VARCHAR"))
+        if "key_points" not in columns_cards:
+            await db.execute(text("ALTER TABLE cards ADD COLUMN key_points JSON"))
         if "distractors" not in columns_cards:
             await db.execute(text("ALTER TABLE cards ADD COLUMN distractors JSON"))
 
@@ -119,6 +128,11 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
             await db.execute(text("ALTER TABLE user_settings ADD COLUMN is_experiment_participant BOOLEAN DEFAULT 0"))
         if "experiment_phase" not in columns_settings:
             await db.execute(text("ALTER TABLE user_settings ADD COLUMN experiment_phase INTEGER DEFAULT 1"))
+
+        if "open_mode" not in columns_settings:
+            await db.execute(text("ALTER TABLE user_settings ADD COLUMN open_mode VARCHAR(16) DEFAULT 'auto'"))
+        if "timezone" not in columns_settings:
+            await db.execute(text("ALTER TABLE user_settings ADD COLUMN timezone VARCHAR(64)"))
 
         # 5. Миграции для generation_jobs (хранение карточек для модерации в Песочнице и телеметрия)
         res_jobs = await db.execute(text("PRAGMA table_info(generation_jobs)"))

@@ -7,9 +7,11 @@
 (так же устроена Math Academy: тема открывается после урока, закрепление идёт повторениями).
 Новые карточки узла попадают в очередь только после прохождения урока.
 """
-from datetime import timedelta
 
 from sqlalchemy import select, delete, func, case
+
+from app.core.timeutil import user_day_start, get_user_timezone, local_now
+from app.services.graph_service import get_all_subject_aliases
 
 from app.database.models import (
     Card, Phrase, ReviewLog, PracticeItem, PracticeSessionLog, KnowledgeNode, KnowledgeEdge, NodeProgress,
@@ -17,22 +19,9 @@ from app.database.models import (
 )
 
 MASTERY_ANSWERED_SHARE = 0.8
-# Учебный день считается по Москве (UTC+3 круглый год): полночь по UTC — это 03:00 у пользователя
-DAY_TZ_OFFSET = timedelta(hours=3)
 # Урок и его карточки неделимы. Новый урок начинается, если до дневной нормы осталось
 # место хотя бы на столько карточек; начатый урок доучивается целиком, даже сверх нормы.
 LESSON_MIN_ROOM = 3
-
-
-def day_start_utc(now=None):
-    """Начало текущего учебного дня (полночь по Москве) в наивном UTC, как хранится в БД."""
-    local = (now or utc_now()) + DAY_TZ_OFFSET
-    return local.replace(hour=0, minute=0, second=0, microsecond=0) - DAY_TZ_OFFSET
-
-
-def day_key(now=None) -> str:
-    """Дата учебного дня (YYYY-MM-DD по Москве) — ключ «награда уже показана»."""
-    return ((now or utc_now()) + DAY_TZ_OFFSET).date().isoformat()
 DIFFICULTY_BY_TIER = {"easy": 3.5, "medium": 5.5, "hard": 7.5}
 
 
@@ -40,15 +29,37 @@ def normalize_subject(subject: str) -> str:
     return (subject or "").strip().lower() or "general"
 
 
-async def wipe_subject(db, user_id: str, subject: str) -> None:
-    """Повторная загрузка предмета заменяет его целиком: граф, уроки, карточки, прогресс, практику."""
-    card_ids = select(Card.id).where(Card.user_id == user_id, Card.subject == subject)
+async def generated_path_stats(db, user_id: str, subject: str) -> dict:
+    """Что будет заменено повторной нарезкой: сгенерированные карточки (node_id задан) и их повторения."""
+    card_ids = select(Card.id).where(Card.user_id == user_id, Card.subject == subject, Card.node_id.isnot(None))
+    cards = (await db.execute(select(func.count()).select_from(card_ids.subquery()))).scalar() or 0
+    reviews = (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.card_id.in_(card_ids)))).scalar() or 0
+    return {"cards": cards, "reviews": reviews}
+
+
+async def wipe_subject(db, user_id: str, subject: str, only_generated: bool = False) -> None:
+    """Удаляет граф, уроки, прогресс и практику предмета.
+
+    only_generated=True (повторная нарезка): удаляются только карточки, созданные конвейером (node_id задан);
+    карточки, добавленные вручную или импортом CSV, сохраняются вместе с историей повторений.
+    False (пользователь удаляет предмет целиком): удаляется всё.
+    """
+    card_filter = [Card.user_id == user_id, Card.subject == subject]
+    if only_generated:
+        card_filter.append(Card.node_id.isnot(None))
+    card_ids = select(Card.id).where(*card_filter)
     node_ids = select(KnowledgeNode.id).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
     await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
     await db.execute(delete(NodeProgress).where(NodeProgress.node_id.in_(node_ids)))
     await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
-    await db.execute(delete(Card).where(Card.user_id == user_id, Card.subject == subject))
-    await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject))
+    await db.execute(delete(Card).where(*card_filter))
+    if only_generated:
+        # Фразы-обложки узлов удаляем, только если под ними не осталось ручных карточек
+        has_cards = select(Card.phrase_id).where(Card.user_id == user_id, Card.phrase_id.isnot(None))
+        await db.execute(delete(Phrase).where(
+            Phrase.user_id == user_id, Phrase.subject == subject, Phrase.id.notin_(has_cards)))
+    else:
+        await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject))
     await db.execute(delete(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject))
     await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject))
 
@@ -57,7 +68,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
     """Сохраняет карту, уроки и карточки. Порядок карточек: ярус → порядок узла → слой."""
     subject = normalize_subject(subject)
     path_map, packs = result["map"], result["packs"]
-    await wipe_subject(db, user_id, subject)
+    await wipe_subject(db, user_id, subject, only_generated=True)
 
     now = utc_now()
     node_rows: dict[str, KnowledgeNode] = {}
@@ -134,6 +145,20 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
 # Открытие узлов
 # ---------------------------------------------------------------------------
 
+async def _path_plan(db, user_id: str, subject: str) -> dict:
+    """Сколько новых карточек осталось и за сколько дней путь будет пройден при текущем дневном лимите."""
+    from math import ceil
+    left = (await db.execute(
+        select(func.count(Card.id)).where(Card.user_id == user_id, Card.subject == subject, Card.state == 0)
+    )).scalar() or 0
+    setting = (await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))).scalar_one_or_none()
+    limit = setting.daily_limit if setting and setting.daily_limit else 10
+    if setting and setting.subject_limits:
+        limit = setting.subject_limits.get(subject, limit)
+    limit = max(1, int(limit or 10))
+    return {"new_cards_left": left, "daily_limit": limit, "days_left": ceil(left / limit) if left else 0}
+
+
 async def get_path_state(db, user_id: str, subject: str) -> dict:
     """Состояние пути для UI: узлы со статусами locked | open | lesson_done | mastered и прогрессом."""
     subject = normalize_subject(subject)
@@ -201,6 +226,7 @@ async def get_path_state(db, user_id: str, subject: str) -> dict:
     return {
         "subject": subject,
         "title": title or subject,
+        "plan": await _path_plan(db, user_id, subject),
         "nodes": items,
         "edges": [{"from": e.source_key, "to": e.target_key, "relation": e.relation, "label": e.label} for e in edges],
     }
@@ -212,6 +238,23 @@ async def is_node_open(db, user_id: str, node: KnowledgeNode) -> bool:
     return status != "locked"
 
 
+async def _apply_checkpoint_to_cards(db, user_id: str, node_id: int, score: int) -> None:
+    """Слабый результат проверки в уроке делает новые карточки узла «тяжелее» (чаще повторения), сильный — легче."""
+    from sqlalchemy import update
+    node = (await db.execute(select(KnowledgeNode).where(KnowledgeNode.id == node_id))).scalar_one_or_none()
+    checks = len(((node.lesson or {}).get("check") or [])) if node else 0
+    if not checks:
+        return
+    ratio = max(0.0, min(1.0, score / checks))
+    delta = 1.0 if ratio < 0.5 else (-0.5 if ratio >= 1.0 else 0.0)
+    if delta:
+        await db.execute(
+            update(Card)
+            .where(Card.user_id == user_id, Card.node_id == node_id, Card.state == 0)
+            .values(difficulty=func.max(1.0, func.min(10.0, Card.difficulty + delta)))
+        )
+
+
 async def complete_lesson(db, user_id: str, node_id: int, checkpoint_score: int) -> NodeProgress:
     progress = (await db.execute(
         select(NodeProgress).where(NodeProgress.user_id == user_id, NodeProgress.node_id == node_id)
@@ -219,7 +262,10 @@ async def complete_lesson(db, user_id: str, node_id: int, checkpoint_score: int)
     if not progress:
         progress = NodeProgress(user_id=user_id, node_id=node_id, lesson_done=False, checkpoint_score=0)
         db.add(progress)
+    first_completion = not progress.lesson_done
     progress.lesson_done = True
+    if first_completion:
+        await _apply_checkpoint_to_cards(db, user_id, node_id, checkpoint_score)
     progress.checkpoint_score = max(progress.checkpoint_score or 0, checkpoint_score)
     progress.lesson_done_at = progress.lesson_done_at or utc_now()
     return progress
@@ -241,6 +287,11 @@ RUN_REVIEW_BATCH = 15      # повторений за шаг: короткие 
 PRACTICE_MIN_ITEMS = 4
 
 
+async def _today_start(db, user_id: str):
+    """Начало суток пользователя в его часовом поясе (наивный UTC)."""
+    return await user_day_start(db, user_id)
+
+
 async def _daily_new_limit(db, user_id: str, subject: str) -> int:
     setting = (await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))).scalar_one_or_none()
     limit = setting.daily_limit if setting and setting.daily_limit else 10
@@ -254,7 +305,7 @@ async def _learned_today(db, user_id: str, subject: str) -> int:
     return (await db.execute(
         select(func.count(func.distinct(ReviewLog.card_id))).join(Card, ReviewLog.card_id == Card.id).where(
             ReviewLog.user_id == user_id, ReviewLog.state == 0,
-            ReviewLog.review_time >= day_start_utc(), Card.subject == subject,
+            ReviewLog.review_time >= await _today_start(db, user_id), Card.subject.in_(get_all_subject_aliases(subject)),
         )
     )).scalar() or 0
 
@@ -283,7 +334,7 @@ async def get_day_plan(db, user_id: str, subject: str) -> dict:
     learned = await _learned_today(db, user_id, subject)
     room = max(0, limit - learned)
     plan = {
-        "day": day_key(), "is_path": bool(has_path), "limit": limit, "learned_today": learned, "room": room,
+        "day": local_now(await get_user_timezone(db, user_id)).date().isoformat(), "is_path": bool(has_path), "limit": limit, "learned_today": learned, "room": room,
         "lessons_today": 0, "unfinished": None, "next_lesson": None, "can_start_lesson": room >= LESSON_MIN_ROOM,
         "practice_items": 0, "goal_met": False,
     }
@@ -312,7 +363,7 @@ async def get_day_plan(db, user_id: str, subject: str) -> dict:
 
     plan["lessons_today"] = (await db.execute(
         select(func.count(NodeProgress.id)).join(KnowledgeNode, NodeProgress.node_id == KnowledgeNode.id)
-        .where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= day_start_utc(),
+        .where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= await _today_start(db, user_id),
                KnowledgeNode.subject == subject)
     )).scalar() or 0
     plan["practice_items"] = (await db.execute(
@@ -327,7 +378,7 @@ async def get_day_plan(db, user_id: str, subject: str) -> dict:
 
 async def get_today_summary(db, user_id: str, subject: str) -> dict:
     """Что сделано сегодня по предмету — для итога дня и праздничного кота."""
-    today = day_start_utc()
+    today = await _today_start(db, user_id)
     answered, correct = (await db.execute(
         select(func.count(ReviewLog.id), func.sum(case((ReviewLog.rating > 1, 1), else_=0)))
         .join(Card, ReviewLog.card_id == Card.id)
@@ -405,7 +456,7 @@ async def next_path_step(db, user_id: str, subject: str, done: list[str], scope:
         practiced_today = (await db.execute(
             select(func.count(PracticeSessionLog.id)).where(
                 PracticeSessionLog.user_id == user_id, PracticeSessionLog.subject == subject,
-                PracticeSessionLog.created_at >= day_start_utc(),
+                PracticeSessionLog.created_at >= await _today_start(db, user_id),
             )
         )).scalar() or 0
         if not practiced_today and plan["practice_items"] >= PRACTICE_MIN_ITEMS:

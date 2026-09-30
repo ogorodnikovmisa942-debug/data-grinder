@@ -3,32 +3,29 @@
 Практика «Пути знаний» — тест только по выученному (урок темы пройден, карточка хоть раз выучена).
 1. Вопросы с вариантами из карточек: вопрос карточки, её ответ и 3 неверных варианта (их пишет ИИ при нарезке).
    Чаще — правила, условия и различения, реже — чистые термины (их и так тренируют карточки).
-2. Вопросы на связи графа: «A <связка> …?».
-3. Вопросы на понимание из уроков, пройденных в прошлые дни.
-4. Открытые вопросы (~20%): ответ вводится с клавиатуры — только там, где он короткий и однозначный.
-Ошибка в тесте приближает повторение этой карточки.
+2. Письменные вопросы (open_recall): часть зрелых карточек без вариантов — политика в open_policy,
+   проверка по ключевым тезисам в open_answer.
+3. Вопросы на связи графа: «A <связка> …?».
+4. Вопросы на понимание из уроков, пройденных в прошлые дни.
+Ошибка в задании из карточки приближает повторение этой карточки.
 """
 
 import re
 import uuid
 import random
 from datetime import timedelta
-from difflib import SequenceMatcher
 from typing import List, Dict, Any, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import PracticeItem, Card
+from app.database.models import PracticeItem, Card, utc_now
 from app.database.session import AsyncSessionLocal
 
 
+PRACTICE_ITEM_TTL_HOURS = 6
 PRACTICE_TYPE_BY_LAYER = {0: "recall", 1: "recall", 2: "situational"}
 # Задания, сделанные из карточки: по ним ошибка приближает повторение карточки
-CARD_ITEM_TYPES = {"recall", "situational", "open"}
-# Открытый вопрос — только для коротких однозначных ответов
-OPEN_ANSWER_TYPES = {"term", "organ", "person", "number", "date", "duration"}
-OPEN_MAX_WORDS = 4
-OPEN_SHARE = 0.2
+CARD_ITEM_TYPES = {"recall", "situational", "open_recall"}
 
 
 async def generate_practice_session(
@@ -37,9 +34,12 @@ async def generate_practice_session(
     count: int = 10,
     db: Optional[AsyncSession] = None
 ) -> List[Dict[str, Any]]:
-    """Собирает тест по выученному: карточки, связи тем, вопросы из уроков; часть вопросов — открытые."""
-    from app.services.knowledge_path import normalize_subject, seen_practice_cards_filter, day_start_utc
-    from app.database.models import KnowledgeNode, KnowledgeEdge, NodeProgress
+    """Собирает тест по выученному: карточки (с вариантами или письменно), связи тем, вопросы из уроков."""
+    from app.services.knowledge_path import normalize_subject, seen_practice_cards_filter
+    from app.services.card_db_sync import get_user_experiment_status
+    from app.services.open_policy import pick_open_ids
+    from app.core.timeutil import user_day_start
+    from app.database.models import KnowledgeNode, KnowledgeEdge, NodeProgress, UserSetting
 
     should_close = False
     if db is None:
@@ -48,7 +48,7 @@ async def generate_practice_session(
 
     try:
         subject = normalize_subject(subject)
-        today = day_start_utc()
+        today = await user_day_start(db, user_id)
         nodes = (await db.execute(
             select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
         )).scalars().all()
@@ -70,9 +70,35 @@ async def generate_practice_session(
 
         records: list[PracticeItem] = []
         weights: dict[str, float] = {}
-        open_ok: set[str] = set()
+
+        # Часть зрелых карточек предъявляем письменно вместо выбора из вариантов (политика — в open_policy)
+        is_part, phase = await get_user_experiment_status(user_id, db)
+        if is_part and phase == 1:
+            open_mode = "off"
+        else:
+            open_mode = (await db.execute(
+                select(UserSetting.open_mode).where(UserSetting.user_id == user_id))).scalar_one_or_none()
+        open_ids = pick_open_ids(cards, open_mode, day_key=today.strftime("%Y-%m-%d"), salt=f"{user_id}:practice")
 
         for c in cards:
+            # Правила и различения важнее для теста, чем термины
+            weight = 1.0 if (c.layer or 0) == 0 else 2.0
+            if c.id in open_ids:
+                pi = PracticeItem(
+                    item_id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    subject=subject,
+                    node_id=c.node_id,
+                    item_type="open_recall",
+                    prompt=c.text,
+                    options=[],
+                    correct_answer=c.translation,
+                    explanation=c.example or c.secondary_text or "",
+                    gold_standard=c.translation,
+                )
+                records.append(pi)
+                weights[pi.item_id] = weight
+                continue
             wrong = [d for d in (c.distractors or []) if d]
             if len(wrong) < 2:
                 continue
@@ -91,10 +117,7 @@ async def generate_practice_session(
                 gold_standard=c.translation,
             )
             records.append(pi)
-            # Правила и различения важнее для теста, чем термины
-            weights[pi.item_id] = 1.0 if (c.layer or 0) == 0 else 2.0
-            if c.answer_type in OPEN_ANSWER_TYPES and len(_norm_open(c.translation).split()) <= OPEN_MAX_WORDS:
-                open_ok.add(pi.item_id)
+            weights[pi.item_id] = weight
 
         edges = (await db.execute(
             select(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject)
@@ -152,9 +175,12 @@ async def generate_practice_session(
                 weights[pi.item_id] = 1.5
 
         records = _pick_interleaved(records, count, await _fresh_node_ids(db, user_id), weights)
-        _make_open(records, open_ok, round(len(records) * OPEN_SHARE))
 
-        await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.subject == subject))
+        # Прошлые задания не стираем сразу: вторая вкладка или перезапрос не должны ломать открытую сессию
+        await db.execute(delete(PracticeItem).where(
+            PracticeItem.user_id == user_id, PracticeItem.subject == subject,
+            PracticeItem.created_at < utc_now() - timedelta(hours=PRACTICE_ITEM_TTL_HOURS),
+        ))
         for pi in records:
             db.add(pi)
         await db.commit()
@@ -168,9 +194,10 @@ async def generate_practice_session(
 async def _fresh_node_ids(db: AsyncSession, user_id: str) -> set[int]:
     """Узлы, урок которых пройден сегодня: по ним практика нужнее всего."""
     from app.database.models import NodeProgress
-    from app.services.knowledge_path import day_start_utc
+    from app.core.timeutil import user_day_start
+    today = await user_day_start(db, user_id)
     return set((await db.execute(
-        select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= day_start_utc())
+        select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done_at >= today)
     )).scalars().all())
 
 
@@ -195,14 +222,6 @@ def _pick_interleaved(records: list, count: int, fresh_ids: set[int], weights: O
     return result
 
 
-def _make_open(records: list, open_ok: set[str], n_open: int) -> None:
-    """Часть подходящих заданий превращается в открытые: вариантов нет, ответ вводится вручную."""
-    candidates = [r for r in records if r.item_id in open_ok]
-    for r in random.sample(candidates, min(n_open, len(candidates))):
-        r.item_type = "open"
-        r.options = []
-
-
 def normalize_answer_text(text: str) -> str:
     if not text:
         return ""
@@ -210,37 +229,14 @@ def normalize_answer_text(text: str) -> str:
     return re.sub(r'[.!?,;:]+$', '', t).strip().lower()
 
 
-def _norm_open(text: str) -> str:
-    t = (text or "").replace('\xa0', ' ').lower().replace('ё', 'е')
-    t = re.sub(r'[«»"\'“”()\[\].,!?;:—–\-]', ' ', t)
-    return ' '.join(t.split())
-
-
-def _stem(word: str) -> str:
-    """Грубая основа слова: без последних двух букв — прощает падежные окончания."""
-    return word[:max(4, len(word) - 2)] if len(word) > 4 else word
-
-
-def open_answer_matches(given: str, correct: str) -> bool:
-    """Открытый ответ: прощает регистр, ё/е, кавычки, опечатку и окончания, но не лишние слова."""
-    g, c = _norm_open(given), _norm_open(correct)
-    if not g or not c:
-        return False
-    if g == c or SequenceMatcher(None, g, c).ratio() >= 0.85:
-        return True
-    g_stems = {_stem(w) for w in g.split()}
-    c_words = [w for w in c.split() if len(w) > 2 or w.isdigit()]
-    return bool(c_words) and all(_stem(w) in g_stems for w in c_words) and len(g.split()) <= len(c.split()) + 1
-
-
 async def _pull_card_review(db: AsyncSession, user_id: str, item: PracticeItem) -> None:
     """Ошибка в тесте: карточка, из которой сделано задание, придёт на повторение не позже завтрашнего дня."""
-    from app.services.knowledge_path import day_start_utc
+    from app.core.timeutil import user_day_start
     card = (await db.execute(
         select(Card).where(Card.user_id == user_id, Card.node_id == item.node_id,
                            Card.text == item.prompt, Card.translation == item.correct_answer)
     )).scalars().first()
-    tomorrow = day_start_utc() + timedelta(days=1)
+    tomorrow = await user_day_start(db, user_id) + timedelta(days=1)
     # Заучиваемые сегодня карточки (state 1/3) и так скоро вернутся; двигаем только долгие интервалы
     if card and card.state == 2 and card.next_review and card.next_review > tomorrow:
         card.next_review = tomorrow
@@ -253,7 +249,7 @@ async def verify_practice_answer(
     selected_answer: str,
     db: Optional[AsyncSession] = None
 ) -> Dict[str, Any]:
-    """Проверяет ответ пользователя на его собственное задание."""
+    """Проверяет ответ пользователя на его собственное задание («» — «Не знаю»)."""
     should_close = False
     if db is None:
         db = AsyncSessionLocal()
@@ -273,19 +269,30 @@ async def verify_practice_answer(
                 "gold_standard": "Сессия обновлена."
             }
 
-        if item.item_type == "open":
-            is_correct = open_answer_matches(selected_answer, item.correct_answer)
+        if item.item_type == "open_recall":
+            from app.services.open_answer import grade_answer
+            graded = grade_answer(selected_answer, None, item.correct_answer)
+            result = {
+                "correct": bool(selected_answer.strip()) and graded["suggested_rating"] >= 3,
+                "selected": selected_answer,
+                "correct_answer": item.correct_answer,
+                "explanation": item.explanation or "",
+                "gold_standard": item.gold_standard or item.correct_answer,
+                "open": True,
+                "score": graded["score"],
+                "points": graded["points"],
+            }
         else:
-            is_correct = normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer)
-        if not is_correct and item.item_type in CARD_ITEM_TYPES:
+            result = {
+                "correct": normalize_answer_text(selected_answer) == normalize_answer_text(item.correct_answer),
+                "selected": selected_answer,
+                "correct_answer": item.correct_answer,
+                "explanation": item.explanation or "Обоснование зафиксировано в нормативном акте.",
+                "gold_standard": item.gold_standard or item.correct_answer
+            }
+        if not result["correct"] and item.item_type in CARD_ITEM_TYPES:
             await _pull_card_review(db, user_id, item)
-        return {
-            "correct": is_correct,
-            "selected": selected_answer,
-            "correct_answer": item.correct_answer,
-            "explanation": item.explanation or "Обоснование зафиксировано в нормативном акте.",
-            "gold_standard": item.gold_standard or item.correct_answer
-        }
+        return result
 
     finally:
         if should_close:

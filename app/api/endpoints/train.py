@@ -4,17 +4,19 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from collections import defaultdict
 from app.database.session import get_db
 from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, utc_now
 from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
 from app.core.auth import get_current_user_id
+from app.core.timeutil import user_day_start
+from app.services.open_policy import pick_open_ids, answer_kind
 from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
-from app.services.knowledge_path import unlocked_node_ids_subquery, day_start_utc
-from datetime import datetime
+from app.services.knowledge_path import unlocked_node_ids_subquery
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter()
 
@@ -57,23 +59,10 @@ class AnswerIn(BaseModel):
     is_cram: bool = False
     is_introduction: bool = False
     is_fast_track: bool = False
-
-def is_admin_or_dev(user_id: str) -> bool:
-    user_clean = str(user_id or "").strip()
-    if not user_clean:
-        return False
-    if user_clean in ("default_user", "dev_user"):
-        return True
-    try:
-        from app.core.config import settings
-        admin_id_str = str(getattr(settings, "ADMIN_TELEGRAM_ID", "") or "").strip()
-        if admin_id_str:
-            admins = [x.strip() for x in admin_id_str.split(",") if x.strip()]
-            if user_clean in admins:
-                return True
-    except Exception:
-        pass
-    return False
+    answer_format: str | None = Field(None, pattern="^(open|flip)$")   # как карточка была предъявлена
+    auto_score: float | None = Field(None, ge=0, le=1)                   # оценка локального проверяющего для открытых
+    client_id: str | None = Field(None, max_length=64)   # уникален на ответ: повторная отправка не задваивает лог
+    answered_at: int | None = None                        # мс от эпохи: реальный момент ответа при отложенной отправке
 
 def apply_interleaving(cards_list: list, max_consecutive: int = 1, key=lambda c: c.subject) -> list:
     """
@@ -186,7 +175,7 @@ async def get_session_cards(
     intra_day_cards = intra_res.scalars().all()
 
     # 3. Расчет квот на новые карты с учетом уже изученных именно этим пользователем за день
-    today_start = day_start_utc()
+    today_start = await user_day_start(db, current_user)
     
     new_today_stmt = select(ReviewLog.card_id).distinct().join(Card, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
@@ -263,21 +252,26 @@ async def get_session_cards(
     else: # mixed
         full_pool = due_reviews + intra_day_cards + new_cards
 
-    # 4. Sibling Burying для Cloze (защита от немедленного прайминга)
-    reviewed_today_phrase_stmt = select(Card.phrase_id).join(ReviewLog, ReviewLog.card_id == Card.id).filter(
+    # 4. Sibling Burying для Cloze: откладываем карточку, если ДРУГАЯ карточка той же фразы уже повторялась сегодня.
+    # Сама карточка (например, проваленная и ждущая закрепления) откладываться не должна.
+    reviewed_today_stmt = select(Card.phrase_id, Card.id).join(ReviewLog, ReviewLog.card_id == Card.id).filter(
         ReviewLog.user_id == current_user,
         ReviewLog.review_time >= today_start,
         Card.content_type == "cloze"
     ).distinct()
-    reviewed_today_phrases = set((await db.execute(reviewed_today_phrase_stmt)).scalars().all())
+    reviewed_today_by_phrase = defaultdict(set)
+    for phrase_id, card_id in (await db.execute(reviewed_today_stmt)).all():
+        reviewed_today_by_phrase[phrase_id].add(card_id)
 
     filtered_pool = []
-    seen_cloze_phrase_ids = set(reviewed_today_phrases)
+    seen_cloze_phrase_ids = set()
 
     for c in full_pool:
         if getattr(c, "content_type", "text") == "cloze" and c.phrase_id:
+            if reviewed_today_by_phrase.get(c.phrase_id, set()) - {c.id}:
+                continue  # сиблинг уже повторялся сегодня — откладываем до следующего дня
             if c.phrase_id in seen_cloze_phrase_ids:
-                continue  # Откладываем сиблинга до следующего дня
+                continue  # два сиблинга в одной очереди — оставляем первого
             seen_cloze_phrase_ids.add(c.phrase_id)
         filtered_pool.append(c)
 
@@ -305,6 +299,23 @@ async def get_session_cards(
         name = await get_subject_display_name(canon_s, current_user, db)
         display_names_cache[s] = name
         display_names_cache[canon_s] = name
+
+    # Формат предъявления: часть подходящих зрелых карточек показываем письменно (политика — в open_policy)
+    open_ids: set = set()
+    if mode in ("mixed", "review") and not (is_participant and phase == 1):
+        open_mode = (await db.execute(
+            select(UserSetting.open_mode).where(UserSetting.user_id == current_user)
+        )).scalar_one_or_none()
+        recent = (await db.execute(
+            select(ReviewLog.rating).where(
+                ReviewLog.user_id == current_user, ReviewLog.answer_format == "open", ReviewLog.is_cram == False  # noqa: E712
+            ).order_by(ReviewLog.review_time.desc()).limit(30)
+        )).scalars().all()
+        accuracy = (sum(1 for r in recent if r >= 3) / len(recent)) if recent else None
+        open_ids = pick_open_ids(
+            full_pool, open_mode, day_key=today_start.strftime("%Y-%m-%d"),
+            recent_accuracy=accuracy, n_recent=len(recent), salt=current_user,
+        )
 
     result = []
     for c in full_pool:
@@ -373,6 +384,8 @@ async def get_session_cards(
             "topological_rank": c.topological_rank or 0,
             "organ_slug": c.organ_slug or "",
             "node_id": c.node_id,
+            "presentation": "open" if (c.content_type == "open" or c.id in open_ids) else "flip",
+            "answer_kind": answer_kind(c.translation),
             "layer": c.layer if c.layer is not None else 1,
             "lapses": lapses_count,
             "is_leech": lapses_count >= 4
@@ -417,6 +430,14 @@ async def handle_answer(
     if payload.rating not in (1, 2, 3, 4):
         raise HTTPException(status_code=400, detail="Неверный рейтинг. Допустимо от 1 до 4.")
 
+    # Идемпотентность: клиент мог повторить запрос, ответ на который потерялся по дороге
+    if payload.client_id:
+        dup = (await db.execute(
+            select(ReviewLog.id).where(ReviewLog.user_id == current_user, ReviewLog.client_id == payload.client_id).limit(1)
+        )).scalar()
+        if dup:
+            return {"status": "success", "duplicate": True}
+
     stmt = select(Card).filter(Card.id == payload.card_id, Card.user_id == current_user)
     res = await db.execute(stmt)
     card = res.scalar_one_or_none()
@@ -428,7 +449,9 @@ async def handle_answer(
     effective_rating = payload.rating
     effective_response_time = payload.response_time
 
-    if payload.response_time < 600:
+    # Порог «мисклика» не применяем к вводным шагам: там ответ — осознанное нажатие кнопки, а не оценка вспоминания
+    is_intro_step = payload.is_introduction or payload.is_fast_track
+    if payload.response_time < 600 and not is_intro_step:
         is_outlier = True
         if effective_rating == 4:
             effective_rating = 3  # запретить начисление Easy (<600 мс трактуется как миссклик)
@@ -447,6 +470,14 @@ async def handle_answer(
         target_retention = user_setting.target_retention if user_setting else 0.9
 
     now = utc_now()
+    if payload.answered_at:
+        # Отложенная отправка: берём реальное время ответа, если оно правдоподобно (не из будущего и не старше 3 дней)
+        try:
+            answered = datetime.fromtimestamp(payload.answered_at / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+            if now - timedelta(days=3) <= answered <= now + timedelta(seconds=60):
+                now = min(answered, now)
+        except (OverflowError, OSError, ValueError):
+            pass
     old_state = card.state
     old_next_review = card.next_review
     
@@ -502,7 +533,10 @@ async def handle_answer(
         difficulty=difficulty,
         timestamp=now,
         is_outlier=is_outlier,
-        is_cram=payload.is_cram
+        is_cram=payload.is_cram,
+        client_id=payload.client_id,
+        answer_format=payload.answer_format,
+        auto_score=payload.auto_score
     )
     db.add(log)
     await db.commit()

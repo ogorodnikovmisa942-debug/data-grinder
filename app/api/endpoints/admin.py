@@ -31,7 +31,7 @@ def verify_admin_token(request: Request):
     token = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
     if not token:
         token = request.query_params.get("token") or request.query_params.get("admin_token")
-    if not token or token != settings.ADMIN_TOKEN:
+    if not token or not settings.ADMIN_TOKEN or not secrets.compare_digest(token.encode(), settings.ADMIN_TOKEN.encode()):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Доступ запрещен: недействительный или отсутствующий X-Admin-Token"

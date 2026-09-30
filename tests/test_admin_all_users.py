@@ -64,12 +64,6 @@ class TestAdminAllUsers(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn('text/csv', r.headers.get('content-type', ''))
 
-    def test_06_admin_web_page_renders_stats(self):
-        r = self.client.get('/admin')
-        self.assertEqual(r.status_code, 200)
-        self.assertIn('Пользователи', r.text)
-        self.assertIn('В эксперименте', r.text)
-
 
 if __name__ == '__main__':
     unittest.main()

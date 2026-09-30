@@ -1,5 +1,6 @@
 # tests/test_auth_security.py
 import hmac
+import time
 import hashlib
 import urllib.parse
 from fastapi.testclient import TestClient
@@ -9,9 +10,9 @@ from main import app
 from app.core.config import settings
 
 
-def generate_valid_init_data(bot_token: str, user_id: int = 12345678) -> str:
+def generate_valid_init_data(bot_token: str, user_id: int = 12345678, auth_ts: int | None = None) -> str:
     user_json = f'{{"id":{user_id},"first_name":"SecurityTest","username":"sectest"}}'
-    auth_date = "1720000000"
+    auth_date = str(int(time.time()) if auth_ts is None else auth_ts)
     params = {
         "auth_date": auth_date,
         "query_id": "AAHdF6IQAAAAAN0XohD123",
@@ -105,67 +106,91 @@ def test_telegram_init_data_with_signature_accepted():
         settings.TELEGRAM_BOT_TOKEN = orig_token
 
 
-def test_numeric_telegram_user_id_accepted_in_prod():
-    """Telegram MiniApp launched via Menu Button or Reply Keyboard sends numeric Telegram ID."""
-    orig_debug = settings.DEBUG
-    orig_testing = settings.TESTING
-    orig_token = settings.TELEGRAM_BOT_TOKEN
-
-    try:
-        settings.DEBUG = False
-        settings.TESTING = False
-        settings.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-
-        with TestClient(app) as client:
-            # Numeric Telegram ID (e.g. from initDataUnsafe or tg_id URL param)
-            res = client.get(
-                "/api/practice/session?subject=sudoustr",
-                headers={"X-User-Id": "1222282942"}
-            )
-            assert res.status_code != 401
-
-            # Default guest user
-            res_def = client.get(
-                "/api/practice/session?subject=sudoustr",
-                headers={"X-User-Id": "default_user"}
-            )
-            assert res_def.status_code != 401
-    finally:
-        settings.DEBUG = orig_debug
-        settings.TESTING = orig_testing
-        settings.TELEGRAM_BOT_TOKEN = orig_token
+PROD_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 
 
-def test_telegram_tma_unverified_hmac_with_valid_user_payload_accepted():
-    """When HMAC fails due to proxy/token disparity, legitimate user ID in TMA payload is safely accepted."""
-    orig_debug = settings.DEBUG
-    orig_testing = settings.TESTING
-    orig_token = settings.TELEGRAM_BOT_TOKEN
-
-    try:
-        settings.DEBUG = False
-        settings.TESTING = False
-        settings.TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-
-        with TestClient(app) as client:
-            # User with numeric ID in payload and X-User-Id header
-            headers = {
-                "Authorization": 'tma auth_date=1727000000&user=%7B%22id%22%3A1222282942%2C%22first_name%22%3A%22Test%22%7D&hash=mismatched_hash',
-                "X-User-Id": "1222282942"
-            }
-            res = client.get("/api/practice/session?subject=sudoustr", headers=headers)
-            assert res.status_code != 401
-
-            # Forged/tampered payload without valid numeric ID is rejected
-            headers_bad = {
-                "Authorization": 'tma auth_date=1727000000&user=%7B%22id%22%3A%22fake%22%7D&hash=fake',
-                "X-Telegram-Init-Data": 'auth_date=1727000000&user=%7B%22id%22%3A%22fake%22%7D&hash=fake'
-            }
-            res_bad = client.get("/api/practice/session?subject=sudoustr", headers=headers_bad)
-            assert res_bad.status_code == 401
-    finally:
-        settings.DEBUG = orig_debug
-        settings.TESTING = orig_testing
-        settings.TELEGRAM_BOT_TOKEN = orig_token
+def _prod(monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(settings, "TESTING", False)
+    monkeypatch.setattr(settings, "TELEGRAM_BOT_TOKEN", PROD_TOKEN)
+    monkeypatch.setattr(settings, "ADMIN_TELEGRAM_ID", "777")
+    monkeypatch.setattr(settings, "ADMIN_TOKEN", "s3cret-admin")
 
 
+URL = "/api/practice/session?subject=sudoustr"
+
+
+def test_prod_rejects_every_unsigned_identity(monkeypatch):
+    """Числовой id, default_user, tg_id и id админа без подписи — 401 (раньше принимались)."""
+    _prod(monkeypatch)
+    with TestClient(app) as client:
+        for headers, qs in [
+            ({"X-User-Id": "1222282942"}, ""),
+            ({"X-User-Id": "default_user"}, ""),
+            ({"X-User-Id": "777"}, ""),
+            ({}, "&tg_id=12345"),
+        ]:
+            assert client.get(URL + qs, headers=headers).status_code == 401, (headers, qs)
+
+
+def test_prod_rejects_unverified_initdata_payload(monkeypatch):
+    """initData с неверным hash не даёт личность, даже если payload содержит числовой id."""
+    _prod(monkeypatch)
+    with TestClient(app) as client:
+        res = client.get(URL, headers={
+            "Authorization": "tma auth_date=1727000000&user=%7B%22id%22%3A1222282942%7D&hash=mismatched_hash",
+            "X-User-Id": "1222282942",
+        })
+        assert res.status_code == 401
+
+
+def test_prod_rejects_stale_signed_initdata(monkeypatch):
+    """Валидная подпись, но auth_date старше срока годности — 401 (защита от повторного использования)."""
+    _prod(monkeypatch)
+    stale = generate_valid_init_data(PROD_TOKEN, user_id=555, auth_ts=int(time.time()) - 30 * 24 * 3600)
+    with TestClient(app) as client:
+        assert client.get(URL, headers={"X-Telegram-Init-Data": stale}).status_code == 401
+
+
+def test_signed_identity_wins_over_spoofed_header(monkeypatch):
+    """Личность берётся только из подписи: X-User-Id админа не подменяет подписанного пользователя."""
+    _prod(monkeypatch)
+    from app.core.auth import get_current_user_id
+    from starlette.requests import Request as R
+    import asyncio
+
+    class FakeDB:
+        async def execute(self, *a, **k):
+            class Res:
+                def scalar_one_or_none(self_inner): return object()
+            return Res()
+        def add(self, *a): pass
+        async def commit(self): pass
+        async def rollback(self): pass
+
+    init = generate_valid_init_data(PROD_TOKEN, user_id=4242)
+    req = R({"type": "http", "query_string": b"", "headers": [
+        (b"x-telegram-init-data", init.encode()), (b"x-user-id", b"777")]})
+    assert asyncio.run(get_current_user_id(req, FakeDB())) == "4242"
+
+
+def test_service_ids_are_not_admin_in_prod(monkeypatch):
+    from app.services.card_db_sync import is_admin_or_dev
+    _prod(monkeypatch)
+    assert not is_admin_or_dev("default_user") and not is_admin_or_dev("dev_user")
+    assert is_admin_or_dev("777")
+
+
+def test_admin_web_page_is_removed(monkeypatch):
+    """Веб-страницы /admin больше нет: токен не может утечь через HTML (админ-API защищено токеном)."""
+    _prod(monkeypatch)
+    with TestClient(app) as client:
+        for url in ("/admin", "/admin?token=s3cret-admin"):
+            r = client.get(url)
+            assert r.status_code == 404 and "s3cret-admin" not in r.text
+
+
+def test_admin_api_rejects_empty_configured_token(monkeypatch):
+    monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
+    with TestClient(app) as client:
+        assert client.get("/api/admin/users", headers={"X-Admin-Token": ""}).status_code == 403

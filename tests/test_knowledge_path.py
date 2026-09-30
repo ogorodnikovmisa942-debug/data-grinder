@@ -225,12 +225,10 @@ def test_practice_only_from_learned_cards():
                 assert {it.prompt for it in stored} == {f"Вопрос основы {i}?" for i in range(3)}
                 for it in stored:
                     assert it.correct_answer == "Ответ."
-                    if it.item_type == "open":
-                        assert it.options == []  # открытый вопрос: ответ вводится вручную
+                    if it.item_type == "open_recall":
+                        assert it.options == []  # письменный вопрос: ответ вводится вручную
                     else:
                         assert set(it.options) == {"Ответ.", "Неверно 1.", "Неверно 2.", "Неверно 3."}
-                # ~20% открытых: из 3 заданий одно
-                assert sum(it.item_type == "open" for it in stored) == 1
                 assert all(it.item_type != "relation" for it in stored)
         finally:
             async with AsyncSessionLocal() as db:
@@ -241,21 +239,11 @@ def test_practice_only_from_learned_cards():
     asyncio.run(scenario())
 
 
-def test_practice_mistake_pulls_card_review_and_open_answers():
+def test_practice_mistake_pulls_card_review():
     from datetime import timedelta
-    from app.services.practice_service import (
-        generate_practice_session, verify_practice_answer, open_answer_matches,
-    )
-    from app.services.knowledge_path import day_start_utc
+    from app.services.practice_service import generate_practice_session, verify_practice_answer
+    from app.core.timeutil import user_day_start
     from app.database.models import PracticeItem
-
-    assert open_answer_matches("прокурора", "Прокурор.")
-    assert open_answer_matches("Конституционный суд", "Конституционный Суд.")
-    assert open_answer_matches("конституционый суд", "Конституционный суд.")  # опечатка
-    assert open_answer_matches("15", "15.")
-    assert not open_answer_matches("", "Прокурор.")
-    assert not open_answer_matches("суд", "Прокурор.")
-    assert not open_answer_matches("прокурор или судья или адвокат", "Прокурор.")
 
     async def scenario():
         nodes = await build_path()
@@ -270,7 +258,7 @@ def test_practice_mistake_pulls_card_review_and_open_answers():
                 assert res["correct"] is False
                 stored = (await db.execute(select(PracticeItem).where(PracticeItem.item_id == item["id"]))).scalar_one()
                 card_row = (await db.execute(select(Card).where(Card.text == stored.prompt, Card.user_id == USER))).scalar_one()
-                assert card_row.next_review == day_start_utc() + timedelta(days=1)
+                assert card_row.next_review == await user_day_start(db, USER) + timedelta(days=1)
 
                 ok = await verify_practice_answer(USER, items[1]["id"], "Ответ.", db=db)
                 assert ok["correct"] is True
@@ -377,12 +365,51 @@ def test_next_step_guides_through_path():
     asyncio.run(limit_reached())
 
 
-def test_day_starts_at_moscow_midnight():
-    from datetime import datetime
-    from app.services.knowledge_path import day_start_utc, day_key
+# --- Повторная нарезка не уничтожает ручные карточки; лимиты импорта ---
+def test_replace_keeps_manual_cards_and_requires_confirmation():
+    import asyncio
+    from sqlalchemy import select, func
+    from app.database.session import AsyncSessionLocal
+    from app.database.models import Card, ReviewLog, utc_now
+    from app.services.knowledge_path import wipe_subject, generated_path_stats
 
-    # 01:30 по Москве 1 октября = 22:30 UTC 30 сентября: учебный день уже 1 октября
-    now = datetime(2026, 9, 30, 22, 30)
-    assert day_start_utc(now) == datetime(2026, 9, 30, 21, 0)
-    assert day_key(now) == "2026-10-01"
-    assert day_start_utc(datetime(2026, 9, 30, 20, 59)) == datetime(2026, 9, 29, 21, 0)
+    uid, sub = "replace_test_user", "replace_test_sub"
+
+    async def run():
+        async with AsyncSessionLocal() as db:
+            from app.database.models import Phrase
+            ph = Phrase(text="p", subject=sub, user_id=uid)
+            db.add(ph); await db.flush()
+            gen = Card(phrase_id=ph.id, user_id=uid, subject=sub, text="g", translation="g", state=2, next_review=utc_now())
+            man = Card(phrase_id=ph.id, user_id=uid, subject=sub, text="m", translation="m", state=2, next_review=utc_now())
+            db.add_all([gen, man]); await db.flush()
+            from app.database.models import KnowledgeNode
+            n = KnowledgeNode(user_id=uid, subject=sub, node_key="k", name="k", tier=0, order_idx=0,
+                              prereq_keys=[], summary="", source_hint="", lesson_status="ready")
+            db.add(n); await db.flush()
+            gen.node_id = n.id
+            db.add_all([ReviewLog(card_id=gen.id, user_id=uid, rating=3, review_time=utc_now()),
+                        ReviewLog(card_id=man.id, user_id=uid, rating=3, review_time=utc_now())])
+            await db.commit()
+
+            assert await generated_path_stats(db, uid, sub) == {"cards": 1, "reviews": 1}
+            await wipe_subject(db, uid, sub, only_generated=True)
+            await db.commit()
+            left = (await db.execute(select(Card.text).where(Card.user_id == uid, Card.subject == sub))).scalars().all()
+            logs = (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.user_id == uid))).scalar()
+            assert left == ["m"] and logs == 1
+            await wipe_subject(db, uid, sub)
+            await db.commit()
+
+    asyncio.run(run())
+
+
+def test_import_limits(monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "MAX_IMPORT_CHARS", 100)
+    with TestClient(app) as client:
+        r = client.post("/api/config/import", json={"text": "x" * 500, "subject": "limits_sub"},
+                        headers={"X-User-Id": "limits_user"})
+        assert r.status_code == 413 and "слишком большой" in r.json()["detail"]

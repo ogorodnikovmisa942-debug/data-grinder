@@ -5,9 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
-from jinja2 import Template
 
-from app.api.endpoints import train, management, admin, practice
+from app.api.endpoints import train, management, admin, practice, open_questions
 from app.api.endpoints import path as knowledge_path_api
 from app.core.config import settings
 from sqlalchemy import select, func
@@ -19,8 +18,6 @@ from app.services.generation_worker import generation_worker_loop
 from app.services.frontend_bundler import bundle_modules, bundle_html
 
 from app.core.limiter import limiter, RateLimitExceeded, _rate_limit_exceeded_handler, HAS_SLOWAPI
-
-ADMIN_TEMPLATE_PATH = Path("app/templates/admin.html")
 
 
 @asynccontextmanager
@@ -74,6 +71,7 @@ app.include_router(management.router, prefix="/api", tags=["Management"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(practice.router, prefix="/api", tags=["Practice"])
 app.include_router(knowledge_path_api.router, prefix="/api", tags=["Knowledge Path"])
+app.include_router(open_questions.router, prefix="/api", tags=["Open Questions"])
 
 
 # Главная страница MiniApp
@@ -93,43 +91,6 @@ async def read_index():
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
-
-
-# Веб-страница панели администратора
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_web_page():
-    curr_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
-    admin_token = settings.ADMIN_TOKEN
-    if not admin_token:
-        return HTMLResponse("<h1>ADMIN_TOKEN not configured in .env</h1>", status_code=503)
-    ds_key_badge = (
-        '<span style="color:#4ade80;">🔑 Ключ OK</span>'
-        if settings.DEEPSEEK_API_KEY
-        else '<span style="color:#f59e0b;">⚠️ Ключ не задан (.env)</span>'
-    )
-
-    total_users, part_users, total_cards, total_reviews = 0, 0, 0, 0
-    try:
-        async with AsyncSessionLocal() as db:
-            total_users = (await db.execute(select(func.count(UserSession.id)))).scalar() or 0
-            part_users = (await db.execute(select(func.count(UserSession.id)).filter(UserSession.is_experiment_participant == True))).scalar() or 0
-            total_cards = (await db.execute(select(func.count(Card.id)))).scalar() or 0
-            total_reviews = (await db.execute(select(func.count(ReviewLog.id)))).scalar() or 0
-    except Exception as e:
-        print(f"[Admin Web Notice] {e}")
-
-    template_str = ADMIN_TEMPLATE_PATH.read_text(encoding="utf-8")
-    rendered_html = Template(template_str).render(
-        curr_model=curr_model,
-        admin_token=admin_token,
-        ds_key_badge=ds_key_badge,
-        base_url=settings.DEEPSEEK_BASE_URL,
-        total_users=total_users,
-        part_users=part_users,
-        total_cards=total_cards,
-        total_reviews=total_reviews
-    )
-    return HTMLResponse(rendered_html)
 
 
 # Статика
