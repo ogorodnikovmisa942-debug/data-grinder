@@ -11,4 +11,5 @@ python-docx>=1.1.0
 python-pptx>=1.0.0
 slowapi>=0.1.9
 alembic>=1.13.0
-asyncpg>=0.30.0snowballstemmer>=2.2.0
+asyncpg>=0.30.0
+snowballstemmer>=2.2.0
