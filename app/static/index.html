@@ -48,14 +48,14 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=27">
+    <link rel="stylesheet" href="/css/main.css?v=29">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
     <main class="flex-1 flex flex-col relative px-margin-x pb-md max-w-md mx-auto w-full transition-all duration-300 overflow-hidden min-h-0" style="padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px);">
         
                 <!-- Верхняя панель управления -->
-        <div class="w-full flex justify-between items-center font-mono text-xs py-2.5 border-b border-neutral-200/60 dark:border-neutral-800 shrink-0 select-none">
+        <div id="app-header" class="w-full flex justify-between items-center font-mono text-xs py-2.5 border-b border-neutral-200/60 dark:border-neutral-800 shrink-0 select-none">
             <div class="relative max-w-[68%] flex items-center gap-1.5 overflow-hidden border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs">
                 <div class="relative overflow-hidden flex-1 min-w-0">
                     <select id="subject-selector" class="w-full bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate">
@@ -89,51 +89,75 @@
                 <!-- Экран тренировки карточек -->
         <div id="screen-train" class="app-screen active-screen flex-1 flex flex-col w-full min-h-0 justify-between pt-md relative">
             
-            <!-- Стартовый оверлей сессии (100% непрозрачный, без артефактов и просвечивания) -->
-            <div id="session-starter" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#fbfbfb] dark:bg-[#0e0e0e] p-md gap-md select-none" style="isolation: isolate;">
-                <div class="w-full max-w-[340px] bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-2xl animate-fade-in font-sans">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="material-symbols-outlined text-primary text-xl">school</span>
-                        <h2 class="font-mono font-bold text-sm text-primary tracking-wider uppercase text-center">Выбор сессии</h2>
+            <!-- Стартовый экран: кот говорит, что сегодня, и одна главная кнопка. Ручные режимы — мелко внизу -->
+            <div id="session-starter" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#fbfbfb] dark:bg-[#0e0e0e] select-none" style="isolation: isolate;">
+                <div class="starter-panel animate-fade-in font-sans">
+                    <div class="starter-hero">
+                        <div class="lesson-row">
+                            <div class="lesson-cat-wrap shrink-0">
+                                <pre id="starter-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                            </div>
+                            <div class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700">
+                                <p id="starter-say" class="text-sm leading-relaxed" aria-live="polite">Смотрю, что у нас сегодня…</p>
+                            </div>
+                        </div>
+                        <div id="starter-step" class="path-run-card hidden">
+                            <span id="starter-step-icon" class="material-symbols-outlined text-primary text-2xl shrink-0">school</span>
+                            <div class="flex flex-col min-w-0">
+                                <span id="starter-step-kind" class="text-[10px] font-mono uppercase text-neutral-500"></span>
+                                <span id="starter-step-name" class="text-sm font-bold leading-snug"></span>
+                            </div>
+                        </div>
                     </div>
-                    <button id="btn-path-run" onclick="startPathRun()" class="path-run-start w-full flex items-center justify-between gap-3 px-4 py-3 bg-primary text-on-primary rounded-xl shadow-md transition-all cursor-pointer text-left">
-                        <span class="flex flex-col min-w-0">
-                            <span class="font-mono font-bold text-sm uppercase tracking-wide">Продолжить путь</span>
-                            <span id="btn-path-run-sub" class="text-[11px] opacity-80 truncate">Кот проведёт по шагам</span>
-                        </span>
-                        <span class="material-symbols-outlined text-2xl shrink-0">play_arrow</span>
+
+                    <button id="btn-path-run" onclick="startPathRun()" class="starter-go">
+                        <span id="btn-path-run-text">Начать</span>
+                        <span class="material-symbols-outlined">arrow_forward</span>
                     </button>
-                    <div class="w-full flex items-center gap-2 text-[10px] font-mono uppercase text-neutral-400 my-0.5">
-                        <span class="flex-1 h-px bg-neutral-200 dark:bg-neutral-800"></span>
-                        <span>или вручную</span>
-                        <span class="flex-1 h-px bg-neutral-200 dark:bg-neutral-800"></span>
-                    </div>
-                    <button id="btn-session-new" onclick="startSession('new')" class="w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                        <span id="btn-session-new-text">[ УЧИТЬ НОВОЕ ]</span>
-                        <span id="btn-session-new-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">--</span>
+
+                    <button id="starter-exam" type="button" onclick="openExamModal()" class="starter-exam">
+                        <span class="material-symbols-outlined">assignment</span>
+                        <span id="starter-exam-text" class="starter-exam-text">Готовишься к экзамену? Загрузи билеты</span>
+                        <span class="material-symbols-outlined starter-exam-arrow">chevron_right</span>
                     </button>
-                    <button id="btn-session-review" onclick="startSession('review')" class="w-full flex items-center justify-between px-4 border border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-on-secondary transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                        <span id="btn-session-review-text">[ ПОВТОРЕНИЕ ]</span>
-                        <span id="btn-session-review-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary/10 text-secondary border border-secondary/20">--</span>
-                    </button>
-                    <button id="btn-session-cram" onclick="startSession('cram')" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-500 hover:border-primary hover:text-primary py-2 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed">
-                        <span id="btn-session-cram-text">[ ШТУРМ ]</span>
-                        <span id="btn-session-cram-badge" class="px-2 py-0.5 rounded-md text-[10px] bg-neutral-100 dark:bg-neutral-800 text-neutral-400">--</span>
-                    </button>
-                    <div class="w-full pt-2 mt-1 border-t border-neutral-200 dark:border-neutral-800 flex flex-col gap-2">
-                        <button onclick="openKnowledgeGraphModal()" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary hover:bg-neutral-50 dark:hover:bg-neutral-800/60 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                            <span>[ КАРКАС И ГРАФ ]</span>
-                            <span class="material-symbols-outlined text-[16px]">account_tree</span>
+
+                    <div class="starter-more">
+                        <button id="btn-session-new" class="starter-tile hidden">
+                            <span class="material-symbols-outlined">add_circle</span>
+                            <span id="btn-session-new-text" class="starter-tile-label">Учить новое</span>
+                            <span id="btn-session-new-badge" class="starter-tile-badge"></span>
                         </button>
-                        <button onclick="openPracticeModal()" class="w-full flex items-center justify-between px-4 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary hover:bg-neutral-50 dark:hover:bg-neutral-800/60 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl shadow-xs">
-                            <span class="flex items-center gap-1.5">
-                                <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
-                                <span>[ ПРАКТИКА И КЕЙСЫ ]</span>
-                            </span>
-                            <span id="starter-practice-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200 dark:border-neutral-700">ТРЕНАЖЕР</span>
+                        <button id="btn-session-review" class="starter-tile">
+                            <span class="material-symbols-outlined">history</span>
+                            <span id="btn-session-review-text" class="starter-tile-label">Повторение</span>
+                            <span id="btn-session-review-badge" class="starter-tile-badge"></span>
+                        </button>
+                        <button id="btn-session-cram" class="starter-tile">
+                            <span class="material-symbols-outlined">bolt</span>
+                            <span id="btn-session-cram-text" class="starter-tile-label">Штурм</span>
+                            <span id="btn-session-cram-badge" class="starter-tile-badge"></span>
+                        </button>
+                        <button onclick="openPracticeModal()" class="starter-tile">
+                            <span class="material-symbols-outlined">psychology_alt</span>
+                            <span class="starter-tile-label">Практика</span>
+                            <span id="starter-practice-badge" class="starter-tile-badge"></span>
+                        </button>
+                        <button onclick="openKnowledgeGraphModal()" class="starter-tile">
+                            <span class="material-symbols-outlined">account_tree</span>
+                            <span class="starter-tile-label">Граф</span>
                         </button>
                     </div>
                 </div>
+            </div>
+
+            <!-- Режим занятия («Продолжить путь»): вместо шапки и меню — крестик, шаг и прогресс -->
+            <div id="run-bar" class="run-bar" aria-label="Ход занятия">
+                <button onclick="exitToSessionMenu()" class="run-bar-close" aria-label="Пауза">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+                <span id="run-bar-kind" class="run-bar-kind">Разминка</span>
+                <div class="run-bar-track"><div id="run-bar-fill" class="run-bar-fill"></div></div>
+                <span id="run-bar-count" class="run-bar-count">0/0</span>
             </div>
 
             <div class="w-full h-1 bg-surface-container-highest rounded-full mb-md shrink-0 overflow-hidden hidden" id="progress-bar">
@@ -181,9 +205,9 @@
                                         <span class="material-symbols-outlined text-[12px]">folder</span>
                                         <span id="card-front-subject-text"></span>
                                     </div>
-                                    <div id="card-front-mode-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50">
-                                        <span id="card-front-mode-icon" class="material-symbols-outlined text-[13px] text-primary">history</span>
-                                        <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-300 font-mono">ПОВТОРЕНИЕ FSRS</span>
+                                    <div id="card-front-mode-badge" class="mode-badge mode-neutral">
+                                        <span id="card-front-mode-icon" class="material-symbols-outlined text-[13px]">history</span>
+                                        <span id="card-front-mode-text" class="text-[10px] font-bold uppercase tracking-wider font-mono">ПОВТОРЕНИЕ FSRS</span>
                                     </div>
                                     <button type="button" id="card-front-graph-btn" onclick="event.stopPropagation(); window.teleportCurrentCardToGraph();" style="display: none !important;" class="hidden" title="Показать в графе знаний">
                                         <span class="material-symbols-outlined text-[12px]">account_tree</span>
@@ -198,7 +222,7 @@
                             
                             <div class="w-full flex-1 min-h-0 flex flex-col justify-center items-center px-3 py-2 card-scroll-clean card-scroll-masked my-auto">
                                 <h2 id="card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">Загрузка...</h2>
-                                <div id="card-front-hint" class="text-xs font-semibold font-mono text-primary bg-primary/10 mt-2 px-3 py-1 rounded-full border border-primary/20 hidden"></div>
+                                <div id="card-front-hint" class="card-context hidden"></div>
                             </div>
                             
                             <div class="shrink-0 pt-1 pb-1 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
@@ -316,7 +340,7 @@
                                         <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">Точность</span>
                                     </div>
                                     <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
-                                        <span id="debrief-stat-evening" class="block font-bold text-lg text-amber-600 dark:text-amber-400 font-mono">0</span>
+                                        <span id="debrief-stat-evening" class="block font-bold text-lg text-neutral-700 dark:text-neutral-300 font-mono">0</span>
                                         <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">К вечеру</span>
                                     </div>
                                 </div>
@@ -368,7 +392,7 @@
                         <!-- Верхняя зона: Шапка с вопросом, тегом контекста и кнопками -->
                         <div class="w-full shrink-0 flex flex-col items-center gap-1 pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
                             <!-- Бейдж проблемной карты (Leech) -->
-                            <div id="card-leech-badge" class="hidden w-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 p-1.5 rounded-lg text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0 mb-1">
+                            <div id="card-leech-badge" class="hidden w-full leech-badge p-1.5 rounded-lg text-[10px] font-mono uppercase font-bold justify-between items-center shrink-0 mb-1">
                                 <span id="card-leech-text" class="flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">warning</span>СЛОЖНАЯ КАРТА (СБОЕВ: 0)</span>
                                 <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="text-[10px] underline hover:text-primary flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">psychology</span>Мнемоника</button>
                             </div>
@@ -407,14 +431,14 @@
                             </div>
 
                             <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
-                            <div id="card-mnemonic-container" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-xl border border-amber-500/20 text-left relative group hidden">
-                                <div class="flex items-center justify-between text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1 font-mono">
+                            <div id="card-mnemonic-container" class="mnemonic-box w-full p-3 rounded-xl text-left relative group hidden">
+                                <div class="mnemonic-label flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide mb-1 font-mono">
                                     <span class="flex items-center gap-1 font-bold">
-                                        <span class="material-symbols-outlined text-[13px] text-amber-500">psychology</span> АССОЦИАЦИЯ
+                                        <span class="material-symbols-outlined text-[13px]">psychology</span> АССОЦИАЦИЯ
                                     </span>
                                     <div class="flex gap-2">
                                         <button onclick="event.stopPropagation(); toggleMnemonicVisibility(event)" class="hover:underline text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Скрыть</button>
-                                        <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[10px] text-amber-600 dark:text-amber-400 font-mono">Обновить</button>
+                                        <button onclick="event.stopPropagation(); regenerateMnemonic(event)" class="hover:underline text-[10px] font-mono">Обновить</button>
                                     </div>
                                 </div>
                                 <div id="mnemonic-content" class="transition-opacity duration-300">
@@ -449,23 +473,11 @@
             </div>
 
             <!-- Блок управляющих кнопок сессии -->
-            <div class="w-full flex items-center gap-1.5 p-1 border border-neutral-200/80 dark:border-neutral-800 mt-md shrink-0 bg-neutral-100/80 dark:bg-neutral-900/60 rounded-2xl h-[64px]" id="action-buttons">
-                <button data-rating="1" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 active:scale-95 transition-all duration-100 border border-rose-200/60 dark:border-rose-900/40">
-                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Again</span>
-                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Вообще мимо</span>
-                </button>
-                <button data-rating="2" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 active:scale-95 transition-all duration-100 border border-amber-200/60 dark:border-amber-900/40">
-                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Hard</span>
-                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">С трудом</span>
-                </button>
-                <button data-rating="3" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 active:scale-95 transition-all duration-100 border border-emerald-200/60 dark:border-emerald-900/40">
-                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Good</span>
-                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Вспомнил</span>
-                </button>
-                <button data-rating="4" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 active:scale-95 transition-all duration-100 border border-sky-200/60 dark:border-sky-900/40">
-                    <span class="font-bold text-xs uppercase tracking-wider font-mono">Easy</span>
-                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">Слишком легко</span>
-                </button>
+            <div class="rate-row hidden w-full items-stretch mt-md shrink-0 h-[64px]" id="action-buttons">
+                <button data-rating="1" class="rate-btn rate-1"><span class="rate-btn-label">Забыл</span><span class="rate-btn-hint">Не вспомнил</span></button>
+                <button data-rating="2" class="rate-btn rate-2"><span class="rate-btn-label">Трудно</span><span class="rate-btn-hint">С трудом</span></button>
+                <button data-rating="3" class="rate-btn rate-3"><span class="rate-btn-label">Помню</span><span class="rate-btn-hint">Вспомнил</span></button>
+                <button data-rating="4" class="rate-btn rate-4"><span class="rate-btn-label">Легко</span><span class="rate-btn-hint">Без усилий</span></button>
             </div>
         </div>
 
@@ -1513,8 +1525,8 @@
                             <!-- Статус: ВЕРНО или НЕВЕРНО -->
                         </div>
                         
-                        <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
-                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider flex items-center gap-1">
+                        <div id="practice-gold-standard-box" class="practice-gold-box hidden flex flex-col gap-1 p-2.5 rounded-xl text-xs">
+                            <span class="practice-gold-label font-mono font-bold text-[10px] uppercase tracking-wider flex items-center gap-1">
                                 <span class="material-symbols-outlined text-[14px]">bolt</span>
                                 <span>Водораздельный критерий (Gold Standard):</span>
                             </span>
@@ -1550,7 +1562,7 @@
                     </div>
 
                     <div class="flex flex-col gap-2 w-full pt-1">
-                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-secondary hover:opacity-90 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
                             <span class="material-symbols-outlined text-sm">build</span>
                             <span>Повторить только ошибки (<span id="practice-errors-count">0</span>)</span>
                         </button>
@@ -1649,6 +1661,69 @@
         <button id="day-close" onclick="event.stopPropagation(); closeDayCelebration()" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer opacity-0">Мур. До завтра</button>
     </div>
 
+        <!-- Подготовка к экзамену по билетам: список билетов + дата → разбор по книге → план по дням -->
+    <div id="exam-modal" role="dialog" aria-modal="true" aria-labelledby="exam-modal-title" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">assignment</span>
+                    <h3 id="exam-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Билеты к экзамену</h3>
+                </div>
+                <button type="button" onclick="closeExamModal()" aria-label="Закрыть" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-5 flex flex-col gap-4" style="touch-action: pan-y;">
+                <div class="lesson-row">
+                    <div class="lesson-cat-wrap shrink-0">
+                        <pre id="exam-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                    </div>
+                    <div class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700">
+                        <p id="exam-say" class="text-sm leading-relaxed" aria-live="polite"></p>
+                    </div>
+                </div>
+
+                <!-- 1. Список билетов и дата -->
+                <div id="exam-setup" class="hidden flex flex-col gap-3 select-text">
+                    <label class="exam-field">Дата экзамена
+                        <input id="exam-date" type="date" class="oq-modal-field">
+                    </label>
+                    <label class="exam-field">Билеты — по одному на строку
+                        <textarea id="exam-text" class="oq-modal-field" rows="9" placeholder="1. Понятие и признаки государства&#10;2. Функции государства&#10;3. Форма правления"></textarea>
+                    </label>
+                    <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>
+                    <p id="exam-error" class="exam-error hidden" role="alert"></p>
+                </div>
+
+                <!-- 2. Готовый план -->
+                <div id="exam-review" class="hidden flex flex-col gap-4">
+                    <div class="exam-stats">
+                        <div class="exam-stat"><span id="exam-stat-days" class="exam-stat-num">—</span><span class="exam-stat-label">дней до экзамена</span></div>
+                        <div class="exam-stat"><span id="exam-stat-ready" class="exam-stat-num">—</span><span class="exam-stat-label">билетов закреплено</span></div>
+                        <div class="exam-stat"><span id="exam-stat-today" class="exam-stat-num">—</span><span class="exam-stat-label">тем сегодня</span></div>
+                    </div>
+                    <div class="exam-progress" aria-hidden="true"><div id="exam-progress-fill" class="exam-progress-fill"></div></div>
+
+                    <div id="exam-missing-wrap" class="hidden flex flex-col gap-2">
+                        <h4 class="exam-section">Нет в книге</h4>
+                        <div id="exam-missing" class="flex flex-col gap-2"></div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <h4 class="exam-section">Все билеты</h4>
+                        <ol id="exam-list" class="exam-list"></ol>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 py-3 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2 shrink-0">
+                <button id="exam-secondary" type="button" onclick="examSecondary()" class="lesson-btn lesson-btn-secondary flex-1 rounded-xl text-sm font-mono font-bold transition-all cursor-pointer">Отмена</button>
+                <button id="exam-primary" type="button" onclick="examPrimary()" class="lesson-btn lesson-btn-primary flex-1 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">Разобрать</button>
+            </div>
+        </div>
+    </div>
+
         <!-- ===================================================================== -->
     <!-- МОДАЛЬНОЕ ОКНО ФИЛЬТРОВ И ПОИСКА КАРТОЧЕК (MODAL FILTERS)             -->
     <!-- ===================================================================== -->
@@ -1696,6 +1771,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=119"></script>
+    <script src="/js/app.js?v=121"></script>
 </body>
 </html>

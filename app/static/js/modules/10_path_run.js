@@ -10,7 +10,9 @@ const PATH_RUN_STEP_VIEW = {
     review:   { icon: 'history',        kind: 'Разминка' },
     cards:    { icon: 'style',          kind: 'Закрепление' },
     lesson:   { icon: 'school',         kind: 'Новая тема' },
-    practice: { icon: 'psychology_alt', kind: 'Практика на различение' }
+    practice: { icon: 'psychology_alt', kind: 'Практика на различение' },
+    ticket:   { icon: 'assignment',     kind: 'Билеты' },
+    drill:    { icon: 'replay',         kind: 'Прогон билетов' }
 };
 
 const pathRun = {
@@ -81,8 +83,22 @@ function describePathStep(step, isFirst) {
         case 'practice':
             return {
                 name: `${n} ${pathRunPlural(n, 'задание', 'задания', 'заданий')} вперемешку`,
-                say: 'Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально.',
+                say: step.plan_id
+                    ? 'Практика по темам билетов: учимся отличать похожее. Ошибаться здесь нормально.'
+                    : 'Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально.',
                 emo: 'think'
+            };
+        case 'ticket':
+            return {
+                name: `${n} ${pathRunPlural(n, 'билет', 'билета', 'билетов')} письменно`,
+                say: 'Темы для билета пройдены — теперь сам билет. Ответь своими словами, как на экзамене, а я сверю с ключевыми тезисами.',
+                emo: 'think'
+            };
+        case 'drill':
+            return {
+                name: `${n} ${pathRunPlural(n, 'билет', 'билета', 'билетов')} на прогон`,
+                say: 'Экзамен скоро — прогоняем билеты. Начнём с тех, что держатся слабее всего.',
+                emo: 'surprised'
             };
         default:
             return { name: '', say: '', emo: 'idle' };
@@ -133,7 +149,25 @@ function showPathRunOverlay(visible) {
     const el = document.getElementById('path-run-overlay');
     if (el) el.classList.toggle('hidden', !visible);
     if (!visible) clearInterval(pathRunCatTimer);
+    else setRunMode(false);
 }
+
+// Режим занятия на экране карточек: шапка, нижнее меню и счётчики уходят,
+// остаются крестик, название шага и прогресс — как в уроке, без «системных» цифр
+function setRunMode(on, stepType) {
+    document.body.classList.toggle('path-run-mode', !!on);
+    if (!on) return;
+    const kind = document.getElementById('run-bar-kind');
+    if (kind) kind.textContent = (PATH_RUN_STEP_VIEW[stepType] || {}).kind || '';
+    window.updateRunBar(0, 0);
+}
+
+window.updateRunBar = function(index, total) {
+    const fill = document.getElementById('run-bar-fill');
+    const count = document.getElementById('run-bar-count');
+    if (fill) fill.style.width = total ? `${Math.min(100, (index / total) * 100)}%` : '0%';
+    if (count) count.textContent = total ? `${Math.min(index + 1, total)}/${total}` : '';
+};
 
 async function fetchPathStep(done) {
     const q = `done=${encodeURIComponent(done.join(','))}&scope=${pathRun.scope}${pathRun.extra ? '&extra=true' : ''}`;
@@ -153,26 +187,41 @@ pathRun.start = async function(subject, opts = {}) {
         scope: opts.scope || 'day', extra: !!opts.extra, onDoneGo: null
     });
     showPathRunOverlay(true);
+    if (opts.step && opts.step.type !== 'done') {
+        // Шаг уже объявлен котом на стартовом экране — сразу к делу.
+        // Оверлей с этим шагом остаётся под уроком/практикой: закрыл их — вернулся к коту.
+        pathRun.showStep(opts.step);
+        pathRun.go();
+        return;
+    }
     await pathRun.loadNext();
 };
 
-pathRun.loadNext = async function() {
-    setPathRunView({ say: pathRun.note ? `${pathRun.note} Смотрю, что дальше…` : 'Смотрю, с чего начать…', emo: 'think', goLabel: '…', goEnabled: false });
-    let step;
-    try {
-        step = await fetchPathStep(pathRun.done);
-    } catch (e) {
-        console.error('Сбой выбора следующего шага:', e);
-        setPathRunView({ say: 'Не получилось связаться с сервером. Попробуем ещё раз?', emo: 'confused', goLabel: 'Повторить' });
-        pathRun.step = null;
-        return;
+pathRun.loadNext = async function(prefetched = null) {
+    let step = prefetched;
+    if (!step) {
+        setPathRunView({ say: pathRun.note ? `${pathRun.note} Смотрю, что дальше…` : 'Смотрю, с чего начать…', emo: 'think', goLabel: '…', goEnabled: false });
+        try {
+            step = await fetchPathStep(pathRun.done);
+        } catch (e) {
+            console.error('Сбой выбора следующего шага:', e);
+            setPathRunView({ say: 'Не получилось связаться с сервером. Попробуем ещё раз?', emo: 'confused', goLabel: 'Повторить' });
+            pathRun.step = null;
+            return;
+        }
     }
-    pathRun.step = step;
-    pathRun.stepStarted = false;
     if (step.type === 'done') {
+        pathRun.step = step;
+        pathRun.stepStarted = false;
         pathRun.finish(step);
         return;
     }
+    pathRun.showStep(step);
+};
+
+pathRun.showStep = function(step) {
+    pathRun.step = step;
+    pathRun.stepStarted = false;
     const d = describePathStep(step, pathRun.done.length === 0);
     const view = PATH_RUN_STEP_VIEW[step.type];
     setPathRunView({
@@ -202,10 +251,11 @@ pathRun.go = function() {
         pathRun.done.push(step.type);
         pathRun.stepStarted = true;
     }
-    if (step.type === 'review' || step.type === 'cards') {
+    if (['review', 'cards', 'ticket', 'drill'].includes(step.type)) {
         showPathRunOverlay(false);
         if (typeof switchTab === 'function') switchTab('train');
-        startSession(step.type === 'review' ? 'review' : 'new');
+        setRunMode(true, step.type);
+        startSession(step.type === 'review' || step.type === 'drill' ? 'review' : 'new');
     } else if (step.type === 'lesson') {
         openLesson(step.node_id);
     } else if (step.type === 'practice') {
@@ -220,13 +270,30 @@ pathRun.sessionQuery = function() {
     let params = '';
     if (step.type === 'review') params = `&limit_cards=${step.count}&due_only=true`;
     if (step.type === 'cards') params = `&node_id=${step.node_id}`;
+    if (step.type === 'ticket') params = `&exam_plan=${step.plan_id}&limit_cards=${step.count}`;
+    if (step.type === 'drill') params = `&exam_plan=${step.plan_id}&exam_drill=true`;
     return { subject: pathRun.subject, params };
 };
 
-pathRun.stepFinished = function() {
+pathRun.stepFinished = function(prefetched = null) {
     if (!pathRun.active) return;
     showPathRunOverlay(true);
-    pathRun.loadNext();
+    pathRun.loadNext(prefetched);
+};
+
+// Урок пройден: если дальше его карточки (а так почти всегда), идём к ним сразу —
+// кот уже сказал это в конце урока, второй экран с тем же смыслом только тормозит
+pathRun.afterLesson = async function() {
+    let step = null;
+    try { step = await fetchPathStep(pathRun.done); } catch (_) { /* покажем шаг через оверлей */ }
+    if (typeof closeLesson === 'function') closeLesson();
+    if (step && step.type === 'cards') {
+        showPathRunOverlay(true);
+        pathRun.showStep(step);
+        pathRun.go();
+        return;
+    }
+    pathRun.stepFinished(step);
 };
 
 pathRun.trainFinished = function(stats) {
@@ -255,6 +322,7 @@ pathRun.stop = function() {
     pathRun.active = false;
     pathRun.step = null;
     showPathRunOverlay(false);
+    setRunMode(false);
     if (typeof showSessionStarter === 'function') showSessionStarter();
 };
 
@@ -321,54 +389,180 @@ pathRun.finish = function(result) {
         return;
     }
 
+    if (pathRun.scope === 'exam') {
+        const ex = examDoneView(result);
+        if (ex.extra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'exam', extra: true });
+        else if (ex.openPlan) pathRun.onDoneGo = () => openExamModal();
+        setPathRunView({
+            say: `${didSomething ? 'На сегодня всё! ' : ''}${ex.say}`,
+            emo: 'happy',
+            goLabel: ex.goLabel,
+            secondaryLabel: ex.extra || ex.openPlan ? 'Хватит на сегодня' : null
+        });
+        return;
+    }
+
     const reasonText = {
         reviews_left: 'Остальные повторения лучше оставить на потом — короткие подходы работают лучше марафона.',
         limit: 'Норма новых тем на сегодня закрыта — мозгу нужно время, чтобы всё улеглось.',
         waiting: 'Новые темы откроются, когда пройденные закрепятся в повторениях. Загляни завтра.'
     }[result.reason] || '';
     const nextUp = result.next_up ? ` Дальше по пути: «${result.next_up}».` : '';
+    const canExtra = result.reason === 'limit' && result.next_up;
+    if (canExtra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
     setPathRunView({
         say: `${didSomething ? 'На сегодня всё!' : 'Сегодня всё уже сделано.'} ${reasonText}${nextUp}`,
         emo: 'happy',
-        goLabel: 'Отлично',
-        secondaryLabel: null
+        goLabel: canExtra ? 'Ещё тема' : 'Отлично',
+        secondaryLabel: canExtra ? 'Хватит на сегодня' : null
     });
 };
 
+// Что кот показал на стартовом экране: по нажатию «Начать» запускаем именно это, без второго экрана
+let starterPreview = null;
+
+function activeRunSubject() {
+    return typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
+}
+
+// Итог в режиме экзамена: что сказать и что предложить кнопкой
+function examDoneView(step) {
+    const d = step.days_left;
+    const days = d >= 0 ? `До экзамена ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')}.` : '';
+    switch (step.reason) {
+        case 'exam_quota':
+            return {
+                say: `${days} Норма на сегодня выполнена: ${step.lessons_today} из ${step.quota}. Дальше — «${step.next_up}», её можно взять сверх плана.`,
+                goLabel: 'Ещё тема', extra: true
+            };
+        case 'exam_ready':
+            return { say: `${days} Все нужные темы пройдены и билеты отвечены — дальше их держат повторения.`, goLabel: 'Билеты', openPlan: true };
+        case 'exam_past':
+            return { say: 'Экзамен уже прошёл. Режим можно выключить в «Билетах».', goLabel: 'Билеты', openPlan: true };
+        case 'exam_off':
+            return { say: 'Режим экзамена выключен.', goLabel: 'Отлично' };
+        case 'reviews_left':
+            return { say: `${days} Главное сделано. Остались повторения — можно ещё подход.`, goLabel: 'Ещё подход' };
+        default:
+            return { say: `${days} Следующие темы откроются, когда пройденные закрепятся в повторениях.`, goLabel: 'Билеты', openPlan: true };
+    }
+}
+
 window.startPathRun = function() {
-    const sub = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
-    pathRun.start(sub);
+    const sub = activeRunSubject();
+    const p = starterPreview;
+    const step = p && p.subject === sub && Date.now() - p.at < 5 * 60 * 1000 ? p.step : null;
+    if (p && p.subject === sub && p.scope === 'exam') {
+        if (step && step.type === 'done') {
+            const ex = examDoneView(step);
+            if (ex.extra) pathRun.start(sub, { scope: 'exam', extra: true });
+            else if (ex.openPlan) openExamModal();
+            else pathRun.start(sub, { scope: 'exam' });
+            return;
+        }
+        pathRun.start(sub, { scope: 'exam', step });
+        return;
+    }
+    if (step && step.type === 'done') {
+        // День закрыт: кнопка предлагает следующее разумное действие
+        if (step.reason === 'limit' && step.next_up) startTopicRun(true, sub);
+        else if (step.reason === 'reviews_left') pathRun.start(sub);
+        else if (typeof openKnowledgeGraphModal === 'function') openKnowledgeGraphModal(sub);
+        return;
+    }
+    pathRun.start(sub, { step });
 };
 
-// Кнопка «Новая тема» / «Доучить тему» / «Ещё тема»: одна порция урок → все его карточки
+// Одна порция «урок → все его карточки» (в том числе тема сверх нормы)
 window.startTopicRun = function(extra = false, subject = null) {
-    const sub = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    const sub = subject || activeRunSubject();
     pathRun.start(sub, { scope: 'topic', extra });
 };
 
-// Подпись под кнопкой: что будет первым шагом
-window.refreshPathRunButton = async function(attempt = 0) {
+// Строка про экзамен под главной кнопкой: приглашение загрузить билеты или прогресс подготовки
+function renderStarterExam(exam) {
+    const el = document.getElementById('starter-exam');
+    const text = document.getElementById('starter-exam-text');
+    if (!el || !text) return;
+    el.classList.toggle('starter-exam-on', !!exam.active);
+    if (!exam.active) {
+        text.textContent = 'Готовишься к экзамену? Загрузи билеты';
+    } else if (exam.status === 'matching') {
+        text.textContent = 'Разбираю билеты…';
+    } else if (exam.status === 'failed') {
+        text.textContent = 'Разбор билетов не удался — открыть';
+    } else {
+        const t = exam.tickets || {};
+        const d = exam.days_left;
+        text.textContent = d < 0
+            ? 'Экзамен прошёл — выключить режим'
+            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
+    }
+}
+
+function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
+    if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
+    const cat = document.getElementById('starter-cat');
+    if (cat) cat.classList.remove('intro-cat');
+    const card = document.getElementById('starter-step');
+    if (card) {
+        card.classList.toggle('hidden', !step);
+        if (step) {
+            document.getElementById('starter-step-icon').textContent = step.icon;
+            document.getElementById('starter-step-kind').textContent = step.kind;
+            document.getElementById('starter-step-name').textContent = step.name;
+        }
+    }
     const btn = document.getElementById('btn-path-run');
-    const sub = document.getElementById('btn-path-run-sub');
-    if (!btn || !sub) return;
-    const subject = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
+    const text = document.getElementById('btn-path-run-text');
+    if (text) text.textContent = goLabel;
+    if (btn) btn.disabled = !goEnabled;
+}
+
+// Стартовый экран: кот говорит, что будет первым шагом, кнопка запускает его одним нажатием
+window.refreshPathRunButton = async function(attempt = 0) {
+    if (!document.getElementById('btn-path-run')) return;
+    const subject = activeRunSubject();
     if (!subject || subject === 'all') {
         // Список предметов мог ещё не загрузиться — пробуем чуть позже
         if (attempt < 3) setTimeout(() => refreshPathRunButton(attempt + 1), 700);
-        else sub.textContent = 'Выбери предмет';
+        else renderStarter({ say: 'Выбери предмет вверху — и начнём.', emo: 'idle', goLabel: 'Начать', goEnabled: false });
         return;
     }
     try {
-        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next`);
+        const exam = typeof loadExamOverview === 'function' ? await loadExamOverview(subject) : { active: false };
+        renderStarterExam(exam);
+        const scope = exam.active && exam.status === 'ready' && exam.phase !== 'past' ? 'exam' : 'day';
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next?scope=${scope}`);
         if (!res.ok) return;
         const step = await res.json();
-        if (step.type === 'done') {
-            sub.textContent = 'На сегодня всё сделано';
-        } else {
-            const d = describePathStep(step, true);
-            sub.textContent = `${PATH_RUN_STEP_VIEW[step.type].kind}: ${d.name}`;
+        starterPreview = { subject, step, scope, at: Date.now() };
+        if (scope === 'exam' && step.type === 'done') {
+            const ex = examDoneView(step);
+            renderStarter({ say: ex.say, emo: 'happy', goLabel: ex.goLabel });
+            return;
         }
-    } catch (_) { /* подпись не критична */ }
+        if (step.type === 'done') {
+            const say = {
+                limit: step.next_up
+                    ? `Норма на сегодня закрыта. Дальше по пути — «${step.next_up}». Мозгу полезно дать всё уложить, но можно взять тему сверх нормы.`
+                    : 'Норма на сегодня закрыта. Мозгу нужно время, чтобы всё улеглось.',
+                reviews_left: 'Главное на сегодня сделано. Остались повторения — можно ещё короткий подход.'
+            }[step.reason] || 'Сегодня всё сделано. Новые темы откроются, когда пройденные закрепятся в повторениях.';
+            const goLabel = step.reason === 'limit' && step.next_up ? 'Ещё тема'
+                : (step.reason === 'reviews_left' ? 'Ещё подход' : 'Посмотреть путь');
+            renderStarter({ say, emo: 'happy', goLabel });
+            return;
+        }
+        const d = describePathStep(step, true);
+        const view = PATH_RUN_STEP_VIEW[step.type];
+        renderStarter({
+            say: d.say,
+            emo: d.emo,
+            step: { icon: view.icon, kind: view.kind, name: d.name },
+            goLabel: 'Начать'
+        });
+    } catch (_) { /* стартовый экран не критичен: кнопка всё равно запустит путь */ }
 };
 
 // ----------------------------------------------------------------------------

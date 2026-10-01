@@ -3,34 +3,34 @@
 // ============================================================================
 const FSRS_LABELS = {
     'default': {
-        1: { label: 'Again', hint: 'Не вспомнил' },
-        2: { label: 'Hard', hint: 'С трудом' },
-        3: { label: 'Good', hint: 'Вспомнил' },
-        4: { label: 'Easy', hint: 'Легко' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С трудом' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Без усилий' }
     },
     'law_civil': {
-        1: { label: 'Again', hint: 'Не вспомнил определение' },
-        2: { label: 'Hard', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Good', hint: 'Вспомнил полностью' },
-        4: { label: 'Easy', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
+        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил полностью' },
+        4: { label: 'Легко', hint: 'Знаю наизусть' }
     },
     'law_civil_rb': {
-        1: { label: 'Again', hint: 'Не вспомнил определение' },
-        2: { label: 'Hard', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Good', hint: 'Вспомнил полностью' },
-        4: { label: 'Easy', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
+        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил полностью' },
+        4: { label: 'Легко', hint: 'Знаю наизусть' }
     },
     'python_pro': {
-        1: { label: 'Again', hint: 'Не помню синтаксис' },
-        2: { label: 'Hard', hint: 'Вспомнил с ошибкой' },
-        3: { label: 'Good', hint: 'Написал бы верно' },
-        4: { label: 'Easy', hint: 'Пишу на автомате' }
+        1: { label: 'Забыл', hint: 'Не помню синтаксис' },
+        2: { label: 'Трудно', hint: 'Вспомнил с ошибкой' },
+        3: { label: 'Помню', hint: 'Написал бы верно' },
+        4: { label: 'Легко', hint: 'Пишу на автомате' }
     },
     'chinese_hsk3': {
-        1: { label: 'Again', hint: 'Не помню ни иероглиф, ни значение' },
-        2: { label: 'Hard', hint: 'Помню значение, забыл иероглиф' },
-        3: { label: 'Good', hint: 'Вспомнил иероглиф и значение' },
-        4: { label: 'Easy', hint: 'Читаю свободно' }
+        1: { label: 'Забыл', hint: 'Не помню ни иероглиф, ни значение' },
+        2: { label: 'Трудно', hint: 'Помню значение, забыл иероглиф' },
+        3: { label: 'Помню', hint: 'Вспомнил иероглиф и значение' },
+        4: { label: 'Легко', hint: 'Читаю свободно' }
     }
 };
 
@@ -53,20 +53,13 @@ function renderFSRSButtons(cardSubject) {
     const container = document.getElementById('action-buttons');
     if (!container) return;
     
-    const colorStyles = {
-        1: 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200/60 dark:border-rose-900/40',
-        2: 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-amber-200/60 dark:border-amber-900/40',
-        3: 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40',
-        4: 'text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 border-sky-200/60 dark:border-sky-900/40'
-    };
-    
+    // Палитра оценок: красный — забыл, нейтральный — трудно, зелёный — помню, фиолетовый — легко
     container.innerHTML = [1, 2, 3, 4].map(rating => {
         const config = labels[rating];
-        const style = colorStyles[rating];
         return `
-            <button data-rating="${rating}" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest ${style} active:scale-95 transition-all duration-100 border">
-                <span class="font-bold text-xs uppercase tracking-wider font-mono">${escapeHTML(config.label)}</span>
-                <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">${escapeHTML(config.hint)}</span>
+            <button data-rating="${rating}" class="rate-btn rate-${rating}">
+                <span class="rate-btn-label">${escapeHTML(config.label)}</span>
+                <span class="rate-btn-hint">${escapeHTML(config.hint)}</span>
             </button>
         `;
     }).join('');
@@ -185,8 +178,8 @@ const STAGING_CARD_TEMPLATE = `
         </div>
         
         <!-- Мнемоника / Ассоциация (если есть) -->
-        <div id="staging-card-mnemonic-box" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl text-[10px] text-left hidden shadow-xs">
-            <span class="text-amber-700 dark:text-amber-400 font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
+        <div id="staging-card-mnemonic-box" class="mnemonic-box w-full p-2.5 rounded-xl text-[10px] text-left hidden shadow-xs">
+            <span class="mnemonic-label font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
                 <span class="material-symbols-outlined text-[12px]">psychology</span>
                 <span>АССОЦИАЦИЯ:</span>
             </span>
@@ -485,16 +478,6 @@ async function initApplicationLifecycle() {
         if (btnNew) {
             btnNew.onclick = (e) => { 
                 if (e) { e.preventDefault(); e.stopPropagation(); } 
-                // Путь знаний: урок и его карточки — одна порция, её ведёт кот
-                if (window.pathDayPlan && typeof startTopicRun === 'function') {
-                    const plan = window.pathDayPlan;
-                    if (!plan.unfinished && !plan.next_lesson) {
-                        alert('Открытых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.');
-                        return;
-                    }
-                    startTopicRun(!plan.unfinished && !plan.can_start_lesson);
-                    return;
-                }
                 startSession('new'); 
             };
         }
@@ -900,7 +883,7 @@ function resetCardDOM() {
     if (hintEl) {
         hintEl.classList.add('hidden');
         hintEl.innerHTML = '';
-        hintEl.className = 'text-xs font-semibold font-mono text-primary bg-primary/10 mt-2 px-3 py-1 rounded-full border border-primary/20 hidden';
+        hintEl.className = 'card-context hidden';
     }
 }
 
@@ -1262,9 +1245,12 @@ function recalculateQueueCounters() {
 }
 
 function renderCurrentCard() {
+    const inRun = window.pathRun && window.pathRun.active;
+    if (inRun && typeof window.updateRunBar === 'function') window.updateRunBar(currentIndex, cardsQueue.length);
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
-            if (!window.surveyCompletedToday) {
+            // В занятии без анкеты FSRS: кот сразу ведёт к следующему шагу
+            if (!window.surveyCompletedToday && !inRun) {
                 window.showSurveyDirectly();
             } else {
                 showSessionDebrief();
@@ -1411,7 +1397,7 @@ function renderIntroductionCard(card) {
     let mnemonicFormatted = '';
     if (card.mnemonic) {
         const m = card.mnemonic;
-        mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
+        mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold mnemonic-key">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
     }
 
     const bodyEl = document.getElementById('card-intro-body');
@@ -1616,36 +1602,36 @@ function renderReviewCard(card) {
             modeText.textContent = card.reason_label;
             if (modeBadge) {
                 if (card.reason_type === 'new') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary';
+                    modeBadge.className = 'mode-badge mode-violet';
                 } else if (card.reason_type === 'intra_relearn') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400';
+                    modeBadge.className = 'mode-badge mode-red';
                 } else if (card.reason_type === 'intra_learn') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 } else if (card.reason_type === 'cram') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 } else {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 }
             }
         } else if (isCloze) {
             modeText.textContent = 'ПРОПУСК (CLOZE)';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400';
+                modeBadge.className = 'mode-badge mode-violet';
             }
         } else if (currentSessionMode === 'cram') {
             modeText.textContent = 'РЕЖИМ ШТУРМА';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                modeBadge.className = 'mode-badge mode-red';
             }
         } else if (currentSessionMode === 'new') {
             modeText.textContent = 'ИЗУЧЕНИЕ НОВОГО';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary';
+                modeBadge.className = 'mode-badge mode-violet';
             }
         } else {
             modeText.textContent = 'ПОВТОРЕНИЕ FSRS';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+                modeBadge.className = 'mode-badge mode-neutral';
             }
         }
     }
@@ -1853,7 +1839,7 @@ function renderReviewCard(card) {
             if (card.mnemonic) {
                 let m = card.mnemonic;
                 if (typeof m === 'object') {
-                    cardMnemonic.innerHTML = `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}`;
+                    cardMnemonic.innerHTML = `<strong class="font-bold mnemonic-key">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}`;
                 } else {
                     cardMnemonic.textContent = m;
                 }
@@ -2067,92 +2053,48 @@ async function updateGlobalBadges() {
     } catch (e) { console.error("Ошибка расчета бэйджей:", e); }
 }
 
+// Ручные режимы на стартовом экране — мелкие плитки под главной кнопкой. Цвет только у сигнала
+// «есть долги по повторению»; у предметов «Пути знаний» нет «Учить новое» — новое приходит уроками.
+function setStarterTile(btn, badge, value, { hot = false, dim = false } = {}) {
+    if (!btn || !badge) return;
+    badge.textContent = value ? String(value) : '';
+    badge.className = `starter-tile-badge${hot ? ' starter-tile-badge-hot' : ''}`;
+    btn.classList.toggle('starter-tile-dim', dim);
+}
+
 function renderSessionStarterButtons(data) {
     if (!data) return;
-    const btnNewText = document.getElementById('btn-session-new-text');
-    const btnNewBadge = document.getElementById('btn-session-new-badge');
     const btnNew = document.getElementById('btn-session-new');
-    
-    const btnReviewText = document.getElementById('btn-session-review-text');
-    const btnReviewBadge = document.getElementById('btn-session-review-badge');
-    const btnReview = document.getElementById('btn-session-review');
-    
-    const btnCramText = document.getElementById('btn-session-cram-text');
-    const btnCramBadge = document.getElementById('btn-session-cram-badge');
+    const btnNewText = document.getElementById('btn-session-new-text');
 
     // 1. Повторение (due_reviews_now: REV просроченные + LRN)
     const dueCount = data.due_reviews_now !== undefined ? data.due_reviews_now : (data.cards_learning + data.cards_review);
-    if (btnReview && btnReviewBadge && btnReviewText) {
-        if (dueCount > 0) {
-            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
-            btnReviewBadge.textContent = `${dueCount} КАРТ`;
-            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary text-white shadow-xs animate-pulse";
-            btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md cursor-pointer";
-        } else {
-            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
-            btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО)";
-            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
-        }
-    }
+    setStarterTile(document.getElementById('btn-session-review'), document.getElementById('btn-session-review-badge'),
+        dueCount, { hot: dueCount > 0, dim: dueCount <= 0 });
 
-    // 2. Путь знаний: «Новая тема» / «Доучить тему» / «Ещё тема» по плану дня (урок + его карточки неделимы)
+    // 2. Учить новое — только для колод без «Пути знаний»
     window.pathDayPlan = data.path_day || null;
-    if (window.pathDayPlan && btnNew && btnNewBadge && btnNewText) {
-        renderTopicButton(window.pathDayPlan, btnNew, btnNewText, btnNewBadge);
-    } else if (currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
-        // «Все предметы»: тему берём из активной колоды — как и «Продолжить путь»
+    if (!window.pathDayPlan && currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
         loadTopicButtonPlan(getActiveDeckSubject());
     }
-
-    // 2. Учить новое (new_remaining_today с учетом дневного лимита)
-    const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
-    const dailyLimit = data.daily_new_limit || 20;
-    const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
-    if (btnNew && btnNewBadge && btnNewText && !window.pathDayPlan) {
-        if (newRemaining > 0) {
-            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
-        } else if (totalNew > 0) {
-            // Дневной лимит исчерпан, но новые карточки в колоде ЕСТЬ — разрешаем учить дальше (over-limit study)
-            btnNewText.textContent = "[ УЧИТЬ ЕЩЕ ]";
-            btnNewBadge.textContent = `+${totalNew} В КОЛОДЕ`;
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-amber-500/60 text-amber-600 dark:text-amber-400 py-2.5 font-bold tracking-wide hover:bg-amber-500 hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
-        } else {
-            // Карточек со state == 0 в базе действительно 0
-            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = "0 НОВЫХ";
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
-        }
+    if (btnNew) btnNew.classList.toggle('hidden', !!window.pathDayPlan);
+    if (btnNew && !window.pathDayPlan) {
+        const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
+        const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
+        if (btnNewText) btnNewText.textContent = newRemaining > 0 || !totalNew ? 'Учить новое' : 'Учить ещё';
+        setStarterTile(btnNew, document.getElementById('btn-session-new-badge'),
+            newRemaining > 0 ? newRemaining : (totalNew ? `+${totalNew}` : ''), { dim: !totalNew });
     }
 
     // 3. Штурм (сложные карточки со всех предметов без влияния на fsrs)
-    const cramAvailable = data.cards_cram_available !== undefined 
-        ? data.cards_cram_available 
+    const cramAvailable = data.cards_cram_available !== undefined
+        ? data.cards_cram_available
         : (data.cards_learning + data.cards_review);
-    const btnCram = document.getElementById('btn-session-cram');
-    if (btnCramText && btnCramBadge) {
-        btnCramText.textContent = "[ ШТУРМ ]";
-        if (cramAvailable > 0) {
-            btnCramBadge.textContent = `${cramAvailable} КАРТ (СЛОЖНЫЕ)`;
-            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
-            if (btnCram) {
-                btnCram.className = "w-full flex items-center justify-between px-4 border border-amber-500/40 hover:border-amber-500 text-amber-700 dark:text-amber-300 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed hover:bg-amber-500/5 cursor-pointer shadow-xs";
-            }
-        } else {
-            btnCramBadge.textContent = "0 (НЕТ ИЗУЧЕННЫХ)";
-            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            if (btnCram) {
-                btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed cursor-pointer";
-            }
-        }
-    }
+    setStarterTile(document.getElementById('btn-session-cram'), document.getElementById('btn-session-cram-badge'),
+        cramAvailable, { dim: cramAvailable <= 0 });
 }
 
+// «Все предметы»: путь берём из активной колоды — как и главная кнопка
 async function loadTopicButtonPlan(subject) {
     if (!subject || subject === 'all') return;
     try {
@@ -2162,42 +2104,8 @@ async function loadTopicButtonPlan(subject) {
         if (!plan.is_path || currentSubject !== 'all') return;
         window.pathDayPlan = plan;
         const btn = document.getElementById('btn-session-new');
-        const textEl = document.getElementById('btn-session-new-text');
-        const badgeEl = document.getElementById('btn-session-new-badge');
-        if (btn && textEl && badgeEl) renderTopicButton(plan, btn, textEl, badgeEl);
-    } catch (_) { /* останется обычная кнопка */ }
-}
-
-function renderTopicButton(plan, btn, textEl, badgeEl) {
-    const badgeBase = "px-2 py-0.5 rounded-md text-[10px] font-bold";
-    const btnBase = "w-full flex items-center justify-between px-4 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl cursor-pointer";
-    if (plan.unfinished) {
-        const n = plan.unfinished.count;
-        textEl.textContent = "[ ДОУЧИТЬ ТЕМУ ]";
-        badgeEl.textContent = `${n} КАРТ.`;
-        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
-        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
-        btn.title = `Урок «${plan.unfinished.node_name}» пройден — осталось выучить его карточки`;
-    } else if (plan.next_lesson && plan.can_start_lesson) {
-        textEl.textContent = "[ НОВАЯ ТЕМА ]";
-        badgeEl.textContent = `${plan.learned_today} ИЗ ${plan.limit}`;
-        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
-        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
-        btn.title = `Урок «${plan.next_lesson.node_name}» и его карточки`;
-    } else if (plan.next_lesson) {
-        // Норма закрыта — ещё одна тема только по явному выбору
-        textEl.textContent = "[ ЕЩЁ ТЕМА ]";
-        badgeEl.textContent = "СВЕРХ НОРМЫ";
-        badgeEl.className = `${badgeBase} bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20`;
-        btn.className = `${btnBase} border border-amber-500/60 text-amber-600 dark:text-amber-400 hover:bg-amber-500 hover:text-white shadow-xs`;
-        btn.title = `Норма на сегодня закрыта (${plan.learned_today} из ${plan.limit})`;
-    } else {
-        textEl.textContent = "[ НОВАЯ ТЕМА ]";
-        badgeEl.textContent = "НЕТ ОТКРЫТЫХ";
-        badgeEl.className = `${badgeBase} bg-neutral-100 dark:bg-neutral-800 text-neutral-400`;
-        btn.className = `${btnBase} border border-neutral-200 dark:border-neutral-800 text-neutral-400 opacity-75`;
-        btn.title = "Следующие темы откроются, когда освоишь пройденные";
-    }
+        if (btn) btn.classList.add('hidden');
+    } catch (_) { /* останется обычная плитка */ }
 }
 
 window.switchTab = function(targetTab) {

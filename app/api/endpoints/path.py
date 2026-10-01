@@ -12,6 +12,7 @@ from app.services.knowledge_path import (
     get_path_state, is_node_open, complete_lesson, next_path_step, get_day_plan, get_today_summary,
     normalize_subject, RUN_STEP_LIMITS,
 )
+from app.services.exam_prep import EXAM_STEP_LIMITS
 
 router = APIRouter()
 
@@ -39,13 +40,13 @@ async def get_path(subject: str, current_user: str = Depends(get_current_user_id
 async def get_next_step(
     subject: str,
     done: str = Query("", max_length=200, description="Типы шагов, уже выданных в этом запуске, через запятую"),
-    scope: str = Query("day", pattern="^(day|topic)$", description="day — «Продолжить путь», topic — одна новая тема"),
+    scope: str = Query("day", pattern="^(day|topic|exam)$", description="day — «Продолжить путь», topic — одна новая тема"),
     extra: bool = Query(False, description="Тема сверх дневной нормы по явному выбору"),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Следующий шаг занятия: review | cards | lesson | practice | done."""
-    done_steps = [t for t in done.split(",") if t in RUN_STEP_LIMITS]
+    done_steps = [t for t in done.split(",") if t in RUN_STEP_LIMITS or t in EXAM_STEP_LIMITS]
     return await next_path_step(db, current_user, subject, done_steps, scope=scope, extra=extra)
 
 

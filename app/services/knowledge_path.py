@@ -17,6 +17,7 @@ from app.database.models import (
     Card, Phrase, ReviewLog, PracticeItem, PracticeSessionLog, KnowledgeNode, KnowledgeEdge, NodeProgress,
     GenerationJob, UserSetting, utc_now,
 )
+from app.services.exam_prep import ticket_card_filter
 
 MASTERY_ANSWERED_SHARE = 0.8
 # Урок и его карточки неделимы. Новый урок начинается, если до дневной нормы осталось
@@ -306,6 +307,7 @@ async def _learned_today(db, user_id: str, subject: str) -> int:
         select(func.count(func.distinct(ReviewLog.card_id))).join(Card, ReviewLog.card_id == Card.id).where(
             ReviewLog.user_id == user_id, ReviewLog.state == 0,
             ReviewLog.review_time >= await _today_start(db, user_id), Card.subject.in_(get_all_subject_aliases(subject)),
+            ticket_card_filter(),
         )
     )).scalar() or 0
 
@@ -417,6 +419,9 @@ async def next_path_step(db, user_id: str, subject: str, done: list[str], scope:
     done — типы шагов, уже выданных в этом запуске.
     """
     subject = normalize_subject(subject)
+    if scope == "exam":
+        from app.services.exam_prep import next_exam_step
+        return await next_exam_step(db, user_id, subject, done, extra)
     used = {t: done.count(t) for t in RUN_STEP_LIMITS}
     now = utc_now()
     base = [Card.user_id == user_id, Card.subject == subject]

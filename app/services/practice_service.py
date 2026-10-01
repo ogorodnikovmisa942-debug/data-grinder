@@ -32,7 +32,8 @@ async def generate_practice_session(
     user_id: str,
     subject: str,
     count: int = 10,
-    db: Optional[AsyncSession] = None
+    db: Optional[AsyncSession] = None,
+    node_ids: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """Собирает тест по выученному: карточки (с вариантами или письменно), связи тем, вопросы из уроков."""
     from app.services.knowledge_path import normalize_subject, seen_practice_cards_filter
@@ -174,6 +175,11 @@ async def generate_practice_session(
                 records.append(pi)
                 weights[pi.item_id] = 1.5
 
+        if node_ids:
+            # Режим экзамена: только темы билетов (если по ним заданий мало — добираем из остальных)
+            focused = [r for r in records if r.node_id in node_ids]
+            if len(focused) >= min(count, 4):
+                records = focused
         records = _pick_interleaved(records, count, await _fresh_node_ids(db, user_id), weights)
 
         # Прошлые задания не стираем сразу: вторая вкладка или перезапрос не должны ломать открытую сессию

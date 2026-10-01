@@ -1,0 +1,62 @@
+    <!-- Подготовка к экзамену по билетам: список билетов + дата → разбор по книге → план по дням -->
+    <div id="exam-modal" role="dialog" aria-modal="true" aria-labelledby="exam-modal-title" class="hidden fixed inset-0 bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans select-none overflow-hidden" style="isolation: isolate; padding-top: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 48px); padding-bottom: calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px); padding-left: max(env(safe-area-inset-left, 0px), 16px); padding-right: max(env(safe-area-inset-right, 0px), 16px);">
+        <div class="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0 bg-surface-container-lowest border border-neutral-200/90 dark:border-neutral-800 rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-center justify-between gap-2 px-4 py-3 border-b border-neutral-200/80 dark:border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-symbols-outlined text-primary text-xl shrink-0">assignment</span>
+                    <h3 id="exam-modal-title" class="font-mono font-bold text-xs text-primary uppercase tracking-wider truncate">Билеты к экзамену</h3>
+                </div>
+                <button type="button" onclick="closeExamModal()" aria-label="Закрыть" class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all cursor-pointer">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-5 flex flex-col gap-4" style="touch-action: pan-y;">
+                <div class="lesson-row">
+                    <div class="lesson-cat-wrap shrink-0">
+                        <pre id="exam-cat" class="lesson-cat font-mono text-primary" aria-hidden="true"></pre>
+                    </div>
+                    <div class="lesson-bubble relative flex-1 min-w-0 rounded-2xl px-4 py-3 bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700">
+                        <p id="exam-say" class="text-sm leading-relaxed" aria-live="polite"></p>
+                    </div>
+                </div>
+
+                <!-- 1. Список билетов и дата -->
+                <div id="exam-setup" class="hidden flex flex-col gap-3 select-text">
+                    <label class="exam-field">Дата экзамена
+                        <input id="exam-date" type="date" class="oq-modal-field">
+                    </label>
+                    <label class="exam-field">Билеты — по одному на строку
+                        <textarea id="exam-text" class="oq-modal-field" rows="9" placeholder="1. Понятие и признаки государства&#10;2. Функции государства&#10;3. Форма правления"></textarea>
+                    </label>
+                    <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>
+                    <p id="exam-error" class="exam-error hidden" role="alert"></p>
+                </div>
+
+                <!-- 2. Готовый план -->
+                <div id="exam-review" class="hidden flex flex-col gap-4">
+                    <div class="exam-stats">
+                        <div class="exam-stat"><span id="exam-stat-days" class="exam-stat-num">—</span><span class="exam-stat-label">дней до экзамена</span></div>
+                        <div class="exam-stat"><span id="exam-stat-ready" class="exam-stat-num">—</span><span class="exam-stat-label">билетов закреплено</span></div>
+                        <div class="exam-stat"><span id="exam-stat-today" class="exam-stat-num">—</span><span class="exam-stat-label">тем сегодня</span></div>
+                    </div>
+                    <div class="exam-progress" aria-hidden="true"><div id="exam-progress-fill" class="exam-progress-fill"></div></div>
+
+                    <div id="exam-missing-wrap" class="hidden flex flex-col gap-2">
+                        <h4 class="exam-section">Нет в книге</h4>
+                        <div id="exam-missing" class="flex flex-col gap-2"></div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <h4 class="exam-section">Все билеты</h4>
+                        <ol id="exam-list" class="exam-list"></ol>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 py-3 border-t border-neutral-200/80 dark:border-neutral-800 flex items-center gap-2 shrink-0">
+                <button id="exam-secondary" type="button" onclick="examSecondary()" class="lesson-btn lesson-btn-secondary flex-1 rounded-xl text-sm font-mono font-bold transition-all cursor-pointer">Отмена</button>
+                <button id="exam-primary" type="button" onclick="examPrimary()" class="lesson-btn lesson-btn-primary flex-1 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">Разобрать</button>
+            </div>
+        </div>
+    </div>

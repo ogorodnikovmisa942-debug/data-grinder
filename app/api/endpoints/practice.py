@@ -79,6 +79,7 @@ async def get_practice_session(
     request: Request,
     subject: Optional[str] = Query(default=None, max_length=128),
     count: int = Query(default=10, ge=1, le=50),
+    exam_plan: Optional[int] = Query(default=None, description="Режим экзамена: задания по темам билетов"),
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
@@ -95,7 +96,11 @@ async def get_practice_session(
         active_sub = res.scalar()
         subject = active_sub or "all"
 
-    items = await generate_practice_session(user_id=current_user, subject=subject, count=count, db=db)
+    node_ids = None
+    if exam_plan is not None:
+        from app.services.exam_prep import plan_required_node_ids
+        node_ids = await plan_required_node_ids(db, current_user, exam_plan)
+    items = await generate_practice_session(user_id=current_user, subject=subject, count=count, db=db, node_ids=node_ids)
     return items
 
 

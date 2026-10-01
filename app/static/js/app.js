@@ -585,34 +585,34 @@ if (typeof window.exitBulkMode !== 'function') {
 // ============================================================================
 const FSRS_LABELS = {
     'default': {
-        1: { label: 'Again', hint: 'Не вспомнил' },
-        2: { label: 'Hard', hint: 'С трудом' },
-        3: { label: 'Good', hint: 'Вспомнил' },
-        4: { label: 'Easy', hint: 'Легко' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С трудом' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Без усилий' }
     },
     'law_civil': {
-        1: { label: 'Again', hint: 'Не вспомнил определение' },
-        2: { label: 'Hard', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Good', hint: 'Вспомнил полностью' },
-        4: { label: 'Easy', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
+        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил полностью' },
+        4: { label: 'Легко', hint: 'Знаю наизусть' }
     },
     'law_civil_rb': {
-        1: { label: 'Again', hint: 'Не вспомнил определение' },
-        2: { label: 'Hard', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Good', hint: 'Вспомнил полностью' },
-        4: { label: 'Easy', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
+        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил полностью' },
+        4: { label: 'Легко', hint: 'Знаю наизусть' }
     },
     'python_pro': {
-        1: { label: 'Again', hint: 'Не помню синтаксис' },
-        2: { label: 'Hard', hint: 'Вспомнил с ошибкой' },
-        3: { label: 'Good', hint: 'Написал бы верно' },
-        4: { label: 'Easy', hint: 'Пишу на автомате' }
+        1: { label: 'Забыл', hint: 'Не помню синтаксис' },
+        2: { label: 'Трудно', hint: 'Вспомнил с ошибкой' },
+        3: { label: 'Помню', hint: 'Написал бы верно' },
+        4: { label: 'Легко', hint: 'Пишу на автомате' }
     },
     'chinese_hsk3': {
-        1: { label: 'Again', hint: 'Не помню ни иероглиф, ни значение' },
-        2: { label: 'Hard', hint: 'Помню значение, забыл иероглиф' },
-        3: { label: 'Good', hint: 'Вспомнил иероглиф и значение' },
-        4: { label: 'Easy', hint: 'Читаю свободно' }
+        1: { label: 'Забыл', hint: 'Не помню ни иероглиф, ни значение' },
+        2: { label: 'Трудно', hint: 'Помню значение, забыл иероглиф' },
+        3: { label: 'Помню', hint: 'Вспомнил иероглиф и значение' },
+        4: { label: 'Легко', hint: 'Читаю свободно' }
     }
 };
 
@@ -635,20 +635,13 @@ function renderFSRSButtons(cardSubject) {
     const container = document.getElementById('action-buttons');
     if (!container) return;
     
-    const colorStyles = {
-        1: 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-rose-200/60 dark:border-rose-900/40',
-        2: 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-amber-200/60 dark:border-amber-900/40',
-        3: 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-900/40',
-        4: 'text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 border-sky-200/60 dark:border-sky-900/40'
-    };
-    
+    // Палитра оценок: красный — забыл, нейтральный — трудно, зелёный — помню, фиолетовый — легко
     container.innerHTML = [1, 2, 3, 4].map(rating => {
         const config = labels[rating];
-        const style = colorStyles[rating];
         return `
-            <button data-rating="${rating}" class="flex-1 min-w-0 h-full flex flex-col items-center justify-center rounded-xl bg-surface-container-lowest ${style} active:scale-95 transition-all duration-100 border">
-                <span class="font-bold text-xs uppercase tracking-wider font-mono">${escapeHTML(config.label)}</span>
-                <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase tracking-tight mt-0.5 truncate max-w-full px-1">${escapeHTML(config.hint)}</span>
+            <button data-rating="${rating}" class="rate-btn rate-${rating}">
+                <span class="rate-btn-label">${escapeHTML(config.label)}</span>
+                <span class="rate-btn-hint">${escapeHTML(config.hint)}</span>
             </button>
         `;
     }).join('');
@@ -767,8 +760,8 @@ const STAGING_CARD_TEMPLATE = `
         </div>
         
         <!-- Мнемоника / Ассоциация (если есть) -->
-        <div id="staging-card-mnemonic-box" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl text-[10px] text-left hidden shadow-xs">
-            <span class="text-amber-700 dark:text-amber-400 font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
+        <div id="staging-card-mnemonic-box" class="mnemonic-box w-full p-2.5 rounded-xl text-[10px] text-left hidden shadow-xs">
+            <span class="mnemonic-label font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
                 <span class="material-symbols-outlined text-[12px]">psychology</span>
                 <span>АССОЦИАЦИЯ:</span>
             </span>
@@ -1067,16 +1060,6 @@ async function initApplicationLifecycle() {
         if (btnNew) {
             btnNew.onclick = (e) => { 
                 if (e) { e.preventDefault(); e.stopPropagation(); } 
-                // Путь знаний: урок и его карточки — одна порция, её ведёт кот
-                if (window.pathDayPlan && typeof startTopicRun === 'function') {
-                    const plan = window.pathDayPlan;
-                    if (!plan.unfinished && !plan.next_lesson) {
-                        alert('Открытых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.');
-                        return;
-                    }
-                    startTopicRun(!plan.unfinished && !plan.can_start_lesson);
-                    return;
-                }
                 startSession('new'); 
             };
         }
@@ -1482,7 +1465,7 @@ function resetCardDOM() {
     if (hintEl) {
         hintEl.classList.add('hidden');
         hintEl.innerHTML = '';
-        hintEl.className = 'text-xs font-semibold font-mono text-primary bg-primary/10 mt-2 px-3 py-1 rounded-full border border-primary/20 hidden';
+        hintEl.className = 'card-context hidden';
     }
 }
 
@@ -1844,9 +1827,12 @@ function recalculateQueueCounters() {
 }
 
 function renderCurrentCard() {
+    const inRun = window.pathRun && window.pathRun.active;
+    if (inRun && typeof window.updateRunBar === 'function') window.updateRunBar(currentIndex, cardsQueue.length);
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
-            if (!window.surveyCompletedToday) {
+            // В занятии без анкеты FSRS: кот сразу ведёт к следующему шагу
+            if (!window.surveyCompletedToday && !inRun) {
                 window.showSurveyDirectly();
             } else {
                 showSessionDebrief();
@@ -1993,7 +1979,7 @@ function renderIntroductionCard(card) {
     let mnemonicFormatted = '';
     if (card.mnemonic) {
         const m = card.mnemonic;
-        mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
+        mnemonicFormatted = typeof m === 'object' ? `<strong class="font-bold mnemonic-key">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}` : escapeHTML(m);
     }
 
     const bodyEl = document.getElementById('card-intro-body');
@@ -2198,36 +2184,36 @@ function renderReviewCard(card) {
             modeText.textContent = card.reason_label;
             if (modeBadge) {
                 if (card.reason_type === 'new') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary';
+                    modeBadge.className = 'mode-badge mode-violet';
                 } else if (card.reason_type === 'intra_relearn') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400';
+                    modeBadge.className = 'mode-badge mode-red';
                 } else if (card.reason_type === 'intra_learn') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 } else if (card.reason_type === 'cram') {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 } else {
-                    modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+                    modeBadge.className = 'mode-badge mode-neutral';
                 }
             }
         } else if (isCloze) {
             modeText.textContent = 'ПРОПУСК (CLOZE)';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400';
+                modeBadge.className = 'mode-badge mode-violet';
             }
         } else if (currentSessionMode === 'cram') {
             modeText.textContent = 'РЕЖИМ ШТУРМА';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400';
+                modeBadge.className = 'mode-badge mode-red';
             }
         } else if (currentSessionMode === 'new') {
             modeText.textContent = 'ИЗУЧЕНИЕ НОВОГО';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary';
+                modeBadge.className = 'mode-badge mode-violet';
             }
         } else {
             modeText.textContent = 'ПОВТОРЕНИЕ FSRS';
             if (modeBadge) {
-                modeBadge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200/60 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300';
+                modeBadge.className = 'mode-badge mode-neutral';
             }
         }
     }
@@ -2435,7 +2421,7 @@ function renderReviewCard(card) {
             if (card.mnemonic) {
                 let m = card.mnemonic;
                 if (typeof m === 'object') {
-                    cardMnemonic.innerHTML = `<strong class="font-bold text-amber-700 dark:text-amber-300">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}`;
+                    cardMnemonic.innerHTML = `<strong class="font-bold mnemonic-key">${escapeHTML(m.keyword)}</strong>: ${escapeHTML(m.verbal_cue)}`;
                 } else {
                     cardMnemonic.textContent = m;
                 }
@@ -2649,92 +2635,48 @@ async function updateGlobalBadges() {
     } catch (e) { console.error("Ошибка расчета бэйджей:", e); }
 }
 
+// Ручные режимы на стартовом экране — мелкие плитки под главной кнопкой. Цвет только у сигнала
+// «есть долги по повторению»; у предметов «Пути знаний» нет «Учить новое» — новое приходит уроками.
+function setStarterTile(btn, badge, value, { hot = false, dim = false } = {}) {
+    if (!btn || !badge) return;
+    badge.textContent = value ? String(value) : '';
+    badge.className = `starter-tile-badge${hot ? ' starter-tile-badge-hot' : ''}`;
+    btn.classList.toggle('starter-tile-dim', dim);
+}
+
 function renderSessionStarterButtons(data) {
     if (!data) return;
-    const btnNewText = document.getElementById('btn-session-new-text');
-    const btnNewBadge = document.getElementById('btn-session-new-badge');
     const btnNew = document.getElementById('btn-session-new');
-    
-    const btnReviewText = document.getElementById('btn-session-review-text');
-    const btnReviewBadge = document.getElementById('btn-session-review-badge');
-    const btnReview = document.getElementById('btn-session-review');
-    
-    const btnCramText = document.getElementById('btn-session-cram-text');
-    const btnCramBadge = document.getElementById('btn-session-cram-badge');
+    const btnNewText = document.getElementById('btn-session-new-text');
 
     // 1. Повторение (due_reviews_now: REV просроченные + LRN)
     const dueCount = data.due_reviews_now !== undefined ? data.due_reviews_now : (data.cards_learning + data.cards_review);
-    if (btnReview && btnReviewBadge && btnReviewText) {
-        if (dueCount > 0) {
-            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
-            btnReviewBadge.textContent = `${dueCount} КАРТ`;
-            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-secondary text-white shadow-xs animate-pulse";
-            btnReview.className = "w-full flex items-center justify-between px-4 border-2 border-secondary text-secondary py-2.5 font-bold tracking-wide hover:bg-secondary hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-md cursor-pointer";
-        } else {
-            btnReviewText.textContent = "[ ПОВТОРЕНИЕ ]";
-            btnReviewBadge.textContent = "0 (ВСЕ ПОВТОРЕНО)";
-            btnReviewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            btnReview.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
-        }
-    }
+    setStarterTile(document.getElementById('btn-session-review'), document.getElementById('btn-session-review-badge'),
+        dueCount, { hot: dueCount > 0, dim: dueCount <= 0 });
 
-    // 2. Путь знаний: «Новая тема» / «Доучить тему» / «Ещё тема» по плану дня (урок + его карточки неделимы)
+    // 2. Учить новое — только для колод без «Пути знаний»
     window.pathDayPlan = data.path_day || null;
-    if (window.pathDayPlan && btnNew && btnNewBadge && btnNewText) {
-        renderTopicButton(window.pathDayPlan, btnNew, btnNewText, btnNewBadge);
-    } else if (currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
-        // «Все предметы»: тему берём из активной колоды — как и «Продолжить путь»
+    if (!window.pathDayPlan && currentSubject === 'all' && typeof getActiveDeckSubject === 'function') {
         loadTopicButtonPlan(getActiveDeckSubject());
     }
-
-    // 2. Учить новое (new_remaining_today с учетом дневного лимита)
-    const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
-    const dailyLimit = data.daily_new_limit || 20;
-    const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
-    if (btnNew && btnNewBadge && btnNewText && !window.pathDayPlan) {
-        if (newRemaining > 0) {
-            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = `${newRemaining} ИЗ ${dailyLimit}`;
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 text-primary border border-primary/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-primary text-primary py-2.5 font-bold tracking-wide hover:bg-primary hover:text-on-primary transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
-        } else if (totalNew > 0) {
-            // Дневной лимит исчерпан, но новые карточки в колоде ЕСТЬ — разрешаем учить дальше (over-limit study)
-            btnNewText.textContent = "[ УЧИТЬ ЕЩЕ ]";
-            btnNewBadge.textContent = `+${totalNew} В КОЛОДЕ`;
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-amber-500/60 text-amber-600 dark:text-amber-400 py-2.5 font-bold tracking-wide hover:bg-amber-500 hover:text-white transition-all text-xs font-mono uppercase rounded-xl shadow-xs cursor-pointer";
-        } else {
-            // Карточек со state == 0 в базе действительно 0
-            btnNewText.textContent = "[ УЧИТЬ НОВОЕ ]";
-            btnNewBadge.textContent = "0 НОВЫХ";
-            btnNewBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            btnNew.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 cursor-pointer";
-        }
+    if (btnNew) btnNew.classList.toggle('hidden', !!window.pathDayPlan);
+    if (btnNew && !window.pathDayPlan) {
+        const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
+        const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
+        if (btnNewText) btnNewText.textContent = newRemaining > 0 || !totalNew ? 'Учить новое' : 'Учить ещё';
+        setStarterTile(btnNew, document.getElementById('btn-session-new-badge'),
+            newRemaining > 0 ? newRemaining : (totalNew ? `+${totalNew}` : ''), { dim: !totalNew });
     }
 
     // 3. Штурм (сложные карточки со всех предметов без влияния на fsrs)
-    const cramAvailable = data.cards_cram_available !== undefined 
-        ? data.cards_cram_available 
+    const cramAvailable = data.cards_cram_available !== undefined
+        ? data.cards_cram_available
         : (data.cards_learning + data.cards_review);
-    const btnCram = document.getElementById('btn-session-cram');
-    if (btnCramText && btnCramBadge) {
-        btnCramText.textContent = "[ ШТУРМ ]";
-        if (cramAvailable > 0) {
-            btnCramBadge.textContent = `${cramAvailable} КАРТ (СЛОЖНЫЕ)`;
-            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
-            if (btnCram) {
-                btnCram.className = "w-full flex items-center justify-between px-4 border border-amber-500/40 hover:border-amber-500 text-amber-700 dark:text-amber-300 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl border-dashed hover:bg-amber-500/5 cursor-pointer shadow-xs";
-            }
-        } else {
-            btnCramBadge.textContent = "0 (НЕТ ИЗУЧЕННЫХ)";
-            btnCramBadge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-400";
-            if (btnCram) {
-                btnCram.className = "w-full flex items-center justify-between px-4 border border-neutral-200 dark:border-neutral-800 text-neutral-400 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl opacity-75 border-dashed cursor-pointer";
-            }
-        }
-    }
+    setStarterTile(document.getElementById('btn-session-cram'), document.getElementById('btn-session-cram-badge'),
+        cramAvailable, { dim: cramAvailable <= 0 });
 }
 
+// «Все предметы»: путь берём из активной колоды — как и главная кнопка
 async function loadTopicButtonPlan(subject) {
     if (!subject || subject === 'all') return;
     try {
@@ -2744,42 +2686,8 @@ async function loadTopicButtonPlan(subject) {
         if (!plan.is_path || currentSubject !== 'all') return;
         window.pathDayPlan = plan;
         const btn = document.getElementById('btn-session-new');
-        const textEl = document.getElementById('btn-session-new-text');
-        const badgeEl = document.getElementById('btn-session-new-badge');
-        if (btn && textEl && badgeEl) renderTopicButton(plan, btn, textEl, badgeEl);
-    } catch (_) { /* останется обычная кнопка */ }
-}
-
-function renderTopicButton(plan, btn, textEl, badgeEl) {
-    const badgeBase = "px-2 py-0.5 rounded-md text-[10px] font-bold";
-    const btnBase = "w-full flex items-center justify-between px-4 py-2.5 font-bold tracking-wide transition-all text-xs font-mono uppercase rounded-xl cursor-pointer";
-    if (plan.unfinished) {
-        const n = plan.unfinished.count;
-        textEl.textContent = "[ ДОУЧИТЬ ТЕМУ ]";
-        badgeEl.textContent = `${n} КАРТ.`;
-        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
-        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
-        btn.title = `Урок «${plan.unfinished.node_name}» пройден — осталось выучить его карточки`;
-    } else if (plan.next_lesson && plan.can_start_lesson) {
-        textEl.textContent = "[ НОВАЯ ТЕМА ]";
-        badgeEl.textContent = `${plan.learned_today} ИЗ ${plan.limit}`;
-        badgeEl.className = `${badgeBase} bg-primary/10 text-primary border border-primary/20`;
-        btn.className = `${btnBase} border border-primary text-primary hover:bg-primary hover:text-on-primary shadow-xs`;
-        btn.title = `Урок «${plan.next_lesson.node_name}» и его карточки`;
-    } else if (plan.next_lesson) {
-        // Норма закрыта — ещё одна тема только по явному выбору
-        textEl.textContent = "[ ЕЩЁ ТЕМА ]";
-        badgeEl.textContent = "СВЕРХ НОРМЫ";
-        badgeEl.className = `${badgeBase} bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20`;
-        btn.className = `${btnBase} border border-amber-500/60 text-amber-600 dark:text-amber-400 hover:bg-amber-500 hover:text-white shadow-xs`;
-        btn.title = `Норма на сегодня закрыта (${plan.learned_today} из ${plan.limit})`;
-    } else {
-        textEl.textContent = "[ НОВАЯ ТЕМА ]";
-        badgeEl.textContent = "НЕТ ОТКРЫТЫХ";
-        badgeEl.className = `${badgeBase} bg-neutral-100 dark:bg-neutral-800 text-neutral-400`;
-        btn.className = `${btnBase} border border-neutral-200 dark:border-neutral-800 text-neutral-400 opacity-75`;
-        btn.title = "Следующие темы откроются, когда освоишь пройденные";
-    }
+        if (btn) btn.classList.add('hidden');
+    } catch (_) { /* останется обычная плитка */ }
 }
 
 window.switchTab = function(targetTab) {
@@ -8614,8 +8522,11 @@ window.startPracticeSession = async function(customSub) {
     practiceAnswerSubmitted = false;
 
     try {
-        const count = (window.pathRun && window.pathRun.active && window.pathRun.practiceCount) || 10;
-        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=${count}`);
+        const run = window.pathRun && window.pathRun.active ? window.pathRun : null;
+        const count = (run && run.practiceCount) || 10;
+        // Режим экзамена: практика только по темам билетов
+        const examPlan = run && run.step && run.step.plan_id ? `&exam_plan=${run.step.plan_id}` : '';
+        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=${count}${examPlan}`);
         if (res.ok) {
             practiceItems = await res.json();
         }
@@ -8844,7 +8755,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
-                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-secondary";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
@@ -9002,13 +8913,13 @@ window.checkTodayPracticeStats = async function(sub) {
         if (res.ok) {
             const data = await res.json();
             if (data && data.today_completed) {
-                badge.className = "px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1";
-                badge.innerHTML = `<span class="material-symbols-outlined text-[12px]">check_circle</span><span>СЕГОДНЯ ${data.last_score}/${data.last_total}</span>`;
+                badge.className = "starter-tile-badge starter-tile-badge-ok";
+                badge.textContent = `${data.last_score}/${data.last_total}`;
                 return;
             }
         }
-        badge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200 dark:border-neutral-700";
-        badge.textContent = "ТРЕНАЖЕР";
+        badge.className = "starter-tile-badge";
+        badge.textContent = "";
     } catch (e) {
         console.warn("Сбой проверки статистики практики:", e);
     }
@@ -9271,10 +9182,10 @@ async function finishLesson() {
     // В режиме «Продолжить путь» карточки темы идут сразу: вспоминание сразу после урока
     if (window.pathRun && window.pathRun.active) {
         sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках, пока свежо.`, 'happy', 'bounce');
-        setLessonButtons('Дальше', true, null);
+        setLessonButtons('К карточкам', true, null);
         lessonState.onNext = () => {
-            closeLesson();
-            window.pathRun.stepFinished();
+            setLessonButtons('…', false, null);
+            window.pathRun.afterLesson();
         };
         return;
     }
@@ -9424,7 +9335,9 @@ const PATH_RUN_STEP_VIEW = {
     review:   { icon: 'history',        kind: 'Разминка' },
     cards:    { icon: 'style',          kind: 'Закрепление' },
     lesson:   { icon: 'school',         kind: 'Новая тема' },
-    practice: { icon: 'psychology_alt', kind: 'Практика на различение' }
+    practice: { icon: 'psychology_alt', kind: 'Практика на различение' },
+    ticket:   { icon: 'assignment',     kind: 'Билеты' },
+    drill:    { icon: 'replay',         kind: 'Прогон билетов' }
 };
 
 const pathRun = {
@@ -9495,8 +9408,22 @@ function describePathStep(step, isFirst) {
         case 'practice':
             return {
                 name: `${n} ${pathRunPlural(n, 'задание', 'задания', 'заданий')} вперемешку`,
-                say: 'Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально.',
+                say: step.plan_id
+                    ? 'Практика по темам билетов: учимся отличать похожее. Ошибаться здесь нормально.'
+                    : 'Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально.',
                 emo: 'think'
+            };
+        case 'ticket':
+            return {
+                name: `${n} ${pathRunPlural(n, 'билет', 'билета', 'билетов')} письменно`,
+                say: 'Темы для билета пройдены — теперь сам билет. Ответь своими словами, как на экзамене, а я сверю с ключевыми тезисами.',
+                emo: 'think'
+            };
+        case 'drill':
+            return {
+                name: `${n} ${pathRunPlural(n, 'билет', 'билета', 'билетов')} на прогон`,
+                say: 'Экзамен скоро — прогоняем билеты. Начнём с тех, что держатся слабее всего.',
+                emo: 'surprised'
             };
         default:
             return { name: '', say: '', emo: 'idle' };
@@ -9547,7 +9474,25 @@ function showPathRunOverlay(visible) {
     const el = document.getElementById('path-run-overlay');
     if (el) el.classList.toggle('hidden', !visible);
     if (!visible) clearInterval(pathRunCatTimer);
+    else setRunMode(false);
 }
+
+// Режим занятия на экране карточек: шапка, нижнее меню и счётчики уходят,
+// остаются крестик, название шага и прогресс — как в уроке, без «системных» цифр
+function setRunMode(on, stepType) {
+    document.body.classList.toggle('path-run-mode', !!on);
+    if (!on) return;
+    const kind = document.getElementById('run-bar-kind');
+    if (kind) kind.textContent = (PATH_RUN_STEP_VIEW[stepType] || {}).kind || '';
+    window.updateRunBar(0, 0);
+}
+
+window.updateRunBar = function(index, total) {
+    const fill = document.getElementById('run-bar-fill');
+    const count = document.getElementById('run-bar-count');
+    if (fill) fill.style.width = total ? `${Math.min(100, (index / total) * 100)}%` : '0%';
+    if (count) count.textContent = total ? `${Math.min(index + 1, total)}/${total}` : '';
+};
 
 async function fetchPathStep(done) {
     const q = `done=${encodeURIComponent(done.join(','))}&scope=${pathRun.scope}${pathRun.extra ? '&extra=true' : ''}`;
@@ -9567,26 +9512,41 @@ pathRun.start = async function(subject, opts = {}) {
         scope: opts.scope || 'day', extra: !!opts.extra, onDoneGo: null
     });
     showPathRunOverlay(true);
+    if (opts.step && opts.step.type !== 'done') {
+        // Шаг уже объявлен котом на стартовом экране — сразу к делу.
+        // Оверлей с этим шагом остаётся под уроком/практикой: закрыл их — вернулся к коту.
+        pathRun.showStep(opts.step);
+        pathRun.go();
+        return;
+    }
     await pathRun.loadNext();
 };
 
-pathRun.loadNext = async function() {
-    setPathRunView({ say: pathRun.note ? `${pathRun.note} Смотрю, что дальше…` : 'Смотрю, с чего начать…', emo: 'think', goLabel: '…', goEnabled: false });
-    let step;
-    try {
-        step = await fetchPathStep(pathRun.done);
-    } catch (e) {
-        console.error('Сбой выбора следующего шага:', e);
-        setPathRunView({ say: 'Не получилось связаться с сервером. Попробуем ещё раз?', emo: 'confused', goLabel: 'Повторить' });
-        pathRun.step = null;
-        return;
+pathRun.loadNext = async function(prefetched = null) {
+    let step = prefetched;
+    if (!step) {
+        setPathRunView({ say: pathRun.note ? `${pathRun.note} Смотрю, что дальше…` : 'Смотрю, с чего начать…', emo: 'think', goLabel: '…', goEnabled: false });
+        try {
+            step = await fetchPathStep(pathRun.done);
+        } catch (e) {
+            console.error('Сбой выбора следующего шага:', e);
+            setPathRunView({ say: 'Не получилось связаться с сервером. Попробуем ещё раз?', emo: 'confused', goLabel: 'Повторить' });
+            pathRun.step = null;
+            return;
+        }
     }
-    pathRun.step = step;
-    pathRun.stepStarted = false;
     if (step.type === 'done') {
+        pathRun.step = step;
+        pathRun.stepStarted = false;
         pathRun.finish(step);
         return;
     }
+    pathRun.showStep(step);
+};
+
+pathRun.showStep = function(step) {
+    pathRun.step = step;
+    pathRun.stepStarted = false;
     const d = describePathStep(step, pathRun.done.length === 0);
     const view = PATH_RUN_STEP_VIEW[step.type];
     setPathRunView({
@@ -9616,10 +9576,11 @@ pathRun.go = function() {
         pathRun.done.push(step.type);
         pathRun.stepStarted = true;
     }
-    if (step.type === 'review' || step.type === 'cards') {
+    if (['review', 'cards', 'ticket', 'drill'].includes(step.type)) {
         showPathRunOverlay(false);
         if (typeof switchTab === 'function') switchTab('train');
-        startSession(step.type === 'review' ? 'review' : 'new');
+        setRunMode(true, step.type);
+        startSession(step.type === 'review' || step.type === 'drill' ? 'review' : 'new');
     } else if (step.type === 'lesson') {
         openLesson(step.node_id);
     } else if (step.type === 'practice') {
@@ -9634,13 +9595,30 @@ pathRun.sessionQuery = function() {
     let params = '';
     if (step.type === 'review') params = `&limit_cards=${step.count}&due_only=true`;
     if (step.type === 'cards') params = `&node_id=${step.node_id}`;
+    if (step.type === 'ticket') params = `&exam_plan=${step.plan_id}&limit_cards=${step.count}`;
+    if (step.type === 'drill') params = `&exam_plan=${step.plan_id}&exam_drill=true`;
     return { subject: pathRun.subject, params };
 };
 
-pathRun.stepFinished = function() {
+pathRun.stepFinished = function(prefetched = null) {
     if (!pathRun.active) return;
     showPathRunOverlay(true);
-    pathRun.loadNext();
+    pathRun.loadNext(prefetched);
+};
+
+// Урок пройден: если дальше его карточки (а так почти всегда), идём к ним сразу —
+// кот уже сказал это в конце урока, второй экран с тем же смыслом только тормозит
+pathRun.afterLesson = async function() {
+    let step = null;
+    try { step = await fetchPathStep(pathRun.done); } catch (_) { /* покажем шаг через оверлей */ }
+    if (typeof closeLesson === 'function') closeLesson();
+    if (step && step.type === 'cards') {
+        showPathRunOverlay(true);
+        pathRun.showStep(step);
+        pathRun.go();
+        return;
+    }
+    pathRun.stepFinished(step);
 };
 
 pathRun.trainFinished = function(stats) {
@@ -9669,6 +9647,7 @@ pathRun.stop = function() {
     pathRun.active = false;
     pathRun.step = null;
     showPathRunOverlay(false);
+    setRunMode(false);
     if (typeof showSessionStarter === 'function') showSessionStarter();
 };
 
@@ -9735,54 +9714,180 @@ pathRun.finish = function(result) {
         return;
     }
 
+    if (pathRun.scope === 'exam') {
+        const ex = examDoneView(result);
+        if (ex.extra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'exam', extra: true });
+        else if (ex.openPlan) pathRun.onDoneGo = () => openExamModal();
+        setPathRunView({
+            say: `${didSomething ? 'На сегодня всё! ' : ''}${ex.say}`,
+            emo: 'happy',
+            goLabel: ex.goLabel,
+            secondaryLabel: ex.extra || ex.openPlan ? 'Хватит на сегодня' : null
+        });
+        return;
+    }
+
     const reasonText = {
         reviews_left: 'Остальные повторения лучше оставить на потом — короткие подходы работают лучше марафона.',
         limit: 'Норма новых тем на сегодня закрыта — мозгу нужно время, чтобы всё улеглось.',
         waiting: 'Новые темы откроются, когда пройденные закрепятся в повторениях. Загляни завтра.'
     }[result.reason] || '';
     const nextUp = result.next_up ? ` Дальше по пути: «${result.next_up}».` : '';
+    const canExtra = result.reason === 'limit' && result.next_up;
+    if (canExtra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
     setPathRunView({
         say: `${didSomething ? 'На сегодня всё!' : 'Сегодня всё уже сделано.'} ${reasonText}${nextUp}`,
         emo: 'happy',
-        goLabel: 'Отлично',
-        secondaryLabel: null
+        goLabel: canExtra ? 'Ещё тема' : 'Отлично',
+        secondaryLabel: canExtra ? 'Хватит на сегодня' : null
     });
 };
 
+// Что кот показал на стартовом экране: по нажатию «Начать» запускаем именно это, без второго экрана
+let starterPreview = null;
+
+function activeRunSubject() {
+    return typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
+}
+
+// Итог в режиме экзамена: что сказать и что предложить кнопкой
+function examDoneView(step) {
+    const d = step.days_left;
+    const days = d >= 0 ? `До экзамена ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')}.` : '';
+    switch (step.reason) {
+        case 'exam_quota':
+            return {
+                say: `${days} Норма на сегодня выполнена: ${step.lessons_today} из ${step.quota}. Дальше — «${step.next_up}», её можно взять сверх плана.`,
+                goLabel: 'Ещё тема', extra: true
+            };
+        case 'exam_ready':
+            return { say: `${days} Все нужные темы пройдены и билеты отвечены — дальше их держат повторения.`, goLabel: 'Билеты', openPlan: true };
+        case 'exam_past':
+            return { say: 'Экзамен уже прошёл. Режим можно выключить в «Билетах».', goLabel: 'Билеты', openPlan: true };
+        case 'exam_off':
+            return { say: 'Режим экзамена выключен.', goLabel: 'Отлично' };
+        case 'reviews_left':
+            return { say: `${days} Главное сделано. Остались повторения — можно ещё подход.`, goLabel: 'Ещё подход' };
+        default:
+            return { say: `${days} Следующие темы откроются, когда пройденные закрепятся в повторениях.`, goLabel: 'Билеты', openPlan: true };
+    }
+}
+
 window.startPathRun = function() {
-    const sub = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
-    pathRun.start(sub);
+    const sub = activeRunSubject();
+    const p = starterPreview;
+    const step = p && p.subject === sub && Date.now() - p.at < 5 * 60 * 1000 ? p.step : null;
+    if (p && p.subject === sub && p.scope === 'exam') {
+        if (step && step.type === 'done') {
+            const ex = examDoneView(step);
+            if (ex.extra) pathRun.start(sub, { scope: 'exam', extra: true });
+            else if (ex.openPlan) openExamModal();
+            else pathRun.start(sub, { scope: 'exam' });
+            return;
+        }
+        pathRun.start(sub, { scope: 'exam', step });
+        return;
+    }
+    if (step && step.type === 'done') {
+        // День закрыт: кнопка предлагает следующее разумное действие
+        if (step.reason === 'limit' && step.next_up) startTopicRun(true, sub);
+        else if (step.reason === 'reviews_left') pathRun.start(sub);
+        else if (typeof openKnowledgeGraphModal === 'function') openKnowledgeGraphModal(sub);
+        return;
+    }
+    pathRun.start(sub, { step });
 };
 
-// Кнопка «Новая тема» / «Доучить тему» / «Ещё тема»: одна порция урок → все его карточки
+// Одна порция «урок → все его карточки» (в том числе тема сверх нормы)
 window.startTopicRun = function(extra = false, subject = null) {
-    const sub = subject || (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject);
+    const sub = subject || activeRunSubject();
     pathRun.start(sub, { scope: 'topic', extra });
 };
 
-// Подпись под кнопкой: что будет первым шагом
-window.refreshPathRunButton = async function(attempt = 0) {
+// Строка про экзамен под главной кнопкой: приглашение загрузить билеты или прогресс подготовки
+function renderStarterExam(exam) {
+    const el = document.getElementById('starter-exam');
+    const text = document.getElementById('starter-exam-text');
+    if (!el || !text) return;
+    el.classList.toggle('starter-exam-on', !!exam.active);
+    if (!exam.active) {
+        text.textContent = 'Готовишься к экзамену? Загрузи билеты';
+    } else if (exam.status === 'matching') {
+        text.textContent = 'Разбираю билеты…';
+    } else if (exam.status === 'failed') {
+        text.textContent = 'Разбор билетов не удался — открыть';
+    } else {
+        const t = exam.tickets || {};
+        const d = exam.days_left;
+        text.textContent = d < 0
+            ? 'Экзамен прошёл — выключить режим'
+            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
+    }
+}
+
+function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
+    if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
+    const cat = document.getElementById('starter-cat');
+    if (cat) cat.classList.remove('intro-cat');
+    const card = document.getElementById('starter-step');
+    if (card) {
+        card.classList.toggle('hidden', !step);
+        if (step) {
+            document.getElementById('starter-step-icon').textContent = step.icon;
+            document.getElementById('starter-step-kind').textContent = step.kind;
+            document.getElementById('starter-step-name').textContent = step.name;
+        }
+    }
     const btn = document.getElementById('btn-path-run');
-    const sub = document.getElementById('btn-path-run-sub');
-    if (!btn || !sub) return;
-    const subject = typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
+    const text = document.getElementById('btn-path-run-text');
+    if (text) text.textContent = goLabel;
+    if (btn) btn.disabled = !goEnabled;
+}
+
+// Стартовый экран: кот говорит, что будет первым шагом, кнопка запускает его одним нажатием
+window.refreshPathRunButton = async function(attempt = 0) {
+    if (!document.getElementById('btn-path-run')) return;
+    const subject = activeRunSubject();
     if (!subject || subject === 'all') {
         // Список предметов мог ещё не загрузиться — пробуем чуть позже
         if (attempt < 3) setTimeout(() => refreshPathRunButton(attempt + 1), 700);
-        else sub.textContent = 'Выбери предмет';
+        else renderStarter({ say: 'Выбери предмет вверху — и начнём.', emo: 'idle', goLabel: 'Начать', goEnabled: false });
         return;
     }
     try {
-        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next`);
+        const exam = typeof loadExamOverview === 'function' ? await loadExamOverview(subject) : { active: false };
+        renderStarterExam(exam);
+        const scope = exam.active && exam.status === 'ready' && exam.phase !== 'past' ? 'exam' : 'day';
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next?scope=${scope}`);
         if (!res.ok) return;
         const step = await res.json();
-        if (step.type === 'done') {
-            sub.textContent = 'На сегодня всё сделано';
-        } else {
-            const d = describePathStep(step, true);
-            sub.textContent = `${PATH_RUN_STEP_VIEW[step.type].kind}: ${d.name}`;
+        starterPreview = { subject, step, scope, at: Date.now() };
+        if (scope === 'exam' && step.type === 'done') {
+            const ex = examDoneView(step);
+            renderStarter({ say: ex.say, emo: 'happy', goLabel: ex.goLabel });
+            return;
         }
-    } catch (_) { /* подпись не критична */ }
+        if (step.type === 'done') {
+            const say = {
+                limit: step.next_up
+                    ? `Норма на сегодня закрыта. Дальше по пути — «${step.next_up}». Мозгу полезно дать всё уложить, но можно взять тему сверх нормы.`
+                    : 'Норма на сегодня закрыта. Мозгу нужно время, чтобы всё улеглось.',
+                reviews_left: 'Главное на сегодня сделано. Остались повторения — можно ещё короткий подход.'
+            }[step.reason] || 'Сегодня всё сделано. Новые темы откроются, когда пройденные закрепятся в повторениях.';
+            const goLabel = step.reason === 'limit' && step.next_up ? 'Ещё тема'
+                : (step.reason === 'reviews_left' ? 'Ещё подход' : 'Посмотреть путь');
+            renderStarter({ say, emo: 'happy', goLabel });
+            return;
+        }
+        const d = describePathStep(step, true);
+        const view = PATH_RUN_STEP_VIEW[step.type];
+        renderStarter({
+            say: d.say,
+            emo: d.emo,
+            step: { icon: view.icon, kind: view.kind, name: d.name },
+            goLabel: 'Начать'
+        });
+    } catch (_) { /* стартовый экран не критичен: кнопка всё равно запустит путь */ }
 };
 
 // ----------------------------------------------------------------------------
@@ -10112,9 +10217,9 @@ window.importOpenQuestions = async function() {
 // Панель ответа на тренировке
 // ---------------------------------------------------------------------------
 const OQ_RATINGS = [
-    { r: 1, label: 'Снова', hint: 'мимо' },
+    { r: 1, label: 'Забыл', hint: 'мимо' },
     { r: 2, label: 'Трудно', hint: 'с трудом' },
-    { r: 3, label: 'Хорошо', hint: 'вспомнил' },
+    { r: 3, label: 'Помню', hint: 'вспомнил' },
     { r: 4, label: 'Легко', hint: 'без усилий' }
 ];
 
@@ -10150,7 +10255,8 @@ function renderOpenAsk(panel, card) {
     const sub = card.subject_title || '';
     const own = card.content_type === 'open';
     const short = card.answer_kind === 'short';
-    const badge = own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите');
+    const ticket = card.reason_type === 'exam';
+    const badge = ticket ? (card.secondary_text || 'Билет') : (own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите'));
     panel.appendChild(oqEl('span', { class: 'oq-badge', text: sub ? `${badge} · ${sub}` : badge }));
     panel.appendChild(oqEl('div', { class: 'oq-question', text: card.text }));
 
@@ -10275,3 +10381,344 @@ window.saveOpenMode = async function(mode) {
 };
 
 window.addEventListener('load', () => { setTimeout(() => window.loadOpenMode && window.loadOpenMode(), 1800); });
+
+// ============================================================================
+// ПОДГОТОВКА К ЭКЗАМЕНУ ПО БИЛЕТАМ
+// Список билетов + дата → сервер (ИИ один раз) находит билеты в графе книги и собирает
+// эталоны из карточек → план по дням. Занятие ведёт тот же кот, scope=exam.
+// ============================================================================
+
+const examUi = { subject: '', data: null, view: '', pollTimer: null, previewTimer: null };
+
+function examPlural(n, one, few, many) {
+    return typeof pathRunPlural === 'function' ? pathRunPlural(n, one, few, many) : many;
+}
+
+function examActiveSubject() {
+    return typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
+}
+
+function setExamCat(emo, text) {
+    if (typeof setCatWidget === 'function') setCatWidget('exam-cat', 'exam-say', emo, text);
+    const cat = document.getElementById('exam-cat');
+    if (cat) cat.classList.remove('intro-cat');
+}
+
+function setExamButtons(primary, secondary, primaryEnabled = true) {
+    const p = document.getElementById('exam-primary');
+    const s = document.getElementById('exam-secondary');
+    if (p) { p.textContent = primary; p.disabled = !primaryEnabled; }
+    if (s) { s.textContent = secondary || ''; s.classList.toggle('hidden', !secondary); }
+}
+
+function showExamSection(name) {
+    ['setup', 'review'].forEach(v => {
+        const el = document.getElementById(`exam-${v}`);
+        if (el) el.classList.toggle('hidden', v !== name);
+    });
+}
+
+// Состояние плана (используется и стартовым экраном)
+window.loadExamOverview = async function(subject) {
+    if (!subject || subject === 'all') return { active: false };
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(subject)}`);
+        if (!res.ok) return { active: false };
+        return await res.json();
+    } catch (_) {
+        return { active: false };
+    }
+};
+
+window.openExamModal = async function() {
+    const subject = examActiveSubject();
+    if (!subject || subject === 'all') {
+        alert('Сначала выбери предмет.');
+        return;
+    }
+    examUi.subject = subject;
+    const modal = document.getElementById('exam-modal');
+    if (modal) modal.classList.remove('hidden');
+    triggerHaptic('light');
+    showExamSection(null);
+    setExamCat('think', 'Секунду, смотрю твои билеты…');
+    setExamButtons('…', 'Закрыть', false);
+    renderExam(await loadExamOverview(subject));
+};
+
+window.closeExamModal = function() {
+    clearTimeout(examUi.pollTimer);
+    const modal = document.getElementById('exam-modal');
+    if (modal) modal.classList.add('hidden');
+    if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
+};
+
+function examModalOpen() {
+    const modal = document.getElementById('exam-modal');
+    return modal && !modal.classList.contains('hidden');
+}
+
+function renderExam(data) {
+    clearTimeout(examUi.pollTimer);
+    examUi.data = data;
+    if (!data || !data.active) return showExamSetup();
+    if (data.status === 'matching') return showExamWait(data);
+    if (data.status === 'failed') return showExamFailed(data);
+    return showExamReview(data);
+}
+
+// --- 1. Список билетов и дата ---
+function showExamSetup(error = '') {
+    examUi.view = 'setup';
+    showExamSection('setup');
+    const date = document.getElementById('exam-date');
+    if (date) {
+        const today = new Date();
+        const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        date.min = iso(today);
+        if (!date.value) date.value = iso(new Date(today.getTime() + 14 * 86400000));
+    }
+    const text = document.getElementById('exam-text');
+    if (text && !text._bound) {
+        text._bound = true;
+        text.addEventListener('input', () => {
+            clearTimeout(examUi.previewTimer);
+            examUi.previewTimer = setTimeout(previewExamTickets, 400);
+        });
+    }
+    showExamError(error);
+    setExamCat('talk', 'Скинь список билетов и дату экзамена. Я найду каждый билет в твоей книге, соберу ответ из карточек и разложу темы по дням — к экзамену успеешь всё.');
+    setExamButtons('Разобрать билеты', 'Отмена', !!(text && text.value.trim()));
+}
+
+function showExamError(message) {
+    const el = document.getElementById('exam-error');
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('hidden', !message);
+}
+
+async function previewExamTickets() {
+    const text = document.getElementById('exam-text');
+    const out = document.getElementById('exam-count');
+    const value = text ? text.value.trim() : '';
+    setExamButtons('Разобрать билеты', 'Отмена', !!value);
+    if (!out || !value) return;
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/preview`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: value })
+        });
+        if (!res.ok) return;
+        const p = await res.json();
+        out.textContent = p.count
+            ? `Вижу ${p.count} ${examPlural(p.count, 'билет', 'билета', 'билетов')}${p.with_answers ? `, у ${p.with_answers} есть твой эталон` : ''}.`
+            : 'Пока не вижу ни одного билета. Пиши по билету на строку.';
+        setExamButtons('Разобрать билеты', 'Отмена', p.count > 0);
+    } catch (_) { /* подсчёт не критичен */ }
+}
+
+async function submitExamPlan() {
+    const date = document.getElementById('exam-date');
+    const text = document.getElementById('exam-text');
+    if (!date || !date.value) return showExamError('Укажи дату экзамена.');
+    if (!text || !text.value.trim()) return showExamError('Вставь список билетов.');
+    setExamButtons('Отправляю…', 'Отмена', false);
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: 'Билеты', exam_date: date.value, text: text.value })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setExamButtons('Разобрать билеты', 'Отмена', true);
+            return showExamError(body.detail || 'Не получилось сохранить билеты.');
+        }
+        triggerHaptic('success');
+        text.value = '';
+        renderExam(await loadExamOverview(examUi.subject));
+    } catch (_) {
+        setExamButtons('Разобрать билеты', 'Отмена', true);
+        showExamError('Нет связи с сервером. Попробуй ещё раз.');
+    }
+}
+
+// --- Разбор идёт в фоне ---
+function showExamWait(data) {
+    examUi.view = 'wait';
+    showExamSection(null);
+    const n = (data.tickets && data.tickets.total) || 0;
+    setExamCat('think', `Читаю ${n} ${examPlural(n, 'билет', 'билета', 'билетов')} и ищу их в твоей книге. Обычно это меньше минуты — можно закрыть окно, я доделаю сам.`);
+    setExamButtons('Разбираю…', 'Закрыть', false);
+    examUi.pollTimer = setTimeout(async () => {
+        if (!examModalOpen()) return;
+        renderExam(await loadExamOverview(examUi.subject));
+    }, 3000);
+}
+
+function showExamFailed(data) {
+    examUi.view = 'failed';
+    showExamSection(null);
+    setExamCat('confused', `${data.error || 'Разбор не удался.'} Повторим?`);
+    setExamButtons('Повторить', 'Новый список', true);
+}
+
+async function retryExamPlan() {
+    setExamButtons('…', null, false);
+    try {
+        await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/retry`, { method: 'POST' });
+    } catch (_) { /* покажем состояние ниже */ }
+    renderExam(await loadExamOverview(examUi.subject));
+}
+
+// --- 2. Готовый план ---
+const EXAM_TICKET_STATE = {
+    strong:  { icon: 'verified',     cls: 'exam-st-strong',  label: 'закреплён' },
+    answered:{ icon: 'edit_note',    cls: 'exam-st-answered', label: 'отвечен' },
+    ready:   { icon: 'assignment',   cls: 'exam-st-ready',   label: 'готов к ответу' },
+    waiting: { icon: 'schedule',     cls: 'exam-st-waiting', label: 'ждёт своих тем' },
+    missing: { icon: 'help',         cls: 'exam-st-missing', label: 'нет в книге' },
+    skipped: { icon: 'block',        cls: 'exam-st-skipped', label: 'пропущен' }
+};
+
+function ticketState(t) {
+    if (t.status === 'missing') return 'missing';
+    if (t.status === 'skipped') return 'skipped';
+    if (t.strong) return 'strong';
+    if (t.answered) return 'answered';
+    return t.ready ? 'ready' : 'waiting';
+}
+
+function showExamReview(data) {
+    examUi.view = 'review';
+    showExamSection('review');
+    const t = data.tickets || {};
+    const d = data.days_left;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('exam-stat-days', d < 0 ? '—' : d);
+    set('exam-stat-ready', `${t.strong || 0}/${t.ok || 0}`);
+    set('exam-stat-today', data.today ? `${data.today.lessons}/${data.today.quota}` : '—');
+    const fill = document.getElementById('exam-progress-fill');
+    if (fill) fill.style.width = data.nodes && data.nodes.required ? `${Math.round(100 * data.nodes.done / data.nodes.required)}%` : '0%';
+
+    let say;
+    if (data.phase === 'past') {
+        say = 'Экзамен уже прошёл. Как всё прошло? Режим можно выключить — отвеченные билеты останутся в повторениях.';
+    } else if (t.missing) {
+        say = `Нашёл в книге ${t.ok} из ${t.total}. Для ${t.missing} ${examPlural(t.missing, 'билета', 'билетов', 'билетов')} материала в книге нет — впиши свой эталон или пропусти, выдумывать ответ я не буду.`;
+    } else {
+        const q = data.today ? data.today.quota : 0;
+        const pace = q ? `План: ${q} ${examPlural(q, 'тема', 'темы', 'тем')} в день, ` : 'Все нужные темы пройдены, ';
+        say = data.phase === 'drill'
+            ? `До экзамена ${d} ${examPlural(d, 'день', 'дня', 'дней')} — время прогона: гоняем билеты, начиная с самых шатких.`
+            : `До экзамена ${d} ${examPlural(d, 'день', 'дня', 'дней')}. ${pace}после каждой темы — её билет письменно, последние 2 дня — прогон всех билетов.`;
+    }
+    setExamCat(t.missing ? 'think' : 'happy', say);
+
+    renderExamMissing(data.items || []);
+    renderExamList(data.items || []);
+    setExamButtons(data.phase === 'past' ? 'Закрыть' : 'Начать подготовку', 'Выключить режим', true);
+}
+
+function renderExamMissing(items) {
+    const wrap = document.getElementById('exam-missing-wrap');
+    const box = document.getElementById('exam-missing');
+    if (!wrap || !box) return;
+    const missing = items.filter(x => x.status === 'missing');
+    wrap.classList.toggle('hidden', !missing.length);
+    box.replaceChildren();
+    missing.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'exam-missing-item';
+        const q = document.createElement('p');
+        q.className = 'exam-missing-q';
+        q.textContent = `${item.n}. ${item.question}`;
+        const area = document.createElement('textarea');
+        area.className = 'oq-modal-field select-text';
+        area.rows = 3;
+        area.maxLength = 3000;
+        area.placeholder = '- первый тезис / как ещё можно сказать\n- второй тезис';
+        const row = document.createElement('div');
+        row.className = 'oq-row';
+        const skip = document.createElement('button');
+        skip.type = 'button';
+        skip.className = 'oq-btn';
+        skip.textContent = 'Пропустить';
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'oq-btn oq-btn-primary';
+        save.textContent = 'Сохранить';
+        save.disabled = true;
+        area.addEventListener('input', () => { save.disabled = !area.value.trim(); });
+        skip.onclick = () => examTicketAction(item.id, 'skip', null, [skip, save]);
+        save.onclick = () => examTicketAction(item.id, 'answer', area.value, [skip, save]);
+        row.append(skip, save);
+        el.append(q, area, row);
+        box.appendChild(el);
+    });
+}
+
+async function examTicketAction(id, action, answer, buttons) {
+    buttons.forEach(b => { b.disabled = true; });
+    try {
+        const res = await apiFetch(`/api/exam/ticket/${id}/${action}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: action === 'answer' ? JSON.stringify({ answer }) : '{}'
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        triggerHaptic(action === 'answer' ? 'success' : 'light');
+    } catch (_) {
+        buttons.forEach(b => { b.disabled = false; });
+        return;
+    }
+    renderExam(await loadExamOverview(examUi.subject));
+}
+
+function renderExamList(items) {
+    const list = document.getElementById('exam-list');
+    if (!list) return;
+    list.replaceChildren();
+    items.forEach(item => {
+        const st = EXAM_TICKET_STATE[ticketState(item)];
+        const li = document.createElement('li');
+        li.className = 'exam-item';
+        const icon = document.createElement('span');
+        icon.className = `material-symbols-outlined exam-item-icon ${st.cls}`;
+        icon.textContent = st.icon;
+        icon.title = st.label;
+        const body = document.createElement('div');
+        body.className = 'exam-item-body';
+        const q = document.createElement('span');
+        q.className = 'exam-item-q';
+        q.textContent = `${item.n}. ${item.question}`;
+        const meta = document.createElement('span');
+        meta.className = 'exam-item-meta';
+        meta.textContent = item.nodes && item.nodes.length ? `${st.label} · ${item.nodes.join(', ')}` : st.label;
+        body.append(q, meta);
+        li.append(icon, body);
+        list.appendChild(li);
+    });
+}
+
+// --- Кнопки ---
+window.examPrimary = function() {
+    if (examUi.view === 'setup') return submitExamPlan();
+    if (examUi.view === 'failed') return retryExamPlan();
+    if (examUi.view === 'review') {
+        const subject = examUi.subject;
+        const past = examUi.data && examUi.data.phase === 'past';
+        closeExamModal();
+        if (!past) window.pathRun.start(subject, { scope: 'exam' });
+    }
+};
+
+window.examSecondary = async function() {
+    if (examUi.view === 'failed') return showExamSetup();
+    if (examUi.view === 'review') {
+        if (!confirm('Выключить режим экзамена? Отвеченные билеты останутся в повторениях.')) return;
+        try {
+            await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/off`, { method: 'POST' });
+        } catch (_) { /* закроем всё равно */ }
+        triggerHaptic('medium');
+    }
+    closeExamModal();
+};

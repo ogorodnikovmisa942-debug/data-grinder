@@ -67,8 +67,8 @@
                             <!-- Статус: ВЕРНО или НЕВЕРНО -->
                         </div>
                         
-                        <div id="practice-gold-standard-box" class="hidden flex flex-col gap-1 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
-                            <span class="font-mono font-bold text-[10px] uppercase text-amber-700 dark:text-amber-400 tracking-wider flex items-center gap-1">
+                        <div id="practice-gold-standard-box" class="practice-gold-box hidden flex flex-col gap-1 p-2.5 rounded-xl text-xs">
+                            <span class="practice-gold-label font-mono font-bold text-[10px] uppercase tracking-wider flex items-center gap-1">
                                 <span class="material-symbols-outlined text-[14px]">bolt</span>
                                 <span>Водораздельный критерий (Gold Standard):</span>
                             </span>
@@ -104,7 +104,7 @@
                     </div>
 
                     <div class="flex flex-col gap-2 w-full pt-1">
-                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
+                        <button id="practice-retry-errors-btn" onclick="retryPracticeErrors()" class="hidden w-full py-2.5 px-4 bg-secondary hover:opacity-90 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5">
                             <span class="material-symbols-outlined text-sm">build</span>
                             <span>Повторить только ошибки (<span id="practice-errors-count">0</span>)</span>
                         </button>

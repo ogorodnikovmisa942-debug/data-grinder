@@ -257,10 +257,10 @@ async function finishLesson() {
     // В режиме «Продолжить путь» карточки темы идут сразу: вспоминание сразу после урока
     if (window.pathRun && window.pathRun.active) {
         sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках, пока свежо.`, 'happy', 'bounce');
-        setLessonButtons('Дальше', true, null);
+        setLessonButtons('К карточкам', true, null);
         lessonState.onNext = () => {
-            closeLesson();
-            window.pathRun.stepFinished();
+            setLessonButtons('…', false, null);
+            window.pathRun.afterLesson();
         };
         return;
     }

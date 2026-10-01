@@ -621,8 +621,6 @@ html, body {
 /* ==========================================================================
    «Продолжить путь»: кнопка, шаги занятия, праздничный кот дня
    ========================================================================== */
-.path-run-start:hover { filter: brightness(1.12); }
-.path-run-start:active { transform: scale(0.98); }
 .path-run-steps { display: flex; justify-content: center; gap: 6px; min-height: 28px; }
 .path-run-step {
     width: 28px; height: 28px; border-radius: 9999px;
@@ -806,3 +804,184 @@ html, body {
 .oq-rate .oq-suggested { outline: 2px solid #6366f1; outline-offset: 1px; }
 .oq-modal-field { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid #d4d4d4; background: #fafafa; color: inherit; font: 13px/1.4 system-ui, sans-serif; }
 .dark .oq-modal-field { border-color: #404040; background: #171717; }
+
+/* ==========================================================================
+   Палитра: нейтральные + три смысловых цвета.
+   Красный — внимание/ошибка, зелёный — верно/прогресс, фиолетовый — учёба и подсказки.
+   Жёлтый, голубой, оранжевый в учебных экранах не используем.
+   ========================================================================== */
+:root {
+    --dg-red: #b51822; --dg-red-soft: rgba(181, 24, 34, 0.07); --dg-red-line: rgba(181, 24, 34, 0.28);
+    --dg-green: #10b981; --dg-green-ink: #059669;
+    --dg-violet: #4f46e5; --dg-violet-soft: rgba(99, 102, 241, 0.07); --dg-violet-line: rgba(99, 102, 241, 0.28);
+}
+.dark {
+    --dg-red: #f87171; --dg-red-soft: rgba(248, 113, 113, 0.10); --dg-red-line: rgba(248, 113, 113, 0.32);
+    --dg-green-ink: #34d399;
+    --dg-violet: #a5b4fc; --dg-violet-soft: rgba(129, 140, 248, 0.12); --dg-violet-line: rgba(129, 140, 248, 0.32);
+}
+
+/* ===== Стартовый экран: кот + одна главная кнопка ===== */
+.starter-panel { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px; padding: 0 4px; }
+.starter-hero { display: flex; flex-direction: column; gap: 14px; }
+.starter-go {
+    width: 100%; height: 54px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: #1a1a1a; color: #ffffff; cursor: pointer;
+    font: 700 15px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.02em;
+    box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.45);
+    transition: transform 0.12s ease, filter 0.15s ease;
+}
+.starter-go:hover { filter: brightness(1.2); }
+.starter-go:active { transform: scale(0.98); }
+.starter-go:disabled { opacity: 0.35; cursor: not-allowed; box-shadow: none; }
+.starter-go .material-symbols-outlined { font-size: 20px; }
+.dark .starter-go { background: #e5e5e5; color: #171717; }
+.starter-more { display: flex; gap: 8px; }
+.starter-tile {
+    position: relative; flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    padding: 10px 4px; border-radius: 14px; cursor: pointer;
+    border: 1px solid #e5e5e5; background: #ffffff; color: #404040;
+    transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.starter-tile.hidden { display: none; }
+.starter-tile:hover { border-color: #a3a3a3; }
+.starter-tile:active { transform: scale(0.97); }
+.starter-tile .material-symbols-outlined { font-size: 20px; }
+.starter-tile-label { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.starter-tile-badge {
+    position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center;
+    font: 700 10px/1 "JetBrains Mono", ui-monospace, monospace;
+    background: #f5f5f5; color: #525252; border: 1px solid #e5e5e5;
+}
+.starter-tile-badge:empty { display: none; }
+.starter-tile-badge-hot { background: var(--dg-red); color: #ffffff; border-color: var(--dg-red); }
+.starter-tile-badge-ok { background: var(--dg-green); color: #ffffff; border-color: var(--dg-green); }
+.starter-tile-dim { color: #a3a3a3; }
+.dark .starter-tile { border-color: #2a2a2a; background: #141414; color: #d4d4d4; }
+.dark .starter-tile-badge { background: #262626; color: #d4d4d4; border-color: #404040; }
+.dark .starter-tile-dim { color: #737373; }
+
+/* ===== Режим занятия: только карточка, крестик и прогресс ===== */
+.run-bar { display: none; align-items: center; gap: 10px; height: 40px; margin-bottom: 8px; flex-shrink: 0; }
+.run-bar-close {
+    width: 36px; height: 36px; flex-shrink: 0; border-radius: 9999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #737373; cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+}
+.run-bar-close:hover { background: #f0f0f0; color: #1a1a1a; }
+.dark .run-bar-close:hover { background: #262626; color: #f5f5f5; }
+.run-bar-kind { font: 700 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #737373; white-space: nowrap; }
+.run-bar-track { flex: 1; min-width: 40px; height: 8px; border-radius: 9999px; background: #e9e9e9; overflow: hidden; }
+.dark .run-bar-track { background: #262626; }
+.run-bar-fill { height: 100%; width: 0; border-radius: 9999px; background: var(--dg-green); transition: width 0.35s ease; }
+.run-bar-count { font: 700 11px/1 "JetBrains Mono", ui-monospace, monospace; color: #a3a3a3; min-width: 32px; text-align: right; }
+
+.path-run-mode .run-bar { display: flex; }
+.path-run-mode #app-header,
+.path-run-mode #bottom-nav,
+.path-run-mode #train-session-counters,
+.path-run-mode #progress-bar,
+.path-run-mode #card-front-mode-badge,
+.path-run-mode #card-front-subject-badge,
+.path-run-mode #card-back-subject-badge,
+.path-run-mode #card-counter,
+.path-run-mode #focus-toggle { display: none !important; }
+.path-run-mode main { padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); }
+/* Вход в занятие — мягкое появление, а не скачок экрана (только прозрачность: transform размывает 3D-карточку) */
+.path-run-mode #card-zone,
+.path-run-mode #action-buttons,
+.path-run-mode .run-bar { animation: runEnter 0.28s ease-out; }
+@keyframes runEnter { from { opacity: 0; } to { opacity: 1; } }
+
+/* ===== Оценка карточки: Забыл · Трудно · Помню · Легко ===== */
+.rate-row { gap: 8px; }
+.rate-btn {
+    flex: 1 1 0; min-width: 0; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    border-radius: 14px; border: 1px solid #e5e5e5; background: #ffffff; color: #404040;
+    cursor: pointer; transition: transform 0.1s ease, filter 0.15s ease;
+}
+.rate-btn:active { transform: scale(0.96); }
+.rate-btn:hover { filter: brightness(0.97); }
+.rate-btn-label { font-size: 13px; font-weight: 700; }
+.rate-btn-hint { font-size: 10px; opacity: 0.65; max-width: 100%; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rate-1 { color: var(--dg-red); background: var(--dg-red-soft); border-color: var(--dg-red-line); }
+.rate-3 { color: #ffffff; background: var(--dg-green); border-color: var(--dg-green); }
+.rate-3:hover { filter: brightness(1.06); }
+.rate-4 { color: var(--dg-violet); background: var(--dg-violet-soft); border-color: var(--dg-violet-line); }
+.dark .rate-btn { background: #141414; border-color: #2a2a2a; color: #d4d4d4; }
+.dark .rate-1 { color: var(--dg-red); background: var(--dg-red-soft); border-color: var(--dg-red-line); }
+.dark .rate-3 { color: #ffffff; background: #059669; border-color: #059669; }
+.dark .rate-4 { color: var(--dg-violet); background: var(--dg-violet-soft); border-color: var(--dg-violet-line); }
+
+/* ===== Карточка: бейдж режима, контекст, ассоциация, «сложная» ===== */
+.mode-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 9999px;
+    border: 1px solid #e5e5e5; background: #f5f5f5; color: #525252;
+}
+.dark .mode-badge { border-color: #333333; background: #1f1f1f; color: #d4d4d4; }
+.mode-violet, .dark .mode-violet { color: var(--dg-violet); background: var(--dg-violet-soft); border-color: var(--dg-violet-line); }
+.mode-red, .dark .mode-red { color: var(--dg-red); background: var(--dg-red-soft); border-color: var(--dg-red-line); }
+.card-context { margin-top: 12px; font-size: 12px; font-weight: 500; color: #8a8a8a; line-height: 1.4; }
+.mnemonic-box { background: var(--dg-violet-soft); border: 1px solid var(--dg-violet-line); }
+.mnemonic-label, .mnemonic-key { color: var(--dg-violet); }
+.leech-badge { background: var(--dg-red-soft); border: 1px solid var(--dg-red-line); color: var(--dg-red); }
+
+/* Старые жёлто-розовые акценты → общая палитра */
+.intro-btn-again, .dark .intro-btn-again { background: var(--dg-red-soft); color: var(--dg-red); border: 1px solid var(--dg-red-line); }
+.intro-btn-again:hover { filter: brightness(0.97); background: var(--dg-red-soft); }
+.intro-mnemonic { background: var(--dg-violet-soft); border-color: var(--dg-violet-line); }
+.intro-mnemonic .intro-answer-label { color: var(--dg-violet); }
+.cloze-blank, .dark .cloze-blank { background-color: var(--dg-violet-soft); color: var(--dg-violet); border-bottom-color: var(--dg-violet); }
+.lesson-option-wrong { border-color: var(--dg-red) !important; background: var(--dg-red-soft) !important; }
+.practice-option-wrong, .dark .practice-option-wrong { background-color: var(--dg-red-soft) !important; border-color: var(--dg-red) !important; color: var(--dg-red) !important; }
+.oq-point-part { border-color: #a3a3a3 !important; background: rgba(115, 115, 115, 0.08); }
+.practice-gold-box { background: var(--dg-violet-soft); border: 1px solid var(--dg-violet-line); }
+.practice-gold-label { color: var(--dg-violet); }
+
+/* ===== Подготовка к экзамену по билетам ===== */
+#exam-modal { z-index: 125; }
+.starter-exam {
+    width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 14px; border: 1px dashed #d4d4d4; color: #525252; background: transparent;
+    font-size: 12px; font-weight: 600; text-align: left; cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.starter-exam:hover { border-color: var(--dg-violet-line); color: var(--dg-violet); }
+.starter-exam .material-symbols-outlined { font-size: 18px; }
+.starter-exam-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.starter-exam-arrow { opacity: 0.5; }
+.starter-exam-on { border-style: solid; border-color: var(--dg-violet-line); background: var(--dg-violet-soft); color: var(--dg-violet); }
+
+.exam-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: #737373; }
+.exam-field textarea { min-height: 180px; resize: vertical; }
+.exam-note { font-size: 11px; line-height: 1.45; color: #8a8a8a; }
+.exam-error { font-size: 12px; font-weight: 600; color: var(--dg-red); }
+.exam-error.hidden { display: none; }
+.exam-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.exam-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: 14px; border: 1px solid #e5e5e5; }
+.dark .exam-stat { border-color: #2a2a2a; }
+.exam-stat-num { font: 700 18px/1.1 "JetBrains Mono", ui-monospace, monospace; }
+.exam-stat-label { font-size: 10px; color: #8a8a8a; text-align: center; line-height: 1.2; }
+.exam-progress { height: 8px; border-radius: 9999px; background: #e9e9e9; overflow: hidden; }
+.dark .exam-progress { background: #262626; }
+.exam-progress-fill { height: 100%; width: 0; border-radius: 9999px; background: var(--dg-green); transition: width 0.4s ease; }
+.exam-section { font: 700 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a8a; }
+.exam-missing-item { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid var(--dg-red-line); background: var(--dg-red-soft); }
+.exam-missing-q { font-size: 13px; font-weight: 600; line-height: 1.4; }
+.exam-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.exam-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 2px; border-bottom: 1px solid #f0f0f0; }
+.dark .exam-item { border-color: #222222; }
+.exam-item:last-child { border-bottom: none; }
+.exam-item-icon { font-size: 18px; margin-top: 1px; flex-shrink: 0; }
+.exam-item-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.exam-item-q { font-size: 13px; font-weight: 600; line-height: 1.35; word-break: break-word; }
+.exam-item-meta { font-size: 11px; color: #8a8a8a; line-height: 1.35; }
+.exam-st-strong { color: var(--dg-green); }
+.exam-st-answered { color: var(--dg-green-ink); opacity: 0.7; }
+.exam-st-ready { color: var(--dg-violet); }
+.exam-st-waiting, .exam-st-skipped { color: #a3a3a3; }
+.exam-st-missing { color: var(--dg-red); }

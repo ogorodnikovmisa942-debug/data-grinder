@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.services.graph_service import resolve_subject_alias, get_all_subject_aliases
 from app.services.card_db_sync import get_user_experiment_status, is_admin_or_dev
 from app.services.knowledge_path import unlocked_node_ids_subquery
+from app.services.exam_prep import ticket_card_filter, exam_session_cards, TICKET_ANSWER_TYPE
 from datetime import datetime, timedelta, timezone
 
 router = APIRouter()
@@ -117,6 +118,8 @@ async def get_session_cards(
     node_id: Annotated[Optional[int], Query(description="Путь знаний: новые карточки только этого узла")] = None,
     limit_cards: Annotated[Optional[int], Query(ge=1, le=200, description="Обрезать очередь (короткие подходы)")] = None,
     due_only: Annotated[bool, Query(description="Заучивание — только карточки, у которых подошёл срок")] = False,
+    exam_plan: Annotated[Optional[int], Query(description="Режим экзамена: карточки билетов этого плана")] = None,
+    exam_drill: Annotated[bool, Query(description="Режим экзамена: прогон уже отвеченных билетов")] = False,
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
@@ -206,7 +209,9 @@ async def get_session_cards(
             Card.user_id == current_user,
             Card.state == 0,
             # Путь знаний: новые карточки узла доступны только после его урока
-            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user)))
+            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user))),
+            # Билеты к экзамену выдаёт только режим экзамена — после тем, на которые они опираются
+            ticket_card_filter(),
         )
         if subject != 'all':
             new_stmt = new_stmt.filter(Card.subject.in_(sub_aliases))
@@ -221,7 +226,9 @@ async def get_session_cards(
             Card.user_id == current_user,
             Card.state == 0,
             # Путь знаний: новые карточки узла доступны только после его урока
-            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user)))
+            or_(Card.node_id.is_(None), Card.node_id.in_(unlocked_node_ids_subquery(current_user))),
+            # Билеты к экзамену выдаёт только режим экзамена — после тем, на которые они опираются
+            ticket_card_filter(),
         )
         if subject != 'all':
             extra_stmt = extra_stmt.filter(Card.subject.in_(sub_aliases))
@@ -229,7 +236,10 @@ async def get_session_cards(
         extra_res = await db.execute(extra_stmt)
         new_cards = extra_res.scalars().all()
 
-    if mode == "new":
+    if exam_plan is not None:
+        # Режим экзамена: новые готовые билеты или прогон уже отвеченных (сначала самые шаткие)
+        full_pool = await exam_session_cards(db, current_user, exam_plan, drill=exam_drill, limit=limit_cards)
+    elif mode == "new":
         # Режим "Учить новое": СТРОГО только новые карточки (state == 0), ни одной старой
         full_pool = new_cards
     elif mode == "review":
@@ -332,7 +342,11 @@ async def get_session_cards(
         elif c.state == 2 and c.stability:
             interval_days = max(1, round(c.stability))
 
-        if mode == "cram":
+        if c.answer_type == TICKET_ANSWER_TYPE:
+            reason_type = "exam"
+            reason_icon = "assignment"
+            reason_label = "Билет к экзамену"
+        elif mode == "cram":
             reason_type = "cram"
             reason_icon = "local_fire_department"
             diff_val = round(c.difficulty or 5.5, 1)

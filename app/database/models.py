@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Index, Text, UniqueConstraint, func
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, ForeignKey, JSON, Index, Text, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database.session import Base
@@ -383,3 +383,37 @@ class NodeProgress(Base):
     lesson_done = Column(Boolean, default=False, nullable=False)
     checkpoint_score = Column(Integer, default=0, nullable=False)
     lesson_done_at = Column(DateTime, nullable=True)
+
+
+class ExamPlan(Base):
+    """Подготовка к экзамену по билетам: список вопросов, дата экзамена и состояние разбора."""
+    __tablename__ = "exam_plans"
+    __table_args__ = (
+        Index("ix_exam_plans_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    subject = Column(String, nullable=False)
+    title = Column(String, nullable=False, default="Билеты")
+    exam_date = Column(Date, nullable=False)
+    status = Column(String(16), nullable=False, default="matching")  # matching | ready | failed
+    active = Column(Boolean, nullable=False, default=True)            # режим включён (один активный на предмет)
+    error = Column(String, nullable=True)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+class ExamTicket(Base):
+    """Билет: вопрос, найденные в графе темы и письменная карточка с эталоном."""
+    __tablename__ = "exam_tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("exam_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    order_idx = Column(Integer, nullable=False, default=0)
+    question = Column(String, nullable=False)
+    user_answer = Column(Text, nullable=True)            # эталон, который пользователь вписал сам
+    node_ids = Column(JSON, nullable=False, default=list)  # темы графа, нужные для ответа
+    status = Column(String(16), nullable=False, default="pending")  # pending | ok | missing | skipped
+    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True)

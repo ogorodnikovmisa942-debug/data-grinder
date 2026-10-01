@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
-from app.api.endpoints import train, management, admin, practice, open_questions
+from app.api.endpoints import train, management, admin, practice, open_questions, exam
 from app.api.endpoints import path as knowledge_path_api
 from app.core.config import settings
 from sqlalchemy import select, func
@@ -72,6 +72,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(practice.router, prefix="/api", tags=["Practice"])
 app.include_router(knowledge_path_api.router, prefix="/api", tags=["Knowledge Path"])
 app.include_router(open_questions.router, prefix="/api", tags=["Open Questions"])
+app.include_router(exam.router, prefix="/api", tags=["Exam Prep"])
 
 
 # Главная страница MiniApp

@@ -76,8 +76,11 @@ window.startPracticeSession = async function(customSub) {
     practiceAnswerSubmitted = false;
 
     try {
-        const count = (window.pathRun && window.pathRun.active && window.pathRun.practiceCount) || 10;
-        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=${count}`);
+        const run = window.pathRun && window.pathRun.active ? window.pathRun : null;
+        const count = (run && run.practiceCount) || 10;
+        // Режим экзамена: практика только по темам билетов
+        const examPlan = run && run.step && run.step.plan_id ? `&exam_plan=${run.step.plan_id}` : '';
+        const res = await apiFetch(`/api/practice/session?subject=${encodeURIComponent(sub)}&count=${count}${examPlan}`);
         if (res.ok) {
             practiceItems = await res.json();
         }
@@ -306,7 +309,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
                 statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-emerald-700 dark:text-emerald-400";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> <span>${data.open ? 'ВЕРНО! ОТВЕТ ПОКРЫВАЕТ ТЕЗИСЫ' : 'ВЕРНО! ТОЧНЫЙ ВЫБОР'}</span>`;
             } else {
-                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-rose-700 dark:text-rose-400";
+                statusEl.className = "flex items-center gap-2 font-mono font-bold text-xs uppercase text-secondary";
                 statusEl.innerHTML = `<span class="material-symbols-outlined text-base">cancel</span> <span>${data.open ? 'ПОКА НЕПОЛНО. ЭТАЛОН: ' : 'НЕВЕРНО. ПРАВИЛЬНЫЙ ОТВЕТ: '}${escapeHTML(data.correct_answer)}</span>`;
             }
         }
@@ -464,13 +467,13 @@ window.checkTodayPracticeStats = async function(sub) {
         if (res.ok) {
             const data = await res.json();
             if (data && data.today_completed) {
-                badge.className = "px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1";
-                badge.innerHTML = `<span class="material-symbols-outlined text-[12px]">check_circle</span><span>СЕГОДНЯ ${data.last_score}/${data.last_total}</span>`;
+                badge.className = "starter-tile-badge starter-tile-badge-ok";
+                badge.textContent = `${data.last_score}/${data.last_total}`;
                 return;
             }
         }
-        badge.className = "px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border border-neutral-200 dark:border-neutral-700";
-        badge.textContent = "ТРЕНАЖЕР";
+        badge.className = "starter-tile-badge";
+        badge.textContent = "";
     } catch (e) {
         console.warn("Сбой проверки статистики практики:", e);
     }

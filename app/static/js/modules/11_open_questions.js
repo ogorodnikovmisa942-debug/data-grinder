@@ -140,9 +140,9 @@ window.importOpenQuestions = async function() {
 // Панель ответа на тренировке
 // ---------------------------------------------------------------------------
 const OQ_RATINGS = [
-    { r: 1, label: 'Снова', hint: 'мимо' },
+    { r: 1, label: 'Забыл', hint: 'мимо' },
     { r: 2, label: 'Трудно', hint: 'с трудом' },
-    { r: 3, label: 'Хорошо', hint: 'вспомнил' },
+    { r: 3, label: 'Помню', hint: 'вспомнил' },
     { r: 4, label: 'Легко', hint: 'без усилий' }
 ];
 
@@ -178,7 +178,8 @@ function renderOpenAsk(panel, card) {
     const sub = card.subject_title || '';
     const own = card.content_type === 'open';
     const short = card.answer_kind === 'short';
-    const badge = own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите');
+    const ticket = card.reason_type === 'exam';
+    const badge = ticket ? (card.secondary_text || 'Билет') : (own ? 'Свой вопрос' : (short ? 'Вспомните и впишите' : 'Вспомните и напишите'));
     panel.appendChild(oqEl('span', { class: 'oq-badge', text: sub ? `${badge} · ${sub}` : badge }));
     panel.appendChild(oqEl('div', { class: 'oq-question', text: card.text }));
 
