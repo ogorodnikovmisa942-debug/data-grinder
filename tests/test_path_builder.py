@@ -216,7 +216,7 @@ def test_subtopics_of_one_branch_are_not_chained():
 
 
 def test_degenerate_map_without_topics_is_retried_with_higher_temperature():
-    good = {"nodes": [{"key": "a", "name": "A", "tier": 0, "order": 1}, {"key": "b", "name": "B", "tier": 1, "order": 2}]}
+    good = _map_raw(5)
     bad = {"nodes": [{"key": "a", "name": "A", "tier": 0, "order": 1}]}
     temps = []
 
@@ -227,7 +227,7 @@ def test_degenerate_map_without_topics_is_retried_with_higher_temperature():
     calls = []
     with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
         m = asyncio.run(pb.build_knowledge_map("x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS, "s", calls))
-    assert [n["key"] for n in m["nodes"]] == ["a", "b"]
+    assert len(m["nodes"]) == 10
     assert temps == [0.1, pb.RETRY_TEMPERATURE]
     assert len(calls) == 2
     assert pb.RETRY_TEMPERATURE >= 0.7
@@ -353,3 +353,21 @@ def test_degenerate_map_retry_adds_nudge_only_to_the_tail():
     assert pb.DEGENERATE_MAP_NUDGE not in prompts[0][0] and all(pb.DEGENERATE_MAP_NUDGE in p for p, _ in prompts[1:])
     prefix = build_source_block(text)
     assert all(p.startswith(prefix) for p, _ in prompts)          # кэшируемый префикс не меняется
+
+
+def test_thin_map_for_a_big_book_is_rejected_and_retried():
+    big = "x" * 300_000
+    thin = _map_raw(5)                       # 10 узлов: основы и темы, подтем нет — для книги мало
+    full = _map_raw(5)
+    full["nodes"] += [{"key": f"s{i}", "name": f"Подтема {i}", "tier": 2, "parent": "t1", "order": 30 + i,
+                       "summary": "s", "src": "гл.3"} for i in range(1, 11)]
+    answers = iter([thin, full, full])
+
+    async def fake_call(user_prompt, **kwargs):
+        return next(answers), {"cost_usd": 0.0}
+
+    assert pb.map_problem(pb.normalize_map(thin), len(big)) and pb.map_problem(pb.normalize_map(full), len(big)) is None
+    assert pb.map_problem(pb.normalize_map(thin), 20_000) is None      # короткий текст — достаточно тем
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+        m = asyncio.run(pb.build_knowledge_map(big, "s", []))
+    assert sum(1 for n in m["nodes"] if n["tier"] == 2) == 10

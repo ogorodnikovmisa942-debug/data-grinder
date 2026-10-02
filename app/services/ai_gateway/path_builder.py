@@ -37,12 +37,15 @@ MIN_SOURCE_CHARS_FOR_TOPICS = 15000
 RETRY_TEMPERATURE = 0.7
 LAST_RETRY_TEMPERATURE = 0.9
 DEGENERATE_MAP_NUDGE = (
-    "\n\nNOTE: your previous answer was incomplete — it contained only tier-0 nodes. "
+    "
+
+NOTE: your previous answer was too thin for this source (too few nodes or missing tiers). "
     "The MAP must cover the WHOLE source with all four tiers: tier 1 (5-10 topics), tier 2 (15-30 subtopics), "
     "tier 3 (5-12 cases), plus the edges. Return the complete MAP JSON."
 )
 PACK_BATCH_MAX_NODES = 10
-PACK_CONCURRENCY = 4
+# Паки идут одновременно: книга к этому моменту уже в кэше после карты. Замер при 4: 17 запросов = 5 «волн» по ~75 с
+PACK_CONCURRENCY = int(os.getenv("PATH_PACK_CONCURRENCY", "8"))
 LLM_TIMEOUT_S = 600.0
 # Карта строится дважды (вторая попытка читает книгу из кэша почти бесплатно) — берём лучшую по программной оценке
 MAP_CANDIDATES = 2
@@ -417,6 +420,25 @@ async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, 
     raise RuntimeError(f"{label}: DeepSeek не ответил за {HANG_RETRIES + 1} попытки: {last_err}")
 
 
+BIG_SOURCE_CHARS = 200_000
+
+
+def map_problem(path_map: dict, source_chars: int) -> str | None:
+    """Карта слишком скудная для такого источника («ленивый» ответ модели)? Возвращает причину или None.
+    Для коротких текстов проверяем только наличие тем; для книги — размер карты и подтемы."""
+    if source_chars < MIN_SOURCE_CHARS_FOR_TOPICS:
+        return None
+    nodes = path_map["nodes"]
+    tiers = [sum(1 for n in nodes if n["tier"] == t) for t in range(4)]
+    if not any(n["tier"] >= 1 for n in nodes):
+        return f"вырожденная карта: {len(nodes)} узлов, ни одной темы"
+    if len(nodes) < max(6, source_chars // 40_000):
+        return f"скудная карта: {len(nodes)} узлов на {source_chars // 1000} тыс. знаков источника"
+    if source_chars >= BIG_SOURCE_CHARS and (tiers[1] < 3 or tiers[2] < 8):
+        return f"скудная карта: тем {tiers[1]}, подтем {tiers[2]} для книги"
+    return None
+
+
 _TIER_TARGETS = {0: (5, 8), 1: (5, 10), 2: (15, 30), 3: (5, 12)}
 
 
@@ -450,10 +472,11 @@ async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts
             # Повтор после брака — с большей температурой, иначе модель выдаст тот же ответ
             temperature = 0.1 if attempt == 1 else (RETRY_TEMPERATURE if attempt == 2 else LAST_RETRY_TEMPERATURE)
             path_map = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#{attempt}", calls_log, temperature))
-            if len(text) >= MIN_SOURCE_CHARS_FOR_TOPICS and not any(n["tier"] >= 1 for n in path_map["nodes"]):
+            problem = map_problem(path_map, len(text))
+            if problem:
                 # Подсказка уходит только в хвост запроса: префикс «system + книга» остаётся прежним (кэш DeepSeek)
                 prompt = base_prompt + DEGENERATE_MAP_NUDGE
-                raise PathBuildError(f"вырожденная карта: {len(path_map['nodes'])} узлов, ни одной темы")
+                raise PathBuildError(problem)
             best = path_map
             break
         except LLMOutputTruncated as e:
@@ -469,7 +492,7 @@ async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts
     for extra in range(2, candidates + 1):
         try:
             other = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#alt{extra}", calls_log, MAP_SECOND_TEMPERATURE))
-            if len(text) >= MIN_SOURCE_CHARS_FOR_TOPICS and not any(n["tier"] >= 1 for n in other["nodes"]):
+            if map_problem(other, len(text)):
                 continue
             s_best, s_other = score_map(best), score_map(other)
             print(f"[Path Builder] MAP: оценки {s_best} (1) и {s_other} (альтернатива)", flush=True)
