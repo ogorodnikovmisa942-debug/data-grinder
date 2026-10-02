@@ -915,7 +915,7 @@ async def handle_admin_callbacks(callback: CallbackQuery):
     elif action == "admin_ai_model_cycle":
         from app.api.endpoints.admin import set_active_ai_provider
         curr = settings.DEEPSEEK_MODEL or "deepseek-flash"
-        next_model = "deepseek-chat" if curr == "deepseek-flash" else ("deepseek-reasoner" if curr == "deepseek-chat" else "deepseek-flash")
+        next_model = "deepseek-v4-pro" if curr == "deepseek-flash" else "deepseek-flash"
         set_active_ai_provider("deepseek", next_model)
         data = await get_admin_dashboard_data()
         try:

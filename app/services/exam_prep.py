@@ -133,7 +133,8 @@ async def create_plan(db, user_id: str, subject: str, title: str, exam_date: dat
 
 async def _course_for_matching(db, user_id: str, subject: str) -> tuple[list[dict], dict]:
     nodes = (await db.execute(
-        select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
+        select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject,
+                                    KnowledgeNode.node_key != "__intro__")
         .order_by(KnowledgeNode.tier, KnowledgeNode.order_idx, KnowledgeNode.id)
     )).scalars().all()
     rows = (await db.execute(

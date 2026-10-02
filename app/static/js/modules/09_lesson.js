@@ -254,6 +254,18 @@ async function finishLesson() {
     }
 
     const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    // Вводный урок: карточек у него нет, дальше — первая тема пути
+    if (lessonState.intro) {
+        const inRun = window.pathRun && window.pathRun.active;
+        sayLesson('Теперь ты знаешь карту. Дальше будем идти по ней шаг за шагом. Начнём с первой темы?', 'happy', 'bounce');
+        setLessonButtons(inRun ? 'К первой теме' : 'Закрыть', true, null);
+        lessonState.onNext = () => {
+            closeLesson();
+            if (inRun) window.pathRun.stepFinished();
+            else if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
+        };
+        return;
+    }
     // В режиме «Продолжить путь» карточки темы идут сразу: вспоминание сразу после урока
     if (window.pathRun && window.pathRun.active) {
         sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках, пока свежо.`, 'happy', 'bounce');
@@ -369,6 +381,7 @@ window.openLesson = async function(nodeId) {
 
     lessonState = {
         nodeId,
+        intro: !!data.intro,
         screens: data.lesson.screens,
         checks: data.lesson.check || [],
         hasPretest: (data.lesson.check || []).length > 0,
@@ -384,7 +397,7 @@ window.openLesson = async function(nodeId) {
     const nameEl = document.getElementById('lesson-node-name');
     if (nameEl) nameEl.textContent = data.node.name;
     const tierEl = document.getElementById('lesson-tier-badge');
-    if (tierEl) tierEl.textContent = LESSON_TIER_NAMES[data.node.tier] || '';
+    if (tierEl) tierEl.textContent = data.intro ? 'Вводный урок' : (LESSON_TIER_NAMES[data.node.tier] || '');
 
     modal.classList.remove('hidden');
     if (lessonState.phase === 'pretest') renderLessonPretest();

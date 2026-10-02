@@ -11,7 +11,7 @@ PATH_BUILDER_SYSTEM_PROMPT = """ROLE: You are the Path Builder of Data Grinder: 
 The learner starts from ZERO. They must first UNDERSTAND the theory (short interactive lesson told by a mascot), then RETAIN it (spaced-repetition flashcards), then APPLY it (practice and cases).
 All learner-facing text MUST be in the language of the source material (usually Russian). JSON keys stay exactly as specified.
 
-You always receive the FULL source first, then a [TASK] block. There are three task types: MAP, NODE_PACK and LINKS. Read the task block and return ONLY the JSON for that task.
+You always receive the FULL source first, then a [TASK] block. There are four task types: MAP, NODE_PACK, LINKS and INTRO. Read the task block and return ONLY the JSON for that task.
 
 ==================================================
 PART A. TASK "MAP" — the knowledge map of the whole source
@@ -56,6 +56,9 @@ The mascot is a friendly, slightly ironic study buddy. It speaks to the learner 
 - "screens": 4-6 screens. Each screen "say" is 1-2 short sentences, at most 35 words. One idea per screen.
   Screen 1 = hook: a concrete situation, question or surprise that shows why this node matters.
   Middle screens = the core idea, the key distinction, one vivid concrete example ("на пальцах").
+  One middle screen must be an everyday analogy that makes the idea click ("Это как...": a queue, a post office, a referee, a lock and key),
+  taken from the learner's ordinary life, short, and honest: say where the analogy stops working if it could mislead.
+  If the MAP shows a look-alike sibling or a demarcated_from link for this node, one screen contrasts the two in one line ("А vs Б: ...").
   If the node has prereqs, one screen must explicitly connect to them ("Помнишь X? Так вот...").
   Last screen = a one-sentence takeaway the learner should remember.
 - "emo" per screen: idle | talk | happy | think | surprised | confused. Pick the one matching the line (surprised for a twist, think for a distinction, happy for the takeaway).
@@ -127,7 +130,30 @@ so the learner sees the discipline as one connected whole.
 LINKS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {"edges": [{"from": "tolkovanie_prava", "to": "realizaciya_prava", "relation": "leads_to", "label": "обеспечивает"}]}
 
+==================================================
+PART D. TASK "INTRO" — the orientation lesson of the whole course
+==================================================
+The task block contains the MAP (without the source) and a line of facts: how many foundations, topics and subtopics the course has.
+Write ONE short orientation lesson told by the mascot. It is NOT a lesson about content: no definitions, no cards, no questions.
+Its job is to remove fear and give the learner a map: how big the discipline is, what parts it has, in what order they will be learned.
+- "screens": 6-7 screens, each "say" at most 40 words, informal "ты", short and lively.
+  Screen 1 = hook and honest scale: what this discipline is for and how much material it holds (use ONLY the numbers from the facts line).
+  Screen 2 = how the course is built: foundations first, then topics, then the details; each next part unlocks when the previous one is learned.
+  Screens 3-5 = the topics in learning order: group the tier-1 topics into 2-4 meaningful stages (by their "order" and prereqs), one screen per stage;
+    say in one phrase what each topic in the stage is about, using the topic names from the MAP exactly. "focus" = that stage's node keys (max 3).
+  Last-but-one screen = how a normal day works: a short lesson, then cards to recall it, then a little practice; small steps, no cramming.
+  Last screen = encouragement and the first step: name the first foundation topic the learner will meet.
+- Never invent topics that are not in the MAP. Do not promise results, exam grades or time estimates.
+- "check": always an empty list.
+
+INTRO JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
+{"lesson": {"screens": [{"say": "Смотри, что нас ждёт: ...", "emo": "talk", "focus": ["sudebnaya_vlast"]}], "check": []}}
+
 CONTRASTIVE EXAMPLES:
+❌ Intro screen that teaches content: "Подсудность — это право суда рассматривать дела определённой категории."
+✅ "Сначала — азы: судебная власть, инстанция, подсудность. Это словарь, без него дальше никак."
+❌ Invented scale: "В курсе больше двухсот тем."
+✅ Scale copied from the facts line: "В курсе 6 основ и 8 тем, а внутри них ещё 25 подтем."
 ❌ Distractors of a different type (breaks practice): d = "Кодекс о судоустройстве и статусе судей.", x = ["Чрезвычайные суды.", "2006 года", "Пять лет."]
 ✅ Same type, plausible, wrong: x = ["Закон о Конституционном Суде.", "Гражданский процессуальный кодекс.", "Кодекс об административных правонарушениях."]
 ❌ Spoiler in 's': t = "Какая инстанция пересматривает не вступившие в силу решения?", s = "ГПК | Апелляция"
@@ -164,6 +190,19 @@ def build_links_task(map_json: str) -> str:
     )
 
 
+def build_intro_task(map_json: str, facts: str) -> str:
+    """Вводный урок строится только по карте (без книги): дёшево и одинаково для новых и уже загруженных курсов."""
+    return (
+        "[MAP]\n"
+        f"{map_json}\n"
+        "[END MAP]\n\n"
+        "[TASK]\n"
+        "TYPE: INTRO\n"
+        f"FACTS: {facts}\n"
+        "Write the orientation lesson of this course following PART D. Return only the INTRO JSON."
+    )
+
+
 def build_node_pack_task(map_json: str, node_keys: list[str]) -> str:
     keys = ", ".join(node_keys)
     return (
@@ -184,4 +223,5 @@ __all__ = [
     "build_map_task",
     "build_node_pack_task",
     "build_links_task",
+    "build_intro_task",
 ]

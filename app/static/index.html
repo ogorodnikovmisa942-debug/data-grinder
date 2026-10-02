@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=29">
+    <link rel="stylesheet" href="/css/main.css?v=30">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -423,7 +423,7 @@
                         </div>
 
                         <!-- Центральная зона: Скроллируемое содержимое (Определение + Мнемоника + Аккордеон деталей) -->
-                        <div class="w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 card-scroll-clean card-scroll-masked px-1 overscroll-contain gap-2.5" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
+                        <div class="card-center-scroll w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 card-scroll-clean card-scroll-masked px-1 overscroll-contain gap-2.5" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
                             <!-- Определение (структурированный блок, идентичный режиму знакомства) -->
                             <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 sm:p-3.5 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
                                 <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
@@ -1482,6 +1482,8 @@
                 </div>
             </div>
 
+            <div class="practice-progress" aria-hidden="true"><div id="practice-progress-fill" class="practice-progress-fill"></div></div>
+
             <!-- Контентная область практики -->
             <div class="flex-1 relative overflow-y-auto p-4 flex flex-col items-center justify-start min-h-0 bg-background">
                 <!-- Загрузка -->
@@ -1504,7 +1506,6 @@
                         <span id="practice-item-type-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 flex items-center gap-1.5">
                             Ситуационный кейс
                         </span>
-                        <span class="text-[10px] font-mono text-neutral-400">ТРЕНАЖЕР</span>
                     </div>
 
                     <!-- Текст вопроса / сценария -->
@@ -1771,6 +1772,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=121"></script>
+    <script src="/js/app.js?v=122"></script>
 </body>
 </html>

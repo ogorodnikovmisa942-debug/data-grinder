@@ -19,6 +19,10 @@ from app.database.models import (
 )
 from app.services.exam_prep import ticket_card_filter
 
+# Вводный урок курса: скрытый узел без карточек, связей и яруса в графе. Идёт первым шагом пути.
+INTRO_KEY = "__intro__"
+INTRO_NAME = "Знакомство с курсом"
+_intro_attempted: set[tuple[str, str]] = set()  # попытки догенерации за время жизни процесса
 MASTERY_ANSWERED_SHARE = 0.8
 # Урок и его карточки неделимы. Новый урок начинается, если до дневной нормы осталось
 # место хотя бы на столько карточек; начатый урок доучивается целиком, даже сверх нормы.
@@ -97,6 +101,12 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
             user_id=user_id, subject=subject,
             source_key=e["from"], target_key=e["to"], relation=e["relation"], label=e["label"],
         ))
+    intro = result.get("intro")
+    if intro:
+        db.add(KnowledgeNode(
+            user_id=user_id, subject=subject, node_key=INTRO_KEY, name=INTRO_NAME, tier=0, parent_key=None,
+            prereq_keys=[], order_idx=-1, summary=None, source_hint=None, lesson=intro, lesson_status="ready", created_at=now,
+        ))
     await db.flush()
 
     rank = 0
@@ -163,16 +173,18 @@ async def _path_plan(db, user_id: str, subject: str) -> dict:
 async def get_path_state(db, user_id: str, subject: str) -> dict:
     """Состояние пути для UI: узлы со статусами locked | open | lesson_done | mastered и прогрессом."""
     subject = normalize_subject(subject)
-    nodes = (await db.execute(
+    all_nodes = (await db.execute(
         select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
         .order_by(KnowledgeNode.order_idx)
     )).scalars().all()
+    nodes = [n for n in all_nodes if n.node_key != INTRO_KEY]
+    intro_node = next((n for n in all_nodes if n.node_key == INTRO_KEY), None)
     if not nodes:
         return {"subject": subject, "nodes": [], "edges": []}
 
     progress = {
         p.node_id: p for p in (await db.execute(
-            select(NodeProgress).where(NodeProgress.user_id == user_id, NodeProgress.node_id.in_([n.id for n in nodes]))
+            select(NodeProgress).where(NodeProgress.user_id == user_id, NodeProgress.node_id.in_([n.id for n in all_nodes]))
         )).scalars().all()
     }
     # Сколько карточек узла всего и сколько из них хоть раз вспомнено верно (оценка выше «Снова»).
@@ -228,6 +240,8 @@ async def get_path_state(db, user_id: str, subject: str) -> dict:
         "subject": subject,
         "title": title or subject,
         "plan": await _path_plan(db, user_id, subject),
+        "intro": ({"id": intro_node.id, "done": bool(progress.get(intro_node.id) and progress[intro_node.id].lesson_done)}
+                  if intro_node and intro_node.lesson else None),
         "nodes": items,
         "edges": [{"from": e.source_key, "to": e.target_key, "relation": e.relation, "label": e.label} for e in edges],
     }
@@ -265,6 +279,10 @@ async def complete_lesson(db, user_id: str, node_id: int, checkpoint_score: int)
         db.add(progress)
     first_completion = not progress.lesson_done
     progress.lesson_done = True
+    node = (await db.execute(select(KnowledgeNode).where(KnowledgeNode.id == node_id))).scalar_one_or_none()
+    if node and node.node_key == INTRO_KEY:
+        # Вводный урок не считается «темой дня»: без даты прохождения он не попадает в счётчики дня
+        return progress
     if first_completion:
         await _apply_checkpoint_to_cards(db, user_id, node_id, checkpoint_score)
     progress.checkpoint_score = max(progress.checkpoint_score or 0, checkpoint_score)
@@ -277,13 +295,63 @@ def unlocked_node_ids_subquery(user_id: str):
     return select(NodeProgress.node_id).where(NodeProgress.user_id == user_id, NodeProgress.lesson_done == True)  # noqa: E712
 
 
+async def ensure_intro(user_id: str, subject: str) -> bool:
+    """Курс, загруженный до появления вводного урока, получает его фоном: один дешёвый вызов по карте (≈$0.003).
+    Попытка одна за время жизни процесса, чтобы сбой API не превращался в повторяющиеся траты."""
+    import asyncio
+    from app.core.config import settings
+    key = (user_id, subject)
+    if getattr(settings, 'TESTING', False) or key in _intro_attempted:
+        return False
+    _intro_attempted.add(key)
+    asyncio.create_task(_generate_intro(user_id, subject))
+    return True
+
+
+async def _generate_intro(user_id: str, subject: str) -> None:
+    from app.database.session import AsyncSessionLocal
+    from app.services.ai_gateway.path_builder import build_intro_lesson
+    from app.services.generation_worker import _record_path_calls
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
+                .order_by(KnowledgeNode.order_idx)
+            )).scalars().all()
+            if not rows or any(r.node_key == INTRO_KEY for r in rows):
+                return
+            title = (await db.execute(
+                select(GenerationJob.theme).where(GenerationJob.user_id == user_id, GenerationJob.subject == subject,
+                                                  GenerationJob.status == "completed").order_by(GenerationJob.id.desc()).limit(1)
+            )).scalar_one_or_none()
+            path_map = {"title": title or subject, "nodes": [
+                {"key": r.node_key, "name": r.name, "tier": r.tier, "parent": r.parent_key,
+                 "prereqs": r.prereq_keys or [], "order": r.order_idx, "summary": r.summary} for r in rows]}
+        calls: list[dict] = []
+        lesson = await build_intro_lesson(path_map, calls)
+        if calls:
+            await _record_path_calls(f"intro:{subject}", user_id, calls)
+        if not lesson:
+            return
+        async with AsyncSessionLocal() as db:
+            exists = (await db.execute(select(KnowledgeNode.id).where(
+                KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject, KnowledgeNode.node_key == INTRO_KEY))).first()
+            if not exists:
+                db.add(KnowledgeNode(
+                    user_id=user_id, subject=subject, node_key=INTRO_KEY, name=INTRO_NAME, tier=0, prereq_keys=[],
+                    order_idx=-1, lesson=lesson, lesson_status="ready", created_at=utc_now()))
+                await db.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[Intro WARN] {subject}: {e}", flush=True)
+
+
 # ---------------------------------------------------------------------------
 # План дня и «Продолжить путь»: следующий шаг занятия одной кнопкой
 # ---------------------------------------------------------------------------
 
 # Сколько раз шаг каждого типа может встретиться за один запуск (защита от зацикливания;
 # сколько уроков пройти за день, решает дневная норма, а не этот предохранитель)
-RUN_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 6, "practice": 1}
+RUN_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 6, "practice": 1, "intro": 1}
 RUN_REVIEW_BATCH = 15      # повторений за шаг: короткие подходы вместо стены из 80 карточек
 PRACTICE_MIN_ITEMS = 4
 
@@ -426,6 +494,14 @@ async def next_path_step(db, user_id: str, subject: str, done: list[str], scope:
     now = utc_now()
     base = [Card.user_id == user_id, Card.subject == subject]
     topic = scope == "topic"
+
+    # 0. Вводный урок курса: один раз, самым первым шагом (масштаб, разделы и порядок — до первой темы)
+    if not used["intro"]:
+        intro_state = (await get_path_state(db, user_id, subject)).get("intro")
+        if intro_state and not intro_state["done"]:
+            return {"type": "intro", "node_id": intro_state["id"], "node_name": INTRO_NAME}
+        if not intro_state:
+            await ensure_intro(user_id, subject)
 
     # 1. Повторения, у которых подошёл срок (Review и заучивание). Только что выученные
     # карточки ждут своего шага заучивания, а не возвращаются сразу же.

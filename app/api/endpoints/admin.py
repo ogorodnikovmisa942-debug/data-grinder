@@ -759,7 +759,7 @@ async def get_ai_provider_status(
         "model": current_model,
         "active_has_key": active_has_key,
         "available_providers": ["deepseek"],
-        "available_models": ["deepseek-flash", "deepseek-chat", "deepseek-reasoner"],
+        "available_models": ["deepseek-flash", "deepseek-v4-pro"],
         "deepseek": {
             "model": settings.DEEPSEEK_MODEL,
             "base_url": settings.DEEPSEEK_BASE_URL,
@@ -774,7 +774,7 @@ async def switch_ai_provider(
     token: str = Depends(verify_admin_token)
 ):
     """
-    Переключает конфигурацию модели DeepSeek (deepseek-flash, deepseek-chat, deepseek-reasoner).
+    Переключает конфигурацию модели DeepSeek (deepseek-flash, deepseek-v4-pro).
     Обновляет глобальные настройки приложения в памяти и файл .env.
     """
     try:

@@ -7,6 +7,7 @@
 // ============================================================================
 
 const PATH_RUN_STEP_VIEW = {
+    intro:    { icon: 'explore',        kind: 'Знакомство' },
     review:   { icon: 'history',        kind: 'Разминка' },
     cards:    { icon: 'style',          kind: 'Закрепление' },
     lesson:   { icon: 'school',         kind: 'Новая тема' },
@@ -73,6 +74,12 @@ function describePathStep(step, isFirst) {
                 name: `«${step.node_name}» · ${n} ${pathRunPlural(n, 'карточка', 'карточки', 'карточек')}`,
                 say: 'Закрепим тему на карточках: вспоминать сразу после урока полезнее, чем перечитывать.',
                 emo: 'happy'
+            };
+        case 'intro':
+            return {
+                name: step.node_name || 'Знакомство с курсом',
+                say: 'Прежде чем начнём — короткая экскурсия: сколько здесь материала, из каких частей он состоит и в каком порядке мы пойдём. Пара минут, без вопросов.',
+                emo: 'talk'
             };
         case 'lesson':
             return {
@@ -256,7 +263,7 @@ pathRun.go = function() {
         if (typeof switchTab === 'function') switchTab('train');
         setRunMode(true, step.type);
         startSession(step.type === 'review' || step.type === 'drill' ? 'review' : 'new');
-    } else if (step.type === 'lesson') {
+    } else if (step.type === 'lesson' || step.type === 'intro') {
         openLesson(step.node_id);
     } else if (step.type === 'practice') {
         pathRun.practiceCount = step.count;

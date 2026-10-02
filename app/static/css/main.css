@@ -985,3 +985,35 @@ html, body {
 .exam-st-ready { color: var(--dg-violet); }
 .exam-st-waiting, .exam-st-skipped { color: #a3a3a3; }
 .exam-st-missing { color: var(--dg-red); }
+
+/* ==========================================================================
+   Единый вид карточки, штурм в две кнопки, мелочи
+   ========================================================================== */
+/* display:flex у .path-run-card перебивал .hidden из tailwind — пустая карточка шага была видна всегда */
+.path-run-card.hidden { display: none; }
+
+/* Одна и та же карточка везде (повторение, знакомство после урока, штурм, билеты): занимает доступную высоту */
+#flashcard {
+    aspect-ratio: auto !important;
+    height: 100% !important;
+    min-height: 440px !important;
+    max-height: 640px !important;
+}
+
+/* Содержимое обратной стороны: ответ по центру между вопросом и пояснением, а если не помещается — обычная прокрутка */
+.card-center-scroll > :first-child { margin-top: auto; }
+.card-center-scroll > :last-child { margin-bottom: auto; }
+
+/* Штурм: только «Забыл» и «Помню» */
+.cram-two .rate-2, .cram-two .rate-4 { display: none; }
+
+/* Подсказка под названием оценки переносится на 2 строки, а не обрезается */
+.rate-btn-hint {
+    white-space: normal; text-align: center; line-height: 1.15;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.starter-tile-badge .material-symbols-outlined { font-size: 14px; }
+.practice-progress { height: 4px; background: #ececec; flex-shrink: 0; }
+.dark .practice-progress { background: #262626; }
+.practice-progress-fill { height: 100%; width: 0; background: var(--dg-green); transition: width 0.3s ease; }

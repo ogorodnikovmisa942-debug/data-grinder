@@ -117,6 +117,8 @@ function renderPracticeQuestion() {
     const totStep = document.getElementById('practice-total-step');
     if (curStep) curStep.textContent = practiceCurrentIndex + 1;
     if (totStep) totStep.textContent = practiceItems.length;
+    const fill = document.getElementById('practice-progress-fill');
+    if (fill) fill.style.width = `${(practiceCurrentIndex / Math.max(1, practiceItems.length)) * 100}%`;
 
     // Type badge
     const typeBadge = document.getElementById('practice-item-type-badge');
@@ -261,8 +263,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         const why = (data.explanation && data.explanation !== `Правильный ответ: ${data.correct_answer}`) ? ` ${data.explanation}` : '';
         if (isCorrect) {
             practiceStreak++;
-            const praise = practiceStreak >= 3 ? `${practiceStreak} подряд!` : 'Верно!';
-            practiceCat('happy', `${praise}${why}`, 'bounce');
+            practiceCat('happy', `Верно!${why}`, 'bounce');
         } else {
             practiceStreak = 0;
             const rightAnswer = String(data.correct_answer || '').replace(/[.!]+$/, '');
@@ -467,8 +468,10 @@ window.checkTodayPracticeStats = async function(sub) {
         if (res.ok) {
             const data = await res.json();
             if (data && data.today_completed) {
+                // Галочка = «сегодня практика уже пройдена»; результат — в подсказке плитки
                 badge.className = "starter-tile-badge starter-tile-badge-ok";
-                badge.textContent = `${data.last_score}/${data.last_total}`;
+                badge.innerHTML = '<span class="material-symbols-outlined">check</span>';
+                if (badge.parentElement) badge.parentElement.title = `Сегодня пройдена: ${data.last_score} из ${data.last_total}`;
                 return;
             }
         }

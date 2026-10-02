@@ -413,3 +413,73 @@ def test_import_limits(monkeypatch):
         r = client.post("/api/config/import", json={"text": "x" * 500, "subject": "limits_sub"},
                         headers={"X-User-Id": "limits_user"})
         assert r.status_code == 413 and "слишком большой" in r.json()["detail"]
+
+
+# --- Вводный урок курса ---
+
+INTRO_LESSON = {"screens": [{"say": f"Экран {i}", "emo": "talk", "focus": []} for i in range(6)], "check": []}
+
+
+def test_intro_lesson_is_first_hidden_step_without_cards():
+    """Вводный урок: скрыт из графа, идёт первым шагом, не считается темой дня и не открывает карточки."""
+    from app.services.knowledge_path import next_path_step, get_day_plan, INTRO_KEY, get_today_summary
+
+    async def fake_with_intro(text, subject, calls=None):
+        res = fake_result()
+        res["intro"] = INTRO_LESSON
+        return res
+
+    async def scenario():
+        await cleanup()
+        try:
+            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_with_intro):
+                await process_generation_job(await create_job(), is_offpeak=True)
+            async with AsyncSessionLocal() as db:
+                state = await get_path_state(db, USER, SUBJECT)
+                assert INTRO_KEY not in [n["key"] for n in state["nodes"]] and len(state["nodes"]) == 3
+                assert state["intro"]["done"] is False
+                intro_id = state["intro"]["id"]
+                assert (await db.scalar(select(func.count(Card.id)).where(Card.node_id == intro_id))) == 0
+
+                step = await next_path_step(db, USER, SUBJECT, [])
+                assert step["type"] == "intro" and step["node_id"] == intro_id
+                # Один раз за запуск; после него — обычный путь
+                step = await next_path_step(db, USER, SUBJECT, ["intro"])
+                assert step["type"] == "lesson"
+
+                await complete_lesson(db, USER, intro_id, 0)
+                await db.commit()
+                assert (await get_path_state(db, USER, SUBJECT))["intro"]["done"] is True
+                step = await next_path_step(db, USER, SUBJECT, [])
+                assert step["type"] == "lesson"
+                plan = await get_day_plan(db, USER, SUBJECT)
+                assert plan["lessons_today"] == 0 and (await get_today_summary(db, USER, SUBJECT))["lessons"] == 0
+        finally:
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_build_intro_lesson_normalizes_and_survives_failure():
+    from app.services.ai_gateway import path_builder
+
+    path_map = fake_result()["map"]
+    good = {"lesson": {"screens": [{"say": f"Экран {i}", "emo": "weird", "focus": ["base", "ghost"]} for i in range(7)],
+                       "check": [{"q": "лишнее", "options": ["а", "б"], "answer": 0}]}}
+
+    async def ok_call(prompt, max_tokens, label, calls_log, temperature=0.1):
+        assert "TYPE: INTRO" in prompt and "FACTS:" in prompt and "[SOURCE MATERIAL" not in prompt
+        return good
+
+    async def bad_call(*args, **kwargs):
+        raise RuntimeError("API down")
+
+    async def scenario():
+        with patch.object(path_builder, "_call", side_effect=ok_call):
+            lesson = await path_builder.build_intro_lesson(path_map, [])
+        assert len(lesson["screens"]) == 7 and lesson["check"] == [] and lesson["screens"][0]["emo"] == "talk"
+        assert lesson["screens"][0]["focus"] == ["base"]
+        with patch.object(path_builder, "_call", side_effect=bad_call):
+            assert await path_builder.build_intro_lesson(path_map, []) is None
+
+    asyncio.run(scenario())

@@ -7,9 +7,12 @@ DeepSeek читает книгу из кэша. Модуль чистый: ни�
 """
 import asyncio
 import json
+import os
 import random
 import re
 import time
+
+import httpx
 
 from app.core.config import settings
 from .blacklist import is_blacklisted_card, strip_secondary_spoilers
@@ -19,6 +22,7 @@ from .path_prompts import (
     build_map_task,
     build_node_pack_task,
     build_links_task,
+    build_intro_task,
 )
 
 # ~1M токенов контекста deepseek-flash; оставляем запас под промпт, карту и ответ
@@ -29,10 +33,28 @@ PACK_MAX_TOKENS = 48000
 LINKS_MAX_TOKENS = 8000
 # Для учебника/конспекта такого объёма карта без тем (только основы) — брак, а не результат
 MIN_SOURCE_CHARS_FOR_TOPICS = 15000
-RETRY_TEMPERATURE = 0.5
-PACK_BATCH_MAX_NODES = 6
+# Повтор карты: при 0.1–0.5 модель иногда снова отвечает «лениво» (только 8 узлов основ) — 0.7 в замере давал полную карту
+RETRY_TEMPERATURE = 0.7
+LAST_RETRY_TEMPERATURE = 0.9
+DEGENERATE_MAP_NUDGE = (
+    "\n\nNOTE: your previous answer was incomplete — it contained only tier-0 nodes. "
+    "The MAP must cover the WHOLE source with all four tiers: tier 1 (5-10 topics), tier 2 (15-30 subtopics), "
+    "tier 3 (5-12 cases), plus the edges. Return the complete MAP JSON."
+)
+PACK_BATCH_MAX_NODES = 10
 PACK_CONCURRENCY = 4
 LLM_TIMEOUT_S = 600.0
+# Карта строится дважды (вторая попытка читает книгу из кэша почти бесплатно) — берём лучшую по программной оценке
+MAP_CANDIDATES = 2
+MAP_SECOND_TEMPERATURE = 0.4
+# Уроки и карточки основ и тем (ярус 0–1) можно писать в режиме «обдумывания» (PATH_THINK_CORE=1).
+# Замер на «Общей теории права» (481 с., дешёвые часы): +≈$0.035 к книге (~+20%), а метафоры и качество уроков
+# без него уже на уровне — поэтому по умолчанию выключено.
+THINK_CORE = os.getenv("PATH_THINK_CORE", "0").lower() in ("1", "true", "yes")
+CORE_PACK_MAX_TOKENS = 64000
+# Зависание DeepSeek: повторяем той же моделью (качество не прыгает), последняя попытка — страховочная модель
+HANG_RETRIES = 2
+HANG_BACKOFF_S = 20.0
 
 VALID_RELATIONS = {
     "part_of", "depends_on", "kind_of", "demarcated_from", "appealed_to",
@@ -174,8 +196,10 @@ def normalize_map(raw: dict) -> dict:
     }
 
 
-def plan_pack_batches(path_map: dict, max_nodes: int = PACK_BATCH_MAX_NODES) -> list[list[str]]:
-    """Группирует узлы в батчи NODE_PACK: основы отдельно, дальше — по веткам яруса 1."""
+def plan_pack_batches(path_map: dict, max_nodes: int = PACK_BATCH_MAX_NODES, split_core: bool = False) -> list[list[str]]:
+    """Группирует узлы в батчи NODE_PACK: основы отдельно, дальше — по веткам яруса 1.
+    split_core=True: ядро (ярус 0–1) целиком идёт отдельными батчами — их пишем в режиме обдумывания,
+    а подтемы и кейсы веток — обычным режимом."""
     nodes = path_map["nodes"]
     batches: list[list[str]] = []
 
@@ -186,6 +210,15 @@ def plan_pack_batches(path_map: dict, max_nodes: int = PACK_BATCH_MAX_NODES) -> 
 
     push([n["key"] for n in nodes if n["tier"] == 0])
     placed = {n["key"] for n in nodes if n["tier"] == 0}
+    if split_core:
+        tier1 = [n["key"] for n in nodes if n["tier"] == 1]
+        push(tier1)
+        placed.update(tier1)
+        for branch_key in tier1:
+            push([n["key"] for n in nodes if n["parent"] == branch_key])
+            placed.update(n["key"] for n in nodes if n["parent"] == branch_key)
+        push([n["key"] for n in nodes if n["key"] not in placed])
+        return batches
     for branch in (n for n in nodes if n["tier"] == 1):
         members = [branch["key"]] + [n["key"] for n in nodes if n["parent"] == branch["key"]]
         placed.update(members)
@@ -215,7 +248,7 @@ def _clean_distractors(answer: str, raw_list) -> list[str] | None:
     return out[:3] if len(out) >= 2 else None
 
 
-def _normalize_lesson(raw, valid_keys: set[str]) -> dict | None:
+def _normalize_lesson(raw, valid_keys: set[str], max_screens: int = 6) -> dict | None:
     if not isinstance(raw, dict):
         return None
     screens = []
@@ -231,7 +264,7 @@ def _normalize_lesson(raw, valid_keys: set[str]) -> dict | None:
             "emo": emo if emo in VALID_EMOTIONS else "talk",
             "focus": [k for k in (_slug(f) for f in (s.get("focus") or [])) if k in valid_keys][:3],
         })
-    screens = screens[:6]
+    screens = screens[:max_screens]
     if len(screens) < 3:
         return None
 
@@ -348,47 +381,107 @@ def _log_call(calls_log: list, label: str, started: float, meta: dict, error: st
     })
 
 
-async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, temperature: float = 0.1) -> dict:
-    from .client import LLMCallError
-    started = time.time()
-    try:
-        res, meta = await _get_call_deepseek()(
-            user_prompt,
-            system_instruction=PATH_BUILDER_SYSTEM_PROMPT,
-            max_tokens=max_tokens,
-            timeout=LLM_TIMEOUT_S,
-            temperature=temperature,
-        )
-    except LLMCallError as e:
-        # Ответ оплачен, даже если он непригоден — учитываем расход
-        _log_call(calls_log, label, started, e.meta, error=str(e)[:200])
-        raise
-    _log_call(calls_log, label, started, meta)
-    return res
+async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, temperature: float = 0.1,
+                thinking: bool = False) -> dict:
+    from .client import LLMCallError, MODEL_FALLBACK
+    last_err: Exception | None = None
+    for attempt in range(HANG_RETRIES + 1):
+        started = time.time()
+        extra: dict = {}
+        if thinking:
+            extra["thinking"] = True
+        if attempt == HANG_RETRIES and HANG_RETRIES > 0:
+            extra["model"] = MODEL_FALLBACK   # две попытки основной моделью не прошли — страхуемся
+        try:
+            res, meta = await _get_call_deepseek()(
+                user_prompt,
+                system_instruction=PATH_BUILDER_SYSTEM_PROMPT,
+                max_tokens=max_tokens,
+                timeout=LLM_TIMEOUT_S,
+                temperature=temperature,
+                **extra,
+            )
+        except LLMCallError as e:
+            # Ответ оплачен, даже если он непригоден — учитываем расход
+            _log_call(calls_log, label, started, e.meta, error=str(e)[:200])
+            raise
+        except (asyncio.TimeoutError, TimeoutError, httpx.TransportError) as e:
+            _log_call(calls_log, label, started, {}, error=f"{type(e).__name__}: зависание/сеть")
+            last_err = e
+            print(f"[Path Builder WARN] {label}: нет ответа ({type(e).__name__}), попытка {attempt + 1}/{HANG_RETRIES + 1}", flush=True)
+            if attempt < HANG_RETRIES:
+                await asyncio.sleep(HANG_BACKOFF_S * (attempt + 1))
+            continue
+        _log_call(calls_log, label, started, meta)
+        return res
+    raise RuntimeError(f"{label}: DeepSeek не ответил за {HANG_RETRIES + 1} попытки: {last_err}")
 
 
-async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts: int = 3) -> dict:
+_TIER_TARGETS = {0: (5, 8), 1: (5, 10), 2: (15, 30), 3: (5, 12)}
+
+
+def score_map(path_map: dict) -> float:
+    """Программная оценка карты (больше — лучше): ярусы в заданных диапазонах, у узлов есть summary и src,
+    подтемы привязаны к темам, достаточно осмысленных связей. Не заменяет чтение карты человеком, но отсеивает брак."""
+    nodes = path_map["nodes"]
+    if not nodes:
+        return 0.0
+    score = 0.0
+    for tier, (lo, hi) in _TIER_TARGETS.items():
+        n = sum(1 for x in nodes if x["tier"] == tier)
+        score += 1.0 if lo <= n <= hi else max(0.0, 1.0 - (lo - n if n < lo else n - hi) / max(lo, 1))
+    score += sum(1 for x in nodes if x["summary"]) / len(nodes)
+    score += sum(1 for x in nodes if x["src"]) / len(nodes)
+    deep = [x for x in nodes if x["tier"] >= 2]
+    score += (sum(1 for x in deep if x["parent"]) / len(deep)) if deep else 0.0
+    edges = len(path_map["edges"])
+    score += 1.0 if 15 <= edges <= 60 else max(0.0, 1.0 - (15 - edges if edges < 15 else edges - 60) / 15)
+    return round(score, 3)
+
+
+async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts: int = 3, candidates: int = 1) -> dict:
     from .client import LLMOutputTruncated
-    prompt = build_source_block(text) + build_map_task(subject)
+    base_prompt = build_source_block(text) + build_map_task(subject)
+    prompt = base_prompt
     last_err = None
+    best = None
     for attempt in range(1, attempts + 1):
         try:
-            # Повтор после брака — с чуть большей температурой, иначе модель выдаст тот же ответ
-            temperature = 0.1 if attempt == 1 else RETRY_TEMPERATURE
+            # Повтор после брака — с большей температурой, иначе модель выдаст тот же ответ
+            temperature = 0.1 if attempt == 1 else (RETRY_TEMPERATURE if attempt == 2 else LAST_RETRY_TEMPERATURE)
             path_map = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#{attempt}", calls_log, temperature))
             if len(text) >= MIN_SOURCE_CHARS_FOR_TOPICS and not any(n["tier"] >= 1 for n in path_map["nodes"]):
+                # Подсказка уходит только в хвост запроса: префикс «system + книга» остаётся прежним (кэш DeepSeek)
+                prompt = base_prompt + DEGENERATE_MAP_NUDGE
                 raise PathBuildError(f"вырожденная карта: {len(path_map['nodes'])} узлов, ни одной темы")
-            return path_map
+            best = path_map
+            break
         except LLMOutputTruncated as e:
             # Тот же запрос обрежется снова — не тратим деньги на повтор
             raise PathBuildError(f"Карта знаний не поместилась в лимит ответа: {e}") from e
         except Exception as e:  # noqa: BLE001 — ретраим сбои сети/парсинга
             last_err = e
             print(f"[Path Builder WARN] MAP попытка {attempt}/{attempts}: {e}", flush=True)
-    raise PathBuildError(f"Не удалось построить карту знаний: {last_err}")
+    if best is None:
+        raise PathBuildError(f"Не удалось построить карту знаний: {last_err}")
+
+    # Вторая карта: книга уже в кэше, платим почти только за вывод. Берём лучшую; сбой второй карты не фатален
+    for extra in range(2, candidates + 1):
+        try:
+            other = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#alt{extra}", calls_log, MAP_SECOND_TEMPERATURE))
+            if len(text) >= MIN_SOURCE_CHARS_FOR_TOPICS and not any(n["tier"] >= 1 for n in other["nodes"]):
+                continue
+            s_best, s_other = score_map(best), score_map(other)
+            print(f"[Path Builder] MAP: оценки {s_best} (1) и {s_other} (альтернатива)", flush=True)
+            if s_other > s_best:
+                best = other
+        except Exception as e:  # noqa: BLE001
+            print(f"[Path Builder WARN] MAP-альтернатива {extra}: {e}", flush=True)
+    return best
 
 
-async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls_log: list, attempts: int = 3) -> dict[str, dict]:
+async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls_log: list, attempts: int = 3,
+                          thinking: bool = False) -> dict[str, dict]:
     from .client import LLMOutputTruncated
     map_json = json.dumps(path_map, ensure_ascii=False, separators=(",", ":"))
     collected: dict[str, dict] = {}
@@ -398,7 +491,8 @@ async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls
             break
         prompt = build_source_block(text) + build_node_pack_task(map_json, missing)
         try:
-            raw = await _call(prompt, PACK_MAX_TOKENS, f"pack[{','.join(missing)}]#{attempt}", calls_log)
+            raw = await _call(prompt, CORE_PACK_MAX_TOKENS if thinking else PACK_MAX_TOKENS,
+                              f"pack{'*' if thinking else ''}[{','.join(missing)}]#{attempt}", calls_log, thinking=thinking)
             collected.update(normalize_pack(raw, path_map, missing))
         except LLMOutputTruncated as e:
             if len(missing) == 1:
@@ -407,7 +501,7 @@ async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls
             # Делим батч пополам вместо повтора того же запроса
             half = len(missing) // 2
             for part in (missing[:half], missing[half:]):
-                collected.update(await build_node_pack(text, path_map, part, calls_log, attempts=attempts - attempt + 1))
+                collected.update(await build_node_pack(text, path_map, part, calls_log, attempts=attempts - attempt + 1, thinking=thinking))
             break
         except Exception as e:  # noqa: BLE001
             print(f"[Path Builder WARN] NODE_PACK {missing} попытка {attempt}/{attempts}: {e}", flush=True)
@@ -431,6 +525,39 @@ async def build_cross_links(text: str, path_map: dict, calls_log: list) -> list[
     return [e for e in links if frozenset((e["from"], e["to"])) not in parent_pairs][:35]
 
 
+INTRO_MAX_TOKENS = 6000
+INTRO_KEY = "__intro__"
+
+
+def _intro_facts(nodes: list[dict]) -> str:
+    n = [sum(1 for x in nodes if x["tier"] == t) for t in range(4)]
+    return f"{n[0]} foundations (tier 0), {n[1]} topics (tier 1), {n[2]} subtopics (tier 2), {n[3]} case nodes (tier 3)"
+
+
+async def build_intro_lesson(path_map: dict, calls_log: list) -> dict | None:
+    """Вводный урок курса по одной карте (без книги). Сбой не фатален: курс просто останется без вводного."""
+    nodes = path_map.get("nodes") or []
+    if len(nodes) < 3:
+        return None
+    compact = {"title": path_map.get("title"), "nodes": [
+        {"key": n["key"], "name": n["name"], "tier": n["tier"], "parent": n.get("parent"),
+         "prereqs": n.get("prereqs") or [], "order": n.get("order"), "summary": n.get("summary")}
+        for n in nodes
+    ]}
+    prompt = build_intro_task(json.dumps(compact, ensure_ascii=False, separators=(",", ":")), _intro_facts(nodes))
+    for attempt in (1, 2):
+        try:
+            raw = await _call(prompt, INTRO_MAX_TOKENS, f"intro#{attempt}", calls_log, 0.1 if attempt == 1 else RETRY_TEMPERATURE)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Path Builder WARN] INTRO: {e}", flush=True)
+            continue
+        lesson = _normalize_lesson((raw or {}).get("lesson"), {n["key"] for n in nodes}, max_screens=8)
+        if lesson:
+            lesson["check"] = []
+            return lesson
+    return None
+
+
 async def build_learning_path(text: str, subject: str, calls: list | None = None) -> dict:
     """Полный прогон: MAP → NODE_PACK по веткам. Возвращает карту, пакеты узлов и телеметрию."""
     text = (text or "").strip()
@@ -441,26 +568,30 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
 
     # Список вызовов передаётся снаружи, чтобы расходы учитывались и при сбое
     calls = calls if calls is not None else []
-    path_map = await build_knowledge_map(text, subject, calls)
+    path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES)
 
     semaphore = asyncio.Semaphore(PACK_CONCURRENCY)
+    core_keys = {n["key"] for n in path_map["nodes"] if n["tier"] <= 1}
 
     async def run(batch: list[str]):
         async with semaphore:
-            return await build_node_pack(text, path_map, batch, calls)
+            return await build_node_pack(text, path_map, batch, calls, thinking=THINK_CORE and all(k in core_keys for k in batch))
 
     packs: dict[str, dict] = {}
     results = await asyncio.gather(
         build_cross_links(text, path_map, calls),
-        *(run(b) for b in plan_pack_batches(path_map)),
+        build_intro_lesson(path_map, calls),
+        *(run(b) for b in plan_pack_batches(path_map, split_core=THINK_CORE)),
     )
     path_map["edges"].extend(results[0])
-    for part in results[1:]:
+    intro = results[1]
+    for part in results[2:]:
         packs.update(part)
 
     return {
         "map": path_map,
         "packs": packs,
+        "intro": intro,
         "missing_nodes": [n["key"] for n in path_map["nodes"] if n["key"] not in packs],
         "calls": calls,
         "cost_usd": round(sum(c["cost_usd"] for c in calls), 6),

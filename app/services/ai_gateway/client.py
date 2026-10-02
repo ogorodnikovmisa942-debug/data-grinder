@@ -1,6 +1,7 @@
 """
 DeepSeek-клиент: вызов модели (JSON Mode + Context Caching), учёт стоимости, окно скидок, телеметрия.
 """
+import asyncio
 from datetime import datetime, timezone
 
 import httpx
@@ -44,15 +45,21 @@ def format_offpeak_start_msk(now_utc: datetime | None = None) -> str:
     return f"{(start.hour + 3) % 24:02d}:{start.minute:02d} по МСК"
 
 
-def estimate_call_cost_usd(cache_hit_tokens: int, cache_miss_tokens: int, output_tokens: int, offpeak: bool | None = None) -> float:
-    """Стоимость одного вызова по ценам deepseek-flash из настроек."""
+# deepseek-v4-pro дороже flash: вход 4.4×, выход 3.3× (тарифы из docs DeepSeek, пиковые: 1.32 / 0.044 / 3.96 $ за 1 млн)
+_PRO_MULT = {"hit": 7.33, "miss": 4.4, "out": 3.3}
+
+
+def estimate_call_cost_usd(cache_hit_tokens: int, cache_miss_tokens: int, output_tokens: int,
+                           offpeak: bool | None = None, model: str | None = None) -> float:
+    """Стоимость одного вызова по ценам deepseek-flash из настроек (пиковым; вне пика — скидка 50%)."""
     if offpeak is None:
         offpeak = is_deepseek_offpeak_now()
     factor = 0.5 if offpeak else 1.0
+    m = _PRO_MULT if model == MODEL_FALLBACK else {"hit": 1, "miss": 1, "out": 1}
     cost = (
-        cache_hit_tokens * settings.DEEPSEEK_PRICE_CACHE_HIT
-        + cache_miss_tokens * settings.DEEPSEEK_PRICE_CACHE_MISS
-        + output_tokens * settings.DEEPSEEK_PRICE_OUTPUT
+        cache_hit_tokens * settings.DEEPSEEK_PRICE_CACHE_HIT * m["hit"]
+        + cache_miss_tokens * settings.DEEPSEEK_PRICE_CACHE_MISS * m["miss"]
+        + output_tokens * settings.DEEPSEEK_PRICE_OUTPUT * m["out"]
     ) / 1_000_000
     return round(cost * factor, 6)
 
@@ -105,13 +112,20 @@ async def record_ai_telemetry(
 
 
 
+# Модели DeepSeek (сентябрь 2026): deepseek-flash (V4.1 Flash) — рабочая, deepseek-v4-pro — в 3–4 раза дороже, держим как страховку.
+# Старые deepseek-chat / deepseek-reasoner отключены 24.07.2026 и больше не отвечают.
+MODEL_MAIN = "deepseek-flash"
+MODEL_FALLBACK = "deepseek-v4-pro"
+
+
 async def call_deepseek(
     user_prompt: str,
     system_instruction: str,
-    force_chat_model: bool = False,
     max_tokens: int | None = None,
     timeout: float = 120.0,
-    temperature: float = 0.1
+    temperature: float = 0.1,
+    model: str | None = None,
+    thinking: bool = False,
 ) -> tuple[dict, dict]:
     """Вызывает DeepSeek (JSON Mode + Context Caching). Возвращает (распарсенный JSON, метрики с токенами и стоимостью).
     Оплаченный, но непригодный ответ поднимает LLMCallError с метриками, чтобы расход не терялся."""
@@ -127,7 +141,7 @@ async def call_deepseek(
         "Content-Type": "application/json"
     }
 
-    target_model = "deepseek-chat" if force_chat_model else (settings.DEEPSEEK_MODEL or "deepseek-flash")
+    target_model = model or settings.DEEPSEEK_MODEL or MODEL_MAIN
 
     payload = {
         "model": target_model,
@@ -137,25 +151,25 @@ async def call_deepseek(
         ],
         "response_format": {"type": "json_object"},
         "temperature": temperature,
-        "max_tokens": max_tokens or (8192 if target_model == "deepseek-chat" else 32768),
-        "thinking": {"type": "disabled"}
+        "max_tokens": max_tokens or 32768,
+        # Без «обдумывания» ответ короче и дешевле; для основ и тем включаем его точечно (thinking=True).
+        # В режиме обдумывания температура игнорируется, а токены рассуждений входят в max_tokens и тарифицируются как вывод.
+        "thinking": {"type": "enabled" if thinking else "disabled"},
     }
-    if target_model == "deepseek-reasoner":
-        payload.pop("thinking", None)
 
     print(f"[AI Gateway / DeepSeek] Вызов модели: {target_model} (Prompt Caching enabled)...")
     resolved_model = target_model
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        
-        # Автоматический fallback: если запрошенная модель недоступна/не найдена на сервере провайдера, пробуем deepseek-chat
-        if response.status_code in (400, 404) and target_model != "deepseek-chat":
-            print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем стандартную 'deepseek-chat'...")
-            payload["model"] = "deepseek-chat"
-            payload["max_tokens"] = 8192
-            payload.pop("thinking", None)
-            resolved_model = "deepseek-chat"
-            response = await client.post(url, headers=headers, json=payload)
+        # Жёсткий предел: timeout httpx — пауза между байтами, а перегруженный DeepSeek держит соединение
+        # пустыми строками до 10 минут. Без wait_for вызов «висел» бы без ответа и без счёта.
+        response = await asyncio.wait_for(client.post(url, headers=headers, json=payload), timeout)
+
+        # Автоматический fallback: запрошенная модель недоступна/не найдена — пробуем страховочную deepseek-v4-pro
+        if response.status_code in (400, 404) and target_model != MODEL_FALLBACK:
+            print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем '{MODEL_FALLBACK}'...")
+            payload["model"] = MODEL_FALLBACK
+            resolved_model = MODEL_FALLBACK
+            response = await asyncio.wait_for(client.post(url, headers=headers, json=payload), timeout)
 
         if response.status_code == 200:
             data = response.json()
@@ -178,7 +192,7 @@ async def call_deepseek(
             meta = {
                 "cache_hit_tokens": cache_hit_tokens,
                 "cache_miss_tokens": cache_miss_tokens,
-                "cost_usd": estimate_call_cost_usd(cache_hit_tokens, cache_miss_tokens, output_tokens),
+                "cost_usd": estimate_call_cost_usd(cache_hit_tokens, cache_miss_tokens, output_tokens, model=resolved_model),
                 "finish_reason": finish_reason,
                 "model_requested": target_model,
                 "model_resolved": resolved_model,
@@ -230,7 +244,7 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         "Content-Type": "application/json"
     }
     target_model = settings.DEEPSEEK_MODEL or "deepseek-flash"
-    fallback_model = "deepseek-chat"
+    fallback_model = MODEL_FALLBACK
 
     payload = {
         "model": target_model,

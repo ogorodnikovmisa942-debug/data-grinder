@@ -118,7 +118,7 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             settings.DEEPSEEK_API_KEY = orig_key
 
     def test_03_call_deepseek_fallback_on_404(self):
-        """Проверка автоматического fallback на 'deepseek-chat' при ошибке 404/400 неизвестной модели."""
+        """Проверка автоматического fallback на 'deepseek-v4-pro' при ошибке 404/400 неизвестной модели."""
         orig_key = settings.DEEPSEEK_API_KEY
         orig_model = settings.DEEPSEEK_MODEL
         settings.DEEPSEEK_API_KEY = "sk-test-key"
@@ -138,8 +138,8 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                 unpacked, meta = self.run_async(call_deepseek("Запрос", system_instruction="SYS"))
                 self.assertEqual(mock_post.call_count, 2)
                 second_call_model = mock_post.call_args_list[1][1]["json"]["model"]
-                self.assertEqual(second_call_model, "deepseek-chat")
-                self.assertEqual(meta["model_resolved"], "deepseek-chat")
+                self.assertEqual(second_call_model, "deepseek-v4-pro")
+                self.assertEqual(meta["model_resolved"], "deepseek-v4-pro")
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
             settings.DEEPSEEK_MODEL = orig_model

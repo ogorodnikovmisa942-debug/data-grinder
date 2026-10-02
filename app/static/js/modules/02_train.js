@@ -9,28 +9,28 @@ const FSRS_LABELS = {
         4: { label: 'Легко', hint: 'Без усилий' }
     },
     'law_civil': {
-        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
-        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил полностью' },
-        4: { label: 'Легко', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Наизусть' }
     },
     'law_civil_rb': {
-        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
-        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил полностью' },
-        4: { label: 'Легко', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Наизусть' }
     },
     'python_pro': {
-        1: { label: 'Забыл', hint: 'Не помню синтаксис' },
-        2: { label: 'Трудно', hint: 'Вспомнил с ошибкой' },
-        3: { label: 'Помню', hint: 'Написал бы верно' },
-        4: { label: 'Легко', hint: 'Пишу на автомате' }
+        1: { label: 'Забыл', hint: 'Не помню' },
+        2: { label: 'Трудно', hint: 'С ошибкой' },
+        3: { label: 'Помню', hint: 'Написал бы' },
+        4: { label: 'Легко', hint: 'На автомате' }
     },
     'chinese_hsk3': {
-        1: { label: 'Забыл', hint: 'Не помню ни иероглиф, ни значение' },
-        2: { label: 'Трудно', hint: 'Помню значение, забыл иероглиф' },
-        3: { label: 'Помню', hint: 'Вспомнил иероглиф и значение' },
-        4: { label: 'Легко', hint: 'Читаю свободно' }
+        1: { label: 'Забыл', hint: 'Не помню' },
+        2: { label: 'Трудно', hint: 'Забыл иероглиф' },
+        3: { label: 'Помню', hint: 'Помню всё' },
+        4: { label: 'Легко', hint: 'Читаю легко' }
     }
 };
 
@@ -207,6 +207,9 @@ function initTrainGestures() {
     if (!card || card._train_gestures_bound) return;
     card._train_gestures_bound = true;
 
+    const TAP_SLOP = 14;       // палец всегда чуть «плывёт»: до 14 px — это тап, а не свайп
+    let tapStart = null;       // касание, которое ещё может оказаться тапом
+
     const onStart = (clientX, clientY) => {
         const currentCard = cardsQueue[currentIndex];
         if (!currentCard) return;
@@ -229,9 +232,10 @@ function initTrainGestures() {
         const deltaX = clientX - trainDrag.startX;
         const deltaY = clientY - trainDrag.startY;
 
-        if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
+        if (Math.abs(deltaX) > TAP_SLOP || Math.abs(deltaY) > TAP_SLOP) {
             trainDrag.hasMoved = true;
         }
+        if (!trainDrag.hasMoved) return;   // пока это может быть тап — карточку не двигаем
 
         const rotate = deltaX * 0.05;
         const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
@@ -345,8 +349,10 @@ function initTrainGestures() {
     };
 
     card.addEventListener('touchstart', (e) => {
+        tapStart = null;
         if (e.target.closest('button, select, input, textarea, a')) return;
         const touch = e.touches[0];
+        tapStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
         onStart(touch.clientX, touch.clientY);
     }, { passive: true });
 
@@ -355,13 +361,24 @@ function initTrainGestures() {
         const touch = e.touches[0];
         const dx = Math.abs(touch.clientX - trainDrag.startX);
         const dy = Math.abs(touch.clientY - trainDrag.startY);
-        if (dx > dy && dx > 8 && e.cancelable) {
+        if (dx > dy && dx > TAP_SLOP && e.cancelable) {
             e.preventDefault();
         }
         onMove(touch.clientX, touch.clientY);
     }, { passive: false });
 
-    card.addEventListener('touchend', () => onEnd());
+    card.addEventListener('touchend', (e) => {
+        const tap = tapStart && !trainDrag.hasMoved && Date.now() - tapStart.t < 600;
+        tapStart = null;
+        onEnd();
+        // Тап обрабатываем сами и гасим синтетический click: так переворот не зависит от того,
+        // дошёл ли до карточки «родной» click (на iOS он пропадал после лёгкого сдвига пальца)
+        if (tap && e.cancelable && !e.target.closest('button, select, input, textarea, a')) {
+            e.preventDefault();
+            if (!cardsQueue[currentIndex]) return;
+            if (typeof window.flipCard === 'function') window.flipCard();
+        }
+    });
     card.addEventListener('touchcancel', () => onEnd());
 
     card.addEventListener('mousedown', (e) => {
@@ -1555,6 +1572,8 @@ window.fastTrackIntroduction = function() {
 
 function renderReviewCard(card) {
     isFlipped = false;
+    // Штурм не влияет на FSRS: достаточно «Забыл / Помню» (+ свайпы). В повторении остаются все четыре оценки
+    if (actionButtons) actionButtons.classList.toggle('cram-two', currentSessionMode === 'cram');
     if (flashcard) {
         flashcard.style.transform = '';
         flashcard.classList.remove('rotate-y-180');

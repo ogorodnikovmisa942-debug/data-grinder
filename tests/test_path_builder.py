@@ -230,6 +230,7 @@ def test_degenerate_map_without_topics_is_retried_with_higher_temperature():
     assert [n["key"] for n in m["nodes"]] == ["a", "b"]
     assert temps == [0.1, pb.RETRY_TEMPERATURE]
     assert len(calls) == 2
+    assert pb.RETRY_TEMPERATURE >= 0.7
 
 
 def test_cross_links_keep_only_core_nodes_and_skip_duplicates():
@@ -249,3 +250,106 @@ def test_cross_links_keep_only_core_nodes_and_skip_duplicates():
     with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
         links = asyncio.run(pb.build_cross_links("КНИГА", m, []))
     assert [(e["from"], e["to"]) for e in links] == [("vlast", "peresmotr"), ("peresmotr", "bad_parent")]
+
+
+# --- Карта дважды, зависания, ядро в режиме обдумывания ---
+
+def _map_raw(n_topics):
+    nodes = [{"key": f"b{i}", "name": f"Основа {i}", "tier": 0, "order": i, "summary": "s", "src": "гл.1"} for i in range(1, 6)]
+    nodes += [{"key": f"t{i}", "name": f"Тема {i}", "tier": 1, "order": 10 + i, "summary": "s", "src": "гл.2"} for i in range(1, n_topics + 1)]
+    return {"title": "T", "domain": "law", "nodes": nodes, "edges": []}
+
+
+def test_second_map_is_kept_only_if_it_scores_higher():
+    weak, strong = _map_raw(2), _map_raw(6)
+    answers = iter([weak, strong])
+
+    async def fake_call(user_prompt, **kwargs):
+        return next(answers), {"cost_usd": 0.01}
+
+    calls = []
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+        m = asyncio.run(pb.build_knowledge_map("x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS, "s", calls, candidates=2))
+    assert sum(1 for n in m["nodes"] if n["tier"] == 1) == 6          # альтернатива лучше (темы в диапазоне 5–10)
+    assert [c["label"] for c in calls] == ["map#1", "map#alt2"]
+    assert pb.score_map(pb.normalize_map(strong)) > pb.score_map(pb.normalize_map(weak))
+
+    # Сбой второй карты не ломает первую
+    state = {"n": 0}
+
+    async def flaky(user_prompt, **kwargs):
+        state["n"] += 1
+        if state["n"] == 2:
+            raise RuntimeError("API")
+        return strong, {"cost_usd": 0.01}
+
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=flaky):
+        m = asyncio.run(pb.build_knowledge_map("x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS, "s", [], candidates=2))
+    assert len(m["nodes"]) == 11
+
+
+def test_hang_is_retried_with_same_model_then_fallback_model():
+    seen = []
+
+    async def fake_call(user_prompt, **kwargs):
+        seen.append(kwargs.get("model"))
+        if len(seen) < 3:
+            raise asyncio.TimeoutError()
+        return {"ok": True}, {"cost_usd": 0.0}
+
+    calls = []
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call), \
+            patch.object(pb, "HANG_BACKOFF_S", 0):
+        res = asyncio.run(pb._call("p", 100, "t", calls))
+    assert res == {"ok": True}
+    assert seen == [None, None, "deepseek-v4-pro"]       # две попытки основной моделью, затем страховочная
+    assert sum(1 for c in calls if c["error"]) == 2
+
+    async def always_hang(user_prompt, **kwargs):
+        raise asyncio.TimeoutError()
+
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=always_hang), \
+            patch.object(pb, "HANG_BACKOFF_S", 0):
+        with pytest.raises(RuntimeError):
+            asyncio.run(pb._call("p", 100, "t", []))
+
+
+def test_core_batches_are_separate_and_use_thinking():
+    m = pb.normalize_map(RAW_MAP)
+    batches = pb.plan_pack_batches(m, max_nodes=6, split_core=True)
+    assert batches[0] == ["vlast", "instanciya"] and batches[1] == ["peresmotr", "bad_parent"]
+    assert batches[2] == ["apellyaciya", "nadzor", "keys_peresmotr"]
+    assert sorted(k for b in batches for k in b) == sorted(n["key"] for n in m["nodes"])
+
+    flags = {}
+
+    async def fake_call(user_prompt, **kwargs):
+        if "TYPE: MAP" in user_prompt:
+            return _map_raw(5), {"cost_usd": 0.0}
+        if "TYPE: NODE_PACK" in user_prompt:
+            keys = user_prompt.split("NODES TO PRODUCE: ")[1].split("\n")[0].split(", ")
+            flags[tuple(keys)] = kwargs.get("thinking", False)
+            lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}], "check": []}
+            return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, {"cost_usd": 0.0}
+        return {"edges": [], "lesson": None}, {"cost_usd": 0.0}
+
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call), patch.object(pb, "THINK_CORE", True):
+        asyncio.run(pb.build_learning_path("КНИГА", "s"))
+    assert flags and all(flags.values())                 # в тестовой карте только основы и темы — всё в режиме обдумывания
+
+
+def test_degenerate_map_retry_adds_nudge_only_to_the_tail():
+    bad = {"nodes": [{"key": "a", "name": "A", "tier": 0, "order": 1}]}
+    prompts = []
+
+    async def fake_call(user_prompt, **kwargs):
+        prompts.append((user_prompt, kwargs.get("temperature")))
+        return (_map_raw(5) if len(prompts) == 3 else bad), {"cost_usd": 0.0}
+
+    text = "x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+        asyncio.run(pb.build_knowledge_map(text, "s", []))
+    assert [t for _, t in prompts] == [0.1, pb.RETRY_TEMPERATURE, pb.LAST_RETRY_TEMPERATURE]
+    assert pb.DEGENERATE_MAP_NUDGE not in prompts[0][0] and all(pb.DEGENERATE_MAP_NUDGE in p for p, _ in prompts[1:])
+    prefix = build_source_block(text)
+    assert all(p.startswith(prefix) for p, _ in prompts)          # кэшируемый префикс не меняется

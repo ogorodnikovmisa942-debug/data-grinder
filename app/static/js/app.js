@@ -591,28 +591,28 @@ const FSRS_LABELS = {
         4: { label: 'Легко', hint: 'Без усилий' }
     },
     'law_civil': {
-        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
-        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил полностью' },
-        4: { label: 'Легко', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Наизусть' }
     },
     'law_civil_rb': {
-        1: { label: 'Забыл', hint: 'Не вспомнил определение' },
-        2: { label: 'Трудно', hint: 'Вспомнил с подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил полностью' },
-        4: { label: 'Легко', hint: 'Знаю наизусть' }
+        1: { label: 'Забыл', hint: 'Не вспомнил' },
+        2: { label: 'Трудно', hint: 'С подсказкой' },
+        3: { label: 'Помню', hint: 'Вспомнил' },
+        4: { label: 'Легко', hint: 'Наизусть' }
     },
     'python_pro': {
-        1: { label: 'Забыл', hint: 'Не помню синтаксис' },
-        2: { label: 'Трудно', hint: 'Вспомнил с ошибкой' },
-        3: { label: 'Помню', hint: 'Написал бы верно' },
-        4: { label: 'Легко', hint: 'Пишу на автомате' }
+        1: { label: 'Забыл', hint: 'Не помню' },
+        2: { label: 'Трудно', hint: 'С ошибкой' },
+        3: { label: 'Помню', hint: 'Написал бы' },
+        4: { label: 'Легко', hint: 'На автомате' }
     },
     'chinese_hsk3': {
-        1: { label: 'Забыл', hint: 'Не помню ни иероглиф, ни значение' },
-        2: { label: 'Трудно', hint: 'Помню значение, забыл иероглиф' },
-        3: { label: 'Помню', hint: 'Вспомнил иероглиф и значение' },
-        4: { label: 'Легко', hint: 'Читаю свободно' }
+        1: { label: 'Забыл', hint: 'Не помню' },
+        2: { label: 'Трудно', hint: 'Забыл иероглиф' },
+        3: { label: 'Помню', hint: 'Помню всё' },
+        4: { label: 'Легко', hint: 'Читаю легко' }
     }
 };
 
@@ -789,6 +789,9 @@ function initTrainGestures() {
     if (!card || card._train_gestures_bound) return;
     card._train_gestures_bound = true;
 
+    const TAP_SLOP = 14;       // палец всегда чуть «плывёт»: до 14 px — это тап, а не свайп
+    let tapStart = null;       // касание, которое ещё может оказаться тапом
+
     const onStart = (clientX, clientY) => {
         const currentCard = cardsQueue[currentIndex];
         if (!currentCard) return;
@@ -811,9 +814,10 @@ function initTrainGestures() {
         const deltaX = clientX - trainDrag.startX;
         const deltaY = clientY - trainDrag.startY;
 
-        if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
+        if (Math.abs(deltaX) > TAP_SLOP || Math.abs(deltaY) > TAP_SLOP) {
             trainDrag.hasMoved = true;
         }
+        if (!trainDrag.hasMoved) return;   // пока это может быть тап — карточку не двигаем
 
         const rotate = deltaX * 0.05;
         const baseFlip = isFlipped ? 'rotateY(180deg) ' : '';
@@ -927,8 +931,10 @@ function initTrainGestures() {
     };
 
     card.addEventListener('touchstart', (e) => {
+        tapStart = null;
         if (e.target.closest('button, select, input, textarea, a')) return;
         const touch = e.touches[0];
+        tapStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
         onStart(touch.clientX, touch.clientY);
     }, { passive: true });
 
@@ -937,13 +943,24 @@ function initTrainGestures() {
         const touch = e.touches[0];
         const dx = Math.abs(touch.clientX - trainDrag.startX);
         const dy = Math.abs(touch.clientY - trainDrag.startY);
-        if (dx > dy && dx > 8 && e.cancelable) {
+        if (dx > dy && dx > TAP_SLOP && e.cancelable) {
             e.preventDefault();
         }
         onMove(touch.clientX, touch.clientY);
     }, { passive: false });
 
-    card.addEventListener('touchend', () => onEnd());
+    card.addEventListener('touchend', (e) => {
+        const tap = tapStart && !trainDrag.hasMoved && Date.now() - tapStart.t < 600;
+        tapStart = null;
+        onEnd();
+        // Тап обрабатываем сами и гасим синтетический click: так переворот не зависит от того,
+        // дошёл ли до карточки «родной» click (на iOS он пропадал после лёгкого сдвига пальца)
+        if (tap && e.cancelable && !e.target.closest('button, select, input, textarea, a')) {
+            e.preventDefault();
+            if (!cardsQueue[currentIndex]) return;
+            if (typeof window.flipCard === 'function') window.flipCard();
+        }
+    });
     card.addEventListener('touchcancel', () => onEnd());
 
     card.addEventListener('mousedown', (e) => {
@@ -2137,6 +2154,8 @@ window.fastTrackIntroduction = function() {
 
 function renderReviewCard(card) {
     isFlipped = false;
+    // Штурм не влияет на FSRS: достаточно «Забыл / Помню» (+ свайпы). В повторении остаются все четыре оценки
+    if (actionButtons) actionButtons.classList.toggle('cram-two', currentSessionMode === 'cram');
     if (flashcard) {
         flashcard.style.transform = '';
         flashcard.classList.remove('rotate-y-180');
@@ -8563,6 +8582,8 @@ function renderPracticeQuestion() {
     const totStep = document.getElementById('practice-total-step');
     if (curStep) curStep.textContent = practiceCurrentIndex + 1;
     if (totStep) totStep.textContent = practiceItems.length;
+    const fill = document.getElementById('practice-progress-fill');
+    if (fill) fill.style.width = `${(practiceCurrentIndex / Math.max(1, practiceItems.length)) * 100}%`;
 
     // Type badge
     const typeBadge = document.getElementById('practice-item-type-badge');
@@ -8707,8 +8728,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
         const why = (data.explanation && data.explanation !== `Правильный ответ: ${data.correct_answer}`) ? ` ${data.explanation}` : '';
         if (isCorrect) {
             practiceStreak++;
-            const praise = practiceStreak >= 3 ? `${practiceStreak} подряд!` : 'Верно!';
-            practiceCat('happy', `${praise}${why}`, 'bounce');
+            practiceCat('happy', `Верно!${why}`, 'bounce');
         } else {
             practiceStreak = 0;
             const rightAnswer = String(data.correct_answer || '').replace(/[.!]+$/, '');
@@ -8913,8 +8933,10 @@ window.checkTodayPracticeStats = async function(sub) {
         if (res.ok) {
             const data = await res.json();
             if (data && data.today_completed) {
+                // Галочка = «сегодня практика уже пройдена»; результат — в подсказке плитки
                 badge.className = "starter-tile-badge starter-tile-badge-ok";
-                badge.textContent = `${data.last_score}/${data.last_total}`;
+                badge.innerHTML = '<span class="material-symbols-outlined">check</span>';
+                if (badge.parentElement) badge.parentElement.title = `Сегодня пройдена: ${data.last_score} из ${data.last_total}`;
                 return;
             }
         }
@@ -9179,6 +9201,18 @@ async function finishLesson() {
     }
 
     const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    // Вводный урок: карточек у него нет, дальше — первая тема пути
+    if (lessonState.intro) {
+        const inRun = window.pathRun && window.pathRun.active;
+        sayLesson('Теперь ты знаешь карту. Дальше будем идти по ней шаг за шагом. Начнём с первой темы?', 'happy', 'bounce');
+        setLessonButtons(inRun ? 'К первой теме' : 'Закрыть', true, null);
+        lessonState.onNext = () => {
+            closeLesson();
+            if (inRun) window.pathRun.stepFinished();
+            else if (window.loadKnowledgeGraph) window.loadKnowledgeGraph(typeof currentKgSubject !== 'undefined' ? currentKgSubject : undefined);
+        };
+        return;
+    }
     // В режиме «Продолжить путь» карточки темы идут сразу: вспоминание сразу после урока
     if (window.pathRun && window.pathRun.active) {
         sayLesson(`Урок пройден!${scoreLine} Теперь закрепим на карточках, пока свежо.`, 'happy', 'bounce');
@@ -9294,6 +9328,7 @@ window.openLesson = async function(nodeId) {
 
     lessonState = {
         nodeId,
+        intro: !!data.intro,
         screens: data.lesson.screens,
         checks: data.lesson.check || [],
         hasPretest: (data.lesson.check || []).length > 0,
@@ -9309,7 +9344,7 @@ window.openLesson = async function(nodeId) {
     const nameEl = document.getElementById('lesson-node-name');
     if (nameEl) nameEl.textContent = data.node.name;
     const tierEl = document.getElementById('lesson-tier-badge');
-    if (tierEl) tierEl.textContent = LESSON_TIER_NAMES[data.node.tier] || '';
+    if (tierEl) tierEl.textContent = data.intro ? 'Вводный урок' : (LESSON_TIER_NAMES[data.node.tier] || '');
 
     modal.classList.remove('hidden');
     if (lessonState.phase === 'pretest') renderLessonPretest();
@@ -9332,6 +9367,7 @@ window.closeLesson = function() {
 // ============================================================================
 
 const PATH_RUN_STEP_VIEW = {
+    intro:    { icon: 'explore',        kind: 'Знакомство' },
     review:   { icon: 'history',        kind: 'Разминка' },
     cards:    { icon: 'style',          kind: 'Закрепление' },
     lesson:   { icon: 'school',         kind: 'Новая тема' },
@@ -9398,6 +9434,12 @@ function describePathStep(step, isFirst) {
                 name: `«${step.node_name}» · ${n} ${pathRunPlural(n, 'карточка', 'карточки', 'карточек')}`,
                 say: 'Закрепим тему на карточках: вспоминать сразу после урока полезнее, чем перечитывать.',
                 emo: 'happy'
+            };
+        case 'intro':
+            return {
+                name: step.node_name || 'Знакомство с курсом',
+                say: 'Прежде чем начнём — короткая экскурсия: сколько здесь материала, из каких частей он состоит и в каком порядке мы пойдём. Пара минут, без вопросов.',
+                emo: 'talk'
             };
         case 'lesson':
             return {
@@ -9581,7 +9623,7 @@ pathRun.go = function() {
         if (typeof switchTab === 'function') switchTab('train');
         setRunMode(true, step.type);
         startSession(step.type === 'review' || step.type === 'drill' ? 'review' : 'new');
-    } else if (step.type === 'lesson') {
+    } else if (step.type === 'lesson' || step.type === 'intro') {
         openLesson(step.node_id);
     } else if (step.type === 'practice') {
         pathRun.practiceCount = step.count;

@@ -10,7 +10,7 @@ from app.database.models import KnowledgeNode
 from app.database.session import get_db
 from app.services.knowledge_path import (
     get_path_state, is_node_open, complete_lesson, next_path_step, get_day_plan, get_today_summary,
-    normalize_subject, RUN_STEP_LIMITS,
+    normalize_subject, RUN_STEP_LIMITS, INTRO_KEY,
 )
 from app.services.exam_prep import EXAM_STEP_LIMITS
 
@@ -60,9 +60,10 @@ async def get_day(subject: str, current_user: str = Depends(get_current_user_id)
 @router.get("/path/node/{node_id}/lesson")
 async def get_lesson(node_id: int, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     node = await _get_own_node(db, current_user, node_id)
-    if not await is_node_open(db, current_user, node):
+    is_intro = node.node_key == INTRO_KEY
+    if not is_intro and not await is_node_open(db, current_user, node):
         raise HTTPException(status_code=403, detail="Узел ещё закрыт: сначала освой предыдущие темы")
-    return {"node": node.to_dict(), "lesson": node.lesson}
+    return {"node": node.to_dict(), "lesson": node.lesson, "intro": is_intro}
 
 
 @router.post("/path/node/{node_id}/complete")
@@ -74,7 +75,7 @@ async def complete_node_lesson(
 ):
     """Урок пройден: карточки узла становятся доступны в тренировке."""
     node = await _get_own_node(db, current_user, node_id)
-    if not await is_node_open(db, current_user, node):
+    if node.node_key != INTRO_KEY and not await is_node_open(db, current_user, node):
         raise HTTPException(status_code=403, detail="Узел ещё закрыт")
     await complete_lesson(db, current_user, node.id, payload.checkpoint_score)
     await db.commit()
