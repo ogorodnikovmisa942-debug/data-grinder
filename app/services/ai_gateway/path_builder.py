@@ -37,9 +37,7 @@ MIN_SOURCE_CHARS_FOR_TOPICS = 15000
 RETRY_TEMPERATURE = 0.7
 LAST_RETRY_TEMPERATURE = 0.9
 DEGENERATE_MAP_NUDGE = (
-    "
-
-NOTE: your previous answer was too thin for this source (too few nodes or missing tiers). "
+    "\n\nNOTE: your previous answer was too thin for this source (too few nodes or missing tiers). "
     "The MAP must cover the WHOLE source with all four tiers: tier 1 (5-10 topics), tier 2 (15-30 subtopics), "
     "tier 3 (5-12 cases), plus the edges. Return the complete MAP JSON."
 )
