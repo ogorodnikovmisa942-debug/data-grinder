@@ -126,6 +126,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             f"[Generation Worker] Задача #{job_id} готова за {(time.time() - job_start_time):.0f} с: "
             f"{stats['nodes']} узлов, {stats['cards']} карточек, ${cost:.4f}.", flush=True
         )
+        # Качество колоды в журнале: охват по оглавлению и однотипность вопросов (полный отчёт: scripts/coverage_report.py)
+        print(f"[Generation Worker] Охват: {result.get('gap_report')}; вопросы: {result.get('stats')}", flush=True)
 
         if job_data.get("telegram_id"):
             webapp_url = getattr(settings, "WEBAPP_URL", "https://datagrinder.site")

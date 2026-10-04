@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+from collections import Counter
 
 import httpx
 
@@ -23,7 +24,9 @@ from .path_prompts import (
     build_node_pack_task,
     build_links_task,
     build_intro_task,
+    build_gaps_task,
 )
+from . import coverage
 
 # ~1M токенов контекста deepseek-flash; оставляем запас под промпт, карту и ответ
 MAX_SOURCE_CHARS = 1_800_000
@@ -42,6 +45,16 @@ DEGENERATE_MAP_NUDGE = (
     "tier 3 (5-12 cases), plus the edges. Return the complete MAP JSON."
 )
 PACK_BATCH_MAX_NODES = 10
+# Проверка охвата по оглавлению: сколько неупомянутых разделов отдаём модели на разбор за один запрос
+MAX_GAP_SECTIONS = 30
+GAPS_MAX_TOKENS = 8000
+# Если узлы ссылаются хоть на столько крупных разделов — формат src пригоден для проверки; иначе она дала бы ложные «дыры»
+MIN_REFERENCED_SHARE = 0.2
+# Справочный узел (история, предыстория в учебнике не по истории): короткий урок и немного карточек — даты, лица, причины
+BACKGROUND_MAX_CARDS = 3
+# Сколько карточек просить на узел: пропорционально его куску книги (≈ 1 карточка на столько знаков), в рамках границ
+CHARS_PER_CARD = int(os.getenv("PATH_CHARS_PER_CARD", "2300"))
+MAX_TOTAL_CARDS = int(os.getenv("PATH_MAX_TOTAL_CARDS", "700"))
 # Паки идут одновременно: книга к этому моменту уже в кэше после карты. Замер при 4: 17 запросов = 5 «волн» по ~75 с
 PACK_CONCURRENCY = int(os.getenv("PATH_PACK_CONCURRENCY", "8"))
 LLM_TIMEOUT_S = 600.0
@@ -146,6 +159,7 @@ def normalize_map(raw: dict) -> dict:
             "order": _as_int(n.get("order"), idx),
             "summary": str(n.get("summary") or "").strip(),
             "src": str(n.get("src") or "").strip()[:200],
+            "kind": "background" if str(n.get("kind") or "").strip().lower() == "background" else "core",
         })
 
     if not nodes:
@@ -189,9 +203,15 @@ def normalize_map(raw: dict) -> dict:
 
     edges = normalize_edges(raw.get("edges") or [], set(by_key))
 
+    domain = str(raw.get("domain") or "generic").strip().lower()
+    for n in nodes:
+        # Учебник по истории: история — основной материал, «справочных» узлов в нём нет
+        if domain == "history" or n["tier"] != 2:
+            n["kind"] = "core"
+
     return {
         "title": str(raw.get("title") or "").strip()[:160],
-        "domain": str(raw.get("domain") or "generic").strip().lower(),
+        "domain": domain,
         "nodes": nodes,
         "edges": edges,
     }
@@ -501,8 +521,127 @@ async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts
     return best
 
 
+def _section_ref(section: dict) -> str:
+    return f"Гл. {section['chapter']}, §{section['section']}"
+
+
+def _gap_prompt_lines(text: str, sections: list[dict]) -> str:
+    lines = []
+    for i, s in enumerate(sections, 1):
+        body = re.sub(r"\s+", " ", text[s["start"]:s["end"]])
+        head = body[len(s["title"]):][:90].strip() if body.startswith(s["title"]) else body[:90]
+        lines.append(f"S{i} | {_section_ref(s)} | «{s['title'][:90]}» | ~{s['chars'] // 1000} тыс. знаков | begins: «{head}»")
+    return "\n".join(lines)
+
+
+def apply_gap_answer(path_map: dict, raw: dict, sections: list[dict]) -> tuple[dict, dict[str, int], dict]:
+    """Вставляет в карту узлы, которые модель предложила для неупомянутых разделов.
+    Возвращает (новая карта, {ключ нового узла: объём источника в знаках}, отчёт). Ничего не придумываем: узел без имени,
+    с чужим родителем или дубль существующего ключа отбрасываются/исправляются."""
+    by_key = {n["key"]: n for n in path_map["nodes"]}
+    tier1 = [n for n in path_map["nodes"] if n["tier"] == 1]
+    new_nodes: list[dict] = []
+    size_hints: dict[str, int] = {}
+    report = {"sections": len(sections), "covered": 0, "added": 0, "skipped": 0}
+    answers = {str(g.get("id")): g for g in ((raw or {}).get("gaps") or []) if isinstance(g, dict)}
+    for i, s in enumerate(sections, 1):
+        g = answers.get(f"S{i}") or {}
+        proposed = [x for x in (g.get("nodes") or []) if isinstance(x, dict) and str(x.get("name") or "").strip()][:2]
+        if not proposed:
+            report["covered" if g.get("covered_by") else "skipped"] += 1
+            continue
+        for x in proposed:
+            key = _slug(x.get("key") or x.get("name"))
+            if not key:
+                continue
+            while key in by_key or any(n["key"] == key for n in new_nodes):
+                key += "_2"
+            parent = _slug(x.get("parent") or "")
+            if parent not in by_key or by_key[parent]["tier"] != 1:
+                same_chapter = [n for n in tier1 if s["chapter"] in {c for c, _ in coverage.parse_src_refs(n.get("src") or "")}]
+                parent = (same_chapter or tier1 or [{"key": None}])[0]["key"]
+            if not parent:
+                continue
+            new_nodes.append({
+                "key": key, "name": str(x["name"]).strip()[:120], "tier": 2, "parent": parent,
+                "prereqs": [p for p in (_slug(q) for q in (x.get("prereqs") or [])) if p in by_key],
+                "order": max([n["order"] for n in path_map["nodes"] if n.get("parent") == parent] or [by_key[parent]["order"]]),
+                "summary": str(x.get("summary") or "").strip(), "src": _section_ref(s),
+                "kind": "background" if str(x.get("kind") or "").strip().lower() == "background" else "core",
+            })
+            size_hints[key] = s["chars"] // len(proposed)
+            report["added"] += 1
+    if not new_nodes:
+        return path_map, {}, report
+    merged = normalize_map({
+        "title": path_map.get("title"), "domain": path_map.get("domain"),
+        "nodes": path_map["nodes"] + new_nodes, "edges": path_map["edges"],
+    })
+    return merged, size_hints, report
+
+
+async def fill_map_gaps(text: str, path_map: dict, calls_log: list) -> tuple[dict, dict[str, int], dict | None]:
+    """Проверка охвата по оглавлению: разделы книги, на которые не ссылается ни один узел, отдаются модели —
+    она либо отвечает «уже покрыто», либо добавляет узел. Сбой не фатален: карта остаётся прежней."""
+    sections = coverage.extract_sections(text)
+    if not sections:
+        return path_map, {}, None
+    big = [s for s in sections if s["chars"] >= coverage.MIN_SECTION_CHARS]
+    missing = coverage.uncovered_sections(sections, path_map["nodes"])
+    if not big or not missing:
+        return path_map, {}, {"sections": len(big), "covered": 0, "added": 0, "skipped": 0}
+    referenced = len(big) - len(missing)
+    if referenced < MIN_REFERENCED_SHARE * len(big):
+        print(f"[Path Builder] охват: узлы ссылаются только на {referenced} из {len(big)} разделов — формат src не годится, проверка пропущена", flush=True)
+        return path_map, {}, None
+    missing = sorted(missing, key=lambda s: -s["chars"])[:MAX_GAP_SECTIONS]
+    missing.sort(key=lambda s: s["start"])
+    compact = [{"key": n["key"], "name": n["name"], "tier": n["tier"], "parent": n.get("parent"), "src": n.get("src")}
+               for n in path_map["nodes"]]
+    prompt = (build_source_block(text) +
+              build_gaps_task(json.dumps(compact, ensure_ascii=False, separators=(",", ":")), _gap_prompt_lines(text, missing)))
+    try:
+        raw = await _call(prompt, GAPS_MAX_TOKENS, "gaps#1", calls_log)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Path Builder WARN] GAPS: {e}", flush=True)
+        return path_map, {}, {"sections": len(missing), "covered": 0, "added": 0, "skipped": len(missing), "error": str(e)[:120]}
+    try:
+        return apply_gap_answer(path_map, raw, missing)
+    except PathBuildError as e:
+        print(f"[Path Builder WARN] GAPS: карта после вставки не прошла проверку: {e}", flush=True)
+        return path_map, {}, {"sections": len(missing), "covered": 0, "added": 0, "skipped": len(missing), "error": str(e)[:120]}
+
+
+def question_opener_stats(cards: list[dict]) -> dict:
+    """Насколько однотипны вопросы: доля самого частого начала из двух слов и доля ответов с цифрой.
+    Не блокирует нарезку — идёт в отчёт, чтобы видеть, помогла ли правка промпта."""
+    if not cards:
+        return {"cards": 0, "top_opener": None, "top_opener_share": 0.0, "numeric_answers_share": 0.0}
+    openers = Counter(" ".join(re.findall(r"\w+", c["text"].lower())[:2]) for c in cards)
+    top, n = openers.most_common(1)[0]
+    numeric = sum(1 for c in cards if re.search(r"\d", c["translation"]))
+    return {"cards": len(cards), "top_opener": top, "top_opener_share": round(n / len(cards), 3),
+            "numeric_answers_share": round(numeric / len(cards), 3)}
+
+
+def plan_card_quotas(text: str, path_map: dict, size_hints: dict[str, int] | None = None) -> dict[str, int] | None:
+    """Квоты карточек по размеру куска книги, который покрывает узел. None — текст слишком короткий/без слов: тогда
+    промпт использует обычные диапазоны по ярусам. size_hints — известный объём (узлы, добавленные проверкой охвата)."""
+    index = coverage.SourceIndex(text)
+    if not index.usable:
+        return None
+    sizes = coverage.node_source_sizes(index, path_map["nodes"])
+    sizes.update({k: v for k, v in (size_hints or {}).items() if k in sizes})
+    quotas = coverage.card_quotas(path_map["nodes"], sizes, chars_per_card=CHARS_PER_CARD, total_cap=MAX_TOTAL_CARDS)
+    for n in path_map["nodes"]:
+        if n.get("kind") == "background":
+            quotas[n["key"]] = min(quotas[n["key"]], BACKGROUND_MAX_CARDS)
+    return quotas
+
+
 async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls_log: list, attempts: int = 3,
-                          thinking: bool = False) -> dict[str, dict]:
+                          thinking: bool = False, quotas: dict[str, int] | None = None) -> dict[str, dict]:
+    kinds = {n["key"]: n.get("kind") for n in path_map["nodes"]}
     from .client import LLMOutputTruncated
     map_json = json.dumps(path_map, ensure_ascii=False, separators=(",", ":"))
     collected: dict[str, dict] = {}
@@ -510,7 +649,8 @@ async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls
         missing = [k for k in node_keys if k not in collected]
         if not missing:
             break
-        prompt = build_source_block(text) + build_node_pack_task(map_json, missing)
+        light = [k for k in missing if kinds.get(k) == "background"]
+        prompt = build_source_block(text) + build_node_pack_task(map_json, missing, quotas, light)
         try:
             raw = await _call(prompt, CORE_PACK_MAX_TOKENS if thinking else PACK_MAX_TOKENS,
                               f"pack{'*' if thinking else ''}[{','.join(missing)}]#{attempt}", calls_log, thinking=thinking)
@@ -522,7 +662,8 @@ async def build_node_pack(text: str, path_map: dict, node_keys: list[str], calls
             # Делим батч пополам вместо повтора того же запроса
             half = len(missing) // 2
             for part in (missing[:half], missing[half:]):
-                collected.update(await build_node_pack(text, path_map, part, calls_log, attempts=attempts - attempt + 1, thinking=thinking))
+                collected.update(await build_node_pack(text, path_map, part, calls_log, attempts=attempts - attempt + 1,
+                                                       thinking=thinking, quotas=quotas))
             break
         except Exception as e:  # noqa: BLE001
             print(f"[Path Builder WARN] NODE_PACK {missing} попытка {attempt}/{attempts}: {e}", flush=True)
@@ -590,13 +731,16 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     # Список вызовов передаётся снаружи, чтобы расходы учитывались и при сбое
     calls = calls if calls is not None else []
     path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES)
+    path_map, size_hints, gap_report = await fill_map_gaps(text, path_map, calls)
 
     semaphore = asyncio.Semaphore(PACK_CONCURRENCY)
     core_keys = {n["key"] for n in path_map["nodes"] if n["tier"] <= 1}
+    quotas = plan_card_quotas(text, path_map, size_hints)
 
     async def run(batch: list[str]):
         async with semaphore:
-            return await build_node_pack(text, path_map, batch, calls, thinking=THINK_CORE and all(k in core_keys for k in batch))
+            return await build_node_pack(text, path_map, batch, calls, thinking=THINK_CORE and all(k in core_keys for k in batch),
+                                         quotas=quotas)
 
     packs: dict[str, dict] = {}
     results = await asyncio.gather(
@@ -613,6 +757,9 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         "map": path_map,
         "packs": packs,
         "intro": intro,
+        "quotas": quotas,
+        "gap_report": gap_report,
+        "stats": question_opener_stats([c for p in packs.values() for c in p.get("cards", [])]),
         "missing_nodes": [n["key"] for n in path_map["nodes"] if n["key"] not in packs],
         "calls": calls,
         "cost_usd": round(sum(c["cost_usd"] for c in calls), 6),

@@ -92,6 +92,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
             source_hint=n["src"],
             lesson=lesson,
             lesson_status="ready" if lesson else "failed",
+            kind=n.get("kind") or "core",
             created_at=now,
         )
         db.add(row)

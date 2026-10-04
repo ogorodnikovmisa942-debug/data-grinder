@@ -18,7 +18,6 @@ from app.services.ai_gateway import (
     LLMOutputTruncated,
     call_deepseek,
 )
-from app.api.endpoints.admin import set_active_ai_provider
 from bot import build_admin_keyboard, render_admin_dashboard_text, get_admin_dashboard_data
 
 
@@ -155,55 +154,31 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
 
-    def test_05_admin_switch_ai_provider_api(self):
-        """Проверка REST эндпоинтов администратора для получения статуса и переключения модели DeepSeek."""
+    def test_05_admin_ai_provider_status_only(self):
+        """Админка показывает статус DeepSeek, но модель из неё больше не переключается."""
         headers = {"X-Admin-Token": settings.ADMIN_TOKEN}
 
-        # 1. Проверка GET /api/admin/ai-provider без токена -> 403
         r_unauth = self.client.get("/api/admin/ai-provider")
         self.assertEqual(r_unauth.status_code, 403)
 
-        # 2. Проверка GET /api/admin/ai-provider с токеном -> 200
         r_status = self.client.get("/api/admin/ai-provider", headers=headers)
         self.assertEqual(r_status.status_code, 200)
         data = r_status.json()
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["provider"], "deepseek")
         self.assertIn("deepseek", data)
+        self.assertNotIn("available_models", data)
 
-        # 3. Переключение модели на deepseek-chat через POST /api/admin/switch-ai-provider
-        r_switch = self.client.post(
-            "/api/admin/switch-ai-provider",
-            headers=headers,
-            json={"provider": "deepseek", "model": "deepseek-chat"}
-        )
-        self.assertEqual(r_switch.status_code, 200)
-        resp_data = r_switch.json()
-        self.assertEqual(resp_data["model"], "deepseek-chat")
-        self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-chat")
-
-        # 4. Переключение обратно на deepseek-flash
-        r_switch_flash = self.client.post(
-            "/api/admin/switch-ai-provider",
-            headers=headers,
-            json={"provider": "deepseek", "model": "deepseek-flash"}
-        )
-        self.assertEqual(r_switch_flash.status_code, 200)
-        self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-flash")
-
-        # 5. Ошибка при передаче невалидного провайдера
-        r_invalid = self.client.post(
-            "/api/admin/switch-ai-provider",
-            headers=headers,
-            json={"provider": "unknown_provider"}
-        )
-        self.assertEqual(r_invalid.status_code, 400)
+        r_switch = self.client.post("/api/admin/switch-ai-provider", headers=headers,
+                                    json={"provider": "deepseek", "model": "deepseek-v4-pro"})
+        self.assertIn(r_switch.status_code, (404, 405))
 
     def test_08_telegram_bot_admin_keyboard_and_dashboard(self):
-        """Проверка отображения кнопки смены модели в клавиатуре бота и текста в дашборде."""
-        kb_ds = build_admin_keyboard(phase=1, ai_model="deepseek-flash")
-        kb_texts_ds = [btn.text for row in kb_ds.inline_keyboard for btn in row]
-        self.assertTrue(any("deepseek-flash" in t for t in kb_texts_ds), "Должна быть кнопка с текущей моделью")
+        """В клавиатуре бота нет кнопки смены модели, а дашборд показывает активную модель."""
+        kb_ds = build_admin_keyboard(phase=1)
+        callbacks = [btn.callback_data for row in kb_ds.inline_keyboard for btn in row]
+        self.assertNotIn("admin_ai_model_cycle", callbacks)
+        self.assertTrue(all("Модель:" not in btn.text for row in kb_ds.inline_keyboard for btn in row))
 
         dash_ds = render_admin_dashboard_text({
             "phase": 1, "participants": 5, "invites_active": 3, "cards": 120,
@@ -241,37 +216,6 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
                     self.run_async(call_deepseek("тест", system_instruction="SYS"))
         finally:
             settings.DEEPSEEK_API_KEY = orig_key
-
-    def test_10_set_active_ai_provider_syncs_os_environ(self):
-        """Проверка синхронизации settings.DEEPSEEK_MODEL и os.environ при смене модели."""
-        import os
-        orig_model = settings.DEEPSEEK_MODEL
-        try:
-            set_active_ai_provider("deepseek", "deepseek-chat")
-            self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-chat")
-            self.assertEqual(os.environ.get("DEEPSEEK_MODEL"), "deepseek-chat")
-
-            set_active_ai_provider("deepseek", "deepseek-flash")
-            self.assertEqual(settings.DEEPSEEK_MODEL, "deepseek-flash")
-            self.assertEqual(os.environ.get("DEEPSEEK_MODEL"), "deepseek-flash")
-        finally:
-            set_active_ai_provider("deepseek", orig_model)
-
-    def test_11_build_admin_keyboard_defaults_to_active_settings(self):
-        """Проверка автоматического подтягивания модели при вызове build_admin_keyboard."""
-        orig_model = settings.DEEPSEEK_MODEL
-        try:
-            settings.DEEPSEEK_MODEL = "deepseek-chat"
-            kb = build_admin_keyboard(1)
-            kb_texts = [btn.text for row in kb.inline_keyboard for btn in row]
-            self.assertTrue(any("deepseek-chat" in t for t in kb_texts))
-
-            settings.DEEPSEEK_MODEL = "deepseek-flash"
-            kb_flash = build_admin_keyboard(1)
-            kb_flash_texts = [btn.text for row in kb_flash.inline_keyboard for btn in row]
-            self.assertTrue(any("deepseek-flash" in t for t in kb_flash_texts))
-        finally:
-            settings.DEEPSEEK_MODEL = orig_model
 
     def test_12_call_deepseek_flash_payload_and_large_context(self):
         """Проверка отправки параметров V4.1 Flash (32k tokens, disabled thinking, large context) в call_deepseek."""

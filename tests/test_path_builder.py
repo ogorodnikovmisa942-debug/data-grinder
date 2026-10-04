@@ -371,3 +371,23 @@ def test_thin_map_for_a_big_book_is_rejected_and_retried():
     with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
         m = asyncio.run(pb.build_knowledge_map(big, "s", []))
     assert sum(1 for n in m["nodes"] if n["tier"] == 2) == 10
+
+
+def test_prompt_asks_for_specifics_and_varied_questions_without_dynamic_parts():
+    from app.services.ai_gateway.path_prompts import PATH_BUILDER_SYSTEM_PROMPT as sp
+    for marker in ("B2b. WHAT AN EXAM REALLY ASKS", "QUESTION VARIETY", "terms of office", "doses and routes",
+                   "dates; persons", "history|science|language|generic"):
+        assert marker in sp
+    assert "{" not in sp.split("PART A")[0]               # статичная шапка для кэша
+    for rule in ("Minimum Information Principle", "Absolute Prohibition of Lists & Enumerations", "Zero-Spoiler Law"):
+        assert rule in sp                                  # прежние законы карточек на месте
+
+
+def test_question_opener_stats():
+    cards = [{"text": "Какой орган назначает судей?", "translation": "Президент."},
+             {"text": "Какой орган избирает председателя?", "translation": "Съезд судей."},
+             {"text": "Сколько судей в коллегии?", "translation": "Три судьи, 3."},
+             {"text": "На какой срок выдаётся лицензия?", "translation": "На 5 лет."}]
+    st = pb.question_opener_stats(cards)
+    assert st["top_opener"] == "какой орган" and st["top_opener_share"] == 0.5 and st["numeric_answers_share"] == 0.5
+    assert pb.question_opener_stats([])["cards"] == 0

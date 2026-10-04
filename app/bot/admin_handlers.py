@@ -912,37 +912,6 @@ async def handle_admin_callbacks(callback: CallbackQuery):
         except Exception:
             pass
 
-    elif action == "admin_ai_model_cycle":
-        from app.api.endpoints.admin import set_active_ai_provider
-        curr = settings.DEEPSEEK_MODEL or "deepseek-flash"
-        next_model = "deepseek-v4-pro" if curr == "deepseek-flash" else "deepseek-flash"
-        set_active_ai_provider("deepseek", next_model)
-        data = await get_admin_dashboard_data()
-        try:
-            await callback.message.edit_text(
-                render_admin_dashboard_text(data),
-                reply_markup=build_admin_keyboard(data["phase"], ai_model=data["ai_model"]),
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-        key_warn = "" if bool(settings.DEEPSEEK_API_KEY) else "\n⚠️ Внимание: DEEPSEEK_API_KEY не задан в .env!"
-        await callback.answer(f"🤖 Модель DeepSeek переключена на {next_model}!{key_warn}", show_alert=True)
-
-    elif action in ("admin_ai_mimo", "admin_ai_deepseek"):
-        from app.api.endpoints.admin import set_active_ai_provider
-        set_active_ai_provider("deepseek", "deepseek-flash")
-        data = await get_admin_dashboard_data()
-        try:
-            await callback.message.edit_text(
-                render_admin_dashboard_text(data),
-                reply_markup=build_admin_keyboard(data["phase"], ai_model=data["ai_model"]),
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-        await callback.answer(f"🤖 Активная модель: DeepSeek ({settings.DEEPSEEK_MODEL})", show_alert=True)
-
     elif action == "admin_free_me":
         user_id_str = str(callback.from_user.id)
         async with AsyncSessionLocal() as db:

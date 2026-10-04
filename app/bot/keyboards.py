@@ -4,14 +4,11 @@ from app.core.config import settings
 
 
 def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: str | None = None) -> InlineKeyboardMarkup:
-    model = ai_model or (ai_provider if ai_provider in ("deepseek-flash", "deepseek-v4-pro") else settings.DEEPSEEK_MODEL) or "deepseek-flash"
     phase_toggle = (
         InlineKeyboardButton(text="🔓 Переключить на Фазу 2", callback_data="admin_phase_2")
         if phase == 1 else
         InlineKeyboardButton(text="🔒 Переключить на Фазу 1", callback_data="admin_phase_1")
     )
-    next_model = "deepseek-v4-pro" if model == "deepseek-flash" else "deepseek-flash"
-    ai_toggle = InlineKeyboardButton(text=f"🤖 Модель: {model} ➔ {next_model}", callback_data="admin_ai_model_cycle")
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👥 Все пользователи", callback_data="admin_users"),
@@ -31,7 +28,6 @@ def build_admin_keyboard(phase: int, ai_provider: str | None = None, ai_model: s
         [
             InlineKeyboardButton(text="🤖 Телеметрия ИИ (CSV)", callback_data="admin_export_telemetry")
         ],
-        [ai_toggle],
         [phase_toggle],
         [
             InlineKeyboardButton(text="🏁 Завершить эксперимент (освободить всех)", callback_data="admin_finish_experiment")

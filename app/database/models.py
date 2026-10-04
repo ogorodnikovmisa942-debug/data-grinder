@@ -337,12 +337,14 @@ class KnowledgeNode(Base):
     source_hint = Column(String, nullable=True)         # главы/страницы источника
     lesson = Column(JSON, nullable=True)                # {"screens": [...], "checkpoint": [...]}
     lesson_status = Column(String, nullable=False, default="pending")  # pending | ready | failed
+    kind = Column(String(16), nullable=False, default="core", server_default="core")  # core | background (справка: история, предыстория)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "key": self.node_key,
+            "kind": self.kind or "core",
             "name": self.name,
             "tier": self.tier,
             "parent_key": self.parent_key,

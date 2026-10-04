@@ -690,53 +690,7 @@ async def distribute_deck(
     }
 
 
-# --- 7. УПРАВЛЕНИЕ ИИ-МОДЕЛЯМИ DEEPSEEK ---
-
-class SwitchAiProviderIn(BaseModel):
-    provider: str = "deepseek"
-    model: Optional[str] = None
-
-def set_active_ai_provider(provider: str, model: Optional[str] = None) -> str:
-    """Устанавливает активную модель DeepSeek и сохраняет выбор в .env для персистентности."""
-    import os
-    import re
-    norm = provider.strip().lower()
-    if norm not in ("deepseek",):
-        raise ValueError(f"Недопустимый ИИ-провайдер: '{provider}'. Поддерживается: 'deepseek'")
-    
-    settings.AI_PROVIDER = norm
-    os.environ["AI_PROVIDER"] = norm
-
-    clean_model = model.strip() if model and model.strip() else None
-    if clean_model:
-        settings.DEEPSEEK_MODEL = clean_model
-        os.environ["DEEPSEEK_MODEL"] = clean_model
-
-    env_path = Path(".env")
-    try:
-        if env_path.exists():
-            content = env_path.read_text(encoding="utf-8")
-            if re.search(r"^AI_PROVIDER=.*", content, flags=re.MULTILINE):
-                new_content = re.sub(r"^AI_PROVIDER=.*", f"AI_PROVIDER={norm}", content, flags=re.MULTILINE)
-            else:
-                new_content = content.rstrip() + f"\nAI_PROVIDER={norm}\n"
-            
-            if clean_model:
-                if re.search(r"^DEEPSEEK_MODEL=.*", new_content, flags=re.MULTILINE):
-                    new_content = re.sub(r"^DEEPSEEK_MODEL=.*", f"DEEPSEEK_MODEL={clean_model}", new_content, flags=re.MULTILINE)
-                else:
-                    new_content = new_content.rstrip() + f"\nDEEPSEEK_MODEL={clean_model}\n"
-
-            env_path.write_text(new_content, encoding="utf-8")
-        else:
-            txt = f"AI_PROVIDER={norm}\n"
-            if clean_model:
-                txt += f"DEEPSEEK_MODEL={clean_model}\n"
-            env_path.write_text(txt, encoding="utf-8")
-        print(f"[Admin] ИИ успешно обновлен на '{norm}' (модель: {clean_model or settings.DEEPSEEK_MODEL}) в .env")
-    except Exception as env_err:
-        print(f"[Admin WARN] Ошибка записи настроек ИИ в .env: {env_err}")
-    return norm
+# --- 7. СТАТУС ИИ (модель одна — deepseek-flash из настроек, смены модели из админки нет) ---
 
 @router.get("/ai-provider")
 async def get_ai_provider_status(
@@ -758,8 +712,6 @@ async def get_ai_provider_status(
         "provider": "deepseek",
         "model": current_model,
         "active_has_key": active_has_key,
-        "available_providers": ["deepseek"],
-        "available_models": ["deepseek-flash", "deepseek-v4-pro"],
         "deepseek": {
             "model": settings.DEEPSEEK_MODEL,
             "base_url": settings.DEEPSEEK_BASE_URL,
@@ -767,39 +719,3 @@ async def get_ai_provider_status(
             "key_masked": mask_key(settings.DEEPSEEK_API_KEY)
         }
     }
-
-@router.post("/switch-ai-provider")
-async def switch_ai_provider(
-    payload: SwitchAiProviderIn,
-    token: str = Depends(verify_admin_token)
-):
-    """
-    Переключает конфигурацию модели DeepSeek (deepseek-flash, deepseek-v4-pro).
-    Обновляет глобальные настройки приложения в памяти и файл .env.
-    """
-    try:
-        active = set_active_ai_provider(payload.provider or "deepseek", payload.model)
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-
-    active_model = settings.DEEPSEEK_MODEL
-    has_key = bool(settings.DEEPSEEK_API_KEY)
-    
-    warning = None
-    if not has_key:
-        warning = "Ключ DEEPSEEK_API_KEY еще не настроен в файле .env"
-        msg = f"ИИ настроен на DeepSeek ({active_model}). ⚠️ Внимание: {warning}!"
-    else:
-        msg = f"ИИ успешно переключен на DeepSeek ({active_model})."
-
-    return {
-        "status": "success",
-        "provider": active,
-        "model": active_model,
-        "has_key": has_key,
-        "warning": warning,
-        "message": msg
-    }
-
-
-

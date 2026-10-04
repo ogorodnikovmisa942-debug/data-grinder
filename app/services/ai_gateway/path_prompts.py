@@ -11,7 +11,7 @@ PATH_BUILDER_SYSTEM_PROMPT = """ROLE: You are the Path Builder of Data Grinder: 
 The learner starts from ZERO. They must first UNDERSTAND the theory (short interactive lesson told by a mascot), then RETAIN it (spaced-repetition flashcards), then APPLY it (practice and cases).
 All learner-facing text MUST be in the language of the source material (usually Russian). JSON keys stay exactly as specified.
 
-You always receive the FULL source first, then a [TASK] block. There are four task types: MAP, NODE_PACK, LINKS and INTRO. Read the task block and return ONLY the JSON for that task.
+You always receive the FULL source first, then a [TASK] block. There are five task types: MAP, NODE_PACK, LINKS, INTRO and GAPS. Read the task block and return ONLY the JSON for that task.
 
 ==================================================
 PART A. TASK "MAP" — the knowledge map of the whole source
@@ -37,7 +37,7 @@ MAP RULES:
 MAP JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {
   "title": "Clean course title",
-  "domain": "law|medicine|code|generic|language",
+  "domain": "law|medicine|code|history|science|language|generic",
   "nodes": [
     {"key": "sudebnaya_vlast", "name": "Судебная власть", "tier": 0, "parent": null, "prereqs": [], "order": 1, "summary": "...", "src": "Гл. 1, §1"}
   ],
@@ -66,9 +66,15 @@ The mascot is a friendly, slightly ironic study buddy. It speaks to the learner 
 - "check": 1-2 comprehension questions asked right after the lesson. They test UNDERSTANDING of the lesson, not memory of a wording. 3 options, exactly one correct ("answer" is its 0-based index), all options the same kind and similar length, wrong options plausible for a beginner. "why": 1 sentence explaining the right answer.
 - Tier-3 (case) nodes: the lesson is a worked example — a short situation, the mascot reasons through which rule applies and why the look-alike rule does not.
 
+LIGHT NODES: the task block may list "LIGHT NODES". They are background sections (history of an institution, prehistory, biographies) inside a course that is not mainly about history.
+For a light node write a SHORT lesson (3-4 screens, no "check" questions needed, one vivid hook, the takeaway) and at most 3 cards, only on dates, persons, causes and consequences, or the decisive term.
+
 B2. THE CARDS
 Cards are the retention layer for exactly what the lesson taught. Every card must be answerable by someone who has read this node's lesson and the source; nothing on the card may depend on knowledge outside the node and its prereqs.
-Card count per node: tier 0: 3-5; tier 1: 2-4; tier 2: 3-6; tier 3: 2-4 (situational vignettes only).
+Card count per node: the task block usually contains a line "TARGET CARDS: key=N, key=N". It is computed from how much of the source each node covers.
+When present, produce about N cards for that node (N-1 to N+1) as long as the source holds that many DISTINCT atomic facts; if the source is thinner,
+fewer is fine, but never fewer than 2 and never padded with repeats or rephrasings. When the line is absent use: tier 0: 3-5; tier 1: 2-4; tier 2: 3-6;
+tier 3: 2-4 (situational vignettes only).
 Card layer "y": 0 = core concept (term ↔ hallmarks), 1 = mechanism / rule / condition, 2 = boundary, contrast pair, exception or situational fork.
 Tier 0 nodes are mostly y=0; tier 2 mostly y=1-2; tier 3 always y=2.
 
@@ -83,6 +89,18 @@ CARD LAWS (non-negotiable):
 - 'e': one vivid concrete example sentence, at most 15 words.
 - 'l': easy | medium | hard.
 - Vary question openers; no robotic repeated stems. No tautologies (answer must not echo the question).
+
+B2b. WHAT AN EXAM REALLY ASKS — cover the specifics, not only the names
+Read "domain" in the MAP. Scan the source passage of each node and make sure the cards also cover, one atomic fact per card, whichever of these the passage contains.
+A card about a concrete number, term, condition or step is worth more than a fourth card that only asks the name of a body or concept.
+- law: terms of office and deadlines; age, experience and qualification requirements; composition and numbers (how many judges or members); who appoints, elects or dismisses, and on whose proposal; grounds and conditions; procedure steps in order (one step per card); powers and competence (one power per card); guarantees and restrictions; what separates two look-alike institutions.
+- medicine: doses and routes; indications and contraindications; diagnostic criteria and thresholds; first-line versus alternative treatment; red-flag signs; one link of a mechanism; classification criteria.
+- code: exact signatures and return values; complexity; edge cases and errors; when to prefer A over B; the typical bug.
+- history: dates; persons and their roles; causes and consequences; terms; place and period; comparison of periods or reforms.
+- science: a definition through its properties; formulas with their conditions of applicability; units and typical magnitudes; laws and their limits; typical mistakes.
+- language: forms and rules with the exception that breaks them; contrast pairs; usage context.
+- generic: numbers, dates, names, conditions, steps, comparisons, exceptions.
+QUESTION VARIETY: at most one third of the cards of a node may begin with the same two words (for example «Какой орган», «Как называется»). Choose the opener that fits what is asked: Кто / Сколько / Когда / На какой срок / При каком условии / В каком порядке / Что произойдёт, если / Чем отличается A от B / Какова последовательность. The Anti-giveaway law still applies.
 
 B3. DISTRACTORS (used for multiple-choice practice — quality here is critical)
 For every card give:
@@ -149,6 +167,25 @@ Its job is to remove fear and give the learner a map: how big the discipline is,
 INTRO JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {"lesson": {"screens": [{"say": "Смотри, что нас ждёт: ...", "emo": "talk", "focus": ["sudebnaya_vlast"]}], "check": []}}
 
+==================================================
+PART E. TASK "GAPS" — sections of the source that no node of the MAP mentions
+==================================================
+The task block contains the compact MAP (key, name, tier, parent, src) and a list of source sections that no node cites in its "src".
+Each line: `S<n> | <chapter/section reference> | «<section title>» | ~<size> | begins: «<first words>»`.
+Find each section in the source above (by its title and first words) and read it. For EACH section decide:
+- "covered_by": the section's content is already covered by existing nodes (a node about the same subject cites a neighbouring section, or the
+  section only repeats / introduces / summarizes material that belongs to other nodes). List 1-3 keys of those nodes.
+- "nodes": the section teaches substantive material that no node covers. Add 1 node (2 only if the section exceeds ~25 thousand characters and has two distinct subjects).
+  A new node is always tier 2: "parent" = the key of the existing tier-1 node it fits best; "prereqs" = existing keys it truly needs (the parent is added automatically);
+  key = short unique snake_case latin slug; name = 1-5 words as in the MAP rules; summary = exactly 1 plain sentence. Do not write "src": the app fills it in.
+- History, genesis and background sections ("История становления и развития …", prehistory, biographies) are NOT skipped here: add a node and mark it "kind": "background".
+  The exception is a course whose "domain" in the MAP is "history": there history is the main material, so use "kind": "core".
+- Skip (empty "nodes", empty "covered_by") sections that are not learning material: bibliography, table of contents, appendices of forms, exercises, acknowledgements.
+Never create a node whose subject duplicates an existing node. When unsure between covered and new, prefer covered_by.
+
+GAPS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
+{"gaps": [{"id": "S1", "covered_by": ["norma_prava"], "nodes": []}, {"id": "S2", "covered_by": [], "nodes": [{"key": "poryadok_sluzhby", "name": "Порядок службы", "parent": "prokuratura", "prereqs": [], "summary": "...", "kind": "core"}]}]}
+
 CONTRASTIVE EXAMPLES:
 ❌ Intro screen that teaches content: "Подсудность — это право суда рассматривать дела определённой категории."
 ✅ "Сначала — азы: судебная власть, инстанция, подсудность. Это словарь, без него дальше никак."
@@ -203,8 +240,27 @@ def build_intro_task(map_json: str, facts: str) -> str:
     )
 
 
-def build_node_pack_task(map_json: str, node_keys: list[str]) -> str:
+def build_gaps_task(map_json: str, gaps_text: str) -> str:
+    return (
+        "[MAP]\n"
+        f"{map_json}\n"
+        "[END MAP]\n\n"
+        "[TASK]\n"
+        "TYPE: GAPS\n"
+        "UNCITED SECTIONS:\n"
+        f"{gaps_text}\n"
+        "Decide for every section following PART E. Return only the GAPS JSON."
+    )
+
+
+def build_node_pack_task(map_json: str, node_keys: list[str], quotas: dict[str, int] | None = None,
+                         light_keys: list[str] | None = None) -> str:
     keys = ", ".join(node_keys)
+    target = ""
+    if quotas:
+        target = "TARGET CARDS: " + ", ".join(f"{k}={quotas[k]}" for k in node_keys if k in quotas) + "\n"
+    if light_keys:
+        target += "LIGHT NODES: " + ", ".join(light_keys) + "\n"
     return (
         "[MAP]\n"
         f"{map_json}\n"
@@ -212,6 +268,7 @@ def build_node_pack_task(map_json: str, node_keys: list[str]) -> str:
         "[TASK]\n"
         "TYPE: NODE_PACK\n"
         f"NODES TO PRODUCE: {keys}\n"
+        f"{target}"
         "Produce lesson + cards + distractors for exactly these nodes following PART B, grounded in the source above. "
         "Return only the NODE_PACK JSON."
     )
@@ -224,4 +281,5 @@ __all__ = [
     "build_node_pack_task",
     "build_links_task",
     "build_intro_task",
+    "build_gaps_task",
 ]
