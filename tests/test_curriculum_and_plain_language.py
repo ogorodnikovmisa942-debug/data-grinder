@@ -2,63 +2,11 @@
 import unittest
 import asyncio
 from datetime import datetime
-from app.services.ai_gateway import is_blacklisted_card
 from app.database.session import AsyncSessionLocal
 from app.database.models import Card, Phrase, UserSession
 from app.api.endpoints.train import get_session_cards
 
 class TestCurriculumAndPlainLanguage(unittest.IsolatedAsyncioTestCase):
-
-    def test_02_filter_meta_course_trivia(self):
-        """Проверка отсева мета-вопросов об учебнике ('на какие три части делится курс')."""
-        card_meta = {
-            "text": "Какие три части условно выделяются в системе курса «Судоустройство»?",
-            "translation": "Общая, специальная и особенная части.",
-            "secondary_text": "Структура учебной дисциплины"
-        }
-        is_bl, reason = is_blacklisted_card(card_meta, subject_domain="law")
-        self.assertTrue(is_bl)
-        self.assertEqual(reason, "meta_course_trivia")
-
-    def test_03_domain_aware_scope_governance(self):
-        """
-        Проверка контекстно-зависимой фильтрации:
-        - В прикладном праве философия (Монтескье vs Локк) — это шум (отсекается).
-        - В философии учение мыслителей — это ядро (сохраняется).
-        - В философии биографическая шелуха ('в каком году родился') — отсекается.
-        """
-        # 1. Философия во вводной главе Права (должна отсечься)
-        law_card_with_philosophy = {
-            "text": "Чем принципиально отличается подход Ш. Монтескье к судебной власти от подхода Дж. Локка?",
-            "translation": "Локк считал её элементом исполнительной власти, а Монтескье провозгласил самостоятельной ветвью.",
-            "secondary_text": "История учений"
-        }
-        is_bl_law, reason_law = is_blacklisted_card(law_card_with_philosophy, subject_domain="law")
-        self.assertTrue(is_bl_law)
-        self.assertEqual(reason_law, "out_of_domain_intro_theory")
-
-        # 2. Та же тема в курсе Философии / Истории учений (должна сохраниться!)
-        is_bl_phil, _ = is_blacklisted_card(law_card_with_philosophy, subject_domain="philosophy")
-        self.assertFalse(is_bl_phil)
-
-        # 3. Субстантивная карточка по этике в курсе философии (должна сохраниться!)
-        kant_card = {
-            "text": "В чём состоит категорический императив И. Канта?",
-            "translation": "Поступай только по такому правилу, которое ты можешь желать видеть всеобщим законом для всех людей.",
-            "secondary_text": "Этика | Немецкая классическая философия"
-        }
-        is_bl_kant, _ = is_blacklisted_card(kant_card, subject_domain="philosophy")
-        self.assertFalse(is_bl_kant)
-
-        # 4. Пустая биографическая шелуха в философии (должна отсечься!)
-        bio_card = {
-            "text": "В каком году родился Иммануил Кант?",
-            "translation": "В 1724 году.",
-            "secondary_text": "Биография мыслителя"
-        }
-        is_bl_bio, reason_bio = is_blacklisted_card(bio_card, subject_domain="philosophy")
-        self.assertTrue(is_bl_bio)
-        self.assertEqual(reason_bio, "biographical_trivia")
 
     async def test_05_study_session_topological_rank_ordering(self):
         """Интеграционный тест: проверка выдачи новых карточек строго по возрастанию topological_rank."""

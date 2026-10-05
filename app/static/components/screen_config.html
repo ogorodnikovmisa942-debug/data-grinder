@@ -3,21 +3,23 @@
             
             <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
             <div class="flex flex-col gap-sm shrink-0">
-                <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
+                <div class="flex flex-col gap-2 text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></span>
                         <span id="config-phase-badge" class="hidden px-2 py-0.5 text-[9px] font-mono font-bold rounded-lg bg-secondary/15 text-secondary border border-secondary/30">[ФАЗА 1: 10 КАРТ/ДЕНЬ]</span>
                     </div>
-                    <div class="flex items-center gap-1">
-                        <button id="btn-share-subject" onclick="shareCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all flex items-center gap-1" title="Поделиться колодой в Telegram">
-                            <span class="material-symbols-outlined text-[11px]">share</span>
-                            <span>[ПОДЕЛИТЬСЯ]</span>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button id="btn-share-subject" onclick="shareCurrentSubject()" class="cfg-chip cfg-chip-primary hidden" title="Поделиться колодой в Telegram">
+                            <span class="material-symbols-outlined">share</span>
+                            <span>Поделиться</span>
                         </button>
-                        <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all">
-                            [ПЕРЕИМЕНОВАТЬ]
+                        <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="cfg-chip cfg-chip-primary hidden">
+                            <span class="material-symbols-outlined">edit</span>
+                            <span>Переименовать</span>
                         </button>
-                        <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="hidden text-[9px] border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-2 py-0.5 font-bold uppercase transition-all">
-                            [УДАЛИТЬ ПРЕДМЕТ]
+                        <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="cfg-chip cfg-chip-danger hidden">
+                            <span class="material-symbols-outlined">delete</span>
+                            <span>Удалить предмет</span>
                         </button>
                     </div>
                 </div>
@@ -136,7 +138,7 @@
                             <option value="" disabled selected>-- Выберите предмет --</option>
                             <option value="__new__">+ Новый предмет...</option>
                         </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. civil_law)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
+                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. biology_101)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
                     </div>
                 </div>
 

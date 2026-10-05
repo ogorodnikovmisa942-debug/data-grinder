@@ -69,51 +69,61 @@ def test_plan_pack_batches_groups_by_branch():
     assert sorted(k for b in batches for k in b) == sorted(n["key"] for n in m["nodes"])
 
 
-def test_normalize_pack_filters_distractors_and_cards():
+def test_normalize_cards_filters_distractors_keeps_evidence_and_cuts_over_quota(monkeypatch):
+    monkeypatch.setattr(pb, "CARD_CAPS", True)
     m = pb.normalize_map(RAW_MAP)
     raw = {"nodes": [
         {
             "key": "apellyaciya",
-            "lesson": {
-                "screens": [
-                    {"say": "Раз", "emo": "surprised", "focus": ["nadzor", "ghost"]},
-                    {"say": "Два", "emo": "dancing"},
-                    {"say": "Три"},
-                ],
-                "check": [
-                    {"q": "Q?", "options": ["a", "b", "c"], "answer": 1, "why": "w"},
-                    {"q": "Bad", "options": ["a", "b"], "answer": 5},
-                ],
-            },
             "cards": [
                 {"t": "Какая инстанция пересматривает не вступившие в силу решения суда первой инстанции?",
                  "s": "ГПК | Пересмотр", "d": "Апелляционная инстанция.", "l": "medium", "y": 1, "at": "organ",
+                 "ev": "  апелляционная   инстанция\nпересматривает решения  ",
                  "x": ["Кассационная инстанция.", "Апелляционная инстанция", "Все перечисленные.", "Надзорная инстанция."]},
                 {"t": "Вправе ли суд отменить решение по жалобе стороны?", "d": "Да.", "x": []},
                 {"t": "Какой срок подачи апелляционной жалобы установлен законом?", "d": "Десять дней.",
                  "at": "duration", "x": ["Месяц.", "Десять дней"]},
+                {"t": "Какой срок подачи апелляционной жалобы установлен законом?", "d": "Десять суток.", "x": []},
+                {"t": "Кто рассматривает апелляционную жалобу на решение районного суда?", "d": "Областной суд.", "x": []},
+                {"t": "Какой суд пересматривает приговоры районных судов в апелляции?", "d": "Областной суд.", "x": []},
             ],
         },
-        {"key": "vlast", "lesson": None, "cards": []},
+        {"key": "vlast", "cards": []},
+        {"key": "ghost", "cards": [{"t": "Чужой узел не запрашивали?", "d": "Нет."}]},
     ]}
-    res = pb.normalize_pack(raw, m, ["apellyaciya"])
-    assert list(res) == ["apellyaciya"]
-    lesson = res["apellyaciya"]["lesson"]
+    res = pb.normalize_cards(raw, m, ["apellyaciya", "vlast"], quotas={"apellyaciya": 1})
+    assert set(res) == {"apellyaciya", "vlast"} and res["vlast"] == []
+    cards = res["apellyaciya"]
+    assert len(cards) == 1 + pb.CARD_OVER_QUOTA                    # «Да.» и повтор отфильтрованы, лишнее сверх квоты отрезано
+    assert cards[0]["distractors"] == ["Кассационная инстанция.", "Надзорная инстанция."]
+    assert cards[0]["evidence"] == "апелляционная инстанция пересматривает решения"
+    assert cards[0]["node_key"] == "apellyaciya" and cards[0]["answer_type"] == "organ"
+    assert cards[1]["distractors"] is None                           # меньше двух годных дистракторов => карточка не идёт в MCQ
+
+
+def test_normalize_cards_does_not_cut_over_quota_when_caps_are_off(monkeypatch):
+    monkeypatch.setattr(pb, "CARD_CAPS", False)
+    m = pb.normalize_map(RAW_MAP)
+    raw = {"nodes": [{"key": "apellyaciya", "cards": [
+        {"t": f"Какой срок {i} установлен для подачи жалобы на решение суда?", "d": f"{i} дней.", "x": []} for i in range(1, 12)]}]}
+    assert len(pb.normalize_cards(raw, m, ["apellyaciya"], quotas={"apellyaciya": 1})["apellyaciya"]) == 11
+
+
+def test_normalize_lessons_cleans_screens_and_checks_and_rejects_short_lessons():
+    m = pb.normalize_map(RAW_MAP)
+    raw = {"nodes": [
+        {"key": "apellyaciya", "lesson": {
+            "screens": [{"say": "Раз", "emo": "surprised", "focus": ["nadzor", "ghost"]}, {"say": "Два", "emo": "dancing"}, {"say": "Три"}],
+            "check": [{"q": "Q?", "options": ["a", "b", "c"], "answer": 1, "why": "w"}, {"q": "Bad", "options": ["a", "b"], "answer": 5}]}},
+        {"key": "vlast", "lesson": {"screens": [{"say": "one"}, {"say": "two"}]}},
+        {"key": "nadzor", "lesson": None},
+    ]}
+    res = pb.normalize_lessons(raw, m, ["apellyaciya", "vlast", "nadzor"])
+    assert list(res) == ["apellyaciya"]                              # короткие и пустые уроки не принимаются
+    lesson = res["apellyaciya"]
     assert [s["emo"] for s in lesson["screens"]] == ["surprised", "talk", "talk"]
     assert lesson["screens"][0]["focus"] == ["nadzor"]
     assert len(lesson["check"]) == 1
-    cards = res["apellyaciya"]["cards"]
-    assert len(cards) == 2  # «Да.» отфильтрован блэклистом
-    assert cards[0]["distractors"] == ["Кассационная инстанция.", "Надзорная инстанция."]
-    assert cards[0]["node_key"] == "apellyaciya" and cards[0]["answer_type"] == "organ"
-    # Меньше двух годных дистракторов => карточка не идёт в MCQ
-    assert cards[1]["distractors"] is None
-
-
-def test_lesson_with_too_few_screens_is_rejected():
-    m = pb.normalize_map(RAW_MAP)
-    raw = {"nodes": [{"key": "vlast", "lesson": {"screens": [{"say": "one"}, {"say": "two"}]}, "cards": []}]}
-    assert pb.normalize_pack(raw, m, ["vlast"])["vlast"]["lesson"] is None
 
 
 def test_prompt_prefix_is_stable_for_cache():
@@ -126,31 +136,31 @@ def test_prompt_prefix_is_stable_for_cache():
 
 
 def test_build_learning_path_uses_shared_prefix_and_retries_missing():
+    from llm_fake import FakeLLM, patched, keys_of, default_cards
     m_raw = {"title": "T", "domain": "law", "nodes": [
         {"key": "a", "name": "A", "tier": 0, "order": 1},
         {"key": "b", "name": "B", "tier": 1, "order": 2},
     ], "edges": []}
-    lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}], "check": []}
-    prompts = []
 
-    async def fake_call(user_prompt, **kwargs):
-        prompts.append(user_prompt)
-        meta = {"cost_usd": 0.01, "cache_hit_tokens": 0, "completion_tokens": 10}
-        if "TYPE: MAP" in user_prompt:
-            return m_raw, meta
-        # Первый пакет для «b» теряем, чтобы проверить дозапрос
-        if "NODES TO PRODUCE: b" in user_prompt and sum("NODES TO PRODUCE: b" in p for p in prompts) == 1:
-            return {"nodes": []}, meta
-        keys = user_prompt.split("NODES TO PRODUCE: ")[1].split("\n")[0].split(", ")
-        return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, meta
+    def cards(prompt, fake):
+        # Первый запрос по «b» теряем, чтобы проверить дозапрос
+        if "NODES TO PRODUCE: b" in prompt and sum("NODES TO PRODUCE: b" in p for p in fake.of("CARDS")) == 1:
+            return {"nodes": []}
+        return {"nodes": [{"key": k, "cards": default_cards(k)} for k in keys_of(prompt)]}
 
-    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+    fake = FakeLLM(raw_map=m_raw, cards=cards, cost=0.01)
+    with patched(fake):
         res = asyncio.run(pb.build_learning_path("КНИГА", "subj"))
 
     assert set(res["packs"]) == {"a", "b"} and res["missing_nodes"] == []
+    assert all(p["lesson"] for p in res["packs"].values())
     prefix = build_source_block("КНИГА")
-    assert all(p.startswith(prefix) for p in prompts)
-    assert res["cost_usd"] == pytest.approx(0.01 * len(prompts))
+    # Запросы с книгой начинаются с одного префикса (кэш DeepSeek); запросы без книги (урок, введение) её не содержат
+    for kind in ("MAP", "CARDS"):
+        assert fake.of(kind) and all(p.startswith(prefix) for p in fake.of(kind))
+    for kind in ("LESSON",):
+        assert fake.of(kind) and not any("КНИГА" in p for p in fake.of(kind))
+    assert res["cost_usd"] == pytest.approx(0.01 * len(fake.log))
 
 
 def test_truncated_map_is_not_retried_and_cost_is_logged():
@@ -167,10 +177,10 @@ def test_truncated_map_is_not_retried_and_cost_is_logged():
     assert calls[0]["cost_usd"] == 0.05 and calls[0]["finish_reason"] == "length"
 
 
-def test_truncated_pack_is_split_in_halves():
+def test_truncated_cards_batch_is_split_in_halves():
     from app.services.ai_gateway.client import LLMOutputTruncated
+    from llm_fake import default_cards
     m = pb.normalize_map({"nodes": [{"key": k, "name": k.upper(), "tier": 0, "order": i} for i, k in enumerate("abcd", 1)]})
-    lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}]}
     requested = []
 
     async def fake_call(user_prompt, **kwargs):
@@ -178,11 +188,11 @@ def test_truncated_pack_is_split_in_halves():
         requested.append(keys)
         if len(keys) > 2:
             raise LLMOutputTruncated("обрезано", {"cost_usd": 0.01})
-        return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, {"cost_usd": 0.01}
+        return {"nodes": [{"key": k, "cards": default_cards(k)} for k in keys]}, {"cost_usd": 0.01}
 
     calls = []
     with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
-        res = asyncio.run(pb.build_node_pack("КНИГА", m, ["a", "b", "c", "d"], calls))
+        res = asyncio.run(pb.build_cards("КНИГА", m, ["a", "b", "c", "d"], calls))
     assert set(res) == {"a", "b", "c", "d"}
     assert requested == [["a", "b", "c", "d"], ["a", "b"], ["c", "d"]]
     assert len(calls) == 3
@@ -321,19 +331,18 @@ def test_core_batches_are_separate_and_use_thinking():
     assert batches[2] == ["apellyaciya", "nadzor", "keys_peresmotr"]
     assert sorted(k for b in batches for k in b) == sorted(n["key"] for n in m["nodes"])
 
+    from llm_fake import FakeLLM, keys_of, patched
     flags = {}
 
-    async def fake_call(user_prompt, **kwargs):
-        if "TYPE: MAP" in user_prompt:
-            return _map_raw(5), {"cost_usd": 0.0}
-        if "TYPE: NODE_PACK" in user_prompt:
-            keys = user_prompt.split("NODES TO PRODUCE: ")[1].split("\n")[0].split(", ")
-            flags[tuple(keys)] = kwargs.get("thinking", False)
-            lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}], "check": []}
-            return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, {"cost_usd": 0.0}
-        return {"edges": [], "lesson": None}, {"cost_usd": 0.0}
+    class Recording(FakeLLM):
+        async def __call__(self, user_prompt, **kwargs):
+            if "TYPE: CARDS" in user_prompt:
+                flags[tuple(keys_of(user_prompt))] = kwargs.get("thinking", False)
+            elif "TYPE: LESSON" in user_prompt:
+                assert not kwargs.get("thinking", False)     # режим обдумывания только для карточек ядра
+            return await super().__call__(user_prompt, **kwargs)
 
-    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call), patch.object(pb, "THINK_CORE", True):
+    with patched(Recording(raw_map=_map_raw(5))), patch.object(pb, "THINK_CORE", True):
         asyncio.run(pb.build_learning_path("КНИГА", "s"))
     assert flags and all(flags.values())                 # в тестовой карте только основы и темы — всё в режиме обдумывания
 
@@ -375,8 +384,8 @@ def test_thin_map_for_a_big_book_is_rejected_and_retried():
 
 def test_prompt_asks_for_specifics_and_varied_questions_without_dynamic_parts():
     from app.services.ai_gateway.path_prompts import PATH_BUILDER_SYSTEM_PROMPT as sp
-    for marker in ("B2b. WHAT AN EXAM REALLY ASKS", "QUESTION VARIETY", "terms of office", "doses and routes",
-                   "dates; persons", "history|science|language|generic"):
+    for marker in ("B2b. SPECIFICS", "QUESTION VARIETY", "numbers, quantities, thresholds, formulas", "a dose and route in a medicine text",
+                   "a date and a cause in a history text"):
         assert marker in sp
     assert "{" not in sp.split("PART A")[0]               # статичная шапка для кэша
     for rule in ("Minimum Information Principle", "Absolute Prohibition of Lists & Enumerations", "Zero-Spoiler Law"):

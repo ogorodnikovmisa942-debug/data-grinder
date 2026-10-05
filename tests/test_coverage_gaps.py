@@ -144,18 +144,9 @@ def test_pipeline_adds_gap_nodes_with_size_hints_into_quotas():
     ] + [{"key": f"s{i}", "name": f"Подтема {i}", "tier": 2, "parent": "topic_a", "order": 3 + i, "summary": "s", "src": "Гл. 1, § 3"} for i in range(1, 5)],
         "edges": []}
 
-    async def fake_call(user_prompt, **kwargs):
-        if "TYPE: MAP" in user_prompt:
-            return raw_map, {"cost_usd": 0.0}
-        if "TYPE: GAPS" in user_prompt:
-            return {"gaps": [{"id": "S1", "covered_by": [], "nodes": [{"key": "dyra", "name": "Дыра", "parent": "topic_b", "summary": "."}]}]}, {"cost_usd": 0.0}
-        if "TYPE: NODE_PACK" in user_prompt:
-            keys = user_prompt.split("NODES TO PRODUCE: ")[1].split("\n")[0].split(", ")
-            lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}], "check": []}
-            return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, {"cost_usd": 0.0}
-        return {"edges": [], "lesson": None}, {"cost_usd": 0.0}
-
-    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+    from llm_fake import FakeLLM, patched
+    gaps = {"gaps": [{"id": "S1", "covered_by": [], "nodes": [{"key": "dyra", "name": "Дыра", "parent": "topic_b", "summary": "."}]}]}
+    with patched(FakeLLM(raw_map=raw_map, gaps=lambda p, f: gaps)):
         res = asyncio.run(pb.build_learning_path(text, "s"))
     keys = {n["key"] for n in res["map"]["nodes"]}
     assert "dyra" in keys and "dyra" in res["packs"]                      # узел прошёл нарезку как остальные

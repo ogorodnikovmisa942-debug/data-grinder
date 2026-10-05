@@ -107,8 +107,12 @@ async def get_all_cards(
                 "state": c.state, 
                 "subject": c.subject, 
                 "example": c.example if c.example else "",
-                "mnemonic": c.mnemonic
-            } 
+                "mnemonic": c.mnemonic,
+                "next_review": c.next_review.isoformat() if c.next_review else None,
+                "last_review": c.last_review.isoformat() if c.last_review else None,
+                "lapses": c.lapses or 0,
+                "stability": round(c.stability or 0.0, 1),
+            }
             for c in cards
         ]
     }
@@ -539,7 +543,6 @@ async def rename_subject(
         p_text_lower = (p.text or "").strip().lower()
         if (
             p_text_lower in target_subs
-            or "судоустройств" in p_text_lower
             or p_text_lower in ("новый блок знаний", "пользовательские карточки", "[мигрировавшие карточки]")
             or old_sub == new_sub
         ):
@@ -550,7 +553,7 @@ async def rename_subject(
         select(Category).where(Category.user_id == current_user)
     )
     for cat in cats_res.scalars().all():
-        if cat.name.strip().lower() in target_subs or "судоустройств" in cat.name.strip().lower():
+        if cat.name.strip().lower() in target_subs:
             cat.name = new_sub
 
     # 4. Обновляем задачи генерации (GenerationJob)

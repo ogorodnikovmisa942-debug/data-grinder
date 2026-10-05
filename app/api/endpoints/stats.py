@@ -224,6 +224,8 @@ async def get_analytics(
         Card.user_id == current_user,
         Card.state.in_([1, 2, 3])
     )
+    if subject != 'all':
+        cram_available_stmt = cram_available_stmt.filter(Card.subject.in_(sub_aliases))
     cram_available_res = await db.execute(cram_available_stmt)
     cards_cram_available = cram_available_res.scalar() or 0
 

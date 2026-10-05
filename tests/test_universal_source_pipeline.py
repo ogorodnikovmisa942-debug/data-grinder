@@ -11,7 +11,7 @@ import unittest
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from app.services.ai_gateway import is_blacklisted_card
+from app.services.ai_gateway import is_structurally_invalid_card
 
 
 class TestUniversalSourcePipeline(unittest.TestCase):
@@ -39,7 +39,7 @@ class TestUniversalSourcePipeline(unittest.TestCase):
             "translation": "Их взаимодействие в системе социального регулирования.",
             "example": "Расширение дискреционных полномочий разрушает баланс."
         }
-        is_bl_4, reason_4 = is_blacklisted_card(card_4, subject_domain="law")
+        is_bl_4, reason_4 = is_structurally_invalid_card(card_4)
         self.assertTrue(is_bl_4, "Карточка №4 обязана отсеиваться как тавтология!")
         self.assertEqual(reason_4, "tautology")
 
@@ -50,7 +50,7 @@ class TestUniversalSourcePipeline(unittest.TestCase):
             "translation": "Уровень правового сознания и правовой культуры.",
             "example": "Гражданин формирует правовую культуру общества."
         }
-        is_bl_6, reason_6 = is_blacklisted_card(card_6, subject_domain="law")
+        is_bl_6, reason_6 = is_structurally_invalid_card(card_6)
         self.assertTrue(is_bl_6, "Карточка №6 обязана отсеиваться как тавтология!")
         self.assertEqual(reason_6, "tautology")
 
@@ -62,7 +62,7 @@ class TestUniversalSourcePipeline(unittest.TestCase):
             "translation": "Инструменталистский подход в праве.",
             "example": "Законодатель принимает закон как инструмент защиты конкуренции."
         }
-        is_bl_1, reason_1 = is_blacklisted_card(good_card_1, subject_domain="law")
+        is_bl_1, reason_1 = is_structurally_invalid_card(good_card_1)
         self.assertFalse(is_bl_1, f"Качественная карточка не должна браковаться: {reason_1}")
 
         good_card_contrast = {
@@ -71,7 +71,7 @@ class TestUniversalSourcePipeline(unittest.TestCase):
             "translation": "Императивный исключает отступления от предписания, диспозитивный допускает автономию воли сторон.",
             "example": "Личный обыск — императив; цена договора — диспозитив."
         }
-        is_bl_2, reason_2 = is_blacklisted_card(good_card_contrast, subject_domain="law")
+        is_bl_2, reason_2 = is_structurally_invalid_card(good_card_contrast)
         self.assertFalse(is_bl_2, f"Качественная контрастная карточка не должна браковаться: {reason_2}")
 
 if __name__ == "__main__":

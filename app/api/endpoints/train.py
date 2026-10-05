@@ -1,5 +1,6 @@
 # app/api/endpoints/train.py
 import asyncio
+import random
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,34 +22,17 @@ from datetime import datetime, timedelta, timezone
 
 router = APIRouter()
 
-KNOWN_SUBJECT_NAMES = {
-    "constitutional_law": "Конституционное право",
-    "constitution": "Конституционное право",
-    "law": "Юриспруденция",
-    "law_civil": "Гражданское право",
-    "civil_law": "Гражданское право",
-    "ugolovnoe": "Уголовное право",
-    "upk": "Уголовный процесс",
-    "gpk": "Гражданский процесс",
-    "python": "Python разработка",
-    "chinese": "Китайский язык (HSK)",
-    "hsk3": "Китайский язык (HSK 3)",
-    "generic": "Общий курс"
-}
-
 async def get_subject_display_name(slug: str, user_id: str, db: AsyncSession) -> str:
     if not slug:
         return "Курс"
     # Try resolving from Category or Phrase
     stmt = select(Category.name).where(Category.user_id == user_id, Category.name.ilike(f"%{slug}%")).limit(1)
     cat = (await db.execute(stmt)).scalar()
-    if cat and "судоустройств" not in cat.lower():
+    if cat:
         return cat
-    if slug.lower() in KNOWN_SUBJECT_NAMES:
-        return KNOWN_SUBJECT_NAMES[slug.lower()]
     stmt_p = select(Phrase.text).where(Phrase.user_id == user_id, Phrase.subject == slug).limit(1)
     p_text = (await db.execute(stmt_p)).scalar()
-    if p_text and "судоустройств" not in p_text.lower():
+    if p_text:
         return p_text
     return slug.replace('_', ' ').replace('-', ' ').title()
 
@@ -110,6 +94,8 @@ def apply_interleaving(cards_list: list, max_consecutive: int = 1, key=lambda c:
         
     return interleaved_result
 
+CRAM_ROUND_SIZE = 20   # карточек за один раунд штурма
+
 # --- 1. ВЫДАЧА ОЧЕРЕДИ С ИНТЕРЛИВИНГОМ ТЕМ И ИЗОЛЯЦИЕЙ ПО ПОЛЬЗОВАТЕЛЮ ---
 @router.get("/session")
 async def get_session_cards(
@@ -148,7 +134,6 @@ async def get_session_cards(
         subject_limits = user_setting.subject_limits if (user_setting and user_setting.subject_limits) else {}
         limit = subject_limits.get(subject, user_daily_limit)
 
-    # Разрешаем все алиасы предмета (например, sudoustr <-> sudoustroystvo)
     sub_aliases = get_all_subject_aliases(subject) if subject != 'all' else ['all']
 
     # 1. Сбор просроченных повторений (REV) текущего пользователя с упорядочиванием по темам и дидактике
@@ -249,16 +234,28 @@ async def get_session_cards(
         if subject != 'all':
             full_pool = apply_interleaving(full_pool, 1, key=lambda c: c.node_id or c.organ_slug or c.id)
     elif mode == "cram":
-        # Режим "Штурм": строго только уже изученные карточки (state in [1, 2, 3]), исключая новые (state == 0)
-        # Сортировка: самые трудные (высокий difficulty) и наименее стабильные (низкая stability)
-        cram_stmt = select(Card).filter(
-            Card.user_id == current_user,
-            Card.state.in_([1, 2, 3])
-        ).order_by(Card.difficulty.desc(), Card.stability.asc()).limit(limit)
+        # Режим "Штурм": только изученные карточки выбранного предмета (state in [1, 2, 3]); «Все предметы» — вперемешку.
+        # Выборка случайная, но трудные карточки (высокая сложность, ошибки) выпадают чаще; то, что уже прошло в штурме
+        # сегодня, идёт в конец — пока не пройдёт всё остальное, одни и те же карточки не возвращаются.
+        cram_stmt = select(Card).filter(Card.user_id == current_user, Card.state.in_([1, 2, 3]))
         if subject != 'all':
             cram_stmt = cram_stmt.filter(Card.subject.in_(sub_aliases))
-        cram_res = await db.execute(cram_stmt)
-        full_pool = cram_res.scalars().all()
+        cram_cards = (await db.execute(cram_stmt)).scalars().all()
+        cram_done_today = set((await db.execute(
+            select(ReviewLog.card_id).where(
+                ReviewLog.user_id == current_user, ReviewLog.is_cram == True,  # noqa: E712
+                ReviewLog.review_time >= today_start,
+            )
+        )).scalars().all())
+
+        def cram_order(cards):
+            def weight(c):
+                return 1.0 + (c.difficulty or 5.5) / 5.0 + min(c.lapses or 0, 4) * 0.25
+            return sorted(cards, key=lambda c: random.random() ** (1.0 / weight(c)), reverse=True)
+
+        fresh = [c for c in cram_cards if c.id not in cram_done_today]
+        seen = [c for c in cram_cards if c.id in cram_done_today]
+        full_pool = (cram_order(fresh) + cram_order(seen))[:(limit_cards or CRAM_ROUND_SIZE)]
     else: # mixed
         full_pool = due_reviews + intra_day_cards + new_cards
 

@@ -397,7 +397,7 @@ window.openLesson = async function(nodeId) {
     const nameEl = document.getElementById('lesson-node-name');
     if (nameEl) nameEl.textContent = data.node.name;
     const tierEl = document.getElementById('lesson-tier-badge');
-    if (tierEl) tierEl.textContent = data.intro ? 'Вводный урок' : (data.node.kind === 'background' ? 'Справка' : (LESSON_TIER_NAMES[data.node.tier] || ''));
+    if (tierEl) tierEl.textContent = data.intro ? 'Вводный урок' : (LESSON_TIER_NAMES[data.node.tier] || '');
 
     modal.classList.remove('hidden');
     if (lessonState.phase === 'pretest') renderLessonPretest();

@@ -1017,3 +1017,82 @@ html, body {
 .practice-progress { height: 4px; background: #ececec; flex-shrink: 0; }
 .dark .practice-progress { background: #262626; }
 .practice-progress-fill { height: 100%; width: 0; background: var(--dg-green); transition: width 0.3s ease; }
+
+
+/* ===== Поиск и просмотр карточек в DATA ===== */
+.archive-search { position: relative; display: flex; align-items: center; }
+.archive-search-icon { position: absolute; left: 10px; font-size: 18px; color: #8a8a8a; pointer-events: none; }
+.archive-search-input {
+    width: 100%; height: 40px; padding: 0 38px 0 36px; border-radius: 12px;
+    border: 1px solid #e5e5e5; background: #ffffff; color: inherit; font-size: 13px;
+}
+.archive-search-input:focus { outline: 2px solid var(--dg-violet-line); outline-offset: 1px; border-color: var(--dg-violet); }
+.dark .archive-search-input { border-color: #2a2a2a; background: #141414; }
+.archive-search-clear { position: absolute; right: 6px; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; color: #8a8a8a; border-radius: 9999px; }
+.archive-search-clear.hidden { display: none; }
+.archive-search-clear .material-symbols-outlined { font-size: 18px; }
+.archive-mark { background: rgba(99, 102, 241, 0.22); color: inherit; border-radius: 3px; padding: 0 1px; }
+.archive-hit-line { flex-basis: 100%; order: 3; font-size: 11px; color: #737373; line-height: 1.4; padding: 0 2px 2px; }
+
+.card-view-sheet {
+    width: 100%; max-width: 440px; max-height: 88vh; display: flex; flex-direction: column;
+    background: #ffffff; border-radius: 20px 20px 0 0; padding: 16px 18px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.25); animation: fadeIn 0.2s ease-out;
+}
+@media (min-width: 640px) { .card-view-sheet { border-radius: 20px; } }
+.dark .card-view-sheet { background: #141414; }
+.card-view-scroll { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
+.card-view-label { font: 700 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a8a; margin-top: 10px; }
+.card-view-question { font-size: 17px; font-weight: 700; line-height: 1.4; word-break: break-word; }
+.card-view-answer { font-size: 16px; font-weight: 600; line-height: 1.45; color: var(--dg-green-ink); word-break: break-word; white-space: pre-line; }
+.card-view-example, .card-view-context { font-size: 13px; line-height: 1.5; color: #525252; word-break: break-word; }
+.dark .card-view-example, .dark .card-view-context { color: #a3a3a3; }
+.card-view-mnemonic { margin-top: 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45; }
+.card-view-mnemonic .card-view-label { margin-top: 0; margin-bottom: 4px; }
+.card-view-meta { margin-top: 12px; font-size: 11px; color: #8a8a8a; line-height: 1.5; }
+.card-view-state { font: 700 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; padding: 5px 10px; border-radius: 9999px; background: var(--dg-violet-soft); color: var(--dg-violet); border: 1px solid var(--dg-violet-line); }
+.card-view-close { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; color: #737373; }
+.card-view-close:hover { background: #f0f0f0; }
+.dark .card-view-close:hover { background: #262626; }
+.card-view-actions { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid #ececec; }
+.dark .card-view-actions { border-color: #262626; }
+.card-view-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 12px; border: 1px solid #e5e5e5; font-size: 12px; font-weight: 600; cursor: pointer; }
+.card-view-btn .material-symbols-outlined { font-size: 16px; }
+.card-view-btn-danger { color: var(--dg-red); border-color: var(--dg-red-line); }
+.dark .card-view-btn { border-color: #2a2a2a; }
+
+/* Строка архива: вопрос и ответ читаются целиком (до двух строк), действия — в карточке по нажатию */
+.archive-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 6px; border-bottom: 1px solid rgba(128, 128, 128, 0.18); border-radius: 12px; transition: background 0.15s ease; }
+.archive-row:hover { background: rgba(128, 128, 128, 0.07); }
+.archive-row .card-checkbox { margin-top: 3px; flex-shrink: 0; }
+.archive-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.archive-row-q, .archive-row-a { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-word; user-select: none; }
+.archive-row-q { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--dg-ink, inherit); }
+.archive-row-a { font-size: 12px; line-height: 1.35; color: #737373; }
+.archive-row-state { flex-shrink: 0; font: 700 9px/1 "JetBrains Mono", ui-monospace, monospace; color: #a3a3a3; margin-top: 4px; letter-spacing: 0.06em; }
+.archive-hit-line { flex-basis: auto; order: 0; }
+
+
+/* Единый счётчик крестика поиска: нативный крестик type=search скрываем, остаётся один свой */
+.archive-search-input::-webkit-search-cancel-button,
+.archive-search-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+
+/* Кнопки действий предмета в CONFIG */
+.cfg-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 36px;
+    border-radius: 12px; border: 1px solid #d4d4d4; background: #ffffff; color: #404040;
+    font: 700 11px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.02em; text-transform: none; cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.cfg-chip.hidden { display: none; }
+.cfg-chip .material-symbols-outlined { font-size: 15px; }
+.cfg-chip:active { transform: scale(0.97); }
+.cfg-chip-primary:hover { border-color: var(--dg-violet); color: var(--dg-violet); }
+.cfg-chip-danger { color: var(--dg-red); border-color: var(--dg-red-line); background: var(--dg-red-soft); }
+.dark .cfg-chip { border-color: #2a2a2a; background: #141414; color: #d4d4d4; }
+
+/* Прокрутка вложенных экранов на телефоне: вертикальный жест достаётся самому экрану, а не телеграму */
+#screen-config, #screen-stats, #screen-data #data-container {
+    touch-action: pan-y; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
+}
+#subjects-manager-list { touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }

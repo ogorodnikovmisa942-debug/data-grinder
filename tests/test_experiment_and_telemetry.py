@@ -712,9 +712,9 @@ class TestExperimentAndTelemetry(unittest.TestCase):
         self.assertEqual(payload["cards"][0]["secondary_text"], "ст. 125 КРФ")
         self.assertEqual(payload["cards"][0]["translation"], "Орган конституционного контроля")
 
-    def test_14_spoiler_sanitizer_and_clerical_blacklist(self):
-        """Проверка санитайзера спойлеров в secondary_text и фильтра канцелярского шума."""
-        from app.services.ai_gateway import strip_secondary_spoilers, is_blacklisted_card
+    def test_14_spoiler_sanitizer(self):
+        """Проверка санитайзера спойлеров в secondary_text."""
+        from app.services.ai_gateway import strip_secondary_spoilers
 
         # 1. Санитайзер утечек ответа в 's' (сторона вопроса)
         self.assertEqual(strip_secondary_spoilers(
@@ -729,42 +729,6 @@ class TestExperimentAndTelemetry(unittest.TestCase):
             "Какой орган обладает исключительным правом осуществления правосудия?",
             "Только суды Республики Беларусь.",
             "ст. 109 Конституции | Монополия судейской мантии"), "ст. 109 Конституции | Монополия судейской мантии")
-
-        # 2. Проверка фильтра канцелярского балласта
-        clerical_card_1 = {
-            "text": "Какое количество членов коллегии должно присутствовать для кворума заседания?",
-            "translation": "Не менее двух третей.",
-            "secondary_text": "Положение о коллегии"
-        }
-        is_bl, reason = is_blacklisted_card(clerical_card_1, "law")
-        self.assertTrue(is_bl)
-        self.assertEqual(reason, "clerical_bureaucratic_trivia")
-
-        clerical_card_2 = {
-            "text": "Какова продолжительность стажировки для претендента в адвокаты?",
-            "translation": "От трех до шести месяцев.",
-            "secondary_text": "Закон об адвокатуре"
-        }
-        is_bl2, reason2 = is_blacklisted_card(clerical_card_2, "law")
-        self.assertTrue(is_bl2)
-        self.assertEqual(reason2, "clerical_bureaucratic_trivia")
-
-        clerical_card_3 = {
-            "text": "Через какой минимальный срок возможна повторная сдача квалификационного экзамена?",
-            "translation": "Не ранее чем через шесть месяцев.",
-            "secondary_text": "Закон об адвокатуре"
-        }
-        is_bl3, reason3 = is_blacklisted_card(clerical_card_3, "law")
-        self.assertTrue(is_bl3)
-        self.assertEqual(reason3, "clerical_bureaucratic_trivia")
-
-        valid_card = {
-            "text": "В каком составе рассматриваются уголовные дела о преступлениях несовершеннолетних?",
-            "translation": "Коллегией в составе судьи и двух народных заседателей.",
-            "secondary_text": "ст. 32 УПК"
-        }
-        is_bl4, _ = is_blacklisted_card(valid_card, "law")
-        self.assertFalse(is_bl4)
 
     def test_15_phase1_limit_10_and_slicing_lock_verification(self):
         """Проверка фиксации лимита на 10 карт и полной блокировки нарезки материалов для участников Фазы 1."""

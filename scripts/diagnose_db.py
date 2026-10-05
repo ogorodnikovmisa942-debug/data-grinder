@@ -67,22 +67,11 @@ async def main():
             state_desc = {0: "0 (NEW)", 1: "1 (LEARNING)", 2: "2 (REVIEW)", 3: "3 (RELEARNING)"}.get(row[2], str(row[2]))
             print(f"  - User: {row[0]} | Subject: {row[1]} | State: {state_desc} | Count: {row[3]}")
 
-        # Aliases test
-        print("\n[3] Subject Aliases Test for 'sudoust':")
-        aliases = get_all_subject_aliases("sudoust")
-        canonical = resolve_subject_alias("sudoust")
-        print(f"  Aliases for 'sudoust': {aliases}")
-        print(f"  Canonical for 'sudoust': {canonical}")
-        if "sudoustr" not in aliases:
-            print("  [!] ERROR: 'sudoustr' is NOT in aliases of 'sudoust'! Server is running outdated code!")
-        else:
-            print("  [OK] Aliases mapping includes 'sudoustr' and 'sudoustroystvo'.")
-
         # Session simulation
         print("\n[4] Training Session Simulation:")
         active_uids = set([r[0] for r in cards_summary] + [u for u in user_ids if u.isdigit()] + ["default_user"])
         for uid in sorted(active_uids):
-            for subj in ["sudoust", "sudoustr", "all"]:
+            for subj in sorted({r[1] for r in cards_summary if r[0] == uid} | {"all"}):
                 try:
                     cards = await get_session_cards(subject=subj, mode="new", current_user=uid, db=db)
                     print(f"  User '{uid}' -> subject='{subj}' [mode=new]: returned {len(cards)} cards")

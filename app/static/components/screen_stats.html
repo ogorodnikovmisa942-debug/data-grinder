@@ -1,5 +1,22 @@
         <!-- Экран STATS -->
         <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-y-auto pt-md pb-6">
+            <!-- 0. Сколько ещё учить -->
+            <div id="stats-remaining-box" class="flex flex-col gap-2 font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
+                <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs">ОСТАЛОСЬ УЧИТЬ</div>
+                <div class="flex items-baseline justify-between gap-2">
+                    <span id="stats-left-cards" class="text-2xl font-bold text-primary">—</span>
+                    <span id="stats-left-days" class="text-[11px] text-neutral-500 text-right">—</span>
+                </div>
+                <div id="stats-left-topics-row" class="hidden flex flex-col gap-1.5">
+                    <div class="flex justify-between text-[11px] text-neutral-600 dark:text-neutral-300">
+                        <span>Тем освоено</span><span id="stats-left-topics">—</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                        <div id="stats-left-topics-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: var(--dg-green);"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 1. Сводные метрики -->
             <div class="flex flex-col gap-sm font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
@@ -92,7 +109,7 @@
                 <div id="breakdown-title" class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs">
                     --- ПРОГРЕСС ПО РАЗДЕЛАМ ---
                 </div>
-                <div id="breakdown-list" class="divide-y divide-outline-variant/30 pr-1 text-xs max-h-60 overflow-y-auto"></div>
+                <div id="breakdown-list" class="divide-y divide-outline-variant/30 pr-1 text-xs"></div>
             </div>
         </div>
 

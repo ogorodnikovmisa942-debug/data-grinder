@@ -44,6 +44,15 @@ async def send_worker_telegram_push(chat_id: int | str, text_msg: str, reply_mar
         if session:
             await session.close()
 
+def cost_breakdown(calls: list[dict]) -> str:
+    """Расход по этапам для журнала: map, cards, audit, fill, lesson, links, intro (по началу названия вызова)."""
+    agg: dict[str, float] = {}
+    for c in calls:
+        stage = re.split(r"[\[#]", c.get("label") or "?")[0].rstrip("*")
+        agg[stage] = agg.get(stage, 0.0) + c.get("cost_usd", 0.0)
+    return ", ".join(f"{k} ${v:.4f}" for k, v in agg.items())
+
+
 async def _record_path_calls(job_id: int, user_id: str, calls: list[dict]) -> None:
     """Пишет каждый вызов LLM в ai_telemetry_logs со стоимостью (в т.ч. неудачные, но оплаченные)."""
     for c in calls:
@@ -128,6 +137,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         )
         # Качество колоды в журнале: охват по оглавлению и однотипность вопросов (полный отчёт: scripts/coverage_report.py)
         print(f"[Generation Worker] Охват: {result.get('gap_report')}; вопросы: {result.get('stats')}", flush=True)
+        print(f"[Generation Worker] Расход по этапам: {cost_breakdown(calls)}", flush=True)
 
         if job_data.get("telegram_id"):
             webapp_url = getattr(settings, "WEBAPP_URL", "https://datagrinder.site")

@@ -52,7 +52,8 @@ class TestPromptCachingAndAtomicRules(unittest.TestCase):
             "No binary Yes/No cards",
             "Anti-giveaway",
             'TASK "MAP"',
-            'TASK "NODE_PACK"',
+            'TASK "CARDS"',
+            'TASK "LESSON"',
             "B3. DISTRACTORS",
         ):
             self.assertIn(rule, PATH_BUILDER_SYSTEM_PROMPT)

@@ -74,24 +74,8 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
             await db.execute(delete(Phrase).where(Phrase.user_id == test_user))
             await db.commit()
 
-    async def test_5_card_archive_alias_lookup(self):
-        """Проверяет, что архив карт GET /api/data/cards находит карты по обоим алиасам."""
-        r1 = await self.client.get("/api/data/cards?subject=sudoustr", headers={"X-User-Id": "dev_user"})
-        r2 = await self.client.get("/api/data/cards?subject=sudoustroystvo", headers={"X-User-Id": "dev_user"})
-        self.assertEqual(r1.status_code, 200)
-        self.assertEqual(r2.status_code, 200)
-        self.assertEqual(r1.json()["total"], r2.json()["total"])
-        self.assertGreaterEqual(r1.json()["total"], 0)
-
-    async def test_6_subjects_details_aggregates_canonical(self):
-        """Проверяет, что список предметов не двоит алиасы."""
-        res = await self.client.get("/api/data/subjects/details", headers={"X-User-Id": "dev_user"})
-        self.assertEqual(res.status_code, 200)
-        slugs = [s["slug"] for s in res.json().get("subjects", [])]
-        self.assertTrue("sudoustr" in slugs or "sudoustroystvo" in slugs)
-
     async def test_7_save_cards_canonical_normalization_and_deduplication(self):
-        """Проверяет нормализацию алиаса к каноническому и дедупликацию в save_cards_to_database."""
+        """Проверяет сохранение предмета как названного и дедупликацию в save_cards_to_database."""
         from app.api.endpoints.management import save_cards_to_database
         test_user = "test_save_cards_user"
 
@@ -125,7 +109,7 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
                 {"text": "Вопрос нормализации?", "translation": "Обновленный ответ 1", "theme": "Судебная власть"},
                 {"text": "Новый третий вопрос?", "translation": "Ответ 3", "theme": "Судебная власть"}
             ]
-            saved2, _, _ = await save_cards_to_database(updated_batch, "sudoustroystvo", "Тема", test_user, db)
+            saved2, _, _ = await save_cards_to_database(updated_batch, "sudoustr", "Тема", test_user, db)
             await db.commit()
 
             self.assertEqual(saved2, 2)
@@ -192,13 +176,12 @@ class TestReviewerAdversarial(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r_export.status_code, 200)
         data_exp = r_export.json()
         self.assertGreaterEqual(data_exp.get("total_cards", 0), 0)
-        self.assertIn(data_exp.get("subject_slug"), ("sudoustr", "sudoustroystvo"))
+        self.assertEqual(data_exp.get("subject_slug"), "sudoustr")
 
         # 3. GET /api/subjects
         r_subs = await self.client.get("/api/subjects", headers={"X-User-Id": "dev_user"})
         self.assertEqual(r_subs.status_code, 200)
-        subs = r_subs.json()
-        self.assertTrue("sudoustr" in subs or "sudoustroystvo" in subs)
+        self.assertIsInstance(r_subs.json(), list)
 
     async def test_10_rename_subject_cascades_all_entities(self):
         """Проверяет каскадное переименование всех связанных сущностей предмета."""

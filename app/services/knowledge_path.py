@@ -352,7 +352,7 @@ async def _generate_intro(user_id: str, subject: str) -> None:
 
 # Сколько раз шаг каждого типа может встретиться за один запуск (защита от зацикливания;
 # сколько уроков пройти за день, решает дневная норма, а не этот предохранитель)
-RUN_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 6, "practice": 1, "intro": 1}
+RUN_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 6, "practice": 1, "intro": 1, "recap": 1}
 RUN_REVIEW_BATCH = 15      # повторений за шаг: короткие подходы вместо стены из 80 карточек
 PRACTICE_MIN_ITEMS = 4
 
@@ -543,6 +543,15 @@ async def next_path_step(db, user_id: str, subject: str, done: list[str], scope:
         )).scalar() or 0
         if not practiced_today and plan["practice_items"] >= PRACTICE_MIN_ITEMS:
             return {"type": "practice", "count": min(8, plan["practice_items"])}
+
+    # 4b. Закрепление в конце занятия: карточки, выученные недавно, ещё в заучивании (повтор через минуты) и «не дозрели»
+    # к моменту, когда человек закончил. Без этого шага последняя тема дня оставалась без второго вспоминания.
+    if not topic and used["recap"] < RUN_STEP_LIMITS["recap"]:
+        recap = (await db.execute(
+            select(func.count(Card.id)).where(*base, Card.state.in_([1, 3]), ticket_card_filter())
+        )).scalar() or 0
+        if recap:
+            return {"type": "recap", "count": min(recap, RUN_REVIEW_BATCH * 2), "remaining": recap}
 
     # 5. Итог: что сделано и что будет дальше
     if topic_finished:

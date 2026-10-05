@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from app.services.ai_gateway import coverage as cv
 from app.services.ai_gateway import path_builder as pb
-from app.services.ai_gateway.path_prompts import build_node_pack_task
+from app.services.ai_gateway.path_prompts import build_cards_task
 
 
 def _book():
@@ -40,7 +40,7 @@ def test_bigger_part_of_the_book_gets_more_cards_and_cases_stay_fixed():
     quotas = cv.card_quotas(_nodes(), sizes, chars_per_card=2300)
     assert quotas["courts"] > quotas["notary"] >= 3
     assert quotas["case"] == 3
-    assert max(quotas.values()) <= 10
+    assert max(quotas.values()) <= cv.MAX_CARDS_PER_NODE
 
 
 def test_total_cap_shrinks_quotas_but_keeps_minimum():
@@ -64,9 +64,9 @@ def test_card_density_finds_uncovered_parts():
 
 
 def test_pack_task_carries_target_cards_and_pipeline_passes_them():
-    task = build_node_pack_task("{}", ["courts", "notary"], {"courts": 8, "notary": 3, "other": 5})
+    task = build_cards_task("{}", ["courts", "notary"], {"courts": 8, "notary": 3, "other": 5})
     assert "TARGET CARDS: courts=8, notary=3\n" in task
-    assert "TARGET CARDS" not in build_node_pack_task("{}", ["courts"])
+    assert "TARGET CARDS" not in build_cards_task("{}", ["courts"])
 
     text = _book() * 3
     raw_map = {"title": "T", "domain": "law", "nodes": [
@@ -75,19 +75,30 @@ def test_pack_task_carries_target_cards_and_pipeline_passes_them():
         {"key": "n", "name": "Нотариат", "tier": 1, "order": 3, "summary": "Нотариус удостоверяет сделки", "src": "3"},
     ] + [{"key": f"s{i}", "name": f"Подтема {i}", "tier": 2, "parent": "t", "order": 3 + i, "summary": "s", "src": "4"} for i in range(1, 9)],
         "edges": []}
-    seen = []
-
-    async def fake_call(user_prompt, **kwargs):
-        if "TYPE: MAP" in user_prompt:
-            return raw_map, {"cost_usd": 0.0}
-        if "TYPE: NODE_PACK" in user_prompt:
-            seen.append(user_prompt)
-            keys = user_prompt.split("NODES TO PRODUCE: ")[1].split("\n")[0].split(", ")
-            lesson = {"screens": [{"say": "1"}, {"say": "2"}, {"say": "3"}], "check": []}
-            return {"nodes": [{"key": k, "lesson": lesson, "cards": []} for k in keys]}, {"cost_usd": 0.0}
-        return {"edges": [], "lesson": None}, {"cost_usd": 0.0}
-
-    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+    from llm_fake import FakeLLM, patched
+    fake = FakeLLM(raw_map=raw_map)
+    with patched(fake):
         res = asyncio.run(pb.build_learning_path(text, "s"))
+    seen = fake.of("CARDS")
     assert res["quotas"] and {"b", "t", "n"} <= set(res["quotas"])
     assert seen and all("TARGET CARDS:" in p for p in seen)
+
+
+def test_lesson_alignment_counts_answers_present_in_lesson():
+    lesson = {"screens": [{"say": "Президент назначает председателя Конституционного Суда."},
+                          {"say": "Срок полномочий составляет пять лет."}], "check": []}
+    packs = {"a": {"lesson": lesson, "cards": [
+        {"text": "Кто назначает председателя?", "translation": "Президент."},                    # есть в уроке
+        {"text": "Какой срок полномочий?", "translation": "Пять лет."},                          # есть в уроке
+        {"text": "Сколько судей в коллегии?", "translation": "Трое профессиональных судей."},    # нет
+    ]}, "b": {"lesson": None, "cards": []}}
+    st = cv.lesson_alignment(packs)
+    assert st["cards"] == 3 and st["full_share"] == 0.667 and st["none_share"] == 0.333
+    assert st["worst_nodes"] == ["a"]
+    assert cv.lesson_alignment({})["cards"] == 0
+
+
+def test_lesson_prompt_scales_with_target_cards_and_demands_alignment():
+    from app.services.ai_gateway.path_prompts import PATH_BUILDER_SYSTEM_PROMPT as sp
+    assert "ALIGNMENT LAW" in sp and "ceil(N/3)+3 screens" in sp and "at most 30 words" in sp
+    assert pb._normalize_lesson({"screens": [{"say": f"Экран {i}"} for i in range(12)]}, set())["screens"].__len__() == 10

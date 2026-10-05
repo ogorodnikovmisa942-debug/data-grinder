@@ -1,114 +1,57 @@
 # tests/test_card_quality_and_blacklist.py
 """
-Unit tests for Card Quality Gate and Strict Blacklist Validation (R3, R4).
-Verifies:
-1. Rejection of tautologies (answers repeating the question words).
-2. Rejection of binary Yes/No style questions.
-3. Rejection of academic methodology fluff (synergetics, empirical vs theoretical methods).
-4. Rejection of obsolete 1918-1930s historical decrees in modern law courses.
-5. Rejection of clerical office trivia.
-6. Acceptance of high-yield situational decision trees, contrast pairs, and procedural rules.
+Структурные проверки карточки, верные для любого предмета, и смысловые отпечатки для отсева дублей.
+Запретов «по теме» (методология, даты, имена, области знаний) нет: что учить, решает книга.
 """
 
 import unittest
-from app.services.ai_gateway import is_blacklisted_card, semantic_normalize_front
+from app.services.ai_gateway import is_structurally_invalid_card, semantic_normalize_front
 
 
 class TestCardQualityAndBlacklist(unittest.TestCase):
     def test_01_filter_tautology(self):
-        """Проверка отсева тривиальных тавтологий."""
+        """Ответ повторяет слова вопроса — карточка ничего не проверяет."""
         bad_card = {
             "text": "Государственный орган создан специально для осуществления правоохранительной функции. К какой группе органов он относится?",
-            "secondary_text": "Теория права | Правоохранительная функция",
             "translation": "К правоохранительным органам.",
-            "example": ""
         }
-        is_bl, reason = is_blacklisted_card(bad_card, subject_domain="law")
-        self.assertTrue(is_bl, "Тавтология должна быть отфильтрована!")
+        bad, reason = is_structurally_invalid_card(bad_card)
+        self.assertTrue(bad, "Тавтология должна быть отфильтрована!")
         self.assertEqual(reason, "tautology")
 
     def test_02_filter_binary_yes_no(self):
-        """Проверка отсева скрытых бинарных вопросов 'Да/Нет'."""
+        """Скрытые бинарные вопросы «Да/Нет» не принимаются."""
         bad_card = {
-            "text": "В Республике Беларусь правовая доктрина официально признается источником права?",
-            "secondary_text": "Судоустройство | Источники права",
-            "translation": "Нет, правовая доктрина не признается источником права, но служит фундаментом.",
-            "example": ""
+            "text": "Признаётся ли правовая доктрина официальным источником права?",
+            "translation": "Нет, правовая доктрина не признаётся источником права, но служит фундаментом.",
         }
-        is_bl, reason = is_blacklisted_card(bad_card, subject_domain="law")
-        self.assertTrue(is_bl, "Вопросы с ответом 'Нет' должны отсеиваться!")
+        bad, reason = is_structurally_invalid_card(bad_card)
+        self.assertTrue(bad)
         self.assertEqual(reason, "binary_yes_no")
 
-    def test_03_filter_academic_methodology_fluff(self):
-        """Проверка отсева методологической воды учебников (синергетика, методы науки)."""
-        card_synergetics = {
-            "text": "Какой метод позволяет выявить процессы самоорганизации деятельности суда, влияние случайных факторов и возникновение порядка через флуктуации?",
-            "secondary_text": "Судоустройство | Синергетика",
-            "translation": "Синергетический метод.",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(card_synergetics, subject_domain="law")
-        self.assertTrue(is_bl, "Синергетика в праве должна быть отфильтрована!")
-        self.assertEqual(reason, "academic_methodology_fluff")
+    def test_03_empty_or_too_short_cards_are_rejected(self):
+        self.assertEqual(is_structurally_invalid_card({"text": "", "translation": "Ответ."}), (True, "empty_front_or_back"))
+        self.assertEqual(is_structurally_invalid_card({"text": "Что?", "translation": "А"}), (True, "too_short"))
 
-        card_methods = {
-            "text": "Чем отличаются теоретические методы исследования судоустройства от эмпирических?",
-            "secondary_text": "Судоустройство | Методология",
-            "translation": "Теоретические методы основаны на логических построениях, а эмпирические — на фактах.",
-            "example": ""
-        }
-        is_bl2, reason2 = is_blacklisted_card(card_methods, subject_domain="law")
-        self.assertTrue(is_bl2, "Методология науки должна быть отфильтрована!")
-        self.assertEqual(reason2, "academic_methodology_fluff")
+    def test_04_numbers_in_the_answer_are_information_not_echo(self):
+        for q, a in (("Сколько функций имеет метод?", "Две функции."), ("На какой срок избирается совет?", "На 5 лет."),
+                     ("Сколько видов законов выделял автор?", "Четыре вида законов.")):
+            self.assertEqual(is_structurally_invalid_card({"text": q, "translation": a}), (False, ""), q)
 
-    def test_04_filter_obsolete_historical_trivia(self):
-        """Проверка отсева архивных декретов 1918-1930 гг. в прикладных юридических дисциплинах."""
-        bad_card = {
-            "text": "В 1918 г. ВЧК получила право применять внесудебные репрессии. Какое постановление СНК стало основанием для расстрела на месте?",
-            "secondary_text": "Постановление СНК от 21 февраля 1918 г.",
-            "translation": "Постановление СНК от 21 февраля 1918 г. «Социалистическое отечество в опасности!».",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(bad_card, subject_domain="law")
-        self.assertTrue(is_bl, "Декреты 1918 года должны отсеиваться из курса судоустройства!")
-        self.assertEqual(reason, "obsolete_historical_trivia")
-
-    def test_05_filter_clerical_office_trivia(self):
-        """Проверка отсева канцелярского делопроизводства."""
-        bad_card = {
-            "text": "Чем архивная справка отличается от архивной выписки?",
-            "secondary_text": "Инструкция по делопроизводству | Виды архивных документов",
-            "translation": "Справка подтверждает наличие сведений, а выписка дословно воспроизводит часть документа.",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(bad_card, subject_domain="law")
-        self.assertTrue(is_bl, "Канцелярское делопроизводство должно отсеиваться!")
-        self.assertEqual(reason, "clerical_office_trivia")
-
-    def test_06_accept_high_yield_contrast_pair(self):
-        """Проверка сохранения глубоких контраст-пар с золотым стандартом."""
-        good_card = {
-            "text": "Чем принципиально отличается роль народных заседателей от присяжных заседателей в судебном процессе?",
-            "secondary_text": "Судоустройство | Состав суда",
-            "translation": "Народные заседатели голосуют наравне с судьёй по всем вопросам (и вина, и мера наказания), а присяжные выносят только вердикт о виновности отдельно от профессионального судьи.",
-            "example": "В коллегиях с народными заседателями судья не может единолично преодолеть их согласованное мнение."
-        }
-        is_bl, reason = is_blacklisted_card(good_card, subject_domain="law")
-        self.assertFalse(is_bl, f"Качественная контраст-пара не должна отсеиваться: {reason}")
-
-    def test_07_accept_situational_decision_tree(self):
-        """Проверка сохранения ситуационных кейсов (развилок)."""
-        good_card = {
-            "text": "При рассмотрении дела суд применяет норму отраслевого закона, которая противоречит Конституции. Какое решение должен принять суд?",
-            "secondary_text": "Конституция РБ | Высшая юридическая сила и прямое действие",
-            "translation": "Суд обязан применить Конституцию, так как она обладает высшей юридической силой и прямым действием, а противоречащий акт не подлежит применению.",
-            "example": "В случае коллизии между законом и Конституцией суд общей юрисдикции не вправе применять закон, противоречащий Конституции."
-        }
-        is_bl, reason = is_blacklisted_card(good_card, subject_domain="law")
-        self.assertFalse(is_bl, f"Качественный ситуационный кейс не должен отсеиваться: {reason}")
+    def test_05_cards_of_any_subject_are_accepted(self):
+        """Методология, история, философия, право, физика, код: ничто из этого не отсеивается по теме."""
+        for q, a in (
+            ("Как называется наука о самоорганизации, совместном действии взаимосвязанных подсистем?", "Синергетика."),
+            ("В каком году был принят Декрет о суде?", "В 1917 году."),
+            ("Кто автор теории разделения властей?", "Шарль Монтескьё."),
+            ("Чем отличается роль присяжных заседателей от роли народных заседателей?", "Присяжные выносят только вердикт о виновности."),
+            ("Какая сила удерживает планеты на орбитах?", "Сила всемирного тяготения."),
+            ("Какой метод списка возвращает последний элемент и удаляет его?", "Метод pop."),
+        ):
+            self.assertEqual(is_structurally_invalid_card({"text": q, "translation": a}), (False, ""), q)
 
     def test_08_semantic_deduplication_signature(self):
-        """Проверка формирования инвариантного отпечатка для отсева дубликатов."""
+        """Инвариантный отпечаток для отсева дубликатов."""
         q1 = "Чем принципиально отличается роль народных заседателей от присяжных заседателей в судебном процессе?"
         q2 = "Чем отличается роль народных заседателей от присяжных заседателей в судебном процессе?"
         sig1 = semantic_normalize_front(q1)
@@ -118,7 +61,7 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertIn("прися", sig1)
 
     def test_09_semantic_deduplication_cross_phrasing(self):
-        """Проверка сопоставления отпечатков для синонимичных вводных конструкций ('Чем отличается' vs 'В чем заключается различие')."""
+        """Сопоставление отпечатков для синонимичных вводных конструкций."""
         q1 = "Чем принципиально отличается естественное право от позитивного права?"
         q2 = "В чем заключается ключевое различие между естественным и позитивным правом?"
         sig1 = semantic_normalize_front(q1)
@@ -127,66 +70,21 @@ class TestCardQualityAndBlacklist(unittest.TestCase):
         self.assertIn("естес", sig1)
         self.assertIn("позит", sig1)
 
-    def test_11_filter_scholastic_fluff(self):
-        """Проверка отсева пустой абстрактной схоластики (Дефект 3)."""
-        card_scholastic = {
-            "text": "В чем выражается объективно-субъективный характер компетенции суда?",
-            "secondary_text": "Теория судоустройства",
-            "translation": "Компетенция объективна по источнику и субъективна по реализации.",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(card_scholastic, subject_domain="law")
-        self.assertTrue(is_bl)
-        self.assertEqual(reason, "scholastic_empty_fluff")
-
-    def test_12_filter_multi_item_enumeration(self):
-        """Проверка отсева неатомарных списков и перечислений (Дефект 1)."""
-        card_list_req = {
-            "text": "Перечислите все 5 основных задач прокуратуры в процессе.",
-            "secondary_text": "Прокурорский надзор",
-            "translation": "Надзор за соблюдением законов, поддержание обвинения, защита прав.",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(card_list_req, subject_domain="law")
-        self.assertTrue(is_bl)
-        self.assertEqual(reason, "list_enumeration_request")
-
-        card_multi_points = {
-            "text": "Какие категории дел рассматривает районный суд?",
-            "secondary_text": "Подсудность",
-            "translation": "1) Уголовные дела 2) Гражданские споры 3) Административные дела 4) Дела об усыновлении.",
-            "example": ""
-        }
-        is_bl2, reason2 = is_blacklisted_card(card_multi_points, subject_domain="law")
-        self.assertTrue(is_bl2)
-        self.assertEqual(reason2, "multi_item_enumeration")
-
-    def test_13_filter_gross_procedural_error(self):
-        """Проверка отсева грубых нарушений состязательности и конституционных принципов (Дефект 4)."""
-        card_err = {
-            "text": "В каком случае суд сам возбуждает уголовное дело?",
-            "secondary_text": "УПК РФ",
-            "translation": "Суд сам возбуждает уголовные дела при обнаружении признаков преступления в заседании.",
-            "example": ""
-        }
-        is_bl, reason = is_blacklisted_card(card_err, subject_domain="law")
-        self.assertTrue(is_bl)
-        self.assertEqual(reason, "gross_procedural_error")
-
     def test_14_batch_deduplication(self):
-        """Проверка программного устранения точных и нечетких дубликатов (Дефект 5)."""
+        """Программное устранение точных и нечётких дубликатов."""
         from app.services.card_db_sync import deduplicate_cards_batch
         cards = [
             {"text": "Что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."},
             {"text": "1. Что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."},  # нумерация
             {"text": "Что проверяет суд кассационной инстанции", "translation": "Законность судебных актов."},   # без знака
-            {"text": "Каковы полномочия кассации: что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."}, # схожий вопрос + одинаковый ответ
+            {"text": "Каковы полномочия кассации: что проверяет суд кассационной инстанции?", "translation": "Законность судебных актов."},
             {"text": "Какой орган назначает судей Конституционного Суда?", "translation": "Совет Федерации."}     # уникальная карточка
         ]
         deduped = deduplicate_cards_batch(cards)
         self.assertEqual(len(deduped), 2)
         self.assertEqual(deduped[0]["text"], "Что проверяет суд кассационной инстанции?")
         self.assertEqual(deduped[1]["text"], "Какой орган назначает судей Конституционного Суда?")
+
 
 if __name__ == "__main__":
     unittest.main()

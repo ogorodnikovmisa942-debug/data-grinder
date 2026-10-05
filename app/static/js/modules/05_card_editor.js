@@ -238,8 +238,11 @@ window.cancelPress = function() {
 };
 
 window.onRowClick = function(e, cardId) {
-    if (!isSelectionMode) return;
     if (e.target.closest('button') || e.target.closest('input')) return;
+    if (!isSelectionMode) {
+        if (typeof window.openCardView === 'function') window.openCardView(cardId);
+        return;
+    }
     const cb = document.querySelector(`.card-checkbox[data-card-id="${cardId}"]`);
     if (cb) {
         cb.checked = !cb.checked;

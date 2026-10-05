@@ -7,52 +7,14 @@ const FSRS_LABELS = {
         2: { label: 'Трудно', hint: 'С трудом' },
         3: { label: 'Помню', hint: 'Вспомнил' },
         4: { label: 'Легко', hint: 'Без усилий' }
-    },
-    'law_civil': {
-        1: { label: 'Забыл', hint: 'Не вспомнил' },
-        2: { label: 'Трудно', hint: 'С подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил' },
-        4: { label: 'Легко', hint: 'Наизусть' }
-    },
-    'law_civil_rb': {
-        1: { label: 'Забыл', hint: 'Не вспомнил' },
-        2: { label: 'Трудно', hint: 'С подсказкой' },
-        3: { label: 'Помню', hint: 'Вспомнил' },
-        4: { label: 'Легко', hint: 'Наизусть' }
-    },
-    'python_pro': {
-        1: { label: 'Забыл', hint: 'Не помню' },
-        2: { label: 'Трудно', hint: 'С ошибкой' },
-        3: { label: 'Помню', hint: 'Написал бы' },
-        4: { label: 'Легко', hint: 'На автомате' }
-    },
-    'chinese_hsk3': {
-        1: { label: 'Забыл', hint: 'Не помню' },
-        2: { label: 'Трудно', hint: 'Забыл иероглиф' },
-        3: { label: 'Помню', hint: 'Помню всё' },
-        4: { label: 'Легко', hint: 'Читаю легко' }
     }
 };
 
 function renderFSRSButtons(cardSubject) {
-    const subject = cardSubject || currentSubject;
-    let labelsKey = 'default';
-    if (FSRS_LABELS[subject]) {
-        labelsKey = subject;
-    } else {
-        if (subject.startsWith('law_') || subject.startsWith('sudou') || subject === 'court_system' || subject === 'civil_law') {
-            labelsKey = 'law_civil';
-        } else if (subject.startsWith('python_')) {
-            labelsKey = 'python_pro';
-        } else if (subject.startsWith('chinese_')) {
-            labelsKey = 'chinese_hsk3';
-        }
-    }
-    
-    const labels = FSRS_LABELS[labelsKey] || FSRS_LABELS['default'];
+    const labels = FSRS_LABELS['default'];
     const container = document.getElementById('action-buttons');
     if (!container) return;
-    
+
     // Палитра оценок: красный — забыл, нейтральный — трудно, зелёный — помню, фиолетовый — легко
     container.innerHTML = [1, 2, 3, 4].map(rating => {
         const config = labels[rating];
@@ -269,7 +231,15 @@ function initTrainGestures() {
         // Обработка жестов для карт в режиме знакомства
         if (currentCard && currentCard.state === 0 && !currentCard.has_seen_intro) {
             if (deltaX > 75) {
-                // Свайп вправо: Знаю наизусть
+                // Свайп вправо: «Вспомнил» — только когда ответ уже открыт. Раньше свайп на закрытой карточке
+                // засчитывал «Знаю наизусть» (интервал в днях) и карточка не возвращалась в тот же день.
+                if (!(currentCard.intro_phase === 1 && currentCard._recall_checked)) {
+                    card.style.transition = 'transform 0.2s ease';
+                    card.style.transform = '';
+                    if (badgeGood) badgeGood.style.opacity = '0';
+                    if (badgeAgain) badgeAgain.style.opacity = '0';
+                    return;
+                }
                 card.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
                 card.style.transform = 'translate(120%, 20px) rotate(15deg)';
                 card.style.opacity = '0';
@@ -670,10 +640,6 @@ document.addEventListener('visibilitychange', () => {
 function isLanguageCard(card) {
     if (!card) return false;
     const sub = ((card.subject || currentSubject || '') + '').toLowerCase();
-    // Исключаем право, программирование, геометрию, общие предметы
-    if (sub.startsWith('law_') || sub.startsWith('python_') || sub.startsWith('code_') || sub === 'geometry' || sub === 'generic') {
-        return false;
-    }
     const textToSpeak = card.text || '';
     const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
     if (containsChinese) return true;
@@ -690,9 +656,6 @@ function isLanguageCard(card) {
 function isSpeakable(text) {
     if (!text || text === '---') return false;
     const sub = (currentSubject || '').toLowerCase();
-    if (sub.startsWith('law_') || sub.startsWith('python_') || sub.startsWith('code_') || sub === 'geometry' || sub === 'generic') {
-        return false;
-    }
     const containsChinese = /[\u4e00-\u9fa5]/.test(text);
     if (containsChinese) return true;
 
@@ -1181,7 +1144,7 @@ async function fetchActiveSession(mode = 'mixed') {
     try {
         currentSessionMode = mode;
         const run = (window.pathRun && window.pathRun.active) ? window.pathRun.sessionQuery() : null;
-        const targetSub = run ? run.subject : ((mode === 'cram') ? 'all' : currentSubject);
+        const targetSub = run ? run.subject : currentSubject;
         const runParams = run ? run.params : '';
         const response = await apiFetch(`/api/session?subject=${encodeURIComponent(targetSub)}&mode=${mode}${runParams}`);
         if (!response.ok) {

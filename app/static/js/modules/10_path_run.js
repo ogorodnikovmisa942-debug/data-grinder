@@ -12,6 +12,7 @@ const PATH_RUN_STEP_VIEW = {
     cards:    { icon: 'style',          kind: 'Закрепление' },
     lesson:   { icon: 'school',         kind: 'Новая тема' },
     practice: { icon: 'psychology_alt', kind: 'Практика на различение' },
+    recap:    { icon: 'replay',         kind: 'Закрепление' },
     ticket:   { icon: 'assignment',     kind: 'Билеты' },
     drill:    { icon: 'replay',         kind: 'Прогон билетов' }
 };
@@ -94,6 +95,12 @@ function describePathStep(step, isFirst) {
                     ? 'Практика по темам билетов: учимся отличать похожее. Ошибаться здесь нормально.'
                     : 'Практика вперемешку: учимся отличать похожее. Ошибаться здесь нормально.',
                 emo: 'think'
+            };
+        case 'recap':
+            return {
+                name: `${n} ${pathRunPlural(n, 'карточка', 'карточки', 'карточек')} из выученного сегодня`,
+                say: 'Последний подход: вспомним ещё раз то, что учили сегодня. После паузы это запоминается заметно крепче.',
+                emo: 'happy'
             };
         case 'ticket':
             return {
@@ -258,11 +265,11 @@ pathRun.go = function() {
         pathRun.done.push(step.type);
         pathRun.stepStarted = true;
     }
-    if (['review', 'cards', 'ticket', 'drill'].includes(step.type)) {
+    if (['review', 'recap', 'cards', 'ticket', 'drill'].includes(step.type)) {
         showPathRunOverlay(false);
         if (typeof switchTab === 'function') switchTab('train');
         setRunMode(true, step.type);
-        startSession(step.type === 'review' || step.type === 'drill' ? 'review' : 'new');
+        startSession(['review', 'recap', 'drill'].includes(step.type) ? 'review' : 'new');
     } else if (step.type === 'lesson' || step.type === 'intro') {
         openLesson(step.node_id);
     } else if (step.type === 'practice') {
@@ -276,6 +283,7 @@ pathRun.sessionQuery = function() {
     const step = pathRun.step || {};
     let params = '';
     if (step.type === 'review') params = `&limit_cards=${step.count}&due_only=true`;
+    if (step.type === 'recap') params = `&limit_cards=${step.count}`;
     if (step.type === 'cards') params = `&node_id=${step.node_id}`;
     if (step.type === 'ticket') params = `&exam_plan=${step.plan_id}&limit_cards=${step.count}`;
     if (step.type === 'drill') params = `&exam_plan=${step.plan_id}&exam_drill=true`;

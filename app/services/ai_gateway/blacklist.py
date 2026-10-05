@@ -1,85 +1,25 @@
 """
-Card quality validator and blacklisted pattern definitions.
+Структурные проверки карточки, верные для любого предмета: пустая, слишком короткая, «Да/Нет», тавтология.
+
+Раньше здесь жил «чёрный список» правил под один учебник (методология, даты 1917–1939, Монтескьё, архивные справки и т. п.).
+Он молча выбрасывал нормальные карточки других курсов и удалён: что учить, решает книга, а не список запретов по темам.
 """
 import re
 
-BLACKLISTED_PATTERNS = {
-    "methodology": [
-        r"\bсинергетическ",
-        r"\bдиалектическ",
-        r"\bметодологи",
-        r"методы?\s+исследовани",
-        r"теоретические\s+методы.*эмпирическ",
-        r"эмпирические\s+методы.*теоретическ",
-        r"анкетировани.*интервьюировани",
-        r"метод\s+экспертных\s+оценок",
-        r"предмет\s+курса",
-        r"учебная\s+дисциплина\s*\|\s*предмет",
-    ],
-    "history": [
-        r"\b191[7-9]\b", r"\b192[0-9]\b", r"\b193[0-9]\b", r"\b196[1-3]\b",
-        r"\bвчк\b", r"\bогпу\b", r"\bнквд\b", r"ревтрибунал", r"военный\s+трибунал\s+западного\s+фронта",
-        r"декрет\s+о\s+суде", r"положение\s+о\s+судоустройстве\s+бсср", r"сельский\s+\(местечковый\)\s+суд",
-        r"социалистическое\s+отечество\s+в\s+опасности", r"«тройки»\s+нквд", r"особые\s+совещания",
-    ],
-    "clerical": [
-        r"архивная\s+справка.*архивной\s+выписк",
-        r"архивная\s+выписка.*архивной\s+справк",
-        r"инструкция\s+по\s+делопроизводству\s*\|\s*виды\s+архивных",
-    ],
-    "banality": [
-        r"^что\s+такое\s+правосудие\??$",
-        r"^что\s+такое\s+диалог\??$",
-        r"^зачем\s+юристу\s+логика\??$",
-        r"какой\s+главный\s+закон\s+страны\??",
-    ],
-    "meta_course": [
-        r"какие\s+(?:три|3|две|2|четыре|4)\s+части.*(?:курса|дисциплин)",
-        r"части\s+курса.*судоустройств",
-        r"структур[аеы]\s+учебной\s+дисциплины",
-        r"система\s+курса\s+«?судоустройство»?",
-        r"на\s+какие\s+(?:три|3)\s+части\s+условно\s+выделяются",
-    ],
-    "out_of_domain": [
-        r"монтескь[её].*локк",
-        r"локк.*монтескь[её]",
-        r"концепци[яи]\s+судебно-правовой\s+реформы\s+1992",
-        r"джон\s+локк",
-        r"шарль\s+монтескь",
-        r"монтескь[её]",
-    ],
-    "biographical": [
-        r"в\s+каком\s+году\s+родился",
-        r"где\s+родился",
-        r"в\s+каком\s+городе\s+(?:жил|умер)",
-        r"годы\s+жизни\s+философа",
-    ],
-    "clerical_noise": [
-        r"кворум.*(?:заседан|коллеги|комисси)",
-        r"правомочн.*заседани.*квалификационн",
-        r"стажировк.*(?:продолжительност|срок|месяц|мес|год|претендент|адвокат)",
-        r"стажировк.*(?:3|6|от\s+трех|до\s+шести|до\s+одного)",
-        r"повторн.*сдач.*экзамен.*(?:срок|месяц|мес|ранее)",
-        r"в\s+течение\s+(?:трех|пяти|3|5)\s+(?:рабочих\s+)?дней\s+.*(?:прием|заявлен|направляет\s+копию|регистрац)",
-        r"делопроизводств.*(?:канцеляр|архивн|журнал\s+учета)",
-    ]
-}
+_FUNCTION_WORDS = {"и", "в", "во", "на", "с", "со", "к", "ко", "по", "от", "до", "из", "за", "не", "ни", "то", "а", "но", "да", "же", "бы",
+                   "ли", "о", "об", "у", "для", "при", "что", "как", "это"}
+_NUMERAL_WORD = re.compile(
+    r"\b(один|одна|одно|одну|одни|два|две|трое|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать|тринадцать|"
+    r"четырнадцать|пятнадцать|двадцать|тридцать|сорок|пятьдесят|сто|двух|трех|трёх|четырех|четырёх|пяти|шести|семи|восьми|девяти|десяти)\b")
 
 # --- ПРОГРАММНЫЙ ВАЛИДАТОР КАЧЕСТВА И СТРОГИЙ BLACKLIST (R3, R4) ---
-def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bool, str]:
-    """
-    Программный валидатор качества карточек (F8, R3, R4).
-    Проверяет карточку на соответствие стандартам когнитивной ценности:
-    1. Исключает тривиальные 'Да/Нет' ответы.
-    2. Отсеивает тавтологии (ответ полностью повторяет слова вопроса).
-    3. Отсеивает методологическую воду учебников (синергетика, классификация методов, предмет науки).
-    4. Отсеивает устаревший исторический балласт недействующего права (декреты 1918-1930-х гг., ВЧК, ОГПУ), если предмет не история.
-    5. Отсеивает канцелярское делопроизводство (архивные справки vs выписки).
-    6. Отсеивает общие банальности ('Что такое диалог?', 'Что такое правосудие?').
+def is_structurally_invalid_card(card: dict) -> tuple[bool, str]:
+    """Только то, что верно для карточки по любому предмету: пустая, слишком короткая, «Да/Нет», тавтология.
+    Именно эта проверка работает в конвейере «Путь знаний»: правила ниже (методология, даты 1917–1939, Монтескьё и т. п.)
+    написаны под один учебник и молча выбрасывали нормальные карточки других курсов.
     """
     front = (card.get("text") or card.get("front") or card.get("question") or card.get("t") or "").strip()
     back = (card.get("translation") or card.get("back") or card.get("answer") or card.get("d") or "").strip()
-    sec = (card.get("secondary_text") or card.get("secondary") or card.get("s") or "").strip()
 
     if not front or not back:
         return True, "empty_front_or_back"
@@ -93,7 +33,6 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
 
     back_lower = back.lower()
     front_lower = front.lower()
-    sec_lower = sec.lower()
 
     # 1. Бинарные Да/Нет
     if re.match(r'^(да|нет)[\.,\s!]', back_lower) or back_lower in ("да", "нет", "да.", "нет."):
@@ -106,148 +45,16 @@ def is_blacklisted_card(card: dict, subject_domain: str = "generic") -> tuple[bo
         "это", "для", "при", "том", "что", "как", "чем", "кто", "где", "куда", "откуда", "зачем", "почему",
         "его", "ее", "их", "свой", "своей", "своих", "этом", "этой", "этих", "всех", "все", "всей"
     }
-    back_words = [w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', back_lower) if w not in stop_words]
-    if back_words:
+    back_words = [w for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{2,}', back_lower) if w not in stop_words and w not in _FUNCTION_WORDS]
+    # Число в ответе («Две функции», «Три направления», «5 лет») — это и есть информация, даже если остальные слова повторяют вопрос
+    has_number = bool(re.search(r"\d", back_lower)) or bool(_NUMERAL_WORD.search(back_lower))
+    if back_words and not has_number:
         back_stems = [w[:6] for w in back_words]
-        front_stems = {w[:6] for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{4,}', front_lower)}
+        front_stems = {w[:6] for w in re.findall(r'[a-zA-Zа-яА-Я0-9]{2,}', front_lower)}
         overlap_count = sum(1 for s in back_stems if s in front_stems)
         # Если ответ короткий и все значащие основы в вопросе, ЛИБО длинный и >= 75% слов в вопросе:
         if (len(back_stems) <= 3 and overlap_count == len(back_stems)) or (len(back_stems) >= 4 and (overlap_count / len(back_stems)) >= 0.75):
             return True, "tautology"
-
-    # 3. Академическая методология и вода вводных глав
-    methodology_patterns = [
-        r'\bсинергетическ',
-        r'\bдиалектическ',
-        r'\bметодологи',
-        r'методы?\s+исследовани',
-        r'теоретические\s+методы.*эмпирическ',
-        r'эмпирические\s+методы.*теоретическ',
-        r'анкетировани.*интервьюировани',
-        r'метод\s+экспертных\s+оценок',
-        r'предмет\s+курса',
-        r'учебная\s+дисциплина\s*\|\s*предмет',
-    ]
-    for p in methodology_patterns:
-        if re.search(p, front_lower) or re.search(p, back_lower) or re.search(p, sec_lower):
-            return True, "academic_methodology_fluff"
-
-    # 4. Устаревшие исторические справки недействующего советского законодательства (1918–1989)
-    is_history_subject = any(h in subject_domain.lower() for h in ("history", "история"))
-    if not is_history_subject:
-        history_patterns = [
-            r'\b191[7-9]\b', r'\b192[0-9]\b', r'\b193[0-9]\b', r'\b196[1-3]\b',
-            r'\bвчк\b', r'\bогпу\b', r'\bнквд\b', r'ревтрибунал', r'военный\s+трибунал\s+западного\s+фронта',
-            r'декрет\s+о\s+суде', r'положение\s+о\s+судоустройстве\s+бсср', r'сельский\s+\(местечковый\)\s+суд',
-            r'социалистическое\s+отечество\s+в\s+опасности', r'«тройки»\s+нквд', r'особые\s+совещания'
-        ]
-        for p in history_patterns:
-            if re.search(p, front_lower) or re.search(p, sec_lower):
-                return True, "obsolete_historical_trivia"
-
-    # 5. Канцелярское делопроизводство
-    clerical_patterns = [
-        r'архивная\s+справка.*архивной\s+выписк',
-        r'архивная\s+выписка.*архивной\s+справк',
-        r'инструкция\s+по\s+делопроизводству\s*\|\s*виды\s+архивных'
-    ]
-    for p in clerical_patterns:
-        if re.search(p, front_lower) or re.search(p, sec_lower):
-            return True, "clerical_office_trivia"
-
-    # 6. Банальности и пустые бытовые определения
-    banality_patterns = [
-        r'^что\s+такое\s+правосудие\??$',
-        r'^что\s+такое\s+диалог\??$',
-        r'^зачем\s+юристу\s+логика\??$',
-        r'какой\s+главный\s+закон\s+страны\??'
-    ]
-    for p in banality_patterns:
-        if re.search(p, front_lower):
-            return True, "trivial_banality"
-
-    # 6.1. Мета-вопросы о структуре учебника или программы курса
-    meta_course_patterns = [
-        r'какие\s+(?:три|3|две|2|четыре|4)\s+части.*(?:курса|дисциплин)',
-        r'части\s+курса.*судоустройств',
-        r'структур[аеы]\s+учебной\s+дисциплины',
-        r'система\s+курса\s+«?судоустройство»?',
-        r'на\s+какие\s+(?:три|3)\s+части\s+условно\s+выделяются'
-    ]
-    for p in meta_course_patterns:
-        if re.search(p, front_lower) or re.search(p, sec_lower):
-            return True, "meta_course_trivia"
-
-    # 6.2. Контекстная фильтрация (Domain-Aware Scope Governance):
-    # В прикладных предметах (право, медицина, IT) отсекаем внепредметные философские экскурсы вводных глав
-    is_humanities_subject = any(h in subject_domain.lower() for h in ("philosophy", "философ", "history", "истори", "sociology", "социолог", "political", "политол"))
-    if not is_humanities_subject:
-        out_of_domain_patterns = [
-            r'монтескь[её].*локк',
-            r'локк.*монтескь[её]',
-            r'концепци[яи]\s+судебно-правовой\s+реформы\s+1992',
-            r'джон\s+локк',
-            r'шарль\s+монтескь',
-            r'монтескь[её]'
-        ]
-        for p in out_of_domain_patterns:
-            if re.search(p, front_lower) or re.search(p, sec_lower):
-                return True, "out_of_domain_intro_theory"
-    else:
-        # В философии и истории отсекаем пустую биографическую шелуху
-        bio_trivia = [
-            r'в\s+каком\s+году\s+родился',
-            r'где\s+родился',
-            r'в\s+каком\s+городе\s+(?:жил|умер)',
-            r'годы\s+жизни\s+философа'
-        ]
-        for p in bio_trivia:
-            if re.search(p, front_lower):
-                return True, "biographical_trivia"
-
-    # 7. Канцелярский балласт: кворумы комиссий, стажировки, рутинные сроки направления бумаг канцелярией
-    combined_card_text = f"{front_lower} {back_lower} {sec_lower}"
-    clerical_noise_patterns = [
-        r'кворум.*(?:заседан|коллеги|комисси)',
-        r'правомочн.*заседани.*квалификационн',
-        r'стажировк.*(?:продолжительност|срок|месяц|мес|год|претендент|адвокат)',
-        r'стажировк.*(?:3|6|от\s+трех|до\s+шести|до\s+одного)',
-        r'повторн.*сдач.*экзамен.*(?:срок|месяц|мес|ранее)',
-        r'в\s+течение\s+(?:трех|пяти|3|5)\s+(?:рабочих\s+)?дней\s+.*(?:прием|заявлен|направляет\s+копию|регистрац)',
-        r'делопроизводств.*(?:канцеляр|архивн|журнал\s+учета)',
-    ]
-    for p in clerical_noise_patterns:
-        if re.search(p, combined_card_text):
-            return True, "clerical_bureaucratic_trivia"
-
-    # 8. Пустая схоластика и вода
-    scholastic_fluff = [
-        r'объективно-субъективн.*характер',
-        r'субъективно-объективн',
-        r'правовые\s+нормы\s+как\s+регулятор\s+правосудия',
-        r'теоретико-методологическ.*сущност',
-        r'методологическ.*основ.*курса',
-    ]
-    for p in scholastic_fluff:
-        if re.search(p, combined_card_text):
-            return True, "scholastic_empty_fluff"
-
-    # 9. Неатомарность: требования перечислить списки или ответы с 3+ нумерованными пунктами
-    if re.search(r'^(?:перечислите|назовите\s+(?:все\s+)?(?:\d+|несколько)|укажите\s+(?:все\s+)?(?:\d+|несколько))\b', front_lower):
-        return True, "list_enumeration_request"
-    if len(re.findall(r'(?:^|\s)(?:\d+[\.\)]|[a-dа-г][\.\)])\s+', back_lower)) >= 3:
-        return True, "multi_item_enumeration"
-
-    # 10. Грубые ошибки общей теории процесса и конституционных гарантий
-    if any(h in subject_domain.lower() for h in ("law", "право", "судо", "юриспруд", "процесс")):
-        gross_errors = [
-            r'суд\s+(?:сам\s+)?возбуждает\s+уголовн',
-            r'презумпци[яи]\s+невиновности.*не\s+является\s+принципом',
-            r'презумпци[яи]\s+невиновности.*не\s+принцип',
-        ]
-        for p in gross_errors:
-            if re.search(p, combined_card_text):
-                return True, "gross_procedural_error"
 
     return False, ""
 
@@ -277,14 +84,6 @@ def semantic_normalize_front(text: str) -> str:
     if len(stems) < 3:
         return ""
     return " ".join(stems)
-
-
-
-__all__ = [
-    "is_blacklisted_card",
-    "semantic_normalize_front",
-    "BLACKLISTED_PATTERNS",
-]
 
 
 def strip_secondary_spoilers(front: str, back: str, secondary: str) -> str:
@@ -318,3 +117,10 @@ def strip_secondary_spoilers(front: str, back: str, secondary: str) -> str:
         if not is_spoiler:
             safe_parts.append(part)
     return " | ".join(safe_parts)
+
+
+__all__ = [
+    "is_structurally_invalid_card",
+    "semantic_normalize_front",
+    "strip_secondary_spoilers",
+]

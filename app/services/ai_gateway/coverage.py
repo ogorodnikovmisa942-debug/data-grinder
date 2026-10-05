@@ -14,6 +14,7 @@ STEM_LEN = 6
 MIN_WORD_LEN = 4
 MIN_MATCH_SCORE = 0.04          # окно, не похожее ни на один узел, не засчитываем никому
 MIN_TOKENS_FOR_INDEX = 400      # меньше — считать нечего
+MAX_CARDS_PER_NODE = 12         # потолок квоты на один узел
 
 _WORD_RE = re.compile(r"[^\W\d_]{%d,}" % MIN_WORD_LEN)
 _STOP = set(
@@ -24,8 +25,16 @@ _STOP = set(
 )
 
 
+# Перенос слова на конце строки в тексте из PDF: «обще-\nственные». Склеиваем, иначе слово распадается на два обрывка
+_WRAP_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\n[ \t]*(?=[^\W\d_])")
+
+
+def join_wrapped(text: str) -> str:
+    return _WRAP_HYPHEN.sub("", text or "")
+
+
 def stems(text: str) -> list[str]:
-    return [w[:STEM_LEN] for w in _WORD_RE.findall((text or "").lower()) if w not in _STOP]
+    return [w[:STEM_LEN] for w in _WORD_RE.findall(join_wrapped(text).lower().replace("ё", "е")) if w not in _STOP]
 
 
 def split_windows(text: str, size: int = WINDOW_CHARS) -> list[tuple[int, int]]:
@@ -107,15 +116,16 @@ def node_source_sizes(index: SourceIndex, nodes: list[dict]) -> dict[str, int]:
 
 
 def card_quotas(nodes: list[dict], sizes: dict[str, int], chars_per_card: int = 2300,
-                min_cards: int = 3, max_cards: int = 10, case_cards: int = 3, total_cap: int | None = None) -> dict[str, int]:
-    """Сколько карточек просить на узел: пропорционально куску источника, но не меньше/больше границ.
+                min_cards: int = 3, max_cards: int | None = MAX_CARDS_PER_NODE, case_cards: int = 3, total_cap: int | None = None) -> dict[str, int]:
+    """Сколько карточек просить на узел: пропорционально куску источника, не меньше min_cards и (если задано) не больше max_cards.
     Кейсы на различение (ярус 3) — практические виньетки, их число от объёма не зависит."""
     quotas: dict[str, int] = {}
     for n in nodes:
         if n["tier"] == 3:
             quotas[n["key"]] = case_cards
         else:
-            quotas[n["key"]] = max(min_cards, min(max_cards, round(sizes.get(n["key"], 0) / chars_per_card)))
+            want = round(sizes.get(n["key"], 0) / chars_per_card)
+            quotas[n["key"]] = max(min_cards, min(max_cards, want) if max_cards else want)
     if total_cap and sum(quotas.values()) > total_cap:
         # Сжимаем пропорционально, не опускаясь ниже минимума
         k = total_cap / sum(quotas.values())
@@ -139,7 +149,7 @@ def card_density(index: SourceIndex, cards: list[dict]) -> list[int]:
     return counts
 
 
-__all__ = ["SourceIndex", "WINDOW_CHARS", "card_density", "card_quotas", "extract_sections", "node_source_sizes", "parse_src_refs", "section_card_report", "split_windows", "stems", "uncovered_sections", "weak_sections"]
+__all__ = ["join_wrapped", "lesson_alignment", "lesson_text", "card_in_lesson", "SourceIndex", "WINDOW_CHARS", "card_density", "card_quotas", "extract_sections", "node_source_sizes", "parse_src_refs", "section_card_report", "split_windows", "stems", "uncovered_sections", "weak_sections"]
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +296,46 @@ def weak_sections(report: list[dict], rel_threshold: float = 0.4, min_chars: int
         return []
     mean = 10000 * sum(r["cards"] for r in report) / total_chars
     return [r for r in report if r["chars"] >= min_chars and r["per_10k"] < rel_threshold * mean]
+
+
+# ---------------------------------------------------------------------------
+# Согласованность урока и карточек: есть ли ответ карточки в тексте урока того же узла
+# ---------------------------------------------------------------------------
+
+def lesson_text(lesson: dict | None) -> str:
+    if not lesson:
+        return ""
+    parts = [str(s.get("say") or "") for s in lesson.get("screens") or []]
+    for c in lesson.get("check") or []:
+        parts.append(f"{c.get('q', '')} {' '.join(c.get('options') or [])} {c.get('why', '')}")
+    return " ".join(parts)
+
+
+def card_in_lesson(card: dict, lesson_stems: set[str]) -> float:
+    """Доля значимых слов ответа карточки, которые есть в уроке (0..1). Нет значимых слов — считаем покрытой."""
+    answer = set(stems(card.get("translation", "")))
+    if not answer:
+        return 1.0
+    return sum(1 for w in answer if w in lesson_stems) / len(answer)
+
+
+def lesson_alignment(packs: dict) -> dict:
+    """Сводка по всем узлам: сколько ответов карточек целиком/частично есть в уроке и какие узлы хуже всего."""
+    full = part = none = 0
+    worst = []
+    for key, pack in (packs or {}).items():
+        cards = pack.get("cards") or []
+        if not cards:
+            continue
+        ls = set(stems(lesson_text(pack.get("lesson"))))
+        scores = [card_in_lesson(c, ls) for c in cards]
+        f = sum(1 for x in scores if x >= 0.99)
+        full += f
+        part += sum(1 for x in scores if 0.5 <= x < 0.99)
+        none += sum(1 for x in scores if x < 0.5)
+        worst.append((f / len(cards), key))
+    total = full + part + none
+    worst.sort()
+    return {"cards": total, "full_share": round(full / total, 3) if total else 0.0,
+            "partial_share": round(part / total, 3) if total else 0.0, "none_share": round(none / total, 3) if total else 0.0,
+            "worst_nodes": [k for _, k in worst[:5]]}

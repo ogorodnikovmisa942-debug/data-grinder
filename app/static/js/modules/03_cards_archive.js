@@ -25,6 +25,102 @@ async function loadDataTab() {
     }
 }
 
+// ---- Поиск по архиву: все слова запроса должны встретиться (в любом поле), фраза в кавычках — подряд.
+// Слова от 6 букв ищутся без последних двух («судьи» найдёт «судья», «судей»): грубый, но быстрый учёт окончаний.
+let currentDataQuery = '';
+let archiveSearchTimer = null;
+
+function normalizeSearchText(s) {
+    return String(s || '').toLowerCase().replace(/ё/g, 'е');
+}
+
+function parseSearchQuery(raw) {
+    const q = normalizeSearchText(raw).trim();
+    const terms = [];
+    const phrase = /"([^"]+)"|«([^»]+)»|(\S+)/g;
+    let m;
+    while ((m = phrase.exec(q)) !== null) {
+        const quoted = m[1] || m[2];
+        if (quoted) terms.push({ text: quoted.trim(), exact: true });
+        else terms.push({ text: m[3].replace(/["«»]/g, ''), exact: false });
+    }
+    return terms.filter(t => t.text).map(t => ({
+        text: t.exact || t.text.length < 6 ? t.text : t.text.slice(0, t.text.length - 2),
+        exact: t.exact
+    }));
+}
+
+function cardSearchFields(c) {
+    const m = c.mnemonic && typeof c.mnemonic === 'object' ? `${c.mnemonic.keyword || ''} ${c.mnemonic.verbal_cue || ''}` : (c.mnemonic || '');
+    return {
+        text: normalizeSearchText(formatClozePlain(c.text)),
+        translation: normalizeSearchText(c.translation),
+        secondary: normalizeSearchText(c.secondary_text),
+        example: normalizeSearchText(c.example),
+        mnemonic: normalizeSearchText(m)
+    };
+}
+
+const SEARCH_LETTER = /[\p{L}\d]/u;
+
+// Индексы вхождений слова, которые начинаются с границы слова (а не из середины другого слова)
+function findTermIndexes(norm, term) {
+    const out = [];
+    if (!term) return out;
+    let from = 0, i;
+    while ((i = norm.indexOf(term, from)) !== -1) {
+        if (i === 0 || !SEARCH_LETTER.test(norm[i - 1])) out.push(i);
+        from = i + 1;
+    }
+    return out;
+}
+
+function cardMatchesQuery(c, terms) {
+    if (!terms.length) return true;
+    const f = cardSearchFields(c);
+    const hay = `${f.text} ${f.translation} ${f.secondary} ${f.example} ${f.mnemonic}`;
+    return terms.every(t => findTermIndexes(hay, t.text).length > 0);
+}
+
+function highlightMatches(text, terms) {
+    const raw = String(text || '');
+    if (!terms.length) return escapeHTML(raw);
+    const norm = normalizeSearchText(raw);                 // та же длина: ё→е и lower не меняют число символов
+    const spans = [];
+    terms.forEach(t => {
+        findTermIndexes(norm, t.text).forEach(i => spans.push([i, i + t.text.length]));
+    });
+    if (!spans.length) return escapeHTML(raw);
+    spans.sort((a, b) => a[0] - b[0]);
+    let out = '', pos = 0;
+    spans.forEach(([a, b]) => {
+        if (a < pos) a = pos;
+        if (b <= a) return;
+        out += escapeHTML(raw.slice(pos, a)) + '<mark class="archive-mark">' + escapeHTML(raw.slice(a, b)) + '</mark>';
+        pos = b;
+    });
+    return out + escapeHTML(raw.slice(pos));
+}
+
+window.onArchiveSearchInput = function(value) {
+    clearTimeout(archiveSearchTimer);
+    archiveSearchTimer = setTimeout(() => {
+        currentDataQuery = value || '';
+        const clear = document.getElementById('archive-search-clear');
+        if (clear) clear.classList.toggle('hidden', !currentDataQuery);
+        renderFilteredArchiveDOM();
+    }, 150);
+};
+
+window.clearArchiveSearch = function() {
+    const input = document.getElementById('archive-search-input');
+    if (input) input.value = '';
+    currentDataQuery = '';
+    const clear = document.getElementById('archive-search-clear');
+    if (clear) clear.classList.add('hidden');
+    renderFilteredArchiveDOM();
+};
+
 function initArchiveFilters() {
     const filterButtons = document.querySelectorAll('#archive-filter-bar button');
     filterButtons.forEach(btn => {
@@ -42,8 +138,10 @@ function renderFilteredArchiveDOM() {
     const container = document.getElementById('data-container');
     if (!container) return;
     const cards = Array.isArray(localCardsArchive) ? localCardsArchive : [];
+    const terms = parseSearchQuery(currentDataQuery);
     const filtered = cards.filter(c => {
         if (!c) return false;
+        if (!cardMatchesQuery(c, terms)) return false;
         if (currentDataFilter === 'all') return true; 
         if (currentDataFilter === 'new') return c.state === 0; 
         if (currentDataFilter === 'review') return c.state > 0; 
@@ -62,16 +160,15 @@ function renderFilteredArchiveDOM() {
     }
     
     if (filtered.length === 0) { 
-        container.innerHTML = '<div class="text-sm font-mono text-outline py-md text-center">Категория пуста</div>'; 
+        container.innerHTML = `<div class="text-sm font-mono text-outline py-md text-center">${terms.length ? 'Ничего не найдено по запросу' : 'Категория пуста'}</div>`; 
         return; 
     }
     
     container.innerHTML = filtered.map(c => {
         const labels = ['NEW', 'LRN', 'REV', 'REL'];
+        const hitInExample = terms.length && c.example && cardMatchesQuery({ text: '', translation: '', secondary_text: '', example: c.example }, terms);
         return `
-            <div class="flex justify-between items-center py-2.5 px-2 font-mono text-sm gap-sm border-b border-outline-variant/30 archive-row cursor-pointer rounded-xl hover:bg-neutral-100/70 dark:hover:bg-neutral-800/50 transition-colors" 
-                 id="archive-row-${c.id}" 
-                 data-card-id="${c.id}"
+            <div class="archive-row cursor-pointer" id="archive-row-${c.id}" data-card-id="${c.id}"
                  onmousedown="startPress(event, ${c.id})"
                  onmouseup="cancelPress()"
                  onmouseleave="cancelPress()"
@@ -79,24 +176,17 @@ function renderFilteredArchiveDOM() {
                  ontouchend="cancelPress()"
                  ontouchmove="cancelPress()"
                  onclick="onRowClick(event, ${c.id})">
-                <div class="flex items-center gap-xs w-full min-w-0">
-                    <input type="checkbox" class="card-checkbox hidden rounded-md border-neutral-300 dark:border-neutral-700 text-primary focus:ring-0 mr-xs" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
-                    <div class="flex justify-between items-center w-full min-w-0">
-                        <span class="font-bold text-base text-primary w-1/5 truncate select-none" title="${escapeHTML(formatClozePlain(c.text))}">${escapeHTML(formatClozePlain(c.text))}</span>
-                        <span class="text-outline w-1/4 truncate text-xs select-none">${escapeHTML(c.secondary_text) || '---'}</span>
-                        <span class="text-on-surface-variant w-1/3 truncate text-xs select-none">${escapeHTML(c.translation)}</span>
-                        <span class="text-[10px] text-outline opacity-60 w-12 text-right font-bold select-none">${labels[c.state] || 'NEW'}</span>
-                    </div>
+                <input type="checkbox" class="card-checkbox hidden rounded-md border-neutral-300 dark:border-neutral-700 text-primary focus:ring-0" data-card-id="${c.id}" onchange="onCardCheckboxChange(event)">
+                <div class="archive-row-body">
+                    <div class="archive-row-q">${highlightMatches(formatClozePlain(c.text), terms)}</div>
+                    <div class="archive-row-a">${highlightMatches(c.translation, terms)}</div>
+                    ${hitInExample ? `<div class="archive-hit-line">в примере: ${highlightMatches(c.example, terms)}</div>` : ''}
                 </div>
-                <div class="flex items-center gap-xs shrink-0 archive-row-actions">
-                    <button onclick="event.stopPropagation(); requestEditCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold flex items-center justify-center" title="Редактировать"><span class="material-symbols-outlined text-[16px]">edit</span></button>
-                    <button onclick="event.stopPropagation(); requestMoveCard(${c.id})" class="text-outline hover:text-primary p-1 font-bold flex items-center justify-center" title="Перенести предмет"><span class="material-symbols-outlined text-[16px]">drive_file_move</span></button>
-                    <button onclick="event.stopPropagation(); requestDeleteCard(${c.id})" class="text-outline hover:text-secondary p-1 transition-colors active:scale-95 duration-75 flex items-center justify-center" title="Удалить"><span class="material-symbols-outlined text-[16px]">delete</span></button>
-                </div>
+                <span class="archive-row-state">${labels[c.state] || 'NEW'}</span>
             </div>
         `;
     }).join('');
-    
+
     const cbStyle = isSelectionMode ? 'block' : 'none';
     document.querySelectorAll('.card-checkbox').forEach(cb => cb.style.display = cbStyle);
 }
@@ -244,6 +334,36 @@ function renderHeatmap(heatmapData) {
     });
 }
 
+// «Осталось учить»: новые карточки, срок при дневном лимите и (для путей знаний) сколько тем освоено
+async function renderRemainingToLearn(data) {
+    const left = data.cards_new || 0;
+    const limit = Math.max(1, data.daily_new_limit || 10);
+    const days = Math.ceil(left / limit);
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set('stats-left-cards', left ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}` : 'Всё изучено');
+    set('stats-left-days', left ? `≈ ${days} дн. при лимите ${limit}/день` : 'новых карточек не осталось');
+    const row = document.getElementById('stats-left-topics-row');
+    const subject = currentSubject !== 'all' ? currentSubject : (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
+    if (row) row.classList.add('hidden');
+    if (!subject || subject === 'all') return;
+    try {
+        const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}`);
+        if (!res.ok) return;
+        const path = await res.json();
+        const nodes = path.nodes || [];
+        if (!nodes.length) return;
+        const mastered = nodes.filter(n => n.status === 'mastered').length;
+        set('stats-left-topics', `${mastered} из ${nodes.length}`);
+        const bar = document.getElementById('stats-left-topics-bar');
+        if (bar) bar.style.width = `${Math.round(100 * mastered / nodes.length)}%`;
+        if (row) row.classList.remove('hidden');
+        if (path.plan && path.plan.new_cards_left > 0) {
+            set('stats-left-cards', `${path.plan.new_cards_left} карт.`);
+            set('stats-left-days', `≈ ${path.plan.days_left} дн. при лимите ${path.plan.daily_limit}/день`);
+        }
+    } catch (_) { /* счётчик тем не критичен */ }
+}
+
 async function loadStatsTab() {
     try {
         const res = await apiFetch(`/api/stats/dashboard?subject=${currentSubject}`); 
@@ -262,6 +382,7 @@ async function loadStatsTab() {
         if (elRet) elRet.innerText = `${data.retention_rate_30d}%`;
         if (elStr) elStr.innerText = `${data.streak_days} дней`;
         
+        renderRemainingToLearn(data);
         if (data.maturity) renderMaturity(data.maturity);
         if (data.heatmap) renderHeatmap(data.heatmap);
 
@@ -462,14 +583,7 @@ async function loadDynamicSubjects() {
         if (!subjects || !Array.isArray(subjects)) {
             subjects = [];
         }
-        const subjectNames = { 
-            'chinese_hsk3': 'КИТАЙСКИЙ HSK3', 
-            'law_civil': 'ГРАЖДАНСКОЕ ПРАВО', 
-            'civil_law': 'ГРАЖДАНСКОЕ ПРАВО',
-            'python_pro': 'PYTHON ADVANCED', 
-            'geometry': 'ГЕОМЕТРИЯ (ФОРМУЛЫ)', 
-            'law_civil_rb': 'ГРАЖДАНСКОЕ ПРАВО РБ' 
-        };
+        const subjectNames = {};      // названия предметов — ровно как ввёл пользователь
 
         // 1. Селекторы фильтрации карточек/тренировок
         const getSubSlug = (sub) => typeof sub === 'string' ? sub : (sub?.slug || sub?.name || String(sub || ''));
@@ -1449,3 +1563,63 @@ window.handleImageOcr = async function(event) {
     }
 };
 
+
+
+// ---- Просмотр карточки из архива (по нажатию на строку; долгое нажатие по-прежнему включает выбор)
+const CARD_STATE_LABELS = ['Новая', 'Заучивание', 'Повторение', 'Переобучение'];
+
+function describeNextReview(iso) {
+    if (!iso) return '';
+    const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+    if (isNaN(t)) return '';
+    const mins = Math.round((t.getTime() - Date.now()) / 60000);
+    if (mins <= 0) return 'пора повторить';
+    if (mins < 60) return `через ${mins} мин`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `через ${hours} ч`;
+    const days = Math.round(hours / 24);
+    return `через ${days} дн.`;
+}
+
+window.openCardView = function(cardId) {
+    const c = (localCardsArchive || []).find(x => x.id === cardId);
+    const modal = document.getElementById('card-view-modal');
+    if (!c || !modal) return;
+    const terms = parseSearchQuery(currentDataQuery);
+    const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
+
+    set('card-view-question', highlightMatches(formatClozePlain(c.text), terms));
+    set('card-view-answer', highlightMatches(c.translation, terms));
+    set('card-view-example', c.example ? highlightMatches(c.example, terms) : '');
+    show('card-view-example-box', !!c.example);
+    set('card-view-context', c.secondary_text ? highlightMatches(c.secondary_text, terms) : '');
+    show('card-view-context-box', !!c.secondary_text);
+    const m = c.mnemonic && typeof c.mnemonic === 'object' ? `${c.mnemonic.keyword || ''}: ${c.mnemonic.verbal_cue || ''}` : (c.mnemonic || '');
+    set('card-view-mnemonic', escapeHTML(m));
+    show('card-view-mnemonic-box', !!String(m).replace(/[:\s]/g, ''));
+
+    const state = document.getElementById('card-view-state');
+    if (state) state.textContent = CARD_STATE_LABELS[c.state] || 'Новая';
+    const bits = [c.subject];
+    if (c.state > 0) {
+        const nr = describeNextReview(c.next_review);
+        if (nr) bits.push(`следующее повторение: ${nr}`);
+        if (c.lapses) bits.push(`ошибок: ${c.lapses}`);
+        if (c.stability) bits.push(`прочность ≈ ${c.stability} дн.`);
+    }
+    set('card-view-meta', bits.filter(Boolean).map(escapeHTML).join(' · '));
+
+    const bind = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = () => { closeCardView(); fn(cardId); }; };
+    bind('card-view-edit', id => requestEditCard(id));
+    bind('card-view-move', id => requestMoveCard(id));
+    bind('card-view-delete', id => requestDeleteCard(id));
+
+    modal.classList.remove('hidden');
+    if (typeof triggerHaptic === 'function') triggerHaptic('light');
+};
+
+window.closeCardView = function() {
+    const modal = document.getElementById('card-view-modal');
+    if (modal) modal.classList.add('hidden');
+};

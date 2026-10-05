@@ -6,8 +6,9 @@
     python scripts/coverage_report.py книга.pdf колода.json
 
 Колода — экспорт из бота («Моя колода (JSON)») или список карточек. Книга — PDF или .txt.
-Печатает плотность карточек по главам и разделам, самые «голодные» разделы, однотипность вопросов и долю ответов
-с числами/сроками. Ничего не отправляет в ИИ и ничего не пишет в базу.
+Печатает проверку по книге (есть ли ответ карточки в тексте; для колод с полем evidence — найдена ли цитата), плотность карточек
+по главам и разделам, самые «голодные» разделы, однотипность вопросов и долю ответов с числами/сроками.
+Ничего не отправляет в ИИ и ничего не пишет в базу.
 """
 import json
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.services.ai_gateway import coverage  # noqa: E402
+from app.services.ai_gateway import card_quality, coverage  # noqa: E402
 from app.services.ai_gateway.path_builder import question_opener_stats  # noqa: E402
 
 
@@ -44,6 +45,19 @@ def main() -> int:
           f"(одна карточка на {len(text) // max(1, stats['cards'])} знаков)")
     print(f"Самое частое начало вопроса: «{stats['top_opener']}» — {stats['top_opener_share'] * 100:.0f}% карточек")
     print(f"Ответов с цифрой: {stats['numeric_answers_share'] * 100:.1f}%")
+
+    verifier = card_quality.CardVerifier(text)
+    cards = [{**c, "translation": c.get("translation") or c.get("answer") or "", "evidence": c.get("evidence") or ""} for c in cards]
+    summary, flagged = verifier.verify(cards)
+    print(f"\nПроверка по книге: цитата найдена точно — {summary['grounded']}, почти — {summary['near']}, "
+          f"ответ найден рядом по словам — {summary['lexical']}, не проверить — {summary['unchecked']}, "
+          f"подозрительных — {summary['flagged']} ({100 * summary['flagged'] / max(1, summary['cards']):.0f}%)")
+    for c in flagged[:15]:
+        print(f"  ? {c['text'][:80]} => {c['translation'][:50]}  [{c.get('support_reason')}]")
+    thin = verifier.thin_spans(cards)
+    print(f"Участков книги без единой карточки (от {card_quality.MIN_THIN_SPAN_CHARS // 1000} тыс. знаков): {len(thin)}, "
+          f"всего {sum(t['chars'] for t in thin) // 1000} тыс. знаков")
+
     if not sections:
         print("Оглавление в тексте не распознано (нет нумерованных разделов): отчёт по разделам недоступен.")
         return 0

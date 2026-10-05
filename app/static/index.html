@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=30">
+    <link rel="stylesheet" href="/css/main.css?v=34">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -507,6 +507,15 @@
                     <button data-filter="new" class="px-2.5 py-1 text-neutral-500 hover:text-primary border border-neutral-300 dark:border-neutral-700 rounded-xl transition-all">[НОВЫЕ]</button>
                 </div>
             </div>
+            <div class="archive-search shrink-0 mb-sm">
+                <span class="material-symbols-outlined archive-search-icon">search</span>
+                <input id="archive-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false"
+                       placeholder="Поиск по вопросам, ответам, примерам… (фразу — в кавычках)"
+                       oninput="onArchiveSearchInput(this.value)" class="archive-search-input">
+                <button id="archive-search-clear" type="button" onclick="clearArchiveSearch()" class="archive-search-clear hidden" aria-label="Очистить поиск">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
             <div id="data-container" class="flex-1 overflow-y-auto divide-y divide-outline-variant/30 border-t border-b border-outline-variant/30 pr-1"></div>
             
             <!-- ВСПЛЫВАЮЩИЙ ACTION BAR ДЛЯ МАССОВЫХ ДЕЙСТВИЙ -->
@@ -531,6 +540,23 @@
 
                 <!-- Экран STATS -->
         <div id="screen-stats" class="app-screen hidden flex-1 flex flex-col w-full min-h-0 justify-start gap-md overflow-y-auto pt-md pb-6">
+            <!-- 0. Сколько ещё учить -->
+            <div id="stats-remaining-box" class="flex flex-col gap-2 font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
+                <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs">ОСТАЛОСЬ УЧИТЬ</div>
+                <div class="flex items-baseline justify-between gap-2">
+                    <span id="stats-left-cards" class="text-2xl font-bold text-primary">—</span>
+                    <span id="stats-left-days" class="text-[11px] text-neutral-500 text-right">—</span>
+                </div>
+                <div id="stats-left-topics-row" class="hidden flex flex-col gap-1.5">
+                    <div class="flex justify-between text-[11px] text-neutral-600 dark:text-neutral-300">
+                        <span>Тем освоено</span><span id="stats-left-topics">—</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                        <div id="stats-left-topics-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: var(--dg-green);"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 1. Сводные метрики -->
             <div class="flex flex-col gap-sm font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div class="flex justify-between border-b border-dashed border-neutral-200 dark:border-neutral-800 pb-xs">
@@ -623,7 +649,7 @@
                 <div id="breakdown-title" class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs">
                     --- ПРОГРЕСС ПО РАЗДЕЛАМ ---
                 </div>
-                <div id="breakdown-list" class="divide-y divide-outline-variant/30 pr-1 text-xs max-h-60 overflow-y-auto"></div>
+                <div id="breakdown-list" class="divide-y divide-outline-variant/30 pr-1 text-xs"></div>
             </div>
         </div>
 
@@ -633,21 +659,23 @@
             
             <!-- СЕКЦИЯ 1: НАСТРОЙКИ СИСТЕМЫ И ТЕМПА (САМЫЙ ВЕРХ, КАК БЫЛО РАНЬШЕ) -->
             <div class="flex flex-col gap-sm shrink-0">
-                <div class="flex items-center justify-between text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
+                <div class="flex flex-col gap-2 text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div class="flex items-center gap-1.5 flex-wrap">
                         <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></span>
                         <span id="config-phase-badge" class="hidden px-2 py-0.5 text-[9px] font-mono font-bold rounded-lg bg-secondary/15 text-secondary border border-secondary/30">[ФАЗА 1: 10 КАРТ/ДЕНЬ]</span>
                     </div>
-                    <div class="flex items-center gap-1">
-                        <button id="btn-share-subject" onclick="shareCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all flex items-center gap-1" title="Поделиться колодой в Telegram">
-                            <span class="material-symbols-outlined text-[11px]">share</span>
-                            <span>[ПОДЕЛИТЬСЯ]</span>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button id="btn-share-subject" onclick="shareCurrentSubject()" class="cfg-chip cfg-chip-primary hidden" title="Поделиться колодой в Telegram">
+                            <span class="material-symbols-outlined">share</span>
+                            <span>Поделиться</span>
                         </button>
-                        <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="hidden text-[9px] border border-primary text-primary hover:bg-primary hover:text-on-primary px-2 py-0.5 font-bold uppercase transition-all">
-                            [ПЕРЕИМЕНОВАТЬ]
+                        <button id="btn-rename-subject" onclick="renameCurrentSubject()" class="cfg-chip cfg-chip-primary hidden">
+                            <span class="material-symbols-outlined">edit</span>
+                            <span>Переименовать</span>
                         </button>
-                        <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="hidden text-[9px] border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary px-2 py-0.5 font-bold uppercase transition-all">
-                            [УДАЛИТЬ ПРЕДМЕТ]
+                        <button id="btn-delete-subject" onclick="deleteCurrentSubject()" class="cfg-chip cfg-chip-danger hidden">
+                            <span class="material-symbols-outlined">delete</span>
+                            <span>Удалить предмет</span>
                         </button>
                     </div>
                 </div>
@@ -766,7 +794,7 @@
                             <option value="" disabled selected>-- Выберите предмет --</option>
                             <option value="__new__">+ Новый предмет...</option>
                         </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. civil_law)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
+                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. biology_101)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
                     </div>
                 </div>
 
@@ -1170,6 +1198,42 @@
     </div>
 
 
+        <!-- Просмотр карточки из архива DATA: вопрос, ответ, пример, состояние повторения и действия -->
+    <div id="card-view-modal" role="dialog" aria-modal="true" aria-labelledby="card-view-question" class="hidden fixed inset-0 z-[118] flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-xs font-sans" onclick="if (event.target === this) closeCardView()" style="touch-action: manipulation; isolation: isolate;">
+        <div class="card-view-sheet">
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <span id="card-view-state" class="card-view-state">NEW</span>
+                <button type="button" onclick="closeCardView()" aria-label="Закрыть" class="card-view-close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="card-view-scroll">
+                <p class="card-view-label">Вопрос</p>
+                <p id="card-view-question" class="card-view-question select-text"></p>
+                <p class="card-view-label">Ответ</p>
+                <p id="card-view-answer" class="card-view-answer select-text"></p>
+                <div id="card-view-example-box" class="hidden">
+                    <p class="card-view-label">Пример</p>
+                    <p id="card-view-example" class="card-view-example select-text"></p>
+                </div>
+                <div id="card-view-context-box" class="hidden">
+                    <p class="card-view-label">Контекст</p>
+                    <p id="card-view-context" class="card-view-context select-text"></p>
+                </div>
+                <div id="card-view-mnemonic-box" class="hidden mnemonic-box card-view-mnemonic">
+                    <p class="card-view-label mnemonic-label">Ассоциация</p>
+                    <p id="card-view-mnemonic" class="select-text"></p>
+                </div>
+                <p id="card-view-meta" class="card-view-meta"></p>
+            </div>
+            <div class="card-view-actions">
+                <button type="button" id="card-view-edit" class="card-view-btn"><span class="material-symbols-outlined">edit</span><span>Править</span></button>
+                <button type="button" id="card-view-move" class="card-view-btn"><span class="material-symbols-outlined">drive_file_move</span><span>Перенести</span></button>
+                <button type="button" id="card-view-delete" class="card-view-btn card-view-btn-danger"><span class="material-symbols-outlined">delete</span><span>Удалить</span></button>
+            </div>
+        </div>
+    </div>
+
         <!-- Модальное окно управления предметами (Список, переименование, удаление) -->
     <div id="subjects-manager-modal" role="dialog" aria-modal="true" aria-label="Управление предметами" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
         <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-md max-h-[85vh] flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
@@ -1216,7 +1280,7 @@
             </div>
             <div class="flex flex-col gap-1 text-xs">
                 <label for="rename-new-input" class="text-[10px] font-mono uppercase text-neutral-400 font-bold">Новое название предмета:</label>
-                <input type="text" id="rename-new-input" onkeydown="if(event.key==='Enter') submitSubjectRename(); if(event.key==='Escape') closeSubjectRenameModal();" placeholder="Например: civil_law или Гражданское право" class="bg-surface-container-lowest border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-xs text-primary focus:border-primary focus:ring-0 font-medium">
+                <input type="text" id="rename-new-input" onkeydown="if(event.key==='Enter') submitSubjectRename(); if(event.key==='Escape') closeSubjectRenameModal();" placeholder="Например: biology_101 или Биология" class="bg-surface-container-lowest border border-neutral-300 dark:border-neutral-700 rounded-xl p-2 text-xs text-primary focus:border-primary focus:ring-0 font-medium">
             </div>
             <div class="flex justify-end gap-2 pt-2 border-t border-neutral-200/60 dark:border-neutral-800">
                 <button onclick="closeSubjectRenameModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-3 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
@@ -1593,7 +1657,7 @@
             <div class="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
                 <p class="oq-note">Это необязательно: письменные вопросы система и так создаёт из ваших карточек. Здесь можно добавить именно те вопросы, которые будут на экзамене, вместе с эталонными ответами. Такие вопросы всегда предлагаются письменно, а проверка идёт по ключевым тезисам без ИИ.</p>
                 <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Предмет
-                    <input id="oq-subject" list="oq-subject-list" class="oq-modal-field" placeholder="Например, constitutional_law" autocomplete="off">
+                    <input id="oq-subject" list="oq-subject-list" class="oq-modal-field" placeholder="Например, biology_101" autocomplete="off">
                     <datalist id="oq-subject-list"></datalist>
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] font-medium text-neutral-500">Название набора
@@ -1772,6 +1836,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=123"></script>
+    <script src="/js/app.js?v=127"></script>
 </body>
 </html>
