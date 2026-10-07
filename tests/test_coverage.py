@@ -52,7 +52,8 @@ def test_total_cap_shrinks_quotas_but_keeps_minimum():
 def test_short_or_wordless_text_is_not_indexed():
     assert not cv.SourceIndex("КНИГА").usable
     assert not cv.SourceIndex("字" * 20000).usable          # иероглифы: считать нечего, будут обычные диапазоны
-    assert pb.plan_card_quotas("КНИГА", {"nodes": _nodes()}) is None
+    short = pb.plan_card_quotas("КНИГА", {"nodes": _nodes()})
+    assert short and min(short.values()) >= 1                    # индекса нет, но квоты раскладываются поровну (цель по типу материала действует)
 
 
 def test_card_density_finds_uncovered_parts():
@@ -100,5 +101,5 @@ def test_lesson_alignment_counts_answers_present_in_lesson():
 
 def test_lesson_prompt_scales_with_target_cards_and_demands_alignment():
     from app.services.ai_gateway.path_prompts import PATH_BUILDER_SYSTEM_PROMPT as sp
-    assert "ALIGNMENT LAW" in sp and "ceil(N/3)+3 screens" in sp and "at most 30 words" in sp
+    assert "ALIGNMENT LAW" in sp and "ceil(N/3)+2 screens" in sp and "at most 30 words" in sp
     assert pb._normalize_lesson({"screens": [{"say": f"Экран {i}"} for i in range(12)]}, set())["screens"].__len__() == 10

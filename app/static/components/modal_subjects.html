@@ -28,6 +28,30 @@
         </div>
     </div>
 
+    <!-- Модальное окно материалов предмета: из чего собран курс, удаление одного материала -->
+    <div id="subject-sources-modal" role="dialog" aria-modal="true" aria-label="Материалы предмета" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-md max-h-[85vh] flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">
+            <div class="flex justify-between items-center border-b border-neutral-200/60 dark:border-neutral-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-xl">library_books</span>
+                    <h3 class="font-bold text-sm text-primary uppercase font-mono tracking-wider">Материалы: <span id="subject-sources-subject"></span></h3>
+                </div>
+                <button onclick="closeSubjectSourcesModal()" aria-label="Закрыть" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 rounded-lg">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                Курс собран из этих материалов. Чтобы добавить ещё один (главу, конспект, другой учебник), загрузите файл в этот же предмет: он добавится к курсу, а ваши повторения останутся.
+            </p>
+            <div id="subject-sources-list" class="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/80 pr-1 flex flex-col gap-1 min-h-[100px] max-h-[45vh]"></div>
+            <div class="flex justify-end pt-3 border-t border-neutral-200/60 dark:border-neutral-800">
+                <button onclick="closeSubjectSourcesModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Модальное окно переименования предмета -->
     <div id="subject-rename-modal" role="dialog" aria-modal="true" aria-label="Переименовать предмет" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
         <div class="bg-surface-container-lowest border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-sm flex flex-col gap-3 shadow-2xl animate-fade-in font-sans">

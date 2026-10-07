@@ -77,6 +77,7 @@ class Card(Base):
 
     # Путь знаний: привязка к узлу графа и готовые дистракторы для практики
     node_id = Column(Integer, ForeignKey("knowledge_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_id = Column(Integer, ForeignKey("sources.id", ondelete="SET NULL"), nullable=True, index=True)  # из какого материала карточка
     answer_type = Column(String, nullable=True)   # term | date | number | organ | rule | criterion
     key_points = Column(JSON, nullable=True)      # открытые вопросы: [{"text", "variants": [...], "weight"}] для проверки без ИИ
     distractors = Column(JSON, nullable=True)     # 3 правдоподобных неверных ответа того же answer_type
@@ -204,6 +205,11 @@ class GenerationJob(Base):
     created_at = Column(DateTime, default=utc_now)
     processed_at = Column(DateTime, nullable=True)
 
+    # Материал курса: название для списка «Материалы», отпечаток текста (повторная загрузка того же файла) и замена прежней нарезки этого же материала
+    source_name = Column(String, nullable=True)
+    text_hash = Column(String(64), nullable=True)
+    replace_source_id = Column(Integer, nullable=True)
+
 
 class AiTelemetryLog(Base):
     """Детальный аудит каждого обращения к LLM-шлюзу платформы."""
@@ -313,6 +319,31 @@ class PracticeSessionLog(Base):
 
 
 
+class Source(Base):
+    """
+    Материал курса: учебник, глава, конспект. Курс предмета растёт материалами: новый материал ДОБАВЛЯЕТСЯ к имеющемуся
+    и не стирает повторения. Сам текст не хранится (только название, размер и отпечаток для распознавания повторной загрузки).
+    """
+    __tablename__ = "sources"
+    __table_args__ = (
+        Index("ix_sources_user_subject", "user_id", "subject"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    subject = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)               # как показывать в списке: имя файла или первая строка
+    title = Column(String, nullable=True)               # название курса из карты этого материала
+    kind = Column(String(16), nullable=True)            # тип материала (учебник, конспект, лекция...): определяется на этапе 2
+    role = Column(String(16), nullable=False, default="main", server_default="main")  # main | extra
+    chars = Column(Integer, nullable=False, default=0)
+    text_hash = Column(String(64), nullable=True, index=True)
+    nodes_count = Column(Integer, nullable=False, default=0)
+    cards_count = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
 class KnowledgeNode(Base):
     """
     Узел «Пути знаний»: единица теории, к которой привязаны урок, карточки и практика.
@@ -337,7 +368,9 @@ class KnowledgeNode(Base):
     source_hint = Column(String, nullable=True)         # главы/страницы источника
     lesson = Column(JSON, nullable=True)                # {"screens": [...], "checkpoint": [...]}
     lesson_status = Column(String, nullable=False, default="pending")  # pending | ready | failed
+    facts = Column(JSON, nullable=True)                 # «Конспект темы»: [строка, ...] — факты книги, которых нет в карточках (урок их не пересказывает)
     kind = Column(String(16), nullable=False, default="core", server_default="core")  # core | background (справка: история, предыстория)
+    source_id = Column(Integer, ForeignKey("sources.id", ondelete="SET NULL"), nullable=True, index=True)  # NULL: общий узел курса (вводный урок)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     def to_dict(self) -> dict:
@@ -353,6 +386,7 @@ class KnowledgeNode(Base):
             "summary": self.summary,
             "source_hint": self.source_hint,
             "lesson_status": self.lesson_status,
+            "facts_count": len(self.facts or []),
         }
 
 

@@ -9,7 +9,7 @@ from app.database.session import AsyncSessionLocal
 from app.database.models import GenerationJob, utc_now
 from app.services.ai_gateway.client import is_deepseek_offpeak_now, record_ai_telemetry
 from app.services.ai_gateway.path_builder import build_learning_path
-from app.services.knowledge_path import save_learning_path, normalize_subject
+from app.services.knowledge_path import save_learning_path, normalize_subject, build_course_context
 from app.core.config import settings
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -89,6 +89,9 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             "subject": normalize_subject(job.subject),
             "theme": job.theme,
             "raw_text": job.raw_text,
+            "source_name": job.source_name or job.theme,
+            "text_hash": job.text_hash,
+            "replace_source_id": job.replace_source_id,
         }
 
     char_count = len(job_data["raw_text"] or "")
@@ -109,8 +112,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 "ИИ строит карту предмета, уроки и карточки. Это займёт несколько минут.",
             )
 
+        async with AsyncSessionLocal() as db:
+            course = await build_course_context(db, job_data["user_id"], job_data["subject"], exclude_source_id=job_data["replace_source_id"])
         try:
-            result = await build_learning_path(job_data["raw_text"], job_data["subject"], calls=calls)
+            result = await build_learning_path(job_data["raw_text"], job_data["subject"], calls=calls, course=course)
         finally:
             await _record_path_calls(job_id, job_data["user_id"], calls)
 
@@ -119,7 +124,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             if not j or j.status == "cancelled":
                 print(f"[Generation Worker] Задача #{job_id} отменена пользователем. Результат не сохраняется.", flush=True)
                 return
-            stats = await save_learning_path(db, job_data["user_id"], job_data["subject"], result)
+            stats = await save_learning_path(
+                db, job_data["user_id"], job_data["subject"], result,
+                source_name=job_data["source_name"], text_hash=job_data["text_hash"], chars=char_count,
+                cost_usd=sum(c.get("cost_usd", 0.0) for c in calls), replace_source_id=job_data["replace_source_id"],
+            )
             j.theme = stats["title"]
             j.cards_count = stats["cards"]
             j.status = "completed"

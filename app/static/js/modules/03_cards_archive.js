@@ -1038,7 +1038,7 @@ async function fetchWithReplaceConfirm(send) {
         let data = null;
         try { data = await response.clone().json(); } catch (_) {}
         const d = data && data.detail;
-        if (d && d.code === 'replace_confirm') {
+        if (d && (d.code === 'replace_confirm' || d.code === 'duplicate_source')) {
             if (!confirm(d.message)) return null;
             response = await send(true);
         }

@@ -44,9 +44,9 @@ def default_lesson(key: str, answers: list[str] | None = None) -> dict:
 class FakeLLM:
     """Вызывается как call_deepseek. Поведение по типам задач переопределяется функциями вида f(prompt, fake) -> raw."""
 
-    def __init__(self, raw_map=None, cards=None, lessons=None, audit=None, fill=None, gaps=None, cost: float = 0.0):
+    def __init__(self, raw_map=None, cards=None, lessons=None, audit=None, fill=None, gaps=None, cost: float = 0.0, align=None, facts=None):
         self.raw_map, self.cost = raw_map, cost
-        self.handlers = {"CARDS": cards, "LESSON": lessons, "AUDIT": audit, "FILL": fill, "GAPS": gaps}
+        self.handlers = {"CARDS": cards, "LESSON": lessons, "AUDIT": audit, "FILL": fill, "GAPS": gaps, "ALIGN": align, "FACTS": facts}
         self.log: list[tuple[str, str]] = []          # (тип, запрос)
 
     def of(self, kind: str) -> list[str]:
@@ -74,6 +74,10 @@ class FakeLLM:
             return {"gaps": []}, meta
         if kind == "LINKS":
             return {"edges": []}, meta
+        if kind == "ALIGN":
+            return {"align": []}, meta
+        if kind == "FACTS":                              # блоки без фактов: конспект тест не проверяет, пока не подставлен свой ответ
+            return {"blocks": [{"id": i, "facts": []} for i in re.findall(r"^(B\d+) \|", user_prompt, re.M)]}, meta
         return {"lesson": None}, meta                  # INTRO
 
 

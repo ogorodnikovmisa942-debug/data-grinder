@@ -118,6 +118,21 @@ MODEL_MAIN = "deepseek-flash"
 MODEL_FALLBACK = "deepseek-v4-pro"
 
 
+def _debug_dump_raw(content: str | None) -> None:
+    """Сырой ответ, который не удалось разобрать, — в файл, если задана PATH_DEBUG_RAW_DIR (для диагностики; по умолчанию выключено)."""
+    import os
+    import time
+    folder = os.getenv("PATH_DEBUG_RAW_DIR")
+    if not folder:
+        return
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, f"raw_failed_{int(time.time() * 1000)}.txt"), "w", encoding="utf-8") as f:
+            f.write(content or "")
+    except OSError:
+        pass
+
+
 async def call_deepseek(
     user_prompt: str,
     system_instruction: str,
@@ -212,6 +227,9 @@ async def call_deepseek(
             try:
                 raw_payload, is_truncated, repair_successful = extract_json_payload_with_telemetry(content)
             except ValueError as parse_err:
+                meta["raw_head"] = (content or "")[:1500]
+                meta["raw_tail"] = (content or "")[-1500:]
+                _debug_dump_raw(content)
                 raise LLMCallError(str(parse_err), meta) from parse_err
             meta["is_truncated"] = is_truncated
             meta["repair_successful"] = repair_successful

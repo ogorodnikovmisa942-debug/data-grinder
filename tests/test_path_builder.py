@@ -65,8 +65,11 @@ def test_plan_pack_batches_groups_by_branch():
     m = pb.normalize_map(RAW_MAP)
     batches = pb.plan_pack_batches(m, max_nodes=6)
     assert batches[0] == ["vlast", "instanciya"]
-    assert batches[1] == ["peresmotr", "apellyaciya", "nadzor", "keys_peresmotr"]
+    # Каждый запрос заново читает книгу из кэша, поэтому мелкие ветки идут в один запрос, пока влезает
+    assert batches[1] == ["peresmotr", "apellyaciya", "nadzor", "keys_peresmotr", "bad_parent"]
     assert sorted(k for b in batches for k in b) == sorted(n["key"] for n in m["nodes"])
+    assert len(pb.plan_pack_batches(m, max_nodes=4)) > len(batches)               # а при меньшем лимите ветки расходятся по запросам
+    assert all(len(b) <= 4 for b in pb.plan_pack_batches(m, max_nodes=4))
 
 
 def test_normalize_cards_filters_distractors_keeps_evidence_and_cuts_over_quota(monkeypatch):
@@ -163,7 +166,7 @@ def test_build_learning_path_uses_shared_prefix_and_retries_missing():
     assert res["cost_usd"] == pytest.approx(0.01 * len(fake.log))
 
 
-def test_truncated_map_is_not_retried_and_cost_is_logged():
+def test_truncated_map_is_retried_only_once_and_cost_of_both_attempts_is_logged():
     from app.services.ai_gateway.client import LLMOutputTruncated
     calls = []
 
@@ -173,8 +176,8 @@ def test_truncated_map_is_not_retried_and_cost_is_logged():
     with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call) as mocked:
         with pytest.raises(pb.PathBuildError):
             asyncio.run(pb.build_knowledge_map("КНИГА", "s", calls))
-    assert mocked.call_count == 1
-    assert calls[0]["cost_usd"] == 0.05 and calls[0]["finish_reason"] == "length"
+    assert mocked.call_count == 2                                                      # один повтор с просьбой о компактной карте, не больше
+    assert [c["cost_usd"] for c in calls] == [0.05, 0.05] and calls[0]["finish_reason"] == "length"
 
 
 def test_truncated_cards_batch_is_split_in_halves():
@@ -270,7 +273,10 @@ def _map_raw(n_topics):
     return {"title": "T", "domain": "law", "nodes": nodes, "edges": []}
 
 
-def test_second_map_is_kept_only_if_it_scores_higher():
+def test_second_map_is_kept_only_if_it_scores_higher(monkeypatch):
+    monkeypatch.setattr(pb, "MAP_GOOD_SCORE", 99.0)                   # первая карта «недостаточна»: строим вторую
+    monkeypatch.setattr(pb.source_profile, "node_budget",             # бюджет под эти карты: темы в диапазоне 3–9
+                        lambda target: {"total": 12, "tier0": 5, "tier1": 5, "tier2": 2, "tier3": 0})
     weak, strong = _map_raw(2), _map_raw(6)
     answers = iter([weak, strong])
 
@@ -400,3 +406,26 @@ def test_question_opener_stats():
     st = pb.question_opener_stats(cards)
     assert st["top_opener"] == "какой орган" and st["top_opener_share"] == 0.5 and st["numeric_answers_share"] == 0.5
     assert pb.question_opener_stats([])["cards"] == 0
+
+
+def test_truncated_map_is_retried_once_with_a_compact_request(monkeypatch):
+    from app.services.ai_gateway.client import LLMOutputTruncated
+    seen = []
+
+    async def fake_call(user_prompt, **kwargs):
+        seen.append(user_prompt)
+        if len(seen) == 1:
+            raise LLMOutputTruncated("обрезан на max_tokens", {"cost_usd": 0.02})
+        return _map_raw(6), {"cost_usd": 0.01}
+
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=fake_call):
+        m = asyncio.run(pb.build_knowledge_map("x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS, "s", [], candidates=1))
+    assert len(m["nodes"]) == 11 and len(seen) == 2
+    assert pb.COMPACT_MAP_NUDGE.strip() in seen[1] and pb.COMPACT_MAP_NUDGE.strip() not in seen[0]      # просьба только в хвосте повторного запроса
+
+    async def always_cut(user_prompt, **kwargs):
+        raise LLMOutputTruncated("обрезан", {"cost_usd": 0.02})
+
+    with patch("app.services.ai_gateway.client.call_deepseek", side_effect=always_cut):
+        with pytest.raises(pb.PathBuildError):
+            asyncio.run(pb.build_knowledge_map("x" * pb.MIN_SOURCE_CHARS_FOR_TOPICS, "s", [], candidates=1))

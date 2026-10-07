@@ -2347,6 +2347,16 @@ function renderReviewCard(card) {
             }
         }
 
+        // «Из: материал» — только когда в предмете несколько материалов (сервер присылает source_name только тогда)
+        const backSourceBadge = document.getElementById('card-back-source-badge');
+        const backSourceText = document.getElementById('card-back-source-text');
+        if (backSourceBadge && backSourceText) {
+            const srcName = (card.source_name || '').trim();
+            backSourceText.textContent = srcName ? ('Из: ' + srcName) : '';
+            backSourceBadge.classList.toggle('hidden', !srcName);
+            backSourceBadge.classList.toggle('inline-flex', Boolean(srcName));
+        }
+
         const backTerm = document.getElementById('card-back-term-text');
         if (backTerm) {
             if (isCloze) {
@@ -3775,7 +3785,7 @@ async function fetchWithReplaceConfirm(send) {
         let data = null;
         try { data = await response.clone().json(); } catch (_) {}
         const d = data && data.detail;
-        if (d && d.code === 'replace_confirm') {
+        if (d && (d.code === 'replace_confirm' || d.code === 'duplicate_source')) {
             if (!confirm(d.message)) return null;
             response = await send(true);
         }
@@ -5554,6 +5564,9 @@ window.loadSubjectsManagerList = async function() {
                         <span class="material-symbols-outlined text-[12px]">share</span>
                         <span>Поделиться</span>
                     </button>
+                    <button onclick="openSubjectSourcesModal('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-all" title="Материалы, из которых собран курс">
+                        Материалы
+                    </button>
                     <button onclick="openSubjectRenameModal('${escapeHTML(sub.slug)}')" class="px-2 py-1 text-[10px] font-mono font-bold uppercase border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded-lg transition-all" title="Переименовать предмет">
                         Имя
                     </button>
@@ -5615,6 +5628,71 @@ window.shareSubjectDeck = async function(subjectSlug) {
             btn.disabled = false;
             btn.innerHTML = oldHtml;
         }
+    }
+};
+
+// Материалы курса: новый материал добавляется к предмету, а здесь его можно убрать, не трогая остальные
+window.openSubjectSourcesModal = async function(subjectSlug) {
+    const modal = document.getElementById('subject-sources-modal');
+    const list = document.getElementById('subject-sources-list');
+    const label = document.getElementById('subject-sources-subject');
+    if (!modal || !list) return;
+    modal.dataset.subject = subjectSlug;
+    if (label) label.textContent = subjectSlug.toUpperCase();
+    modal.classList.remove('hidden');
+    list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка...</div>';
+    try {
+        const res = await apiFetch('/api/path/' + encodeURIComponent(subjectSlug) + '/sources');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const sources = data.sources || [];
+        if (!sources.length) {
+            list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Материалов нет. Карточки этого предмета созданы вручную или импортом.</div>';
+            return;
+        }
+        list.innerHTML = '';
+        sources.forEach(src => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between gap-2 py-2.5 px-2 rounded-xl';
+            const size = src.chars ? (Math.max(1, Math.round(src.chars / 1000)) + ' тыс. знаков · ') : '';
+            row.innerHTML = `
+                <div class="flex flex-col min-w-0">
+                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 truncate">${escapeHTML(src.name || 'Материал')}</div>
+                    <div class="text-[10px] text-neutral-400 font-mono mt-0.5">${size}тем: ${src.nodes} · карточек: ${src.cards} · ответов: ${src.reviews}</div>
+                </div>
+                <button class="shrink-0 px-2 py-1 text-[10px] font-mono font-bold uppercase border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded-lg transition-all">Удалить</button>`;
+            row.querySelector('button').addEventListener('click', () => deleteSubjectSource(subjectSlug, src));
+            list.appendChild(row);
+        });
+    } catch (e) {
+        console.error('Сбой загрузки материалов:', e);
+        list.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Не удалось загрузить материалы</div>';
+    }
+};
+
+window.closeSubjectSourcesModal = function() {
+    const modal = document.getElementById('subject-sources-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.deleteSubjectSource = async function(subjectSlug, src) {
+    const msg = `Удалить материал «${src.name}»?\n\nБудут удалены его темы, уроки, карточки (${src.cards}) и ответы по ним (${src.reviews}). ` +
+                `Остальные материалы предмета и их прогресс останутся.`;
+    if (!confirm(msg)) return;
+    try {
+        const res = await apiFetch('/api/path/' + encodeURIComponent(subjectSlug) + '/sources/' + src.id, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert('Не удалось удалить материал: ' + (err.detail || ('HTTP ' + res.status)));
+            return;
+        }
+        await openSubjectSourcesModal(subjectSlug);
+        if (typeof loadSubjectsManagerList === 'function') loadSubjectsManagerList();
+        if (typeof loadDynamicSubjects === 'function') await loadDynamicSubjects();
+        if (typeof updateGlobalBadges === 'function') updateGlobalBadges();
+    } catch (e) {
+        console.error('Сбой удаления материала:', e);
+        alert('Сбой сети при удалении материала.');
     }
 };
 
@@ -5962,6 +6040,7 @@ function pathStateToGraphData(state) {
         parent_id: n.parent_key || undefined,
         prereq_keys: n.prereq_keys || [],
         lesson_status: n.lesson_status,
+        facts_count: n.facts_count || 0,
         cards_total: n.cards_total || 0,
         cards_answered: n.cards_answered || 0,
         is_learned: n.status === 'mastered',
@@ -6140,6 +6219,7 @@ function getCleanGraphData() {
             tier: n.tier,
             prereq_keys: n.prereq_keys,
             lesson_status: n.lesson_status,
+            facts_count: n.facts_count,
             cards_total: n.cards_total,
             cards_answered: n.cards_answered,
             path_parent: n.path_parent
@@ -8180,6 +8260,8 @@ function renderPathDrawerState(node) {
             hint.classList.add('hidden');
         }
     }
+    const factsBtn = document.getElementById('kg-drawer-btn-facts');
+    if (factsBtn) factsBtn.classList.toggle('hidden', !(node.status !== 'locked' && (node.facts_count || 0) > 0));
     if (lessonBtn) {
         const available = node.status !== 'locked' && node.lesson_status === 'ready';
         lessonBtn.classList.toggle('hidden', !available);
@@ -8191,6 +8273,13 @@ window.openLessonForKgNode = function() {
     if (!currentKgDrawerNode || !currentKgDrawerNode.db_id) return;
     if (window.openLesson) {
         window.openLesson(currentKgDrawerNode.db_id);
+    }
+};
+
+window.openFactsForKgNode = function() {
+    if (!currentKgDrawerNode || !currentKgDrawerNode.db_id) return;
+    if (window.openFactSheet) {
+        window.openFactSheet(currentKgDrawerNode.db_id);
     }
 };
 
@@ -9201,10 +9290,12 @@ function setLessonButtons(nextLabel, nextEnabled, secondaryLabel) {
 }
 
 function clearLessonExtras() {
-    ['lesson-focus', 'lesson-options'].forEach(id => {
+    ['lesson-focus', 'lesson-options', 'lesson-facts'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });
+    const factsEl = document.getElementById('lesson-facts');
+    if (factsEl) factsEl.classList.add('hidden');
     const fb = document.getElementById('lesson-feedback');
     if (fb) fb.classList.add('hidden');
 }
@@ -9341,6 +9432,70 @@ async function finishLesson() {
     }
 
     const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    // Конспект темы: факты книги, которых нет в карточках. Читаются один раз сразу после урока, дальше доступны из графа
+    if (!lessonState.intro && (lessonState.facts || []).length && !lessonState.factsShown) {
+        lessonState.factsShown = true;
+        showLessonFacts(lessonState.facts, `Урок пройден!${scoreLine} Ещё конспект темы: пробеги глазами. Карточки этого не спрашивают, а на экзамене может встретиться.`,
+            'Дальше', () => { lessonState.onNext = null; clearLessonExtras(); lessonTail(scoreLine); });
+        return;
+    }
+    lessonTail(scoreLine);
+}
+
+// Конспект темы: список фактов под репликой кота; nextLabel и onNext — что делает главная кнопка после прочтения
+function showLessonFacts(facts, say, nextLabel, onNext, secondaryLabel, onSecondary) {
+    clearLessonExtras();
+    renderLessonProgress();
+    sayLesson(say, 'talk');
+    const list = document.getElementById('lesson-facts');
+    if (list) {
+        facts.forEach(text => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            list.appendChild(li);
+        });
+        list.classList.remove('hidden');
+    }
+    setLessonButtons(nextLabel, true, secondaryLabel || null);
+    lessonState.onNext = onNext;
+    lessonState.onSecondary = onSecondary || null;
+}
+
+// Конспект из графа: без урока и без сохранения прохождения
+window.openFactSheet = async function(nodeId) {
+    const modal = document.getElementById('lesson-modal');
+    if (!modal) return;
+    let data;
+    try {
+        const res = await apiFetch(`/api/path/node/${nodeId}/facts`);
+        data = await res.json();
+        if (!res.ok) {
+            alert(data.detail || 'Конспект пока недоступен.');
+            return;
+        }
+    } catch (e) {
+        console.error('Сбой загрузки конспекта:', e);
+        alert('Не удалось загрузить конспект. Проверь связь.');
+        return;
+    }
+    if (!(data.facts || []).length) {
+        alert('Для этой темы конспекта нет: все её факты уже в карточках.');
+        return;
+    }
+    lessonState = {
+        nodeId, intro: false, screens: [], checks: [], hasPretest: false, pretestChoice: null, phase: 'done', idx: 0, score: 0,
+        answered: false, typingDone: null, onNext: null, onSecondary: null, facts: data.facts, factsShown: true
+    };
+    const nameEl = document.getElementById('lesson-node-name');
+    if (nameEl) nameEl.textContent = data.node.name;
+    const tierEl = document.getElementById('lesson-tier-badge');
+    if (tierEl) tierEl.textContent = 'Конспект темы';
+    modal.classList.remove('hidden');
+    showLessonFacts(data.facts, `Конспект темы: ${data.facts.length} фактов из учебника в порядке изложения. Удобно перечитать перед экзаменом.`,
+        'Закрыть', () => closeLesson());
+};
+
+function lessonTail(scoreLine) {
     // Вводный урок: карточек у него нет, дальше — первая тема пути
     if (lessonState.intro) {
         const inRun = window.pathRun && window.pathRun.active;
@@ -9471,6 +9626,8 @@ window.openLesson = async function(nodeId) {
         intro: !!data.intro,
         screens: data.lesson.screens,
         checks: data.lesson.check || [],
+        facts: data.facts || [],
+        factsShown: false,
         hasPretest: (data.lesson.check || []).length > 0,
         pretestChoice: null,
         phase: (data.lesson.check || []).length > 0 ? 'pretest' : 'screens',

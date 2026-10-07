@@ -114,10 +114,12 @@ function setLessonButtons(nextLabel, nextEnabled, secondaryLabel) {
 }
 
 function clearLessonExtras() {
-    ['lesson-focus', 'lesson-options'].forEach(id => {
+    ['lesson-focus', 'lesson-options', 'lesson-facts'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });
+    const factsEl = document.getElementById('lesson-facts');
+    if (factsEl) factsEl.classList.add('hidden');
     const fb = document.getElementById('lesson-feedback');
     if (fb) fb.classList.add('hidden');
 }
@@ -254,6 +256,70 @@ async function finishLesson() {
     }
 
     const scoreLine = hasChecks ? ` ${lessonState.score} из ${lessonState.checks.length} с первого раза.` : '';
+    // Конспект темы: факты книги, которых нет в карточках. Читаются один раз сразу после урока, дальше доступны из графа
+    if (!lessonState.intro && (lessonState.facts || []).length && !lessonState.factsShown) {
+        lessonState.factsShown = true;
+        showLessonFacts(lessonState.facts, `Урок пройден!${scoreLine} Ещё конспект темы: пробеги глазами. Карточки этого не спрашивают, а на экзамене может встретиться.`,
+            'Дальше', () => { lessonState.onNext = null; clearLessonExtras(); lessonTail(scoreLine); });
+        return;
+    }
+    lessonTail(scoreLine);
+}
+
+// Конспект темы: список фактов под репликой кота; nextLabel и onNext — что делает главная кнопка после прочтения
+function showLessonFacts(facts, say, nextLabel, onNext, secondaryLabel, onSecondary) {
+    clearLessonExtras();
+    renderLessonProgress();
+    sayLesson(say, 'talk');
+    const list = document.getElementById('lesson-facts');
+    if (list) {
+        facts.forEach(text => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            list.appendChild(li);
+        });
+        list.classList.remove('hidden');
+    }
+    setLessonButtons(nextLabel, true, secondaryLabel || null);
+    lessonState.onNext = onNext;
+    lessonState.onSecondary = onSecondary || null;
+}
+
+// Конспект из графа: без урока и без сохранения прохождения
+window.openFactSheet = async function(nodeId) {
+    const modal = document.getElementById('lesson-modal');
+    if (!modal) return;
+    let data;
+    try {
+        const res = await apiFetch(`/api/path/node/${nodeId}/facts`);
+        data = await res.json();
+        if (!res.ok) {
+            alert(data.detail || 'Конспект пока недоступен.');
+            return;
+        }
+    } catch (e) {
+        console.error('Сбой загрузки конспекта:', e);
+        alert('Не удалось загрузить конспект. Проверь связь.');
+        return;
+    }
+    if (!(data.facts || []).length) {
+        alert('Для этой темы конспекта нет: все её факты уже в карточках.');
+        return;
+    }
+    lessonState = {
+        nodeId, intro: false, screens: [], checks: [], hasPretest: false, pretestChoice: null, phase: 'done', idx: 0, score: 0,
+        answered: false, typingDone: null, onNext: null, onSecondary: null, facts: data.facts, factsShown: true
+    };
+    const nameEl = document.getElementById('lesson-node-name');
+    if (nameEl) nameEl.textContent = data.node.name;
+    const tierEl = document.getElementById('lesson-tier-badge');
+    if (tierEl) tierEl.textContent = 'Конспект темы';
+    modal.classList.remove('hidden');
+    showLessonFacts(data.facts, `Конспект темы: ${data.facts.length} фактов из учебника в порядке изложения. Удобно перечитать перед экзаменом.`,
+        'Закрыть', () => closeLesson());
+};
+
+function lessonTail(scoreLine) {
     // Вводный урок: карточек у него нет, дальше — первая тема пути
     if (lessonState.intro) {
         const inRun = window.pathRun && window.pathRun.active;
@@ -384,6 +450,8 @@ window.openLesson = async function(nodeId) {
         intro: !!data.intro,
         screens: data.lesson.screens,
         checks: data.lesson.check || [],
+        facts: data.facts || [],
+        factsShown: false,
         hasPretest: (data.lesson.check || []).length > 0,
         pretestChoice: null,
         phase: (data.lesson.check || []).length > 0 ? 'pretest' : 'screens',

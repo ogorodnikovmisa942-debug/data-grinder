@@ -88,27 +88,28 @@ def test_lean_schema_in_prompt_has_no_context_or_difficulty_fields():
 
 # --- STRICT: «берём самое важное» только когда не хватает денег ---
 
-def test_strict_target_is_asked_only_when_the_budget_cuts_the_quotas():
+def test_the_target_is_always_the_maximum_and_there_is_no_floor_mode():
     import test_pipeline_quality as tpq
     fake = FakeLLM(raw_map=tpq._map(), cards=tpq._cards_handler(tpq.GOOD))
     with patched(fake):
-        asyncio.run(pb.build_learning_path(tpq._book(), "s"))
-    assert fake.of("CARDS") and all("STRICT TARGET" not in p for p in fake.of("CARDS"))          # денег хватает: цель — нижняя граница
+        res = asyncio.run(pb.build_learning_path(tpq._book(), "s"))
+    assert fake.of("CARDS") and all("STRICT TARGET" not in p for p in fake.of("CARDS"))          # режима «нижняя граница» больше нет
+    assert res["stats"]["quota"]["target"] == sum(res["quotas"].values())
 
     path_map = pb.normalize_map(tpq._map())
     big = {k: 60_000 for k in ("sub_a", "sub_b", "sub_c", "sub_d")}                                # книга большая: по размеру нужно много
-    wanted = pb.plan_card_quotas(tpq._book(), path_map, big)
-    cut = pb.plan_card_quotas(tpq._book(), path_map, big, total_cap=20)
-    assert sum(cut.values()) < sum(wanted.values())
-    assert "STRICT TARGET\n" in pp.build_cards_task("{}", ["sub_a"], cut, strict=True)
-    assert "STRICT TARGET" not in pp.build_cards_task("{}", ["sub_a"], cut, strict=False)
+    goal = pb.plan_card_quotas(tpq._book(), path_map, big, total=40)
+    less = pb.plan_card_quotas(tpq._book(), path_map, big, total=20)
+    assert sum(less.values()) < sum(goal.values())
+    task = pp.build_cards_task("{}", ["sub_a"], less)
+    assert f"TARGET CARDS: sub_a={less['sub_a']}\n" in task
 
 
 def test_kind_is_saved_as_core_for_every_node():
     path_map = pb.normalize_map(_raw("law"))
     lesson = {"screens": [{"say": "1", "emo": "talk", "focus": []}] * 3, "check": []}
 
-    async def fake_build(text, subject, calls=None):
+    async def fake_build(text, subject, calls=None, course=None):
         return {"map": path_map, "packs": {n["key"]: {"lesson": lesson, "cards": []} for n in path_map["nodes"]},
                 "missing_nodes": [], "calls": [], "cost_usd": 0.0}
 

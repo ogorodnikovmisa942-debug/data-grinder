@@ -93,14 +93,16 @@ SOFT_MIN_SHARE = 0.7      # ...если их сходство не ниже 70% 
 TIER_BONUS = 0.25         # конкретные узлы (подтемы) выигрывают у общих понятий, которые «похожи на всё»
 
 
-def node_source_sizes(index: SourceIndex, nodes: list[dict]) -> dict[str, int]:
+def node_source_sizes(index: SourceIndex, nodes: list[dict], weights: list[float] | None = None) -> dict[str, int]:
     """Сколько знаков источника «принадлежит» каждому узлу. Окно делится поровну между узлами, чьи название и описание
     на него похожи (победитель-забирает-всё отдавал общим понятиям вроде «Правоотношение» по 50–60 тыс. знаков).
-    Кейсы на различение (ярус 3) не участвуют: это виньетки поверх подтем, а не отдельные куски книги."""
+    Кейсы на различение (ярус 3) не участвуют: это виньетки поверх подтем, а не отдельные куски книги.
+    weights — вес каждого окна (насыщенность × новизна): «знаки» считаются взвешенными, поэтому карточки достаются насыщенным
+    и новым кускам, а не воде и уже покрытому."""
     carriers = [n for n in nodes if n["tier"] < 3]
     queries = [index.query(f"{n['name']} {n['name']} {n['name']} {n.get('summary') or ''}") for n in carriers]
     sizes = {n["key"]: 0.0 for n in nodes}
-    for wv, (a, b) in zip(index.vecs, index.spans):
+    for pos, (wv, (a, b)) in enumerate(zip(index.vecs, index.spans)):
         scored = []
         for i, q in enumerate(queries):
             s = sum(x * wv.get(w, 0.0) for w, x in q.items())
@@ -110,8 +112,9 @@ def node_source_sizes(index: SourceIndex, nodes: list[dict]) -> dict[str, int]:
         if best < MIN_MATCH_SCORE:
             continue
         top = [i for s, i in scored[:SOFT_TOP_K] if s >= SOFT_MIN_SHARE * best]
+        share = (b - a) * (weights[pos] if weights else 1.0)
         for i in top:
-            sizes[carriers[i]["key"]] += (b - a) / len(top)
+            sizes[carriers[i]["key"]] += share / len(top)
     return {k: int(v) for k, v in sizes.items()}
 
 
@@ -134,6 +137,176 @@ def card_quotas(nodes: list[dict], sizes: dict[str, int], chars_per_card: int = 
     return quotas
 
 
+_DEF_RE = re.compile(r"(—\s+это\b|называется|называют|понимается|понимают|представляет собой|определяется как|является\b|означает|заключается в)", re.I)
+_ENUM_RE = re.compile(r"(;|во-первых|во-вторых|в-третьих|\b[а-е]\)|\b\d\)|следующ\w+:|включа\w+:)", re.I)
+_DASH_RE = re.compile(r"\s[—–]\s")
+_REF_RE = re.compile(r"(\bС\.\s?\d+|\[\d+\]|\bсм\.\s|\bURL\b|[А-ЯЁ][а-яё]+,\s*[А-ЯЁ]\.\s*[А-ЯЁ]\.|\bМ\.:|\bМинск[,:]|\bISBN\b|©)")
+WEIGHT_MIN, WEIGHT_MAX = 0.35, 2.2
+ANCHOR_MIN_CONTAINMENT = 0.75                          # какая доля (по весу) значимых слов карточки есть в окне, чтобы считать карточку «из этого окна»
+ANCHOR_MIN_MARGIN = 0.10                              # и насколько лучше она ложится в это окно, чем в следующее по порядку (иначе — общая лексика)
+_TOC_RE = re.compile(r"\.{4,}\s*\d{1,4}")
+# Сигналы важности из самой книги: итоги главы концентрируют главное, вопросы для самоконтроля и задания — не учебный текст
+_SUMMARY_HEAD = re.compile(r"^\s*(выводы?|резюме|заключение|итоги|краткие выводы|основные (?:положения|понятия|выводы))\s*[:.]?\s*$", re.I | re.M)
+_QUESTIONS_HEAD = re.compile(r"^\s*(вопросы для (?:самоконтроля|повторения|обсуждения|самопроверки)|контрольные вопросы|вопросы и задания|тестовые задания|задания для самостоятельной)", re.I | re.M)
+SUMMARY_BONUS = 0.5
+QUESTIONS_FACTOR = 0.5
+COVERED_FLOOR = 0.15                                  # даже покрытый кусок оставляем с небольшим весом: новый автор может сказать иначе
+
+
+def window_saturation(index: "SourceIndex") -> list[float]:
+    """«Насыщенность» каждого окна источника: определения, числа, перечисления и «термин — пояснение» повышают вес, ссылки и
+    библиография понижают. Вес ~1 — обычное окно; страницы воды получают меньше, страницы с пятью понятиями больше.
+    Сумма весов, нормированная на длину, равна 1: общее число карточек от них не меняется, меняется только кому они достаются."""
+    raw: list[float] = []
+    for a, b in index.spans:
+        chunk = index.text[a:b]
+        k = max(1.0, (b - a) / 1000.0)
+        defs = len(_DEF_RE.findall(chunk)) / k
+        nums = len(re.findall(r"\d+", chunk)) / k
+        enum = len(_ENUM_RE.findall(chunk)) / k
+        dash = len(_DASH_RE.findall(chunk)) / k
+        refs = len(_REF_RE.findall(chunk)) / k
+        if len(_TOC_RE.findall(chunk)) >= 3:                      # оглавление: точки и номера страниц — не содержание
+            raw.append(0.1)
+            continue
+        score = max(0.1, 0.6 + 0.9 * defs + 0.12 * nums + 0.25 * enum + 0.2 * dash - 0.35 * refs)
+        if _SUMMARY_HEAD.search(chunk):
+            score += SUMMARY_BONUS
+        if _QUESTIONS_HEAD.search(chunk):
+            score = max(0.1, score * QUESTIONS_FACTOR)
+        raw.append(score)
+    total_len = sum(b - a for a, b in index.spans) or 1
+    mean = sum(r * (b - a) for r, (a, b) in zip(raw, index.spans)) / total_len or 1.0
+    return [min(WEIGHT_MAX, max(WEIGHT_MIN, r / mean)) for r in raw]
+
+
+def window_novelty(index: "SourceIndex", card_texts: list[str]) -> list[float]:
+    """Какие окна нового материала УЖЕ покрыты карточками курса: 1 — новое, 0 — покрыто. Карточка «принадлежит» окну, если почти все её
+    значимые слова (по весу IDF) есть в этом окне и заметно меньше в остальных (калибровка на реальных книгах: одна и та же книга
+    даёт такую привязку у ~46% окон, другая книга той же отрасли — у ~16%). Окно между двумя покрытыми тоже покрыто: колода
+    выбирает главное, а не каждый абзац. Сам текст прежних материалов не нужен и не хранится: сравнение идёт по тексту карточек."""
+    n = len(index.spans)
+    if not card_texts or n == 0:
+        return [1.0] * n
+    win_sets = [set(v) for v in index.vecs]
+    max_idf = max(index.idf.values()) if index.idf else 1.0
+    anchored = [False] * n
+    for text in card_texts:
+        terms = set(stems(text or ""))
+        if not terms:
+            continue
+        weights = {t: index.idf.get(t, max_idf) for t in terms}
+        total = sum(weights.values()) or 1.0
+        scores = sorted(((sum(w for t, w in weights.items() if t in ws) / total, i) for i, ws in enumerate(win_sets)), reverse=True)
+        if len(scores) > 1 and scores[0][0] >= ANCHOR_MIN_CONTAINMENT and scores[0][0] - scores[1][0] >= ANCHOR_MIN_MARGIN:
+            anchored[scores[0][1]] = True
+    covered = [anchored[i] or (0 < i < n - 1 and anchored[i - 1] and anchored[i + 1]) for i in range(n)]
+    return [0.0 if c else 1.0 for c in covered]
+
+
+def effective_chars(index: "SourceIndex", novelty: list[float]) -> int:
+    """Сколько знаков нового материала реально нового: покрытое остаётся с небольшим весом (COVERED_FLOOR)."""
+    return int(sum((b - a) * (COVERED_FLOOR + (1 - COVERED_FLOOR) * n) for (a, b), n in zip(index.spans, novelty)))
+
+
+TIER_FLOOR = {0: 3, 1: 2, 2: 1}   # основы и темы держат общие идеи ветки: им минимум побольше, чем подтеме
+SIZE_EXPONENT = 0.85              # в длинном куске больше примеров и пересказов, а не пропорционально больше обязательных фактов
+CASE_SHARE = 0.08                 # кейсы (ярус 3) — виньетки поверх уже заданных правил: не больше 8% колоды
+def target_cards(source_chars: int, chars_per_card: int) -> int:
+    """Цель по числу карточек для источника: одна на chars_per_card знаков (~страница учебника). Это цель по смыслу, а не по деньгам:
+    колода должна быть КОНСПЕКТОМ книги, а не её пересказом (тысячи карточек на учебник — это уже перечитывание текста)."""
+    return max(1, round(source_chars / max(1, chars_per_card)))
+
+
+def allocate_cards(nodes: list[dict], sizes: dict[str, int], total: int, case_cards: int = 3,
+                   max_cards: int | None = None, floor_override: dict[str, int] | None = None) -> dict[str, int]:
+    """Раскладывает ЦЕЛЬ по числу карточек (total) по узлам: каждому узлу — минимум по ярусу (TIER_FLOOR), остальное — пропорционально размеру куска книги
+    в степени SIZE_EXPONENT (методом наибольших остатков, сумма точно равна total). Кейсы получают немного (≤ CASE_SHARE).
+    Если даже минимумов не хватает — по одной карточке на узел (сумма тогда чуть больше total)."""
+    total = max(1, int(total))
+    cases = [n for n in nodes if n["tier"] == 3]
+    carriers = [n for n in nodes if n["tier"] < 3]
+    quotas: dict[str, int] = {}
+    per_case = max(1, min(case_cards, int(CASE_SHARE * total / len(cases)))) if cases else 0
+    for n in cases:
+        quotas[n["key"]] = per_case
+    left = total - per_case * len(cases)
+    floors = {n["key"]: (floor_override or {}).get(n["key"], TIER_FLOOR.get(n["tier"], 1)) for n in carriers}
+    if sum(floors.values()) > left:
+        floors = {k: 1 for k in floors}
+    spare = max(0, left - sum(floors.values()))
+    weights = {n["key"]: max(sizes.get(n["key"], 0), 1000) ** SIZE_EXPONENT for n in carriers}
+    wsum = sum(weights.values()) or 1.0
+    shares = {k: spare * w / wsum for k, w in weights.items()}
+    extra = {k: int(v) for k, v in shares.items()}
+    for k in sorted(shares, key=lambda k: shares[k] - extra[k], reverse=True)[:spare - sum(extra.values())]:
+        extra[k] += 1
+    for k, f in floors.items():
+        quotas[k] = f + extra.get(k, 0)
+        if max_cards:
+            quotas[k] = min(quotas[k], max_cards)
+    return quotas
+
+
+FACT_BLOCK_CHARS = 3200      # блок книги для конспекта: достаточно короткий, чтобы модель прошла его целиком, а не пересказала в общих чертах
+
+
+def fact_blocks(text: str, size: int = FACT_BLOCK_CHARS) -> list[tuple[int, int]]:
+    """Блоки книги по порядку: [a, b) по ~size знаков, границы по концам строк (как окна, но мельче)."""
+    return split_windows(text, size)
+
+
+def block_fact_targets(blocks: list[tuple[int, int]], weights: list[float], usable: list[bool], total: int) -> list[int]:
+    """Сколько фактов конспекта просить на каждый блок: total раскладывается по блокам пропорционально длине и весу блока
+    (насыщенность × новизна), у неучебных блоков (оглавление, литература) фактов нет. Наибольший остаток, сумма равна total;
+    учебный блок с заметной долей получает хотя бы один."""
+    raw = [(b - a) * w if ok else 0.0 for (a, b), w, ok in zip(blocks, weights, usable)]
+    wsum = sum(raw)
+    if total <= 0 or wsum <= 0:
+        return [0] * len(blocks)
+    shares = [total * r / wsum for r in raw]
+    out = [int(x) for x in shares]
+    for i in sorted(range(len(shares)), key=lambda i: shares[i] - out[i], reverse=True)[:max(0, total - sum(out))]:
+        out[i] += 1
+    return [max(1, k) if (ok and sh >= 0.4) else k for k, ok, sh in zip(out, usable, shares)]
+
+
+class NodeMatcher:
+    """К какому узлу карты отнести факт: среди лучших узлов его блока книги берётся тот, чьи название, описание и карточки больше
+    похожи на сам факт (программа, без вызовов ИИ). Кейсы (ярус 3) фактов не получают."""
+
+    def __init__(self, index: "SourceIndex", nodes: list[dict], cards_by_node: dict[str, list[dict]] | None = None):
+        self.index = index
+        self.carriers = [n for n in nodes if n["tier"] < 3]
+        cards_by_node = cards_by_node or {}
+        self.queries = []
+        for n in self.carriers:
+            cards = " ".join(f"{c['text']} {c['translation']}" for c in cards_by_node.get(n["key"], []))
+            self.queries.append(index.query(f"{n['name']} {n['name']} {n['name']} {n.get('summary') or ''} {cards}"))
+        self._win_top: dict[int, list[int]] = {}
+
+    def _window_top(self, win: int) -> list[int]:
+        if win not in self._win_top:
+            wv = self.index.vecs[win]
+            scored = sorted(((sum(x * wv.get(w, 0.0) for w, x in q.items()) * (1 + TIER_BONUS * self.carriers[i]["tier"]), i)
+                             for i, q in enumerate(self.queries)), reverse=True)
+            best = scored[0][0] if scored else 0.0
+            self._win_top[win] = [i for s, i in scored[:SOFT_TOP_K] if best >= MIN_MATCH_SCORE and s >= SOFT_MIN_SHARE * best]
+        return self._win_top[win]
+
+    def best(self, fact: str, win: int | None = None) -> str | None:
+        if not self.carriers:
+            return None
+        cands = (self._window_top(win) if win is not None and 0 <= win < len(self.index.vecs) else []) or list(range(len(self.carriers)))
+        fv = self.index.query(fact)
+        best_i, best_s = cands[0], -1.0
+        for i in cands:
+            s = sum(x * fv.get(w, 0.0) for w, x in self.queries[i].items()) * (1 + TIER_BONUS * self.carriers[i]["tier"])
+            if s > best_s:
+                best_i, best_s = i, s
+        return self.carriers[best_i]["key"]
+
+
 def card_density(index: SourceIndex, cards: list[dict]) -> list[int]:
     """Сколько карточек приходится на каждое окно источника (карточка → самое похожее окно)."""
     counts = [0] * len(index.spans)
@@ -149,7 +322,8 @@ def card_density(index: SourceIndex, cards: list[dict]) -> list[int]:
     return counts
 
 
-__all__ = ["join_wrapped", "lesson_alignment", "lesson_text", "card_in_lesson", "SourceIndex", "WINDOW_CHARS", "card_density", "card_quotas", "extract_sections", "node_source_sizes", "parse_src_refs", "section_card_report", "split_windows", "stems", "uncovered_sections", "weak_sections"]
+__all__ = ["join_wrapped", "lesson_alignment", "lesson_text", "card_in_lesson", "SourceIndex", "WINDOW_CHARS", "card_density", "card_quotas",
+           "allocate_cards", "target_cards", "fact_blocks", "block_fact_targets", "NodeMatcher", "window_saturation", "window_novelty", "effective_chars", "extract_sections", "node_source_sizes", "parse_src_refs", "section_card_report", "split_windows", "stems", "uncovered_sections", "weak_sections"]
 
 
 # ---------------------------------------------------------------------------

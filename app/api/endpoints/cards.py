@@ -359,6 +359,7 @@ async def move_card(
     card.subject = target_sub
     card.phrase_id = phrase.id
     card.node_id = None  # узел принадлежит пути прежнего предмета
+    card.source_id = None  # и материал тоже
     await db.commit()
 
     return {"status": "success", "card_id": card_id, "target_subject": target_sub}
@@ -442,7 +443,7 @@ async def bulk_move_cards(
     stmt = (
         update(Card)
         .where(Card.id.in_(payload.card_ids), Card.user_id == current_user)
-        .values(subject=target_sub, phrase_id=phrase.id, node_id=None)  # узлы принадлежат пути прежнего предмета
+        .values(subject=target_sub, phrase_id=phrase.id, node_id=None, source_id=None)  # узлы и материалы принадлежат пути прежнего предмета
     )
     await db.execute(stmt)
     await db.commit()

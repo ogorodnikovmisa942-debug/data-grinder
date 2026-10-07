@@ -10,6 +10,7 @@
 """
 import asyncio
 import json
+import math
 import os
 import random
 import re
@@ -26,21 +27,24 @@ from .path_prompts import (
     build_source_block,
     build_map_task,
     build_cards_task,
+    build_facts_task,
     build_links_task,
     build_intro_task,
     build_gaps_task,
+    build_align_task,
     build_audit_task,
     build_fill_task,
     build_lessons_task,
 )
 from . import coverage
 from . import card_quality
-from .budget import Budget
+from . import source_profile
+from .budget import Budget, FACTS_MIN_SHARE
 
 # ~1M токенов контекста deepseek-flash; оставляем запас под промпт, карту и ответ
 MAX_SOURCE_CHARS = 1_800_000
 # Платим только за фактический вывод, поэтому лимиты с запасом: обрезанный ответ дороже
-MAP_MAX_TOKENS = 40000
+MAP_MAX_TOKENS = 26000         # карта на 150 узлов — ~16 тыс. токенов; «зациклившийся» ответ на 40 тыс. стоил 2,4¢ впустую
 PACK_MAX_TOKENS = 48000
 LINKS_MAX_TOKENS = 8000
 # Для учебника/конспекта такого объёма карта без тем (только основы) — брак, а не результат
@@ -48,12 +52,17 @@ MIN_SOURCE_CHARS_FOR_TOPICS = 15000
 # Повтор карты: при 0.1–0.5 модель иногда снова отвечает «лениво» (только 8 узлов основ) — 0.7 в замере давал полную карту
 RETRY_TEMPERATURE = 0.7
 LAST_RETRY_TEMPERATURE = 0.9
+COMPACT_MAP_NUDGE = (
+    "\n\nNOTE: your previous answer was cut off because it was far too long. Return a COMPACT map: every summary at most 12 words, "
+    "no repeated or near-duplicate nodes, no more nodes than the NODE BUDGET allows (plus a fifth), at most 40 edges."
+)
 DEGENERATE_MAP_NUDGE = (
     "\n\nNOTE: your previous answer was too thin for this source (too few nodes or missing tiers). "
     "The MAP must cover the WHOLE source with all four tiers: tier 1 (5-10 topics), tier 2 (the subtopic target of the task block), "
-    "tier 3 (5-12 cases), plus the edges. Return the complete MAP JSON."
+    "tier 3 (cases, when the budget has any), plus the edges, following the NODE BUDGET of the task block. Return the complete MAP JSON."
 )
-PACK_BATCH_MAX_NODES = 10
+# Каждый запрос CARDS заново читает всю книгу из кэша (на книге в 340 тыс. токенов это ~$0.001), поэтому узлов в запросе много
+PACK_BATCH_MAX_NODES = 28            # замер 2026-10-07: 21 запрос карточек на книгу = 21 чтение книги из кеша (2,1¢); ответ узла ~0,7 тыс. токенов
 # Уроки пишутся без книги, только из карточек и выдержки — узлов в запросе можно больше, ответ короткий
 LESSON_BATCH_NODES = 6
 LESSON_MAX_TOKENS = 24000
@@ -90,14 +99,33 @@ MAX_GAP_SECTIONS = 30
 GAPS_MAX_TOKENS = 8000
 # Если узлы ссылаются хоть на столько крупных разделов — формат src пригоден для проверки; иначе она дала бы ложные «дыры»
 MIN_REFERENCED_SHARE = 0.2
-# Сколько карточек просить на узел: пропорционально его куску книги (≈ 1 карточка на столько знаков), в рамках границ
+# ЦЕЛЬ по числу карточек: одна на столько знаков источника (≈ страница учебника; для книги в 1,1 млн знаков это ~490 карточек).
+# Решение пользователя 2026-10-06: число карточек — цель по смыслу (колода = конспект, а не пересказ), а не результат расчёта по деньгам.
+# Деньги (Budget) только ограничивают необязательные этапы и предупреждают в журнале, если цель не укладывается в потолок.
+# Тот же коэффициент задаёт размер карты (сколько подтем просить: по ~6 карточек на подтему).
 CHARS_PER_CARD = int(os.getenv("PATH_CHARS_PER_CARD", "2300"))
+# «Конспект темы»: остаток текста, которого карточки не спрашивают, идёт готовым списком фактов узла (урок их не пересказывает).
+# PATH_FACTS=0 выключает; сколько фактов — source_profile.FACTS_PER_CARD (PATH_FACTS_SCALE)
+FACTS = os.getenv("PATH_FACTS", "1").lower() in ("1", "true", "yes")
+FACT_MAX_WORDS = 30
+# Факты запрашиваются отдельной задачей по блокам книги (по ~3000 знаков, подряд): так модель обязана пройти весь текст, а не пересказать
+# узел в общих чертах (замер 2026-10-07 на 148 страницах: по узлам — 24% эталона в конспекте, длинные разделы получали мало фактов)
+FACT_BATCH_BLOCKS = 60                 # блоков в одном запросе: ответ ~60 × 4 факта × 42 токена = 10 тыс. токенов; запрос заново читает книгу из кэша
+FACTS_MAX_TOKENS = 16000
+FACT_TOKENS_BASE, FACT_TOKENS_PER_ASKED = 800, 130      # потолок ответа: с запасом ×3 на запрошенное число фактов (если модель не слушается K, платим не больше)
+FACT_OVER_K = 1.6                                       # лишнее сверх K отрезается при разборе: блок отвечает не больше чем K×1,6+1 фактами
+MIN_FACT_SOURCE_CHARS = 3000           # короче этого факты не просим: весь текст и так укладывается в карточки
+FACT_ANCHOR_WORDS = (10, 6)            # сколько слов начала и конца блока показать модели, чтобы она нашла блок в книге
 MAX_TOTAL_CARDS = int(os.getenv("PATH_MAX_TOTAL_CARDS", "700"))
 # Паки идут одновременно: книга к этому моменту уже в кэше после карты. Замер при 4: 17 запросов = 5 «волн» по ~75 с
 PACK_CONCURRENCY = int(os.getenv("PATH_PACK_CONCURRENCY", "8"))
 LLM_TIMEOUT_S = 600.0
-# Карта строится дважды (вторая попытка читает книгу из кэша почти бесплатно) — берём лучшую по программной оценке
+# Карта строится до двух раз (вторая читает книгу из кэша, но её ответ — ещё ~$0.008 на книгу) — берём лучшую по программной оценке.
+# Вторая нужна, только если первая получила оценку ниже MAP_GOOD_SCORE (из 8 возможных баллов score_map)
 MAP_CANDIDATES = 2
+MAP_GOOD_SCORE = 5.5
+# Цена вперёд: если прогноз выходит за потолок (по замеру стоимости узлов и карточек), цель урезается, но не ниже этой доли плана
+PRICE_FLOOR_SHARE = 0.7
 MAP_SECOND_TEMPERATURE = 0.4
 # Уроки и карточки основ и тем (ярус 0–1) можно писать в режиме «обдумывания» (PATH_THINK_CORE=1).
 # Замер на «Общей теории права» (481 с., дешёвые часы): +≈$0.035 к книге (~+20%), а метафоры и качество уроков
@@ -243,10 +271,12 @@ def normalize_map(raw: dict) -> dict:
     edges = normalize_edges(raw.get("edges") or [], set(by_key))
 
     domain = str(raw.get("domain") or "generic").strip().lower()
+    source_type = str(raw.get("source_type") or "").strip().lower()
 
     return {
         "title": str(raw.get("title") or "").strip()[:160],
         "domain": domain,
+        "source_type": source_type if source_type in ("textbook", "article", "notes", "lecture") else None,
         "nodes": nodes,
         "edges": edges,
     }
@@ -275,11 +305,20 @@ def plan_pack_batches(path_map: dict, max_nodes: int = PACK_BATCH_MAX_NODES, spl
             placed.update(n["key"] for n in nodes if n["parent"] == branch_key)
         push([n["key"] for n in nodes if n["key"] not in placed])
         return batches
+    groups: list[list[str]] = []
     for branch in (n for n in nodes if n["tier"] == 1):
         members = [branch["key"]] + [n["key"] for n in nodes if n["parent"] == branch["key"]]
         placed.update(members)
-        push(members)
-    push([n["key"] for n in nodes if n["key"] not in placed])
+        groups.append(members)
+    groups.append([n["key"] for n in nodes if n["key"] not in placed])
+    # Мелкие ветки склеиваем подряд, пока влезает в запрос: каждый лишний запрос — ещё одно чтение всей книги из кэша
+    current: list[str] = []
+    for members in groups:
+        if current and len(current) + len(members) > max_nodes:
+            push(current)
+            current = []
+        current += members
+    push(current)
     return batches
 
 
@@ -395,6 +434,20 @@ def _normalize_card(raw, node: dict, domain: str, rejected: list | None = None, 
         return None
     card["distractors"] = _clean_distractors(card["translation"], raw.get("x"))
     return card
+
+
+def normalize_facts(raw, known_numbers: set[str] | None = None, limit: int = 40) -> list[str]:
+    """Факты узла: короткие утверждения по книге, которых нет в карточках. Отбрасываем пустое, слишком длинное
+    и всё, где названо число, которого нет в книге (выдуманные цифры — самое дешёвое, что можно проверить без вызова модели)."""
+    out: list[str] = []
+    for x in raw if isinstance(raw, list) else []:
+        text = re.sub(r"\s+", " ", str(x or "")).strip()
+        if not text or len(text.split()) > FACT_MAX_WORDS or text in out:
+            continue
+        if known_numbers is not None and any(n not in known_numbers for n in re.findall(r"\d+", text)):
+            continue
+        out.append(text)
+    return out[:limit]
 
 
 def normalize_cards(raw: dict, path_map: dict, requested_keys: list[str],
@@ -528,7 +581,7 @@ async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, 
 BIG_SOURCE_CHARS = 200_000
 
 
-def map_problem(path_map: dict, source_chars: int) -> str | None:
+def map_problem(path_map: dict, source_chars: int, budget: dict | None = None) -> str | None:
     """Карта слишком скудная для такого источника («ленивый» ответ модели)? Возвращает причину или None.
     Для коротких текстов проверяем только наличие тем; для книги — размер карты и подтемы."""
     if source_chars < MIN_SOURCE_CHARS_FOR_TOPICS:
@@ -537,6 +590,12 @@ def map_problem(path_map: dict, source_chars: int) -> str | None:
     tiers = [sum(1 for n in nodes if n["tier"] == t) for t in range(4)]
     if not any(n["tier"] >= 1 for n in nodes):
         return f"вырожденная карта: {len(nodes)} узлов, ни одной темы"
+    if budget:
+        if len(nodes) < max(5, round(0.5 * budget["total"])):
+            return f"скудная карта: {len(nodes)} узлов при бюджете {budget['total']}"
+        if source_chars >= BIG_SOURCE_CHARS and tiers[2] < max(2, round(0.4 * budget["tier2"])):
+            return f"скудная карта: подтем {tiers[2]} при бюджете {budget['tier2']}"
+        return None
     if len(nodes) < max(6, source_chars // 40_000):
         return f"скудная карта: {len(nodes)} узлов на {source_chars // 1000} тыс. знаков источника"
     if source_chars >= BIG_SOURCE_CHARS and (tiers[1] < 3 or tiers[2] < 8):
@@ -547,7 +606,7 @@ def map_problem(path_map: dict, source_chars: int) -> str | None:
 _TIER_TARGETS = {0: (5, 8), 1: (5, 10), 2: (15, 30), 3: (5, 12)}
 
 
-def score_map(path_map: dict, source_chars: int | None = None) -> float:
+def score_map(path_map: dict, source_chars: int | None = None, budget: dict | None = None) -> float:
     """Программная оценка карты (больше — лучше): ярусы в заданных диапазонах (подтем — по размеру книги), у узлов есть
     summary и src, подтемы привязаны к темам, достаточно осмысленных связей. Не заменяет чтение карты человеком,
     но отсеивает брак."""
@@ -555,7 +614,9 @@ def score_map(path_map: dict, source_chars: int | None = None) -> float:
     if not nodes:
         return 0.0
     targets = dict(_TIER_TARGETS)
-    if source_chars:
+    if budget:                           # ярусы — вокруг бюджета узлов этого материала, а не вокруг размеров «для книги»
+        targets = {t: (max(0, round(0.6 * budget[f"tier{t}"])), max(1, round(1.5 * budget[f"tier{t}"]) + 1)) for t in range(4)}
+    elif source_chars:
         k = subtopic_target(source_chars, CHARS_PER_CARD)
         targets[2] = (max(8, round(0.6 * k)), max(30, round(1.6 * k)))
     score = 0.0
@@ -567,22 +628,26 @@ def score_map(path_map: dict, source_chars: int | None = None) -> float:
     deep = [x for x in nodes if x["tier"] >= 2]
     score += (sum(1 for x in deep if x["parent"]) / len(deep)) if deep else 0.0
     edges = len(path_map["edges"])
-    score += 1.0 if 15 <= edges <= 60 else max(0.0, 1.0 - (15 - edges if edges < 15 else edges - 60) / 15)
+    lo, hi = (max(4, round(0.4 * len(nodes))), max(12, round(1.8 * len(nodes)))) if budget else (15, 60)
+    score += 1.0 if lo <= edges <= hi else max(0.0, 1.0 - (lo - edges if edges < lo else edges - hi) / max(lo, 1))
     return round(score, 3)
 
 
 async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts: int = 3, candidates: int = 1) -> dict:
     from .client import LLMOutputTruncated
-    base_prompt = build_source_block(text) + build_map_task(subject, len(text), CHARS_PER_CARD)
+    # Бюджет узлов: из цели по карточкам (тип по тексту — до того, как модель назовёт свой): ≈ цель / 4 узлов
+    budget = source_profile.node_budget(source_profile.target_cards(source_profile.heuristic_kind(text), text))
+    base_prompt = build_source_block(text) + build_map_task(subject, len(text), CHARS_PER_CARD, budget)
     prompt = base_prompt
     last_err = None
     best = None
+    compact_retry_used = False
     for attempt in range(1, attempts + 1):
         try:
             # Повтор после брака — с большей температурой, иначе модель выдаст тот же ответ
             temperature = 0.1 if attempt == 1 else (RETRY_TEMPERATURE if attempt == 2 else LAST_RETRY_TEMPERATURE)
             path_map = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#{attempt}", calls_log, temperature))
-            problem = map_problem(path_map, len(text))
+            problem = map_problem(path_map, len(text), budget)
             if problem:
                 # Подсказка уходит только в хвост запроса: префикс «system + книга» остаётся прежним (кэш DeepSeek)
                 prompt = base_prompt + DEGENERATE_MAP_NUDGE
@@ -590,21 +655,30 @@ async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts
             best = path_map
             break
         except LLMOutputTruncated as e:
-            # Тот же запрос обрежется снова — не тратим деньги на повтор
-            raise PathBuildError(f"Карта знаний не поместилась в лимит ответа: {e}") from e
+            # Тот же запрос обрежется снова: повторяем один раз, но с просьбой о компактной карте и теплее; второй обрыв — ошибка
+            if compact_retry_used:
+                raise PathBuildError(f"Карта знаний не поместилась в лимит ответа: {e}") from e
+            compact_retry_used = True
+            prompt = base_prompt + COMPACT_MAP_NUDGE
+            last_err = e
+            print(f"[Path Builder WARN] MAP попытка {attempt}/{attempts}: ответ обрезан, повторяю с просьбой о компактной карте", flush=True)
         except Exception as e:  # noqa: BLE001 — ретраим сбои сети/парсинга
             last_err = e
             print(f"[Path Builder WARN] MAP попытка {attempt}/{attempts}: {e}", flush=True)
     if best is None:
         raise PathBuildError(f"Не удалось построить карту знаний: {last_err}")
 
-    # Вторая карта: книга уже в кэше, платим почти только за вывод. Берём лучшую; сбой второй карты не фатален
+    # Вторая карта: книга уже в кэше, платим почти только за вывод. Берём лучшую; сбой второй карты не фатален.
+    # Первая карта с хорошей оценкой — вторую не строим: экономия идёт в карточки
     for extra in range(2, candidates + 1):
+        if score_map(best, len(text), budget) >= MAP_GOOD_SCORE:
+            print(f"[Path Builder] MAP: оценка {score_map(best, len(text), budget)} достаточна, вторую карту не строим", flush=True)
+            break
         try:
             other = normalize_map(await _call(prompt, MAP_MAX_TOKENS, f"map#alt{extra}", calls_log, MAP_SECOND_TEMPERATURE))
-            if map_problem(other, len(text)):
+            if map_problem(other, len(text), budget):
                 continue
-            s_best, s_other = score_map(best, len(text)), score_map(other, len(text))
+            s_best, s_other = score_map(best, len(text), budget), score_map(other, len(text), budget)
             print(f"[Path Builder] MAP: оценки {s_best} (1) и {s_other} (альтернатива)", flush=True)
             if s_other > s_best:
                 best = other
@@ -716,23 +790,28 @@ def question_opener_stats(cards: list[dict]) -> dict:
             "numeric_answers_share": round(numeric / len(cards), 3)}
 
 
-def plan_card_quotas(text: str, path_map: dict, size_hints: dict[str, int] | None = None,
-                     total_cap: int | None = None, index: "coverage.SourceIndex | None" = None) -> dict[str, int] | None:
-    """Квоты карточек по размеру куска книги, который покрывает узел. None — текст слишком короткий/без слов: тогда
-    промпт использует обычные диапазоны по ярусам. size_hints — известный объём (узлы, добавленные проверкой охвата).
-    total_cap — сколько карточек позволяет бюджет (действует всегда); MAX_TOTAL_CARDS и потолок на узел — только при CARD_CAPS."""
-    index = index or coverage.SourceIndex(text)
-    if not index.usable:
-        return None
+def node_sizes_with_hints(index: "coverage.SourceIndex", path_map: dict, size_hints: dict[str, int] | None = None) -> dict[str, int]:
     sizes = coverage.node_source_sizes(index, path_map["nodes"])
     sizes.update({k: v for k, v in (size_hints or {}).items() if k in sizes})
-    cap = total_cap
+    return sizes
+
+
+def plan_card_quotas(text: str, path_map: dict, size_hints: dict[str, int] | None = None,
+                     total: int | None = None, index: "coverage.SourceIndex | None" = None,
+                     sizes: dict[str, int] | None = None, floor_override: dict[str, int] | None = None) -> dict[str, int] | None:
+    """Квоты карточек по узлам. total — ЦЕЛЬ по числу карточек колоды; по умолчанию одна на CHARS_PER_CARD знаков источника
+    (coverage.target_cards). Деньги цель не меняют. Кому сколько — coverage.allocate_cards (минимум по ярусу, остальное по размеру
+    куска книги). Короткий или безбуквенный текст (индекс по окнам неприменим): размеры узлов неизвестны, карточки делятся поровну по минимумам
+    ярусов — цель всё равно соблюдается (шпаргалка на две страницы получает свои 30 карточек).
+    size_hints — известный объём (узлы, добавленные проверкой охвата). MAX_TOTAL_CARDS и потолок на узел — только при CARD_CAPS."""
+    index = index or coverage.SourceIndex(text)
+    if sizes is None:
+        sizes = node_sizes_with_hints(index, path_map, size_hints) if index.usable else {}
+    goal = coverage.target_cards(len(text), CHARS_PER_CARD) if total is None else max(1, total)
     if CARD_CAPS:
-        cap = MAX_TOTAL_CARDS if cap is None else min(MAX_TOTAL_CARDS, cap)
-    if cap is not None:
-        cap = max(1, cap)       # бюджет исчерпан (0) — это «минимум на узел», а не «без ограничения»: card_quotas считает 0 за отсутствие лимита
-    return coverage.card_quotas(path_map["nodes"], sizes, chars_per_card=CHARS_PER_CARD,
-                                max_cards=coverage.MAX_CARDS_PER_NODE if CARD_CAPS else None, total_cap=cap)
+        goal = min(goal, MAX_TOTAL_CARDS)
+    return coverage.allocate_cards(path_map["nodes"], sizes, goal, floor_override=floor_override,
+                                   max_cards=coverage.MAX_CARDS_PER_NODE if CARD_CAPS else None)
 
 
 def quota_report(path_map: dict, quotas: dict[str, int] | None, sizes: dict[str, int] | None,
@@ -764,8 +843,9 @@ async def _run_batched(keys: list[str], make_prompt, normalize, max_tokens: int,
         if not missing:
             break
         try:
+            # Повтор с той же температурой даёт тот же брак (замер: битый JSON у одной темы три раза подряд): с каждой попыткой теплее
             raw = await _call(make_prompt(missing), max_tokens, f"{label}{'*' if thinking else ''}[{','.join(missing)}]#{attempt}",
-                              calls_log, thinking=thinking)
+                              calls_log, temperature=(0.1, 0.5, 0.8)[min(attempt - 1, 2)], thinking=thinking)
             collected.update(normalize(raw, missing))
         except LLMOutputTruncated as e:
             if len(missing) == 1:
@@ -788,19 +868,108 @@ async def _run_batched(keys: list[str], make_prompt, normalize, max_tokens: int,
 
 async def build_cards(text: str, path_map: dict, node_keys: list[str], calls_log: list, attempts: int = 3,
                       thinking: bool = False, quotas: dict[str, int] | None = None,
-                      rejected: list | None = None, strict: bool = False) -> dict[str, list[dict]]:
+                      rejected: list | None = None, source_type: str | None = None,
+                      already_asked: dict[str, list[str]] | None = None) -> dict[str, list[dict]]:
     """Карточки узлов с цитатами из книги. Книга идёт префиксом запроса (кэш DeepSeek). Узел без единой годной карточки
     считается не полученным и запрашивается повторно."""
     map_json = json.dumps(path_map, ensure_ascii=False, separators=(",", ":"))
 
     def make_prompt(missing: list[str]) -> str:
-        return build_source_block(text) + build_cards_task(map_json, missing, quotas, strict)
+        return build_source_block(text) + build_cards_task(map_json, missing, quotas, source_type, already_asked)
 
     def normalize(raw, missing):
         return {k: v for k, v in normalize_cards(raw, path_map, missing, quotas, rejected).items() if v}
 
     return await _run_batched(node_keys, make_prompt, normalize, CORE_PACK_MAX_TOKENS if thinking else PACK_MAX_TOKENS,
                               "cards", calls_log, attempts, thinking)
+
+
+# ---------------------------------------------------------------------------
+# FACTS: конспект темы по блокам книги
+# ---------------------------------------------------------------------------
+
+def _anchor(text: str, a: int, b: int) -> tuple[str, str]:
+    """Слова начала и конца блока: по ним модель находит блок в книге. Кавычки убираем, чтобы не ломать строку запроса."""
+    def words(chunk: str) -> list[str]:
+        return re.sub(r"[«»\"]", "", chunk).split()
+    head = words(card_quality._clean_cut(text, a, min(b, a + 220)))[:FACT_ANCHOR_WORDS[0]]
+    tail = words(card_quality._clean_cut(text, max(a, b - 160), b))[-FACT_ANCHOR_WORDS[1]:]
+    return " ".join(head), " ".join(tail)
+
+
+def plan_fact_blocks(text: str, index: "coverage.SourceIndex", verifier: "card_quality.CardVerifier", weights: list[float] | None,
+                     total: int) -> list[dict]:
+    """Блоки книги, в которых просим факты: [{id, i, a, b, k, start, end}] по порядку. total фактов раскладывается по блокам
+    пропорционально длине и весу (насыщенность × новизна), в оглавлении, литературе и таблицах фактов нет."""
+    spans = coverage.fact_blocks(text)
+    usable, wts = [], []
+    for a, b in spans:
+        chunk = text[a:b]
+        size = max(1, len(chunk))
+        letters = sum(1 for ch in chunk if ch.isalpha())
+        digits = sum(1 for ch in chunk if ch.isdigit())
+        teaching = letters / size >= 0.6 and digits / size <= 0.06 and chunk.count("....") <= 3 and (b - a) >= 600
+        win = verifier.window_of((a + b) // 2) if index.usable else 0
+        usable.append(teaching and (not index.usable or verifier.substantive(win)))
+        wts.append(weights[win] if (weights and win < len(weights)) else 1.0)
+    ks = coverage.block_fact_targets(spans, wts, usable, total)
+    out = []
+    for i, ((a, b), k) in enumerate(zip(spans, ks)):
+        if k > 0:
+            start, end = _anchor(text, a, b)
+            out.append({"id": f"B{i + 1}", "i": i, "a": a, "b": b, "k": k, "start": start, "end": end})
+    return out
+
+
+def normalize_fact_blocks(raw, wanted: dict[str, int] | set[str], known_numbers: set[str] | None = None) -> dict[str, list[str]]:
+    """{id блока: факты} для запрошенных блоков, которые модель вернула (пустой список — тоже ответ: блок без учебного текста).
+    wanted — {id: K}; сверх K×FACT_OVER_K+1 фактов блока отбрасываются (они идут в порядке блока, отрезается конец)."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("blocks"), list):
+        raise PathBuildError("FACTS: ответ без списка blocks")
+    out: dict[str, list[str]] = {}
+    for item in raw["blocks"]:
+        if not isinstance(item, dict):
+            continue
+        bid = str(item.get("id") or "").strip().upper()
+        if bid in wanted and bid not in out:
+            facts = normalize_facts(item.get("facts"), known_numbers)
+            k = wanted[bid] if isinstance(wanted, dict) else None
+            out[bid] = facts[:int(k * FACT_OVER_K) + 1] if k else facts
+    if not out:
+        raise PathBuildError("FACTS: ни один запрошенный блок не вернулся")
+    return out
+
+
+async def build_facts(text: str, blocks: list[dict], calls_log: list, semaphore: "asyncio.Semaphore | None" = None,
+                      attempts: int = 3) -> list[dict]:
+    """Конспект темы: [{t, blk, seq}] — факты по блокам в порядке книги. Книга идёт тем же префиксом, что и у карточек (кэш DeepSeek)."""
+    if not blocks:
+        return []
+    by_id = {b["id"]: b for b in blocks}
+    known_numbers = set(re.findall(r"\d+", text))
+    sem = semaphore or asyncio.Semaphore(PACK_CONCURRENCY)
+
+    def lines(ids: list[str]) -> list[str]:
+        return [f'{i} | K={by_id[i]["k"]} | starts: «{by_id[i]["start"]}» | ends: «{by_id[i]["end"]}»' for i in ids]
+
+    async def run(batch: list[dict]):
+        ids = [b["id"] for b in batch]
+
+        def make_prompt(missing: list[str]) -> str:
+            return build_source_block(text) + build_facts_task(lines(missing))
+
+        def normalize(raw, missing):
+            return normalize_fact_blocks(raw, {i: by_id[i]["k"] for i in missing}, known_numbers)
+
+        limit = min(FACTS_MAX_TOKENS, FACT_TOKENS_BASE + FACT_TOKENS_PER_ASKED * sum(b["k"] for b in batch))
+        async with sem:
+            return await _run_batched(ids, make_prompt, normalize, limit, "facts", calls_log, attempts)
+
+    out: list[dict] = []
+    for part in await asyncio.gather(*(run(blocks[i:i + FACT_BATCH_BLOCKS]) for i in range(0, len(blocks), FACT_BATCH_BLOCKS))):
+        for bid, facts in part.items():
+            out += [{"t": t, "blk": by_id[bid]["i"], "seq": j} for j, t in enumerate(facts)]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -901,20 +1070,35 @@ def _fill_job_blocks(jobs: list[dict], path_map: dict, cards_by_node: dict[str, 
     return "\n".join(node_lines), "\n\n".join(passages)
 
 
+def spread_pick(items: list, n: int) -> list:
+    """n элементов, равномерно рассыпанных по списку (список идёт в порядке книги): иначе при нехватке денег добор достался бы
+    только началу книги."""
+    if n >= len(items):
+        return list(items)
+    if n <= 0:
+        return []
+    if n == 1:
+        return [items[len(items) // 2]]
+    return [items[round(i * (len(items) - 1) / (n - 1))] for i in range(n)]
+
+
 async def fill_cards(verifier: "card_quality.CardVerifier", path_map: dict, cards_by_node: dict[str, list[dict]],
-                     calls_log: list, budget: Budget, must_keep: float, rejected: list | None = None) -> dict:
+                     calls_log: list, budget: Budget, must_keep: float, rejected: list | None = None,
+                     max_cards: int | None = None) -> dict:
     """Добор карточек на абзацах книги, которых не коснулась ни одна карточка (по точным местам цитат). Передаётся только сам
-    кусок (не вся книга). Новые карточки проходят ту же проверку по книге; не прошедшие отбрасываются. Сбой не фатален."""
+    кусок (не вся книга). Новые карточки проходят ту же проверку по книге; не прошедшие отбрасываются. Сбой не фатален.
+    max_cards — сколько карточек не хватает до цели: участков берём не больше, чем нужно, и сверх цели не добавляем."""
     all_cards = [c for lst in cards_by_node.values() for c in lst]
     spans = verifier.uncovered_passages(all_cards)                  # абзацы, которых не коснулась ни одна карточка
     if CARD_CAPS:
         spans = sorted(spans, key=lambda sp: -sp["chars"])[:MAX_FILL_SPANS]
     if not spans:
         return {"spans": 0, "added": 0}
-    n = budget.affordable("добор участков", budget.fill_cost(1), must_keep, len(spans))
+    wanted_spans = len(spans) if max_cards is None else min(len(spans), -(-max_cards // FILL_MIN_CARDS))
+    n = budget.affordable("добор участков", budget.fill_cost(1), must_keep, wanted_spans)
     if n <= 0:
         return {"spans": 0, "added": 0, "skipped": len(spans)}
-    spans = spans[:n]
+    spans = spread_pick(spans, n)
     by_key = {nd["key"]: nd for nd in path_map["nodes"]}
     domain = path_map.get("domain") or "generic"
     jobs = []
@@ -948,6 +1132,8 @@ async def fill_cards(verifier: "card_quality.CardVerifier", path_map: dict, card
             if key not in by_key or by_key[key]["tier"] >= 3:
                 key = job["node"]
             for rc in (item.get("cards") or [])[:job["target"] + 1]:
+                if max_cards is not None and report["added"] >= max_cards:      # цель достигнута: больше не добавляем
+                    break
                 report["asked"] += 1
                 card = _normalize_card(rc, by_key[key], domain, rejected, (path_map.get("title") or "").strip())
                 front = _norm_text(card["text"]) if card else ""
@@ -1025,7 +1211,7 @@ def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, v
 
 async def build_lessons(verifier: "card_quality.CardVerifier", path_map: dict, cards_by_node: dict[str, list[dict]],
                         calls_log: list, keys: list[str] | None = None, omitted: dict[str, list[str]] | None = None,
-                        attempts: int = 3) -> dict[str, dict]:
+                        attempts: int = 3, source_type: str | None = None) -> dict[str, dict]:
     """Уроки узлов: по LESSON_BATCH_NODES узлов в запросе, запросы идут одновременно. Узел без карточек урока не получает."""
     by_key = {n["key"]: n for n in path_map["nodes"]}
     order = [n["key"] for n in path_map["nodes"] if (keys is None or n["key"] in keys) and cards_by_node.get(n["key"])]
@@ -1035,7 +1221,7 @@ async def build_lessons(verifier: "card_quality.CardVerifier", path_map: dict, c
 
     def make_prompt(missing: list[str]) -> str:
         blocks = [_lesson_block(by_key[k], cards_by_node[k], path_map, by_key, verifier, (omitted or {}).get(k)) for k in missing]
-        return build_lessons_task("\n\n".join(blocks))
+        return build_lessons_task("\n\n".join(blocks), source_type)
 
     def normalize(raw, missing):
         return normalize_lessons(raw, path_map, missing, fronts)
@@ -1143,9 +1329,101 @@ async def build_intro_lesson(path_map: dict, calls_log: list) -> dict | None:
 # Полный прогон
 # ---------------------------------------------------------------------------
 
-async def build_learning_path(text: str, subject: str, calls: list | None = None) -> dict:
-    """Полный прогон: MAP → CARDS → проверка по книге (AUDIT) и добор (FILL) → LESSON из карточек.
-    Возвращает карту, пакеты узлов {урок, карточки} и телеметрию."""
+# ---------------------------------------------------------------------------
+# ALIGN: темы нового материала против тем курса, который уже есть
+# ---------------------------------------------------------------------------
+
+ALIGN_MAX_TOKENS = 8000
+ALIGN_CANDIDATES = 3
+ALIGN_MIN_SCORE = 0.12
+
+
+def node_candidates(new_nodes: list[dict], existing_nodes: list[dict], k: int = ALIGN_CANDIDATES,
+                    min_score: float = ALIGN_MIN_SCORE) -> dict[str, list[str]]:
+    """Для каждого нового узла — до k похожих узлов курса по названию и описанию (TF-IDF по стеммам, без вызовов ИИ).
+    Модель выбирает только из них, поэтому запрос короткий и ошибиться «слишком далеко» ей нечем."""
+    def toks(n: dict) -> list[str]:
+        return coverage.stems(f"{n['name']} {n['name']} {n.get('summary') or ''}")
+
+    docs = [toks(n) for n in existing_nodes]
+    df = Counter(w for d in docs for w in set(d))
+    total = max(1, len(docs))
+    idf = {w: math.log(total / (1 + c)) + 1.0 for w, c in df.items()}
+
+    def vec(tokens: list[str]) -> dict[str, float]:
+        tf = Counter(tokens)
+        v = {w: (1 + math.log(c)) * idf.get(w, 1.0) for w, c in tf.items()}
+        norm = math.sqrt(sum(x * x for x in v.values())) or 1.0
+        return {w: x / norm for w, x in v.items()}
+
+    ex_vecs = [vec(d) for d in docs]
+    out: dict[str, list[str]] = {}
+    for n in new_nodes:
+        q = vec(toks(n))
+        scored = sorted(((sum(x * ev.get(w, 0.0) for w, x in q.items()), existing_nodes[i]["key"]) for i, ev in enumerate(ex_vecs)), reverse=True)
+        out[n["key"]] = [key for s_, key in scored[:k] if s_ >= min_score]
+    return out
+
+
+def normalize_align(raw: dict, candidates: dict[str, list[str]], new_by_key: dict, existing_by_key: dict) -> dict[str, str]:
+    """{ключ нового узла: ключ узла курса}: только из предложенных кандидатов, не больше одного нового узла на существующий,
+    ярусы не дальше чем на один, кейсы не сливаем."""
+    mapping: dict[str, str] = {}
+    used: set[str] = set()
+    for item in (raw or {}).get("align") or []:
+        if not isinstance(item, dict):
+            continue
+        nk, ek = _slug(item.get("new") or ""), _slug(item.get("same") or "")
+        if not ek or nk not in candidates or ek not in candidates[nk] or ek in used or nk in mapping:
+            continue
+        nn, en = new_by_key[nk], existing_by_key[ek]
+        if nn["tier"] >= 3 or en.get("tier", 0) >= 3 or abs(nn["tier"] - en.get("tier", 0)) > 1:
+            continue
+        mapping[nk] = ek
+        used.add(ek)
+    return mapping
+
+
+async def build_align(path_map: dict, course: dict, calls_log: list) -> tuple[dict[str, str], dict]:
+    """Какие темы нового материала — те же, что уже есть в курсе. Сбой не фатален: без слияния новые темы просто станут отдельными."""
+    new_nodes = [n for n in path_map["nodes"] if n["tier"] < 3]
+    existing = [n for n in (course.get("nodes") or []) if n.get("tier", 0) < 3]
+    if not new_nodes or not existing:
+        return {}, {"asked": 0}
+    cands = node_candidates(new_nodes, existing)
+    todo = {k: v for k, v in cands.items() if v}
+    if not todo:
+        return {}, {"asked": 0}
+    new_by_key = {n["key"]: n for n in new_nodes}
+    existing_by_key = {n["key"]: n for n in existing}
+    lines = []
+    for nk, ek_list in todo.items():
+        n = new_by_key[nk]
+        cand_txt = "; ".join(f'{ek} "{existing_by_key[ek]["name"]}" (tier {existing_by_key[ek].get("tier", 0)}) '
+                             f'{(existing_by_key[ek].get("summary") or "")[:90]}' for ek in ek_list)
+        lines.append(f'{nk} | "{n["name"]}" (tier {n["tier"]}) {(n.get("summary") or "")[:100]} -> candidates: {cand_txt}')
+    try:
+        raw = await _call(build_align_task("\n".join(lines)), ALIGN_MAX_TOKENS, "align#1", calls_log)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Path Builder WARN] ALIGN: {e}", flush=True)
+        return {}, {"asked": len(todo), "error": str(e)[:100]}
+    mapping = normalize_align(raw, todo, new_by_key, existing_by_key)
+    return mapping, {"asked": len(todo), "merged": len(mapping)}
+
+
+# ---------------------------------------------------------------------------
+# Полный прогон
+# ---------------------------------------------------------------------------
+
+async def build_learning_path(text: str, subject: str, calls: list | None = None, card_total: int | None = None,
+                              course: dict | None = None) -> dict:
+    """Полный прогон: MAP → тип материала и цель → (ALIGN с имеющимся курсом) → CARDS → проверка по книге (AUDIT) → добор до цели (FILL)
+    → LESSON из карточек. Возвращает карту, пакеты узлов {урок, карточки} и телеметрию.
+    Цель по карточкам зависит от типа материала (source_profile): учебник ≈ одна на страницу, конспект ≈ по карточке на пункт.
+    card_total задаёт другое число (scripts/run_book.py --cards).
+    course — курс предмета, если материал добавляется к уже имеющемуся: {"nodes": [{key, name, tier, summary}], "cards": {key: [{"q", "a"}]}}.
+    Тогда темы, совпавшие с имеющимися, сливаются (result["merge"]), уже покрытые куски получают меньше карточек, а по совпавшим
+    темам модель видит, что уже спрошено, и пишет только новое."""
     text = (text or "").strip()
     if not text:
         raise PathBuildError("Пустой источник")
@@ -1158,20 +1436,65 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES)
     path_map, size_hints, gap_report = await fill_map_gaps(text, path_map, calls)
 
+    kind = source_profile.resolve_kind(path_map.get("source_type"), text)
     index = coverage.SourceIndex(text)
     verifier = card_quality.CardVerifier(text, index)
-    node_sizes = coverage.node_source_sizes(index, path_map["nodes"]) if index.usable else None
+
+    # Что в курсе уже есть: какие куски нового текста покрыты имеющимися карточками и какие темы совпали
+    course = course or {}
+    existing_cards = course.get("cards") or {}
+    card_texts = [f"{c['q']} {c['a']}" for qs in existing_cards.values() for c in qs]
+    novelty = coverage.window_novelty(index, card_texts) if (index.usable and card_texts) else None
+    saturation = coverage.window_saturation(index) if index.usable else None
+    weights = None
+    if saturation:
+        weights = [s_ * (coverage.COVERED_FLOOR + (1 - coverage.COVERED_FLOOR) * (novelty[i] if novelty else 1.0)) for i, s_ in enumerate(saturation)]
+    merge, align_report = (await build_align(path_map, course, calls)) if course.get("nodes") else ({}, {})
+
+    node_sizes = coverage.node_source_sizes(index, path_map["nodes"], weights) if index.usable else None
     if node_sizes:
         node_sizes.update({k: v for k, v in size_hints.items() if k in node_sizes})
+    # Короткий текст: окон слишком мало для оценки кусков, но цель по типу материала остаётся (карточки по узлам — поровну)
     core_keys = {n["key"] for n in path_map["nodes"] if n["tier"] <= 1}
     batches = plan_pack_batches(path_map, split_core=THINK_CORE)
-    cap = budget.card_cap(len(text), len(path_map["nodes"]), len(batches))
-    quotas = plan_card_quotas(text, path_map, size_hints, total_cap=cap, index=index)
-    wanted = plan_card_quotas(text, path_map, size_hints, total_cap=None, index=index)       # сколько нужно по объёму книги, без учёта денег
-    strict = bool(quotas and wanted and sum(quotas.values()) < sum(wanted.values()))        # денег не хватает на всё: берём самое важное
-    print(f"[Path Builder] бюджет: потрачено ${budget.spent():.4f} из ${budget.limit:.2f}; карточек по карману: {cap}; "
-          f"по объёму книги нужно {sum(wanted.values()) if wanted else '—'}, квот {sum(quotas.values()) if quotas else '—'}"
-          f"{' (STRICT: берём самое важное)' if strict else ''}; прочие потолки числа карточек {'ВКЛ' if CARD_CAPS else 'выкл'}", flush=True)
+    effective = coverage.effective_chars(index, novelty) if novelty else len(text)
+    planned = card_total or max(1, round(source_profile.target_cards(kind, text) * effective / max(1, len(text))))
+    use_facts = bool(FACTS and len(text) >= MIN_FACT_SOURCE_CHARS)
+    fact_ratio = source_profile.facts_per_card(kind) if use_facts else 0.0
+    fact_ratio_min = round(FACTS_MIN_SHARE * fact_ratio, 2)
+    fact_blocks_est = len(coverage.fact_blocks(text)) if use_facts else 0
+    fact_calls = -(-fact_blocks_est // FACT_BATCH_BLOCKS)
+    fits = budget.card_cap(len(text), len(path_map["nodes"]), len(batches), facts=fact_ratio, fact_blocks=fact_blocks_est, fact_calls=fact_calls)
+    goal = planned
+    if card_total is None and fits < planned:
+        # Цена вперёд: урезаем понемногу и факты (до половины от плана), и карточки (до PRICE_FLOOR_SHARE плана), пока не уложимся в потолок.
+        # Факт в 7 раз дешевле карточки и по замеру даёт не меньше покрытия, но колода из одних фактов — не колода: режем обоих вместе
+        floor_cards = round(PRICE_FLOOR_SHARE * planned)
+        while fits < goal:
+            can_facts = use_facts and fact_ratio > fact_ratio_min
+            can_cards = goal > floor_cards
+            if not (can_facts or can_cards):
+                break
+            if can_facts:
+                fact_ratio = max(fact_ratio_min, round(fact_ratio - 0.2, 2))
+            if can_cards:
+                goal = max(floor_cards, round(goal * 0.95))
+            fits = budget.card_cap(len(text), len(path_map["nodes"]), len(batches), facts=fact_ratio,
+                                   fact_blocks=fact_blocks_est, fact_calls=fact_calls)
+        print(f"[Path Builder] цена: план {planned} карточек; в потолок ${budget.limit:.2f} помещается ~{fits} при {fact_ratio:.2f} факта на карточку; "
+              f"цель {goal} карточек, фактов на карточку {fact_ratio:.2f}", flush=True)
+    quotas = plan_card_quotas(text, path_map, size_hints, total=goal, index=index, sizes=node_sizes,
+                              floor_override={k: 1 for k in merge})
+    target = sum(quotas.values()) if quotas else None                                    # цель по числу карточек (не зависит от денег)
+    fact_blocks = plan_fact_blocks(text, index, verifier, weights, round(fact_ratio * (target or goal))) if (use_facts and fact_ratio) else []
+    asked_by_new = {nk: [c["q"] for c in existing_cards.get(ek, [])] for nk, ek in merge.items() if existing_cards.get(ek)}
+    projected = budget.projected_cost(len(text), len(path_map["nodes"]), len(batches), target or 0, facts=fact_ratio,
+                                      fact_blocks=len(fact_blocks), fact_calls=-(-len(fact_blocks) // FACT_BATCH_BLOCKS))
+    print(f"[Path Builder] тип материала: {kind} (модель назвала: {path_map.get('source_type')}); цель: {target if target else '—'} карточек; "
+          f"покрыто курсом {0 if not novelty else sum(1 for x in novelty if x < 0.5)} из {len(novelty or [])} окон; слито тем: {len(merge)}; "
+          f"потрачено ${budget.spent():.4f}, ожидаемо всего ~${projected:.3f} при потолке ${budget.limit:.2f}"
+          f"{'' if not target or target <= fits else f' — ЦЕЛЬ ДОРОЖЕ ПОТОЛКА (в потолок помещается ~{fits})'}; "
+          f"прочие потолки числа карточек {'ВКЛ' if CARD_CAPS else 'выкл'}", flush=True)
 
     semaphore = asyncio.Semaphore(PACK_CONCURRENCY)
 
@@ -1180,18 +1503,30 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     async def run(batch: list[str]):
         async with semaphore:
             return await build_cards(text, path_map, batch, calls, thinking=THINK_CORE and all(k in core_keys for k in batch),
-                                     quotas=quotas, rejected=rejected, strict=strict)
+                                     quotas=quotas, rejected=rejected,
+                                     source_type=kind, already_asked=asked_by_new)
 
     results = await asyncio.gather(
         build_cross_links(text, path_map, calls),
         build_intro_lesson(path_map, calls),
+        build_facts(text, fact_blocks, calls, semaphore),
         *(run(b) for b in batches),
     )
     path_map["edges"].extend(results[0])
     intro = results[1]
+    raw_facts = results[2]
     cards_by_node: dict[str, list[dict]] = {}
-    for part in results[2:]:
+    for part in results[3:]:
         cards_by_node.update(part)
+
+    # Совпавшая тема: не повторяем то, что в курсе уже спрошено дословно
+    dropped_existing = 0
+    for nk, ek in merge.items():
+        have_fronts = {_norm_text(c["q"]) for c in existing_cards.get(ek, [])}
+        if nk in cards_by_node:
+            kept = [c for c in cards_by_node[nk] if _norm_text(c["text"]) not in have_fronts]
+            dropped_existing += len(cards_by_node[nk]) - len(kept)
+            cards_by_node[nk] = kept
 
     # Качество карточек: повторы, проверка по книге, добор — до уроков, потому что урок строится из окончательного набора
     order = [n["key"] for n in path_map["nodes"]]
@@ -1200,13 +1535,23 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     support, flagged = verifier.verify(all_cards)
 
     def reserve() -> float:
-        return budget.lessons_cost(sum(1 for v in cards_by_node.values() if v), sum(len(v) for v in cards_by_node.values()))
+        return budget.lessons_cost(sum(1 for k, v in cards_by_node.items() if v and k not in merge),
+                                   sum(len(v) for k, v in cards_by_node.items() if k not in merge))
 
     audit_report = await audit_cards(verifier, cards_by_node, flagged, calls, budget, reserve())
-    fill_report = await fill_cards(verifier, path_map, cards_by_node, calls, budget, reserve(), rejected)
+    # Добор — только чтобы дотянуть до цели, если модель дала меньше квот (не раздувает колоду сверх неё); берёт абзацы без карточек
+    have = sum(len(v) for v in cards_by_node.values())
+    deficit = (target - have) if target else None
+    fill_report = ({"spans": 0, "added": 0, "skipped": "цель достигнута"} if deficit is not None and deficit < FILL_MIN_CARDS
+                   else await fill_cards(verifier, path_map, cards_by_node, calls, budget, reserve(), rejected, max_cards=deficit))
     dedupe_removed += card_quality.dedupe_cards(cards_by_node, order)       # добранные карточки могут повторять уже имеющиеся
 
-    lessons = await build_lessons(verifier, path_map, cards_by_node, calls)
+    # Конспект темы: проверка по книге и порядок книги (до уроков: сами уроки факты не пересказывают)
+    matcher = coverage.NodeMatcher(index, path_map["nodes"], cards_by_node) if raw_facts else None
+    facts_by_node, facts_report = card_quality.process_facts(verifier, raw_facts, coverage.fact_blocks(text),
+                                                             matcher, cards_by_node, order)
+    lesson_keys = [k for k in order if cards_by_node.get(k) and k not in merge]          # у совпавшей темы урок уже есть
+    lessons = await build_lessons(verifier, path_map, cards_by_node, calls, keys=lesson_keys, source_type=kind)
     repair_report = await repair_lessons(verifier, path_map, cards_by_node, lessons, calls, budget)
 
     packs = {k: {"lesson": lessons.get(k), "cards": cards_by_node[k]} for k in order if cards_by_node.get(k)}
@@ -1217,15 +1562,27 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         "map": path_map,
         "packs": packs,
         "intro": intro,
+        "merge": merge,
+        "facts": facts_by_node,
+        "source_type": kind,
         "quotas": quotas,
         "gap_report": gap_report,
         "stats": {**question_opener_stats(final_cards),
+                  "source": {"kind": kind, "declared": path_map.get("source_type"), "target": goal, "planned": planned, "items": source_profile.count_items(text),
+                            "effective_chars": effective, "covered_windows": 0 if not novelty else sum(1 for x in novelty if x < 0.5),
+                            "windows": len(novelty or []), "align": align_report, "merged_nodes": len(merge),
+                            "dropped_existing_fronts": dropped_existing},
                   "lesson_alignment": coverage.lesson_alignment(packs),
                   "support": {**dict(support_final), "checked_first_pass": support},
                   "dedupe_removed": dedupe_removed, "audit": audit_report, "fill": fill_report,
                   "lesson_repair": repair_report, "budget": budget.report(),
-                  "quota": {**quota_report(path_map, quotas, node_sizes, cards_by_node), "strict": strict,
-                            "wanted_by_book_size": sum(wanted.values()) if wanted else None},
+                  "facts": {"asked": sum(b["k"] for b in fact_blocks), "blocks": len(fact_blocks), "per_card": fact_ratio, **facts_report,
+                            "chars_per_fact": round(len(text) / max(1, facts_report["kept"]))},
+                  "density": {"chars_per_card": round(len(text) / max(1, len(final_cards))),
+                              "cards_per_10k_chars": round(10000 * len(final_cards) / max(1, len(text)), 2),
+                              "cards_per_node": round(len(final_cards) / max(1, len(packs)), 2)},
+                  "quota": {**quota_report(path_map, quotas, node_sizes, cards_by_node), "target": target,
+                            "projected_cost_usd": round(projected, 4), "target_fits_ceiling": (not target) or target <= fits},
                   "rejected": {"by_reason": dict(Counter(r for r, _ in rejected)), "examples": [f"{r}: {t}" for r, t in rejected[:8]],
                                "text_reference_removed": sum(1 for c in final_cards if c.get("text_reference_removed"))}},
         "missing_nodes": [n["key"] for n in path_map["nodes"] if n["key"] not in packs],
@@ -1246,4 +1603,7 @@ __all__ = [
     "build_cross_links",
     "normalize_edges",
     "build_learning_path",
+    "build_align",
+    "node_candidates",
+    "normalize_align",
 ]

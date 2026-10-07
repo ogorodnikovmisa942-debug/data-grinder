@@ -9,8 +9,8 @@ from app.core.auth import get_current_user_id
 from app.database.models import KnowledgeNode
 from app.database.session import get_db
 from app.services.knowledge_path import (
-    get_path_state, is_node_open, complete_lesson, next_path_step, get_day_plan, get_today_summary,
-    normalize_subject, RUN_STEP_LIMITS, INTRO_KEY,
+    get_path_state, is_node_open, complete_lesson, fact_texts, next_path_step, get_day_plan, get_today_summary,
+    normalize_subject, RUN_STEP_LIMITS, INTRO_KEY, list_sources, delete_source,
 )
 from app.services.exam_prep import EXAM_STEP_LIMITS
 
@@ -34,6 +34,23 @@ async def _get_own_node(db: AsyncSession, user_id: str, node_id: int) -> Knowled
 async def get_path(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     """Все узлы предмета со статусами locked | open | lesson_done | mastered и связи для графа."""
     return await get_path_state(db, current_user, subject)
+
+
+@router.get("/path/{subject}/sources")
+async def get_sources(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """Материалы курса предмета: что в каждом и сколько ответов по нему уже дано."""
+    return {"subject": normalize_subject(subject), "sources": await list_sources(db, current_user, subject)}
+
+
+@router.delete("/path/{subject}/sources/{source_id}")
+async def remove_source(subject: str, source_id: int, current_user: str = Depends(get_current_user_id),
+                        db: AsyncSession = Depends(get_db)):
+    """Удаляет один материал вместе с его карточками, уроками и ответами по ним. Остальные материалы курса не затрагиваются."""
+    removed = await delete_source(db, current_user, subject, source_id)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="Материал не найден")
+    await db.commit()
+    return {"status": "deleted", **removed}
 
 
 @router.get("/path/{subject}/next")
@@ -63,7 +80,16 @@ async def get_lesson(node_id: int, current_user: str = Depends(get_current_user_
     is_intro = node.node_key == INTRO_KEY
     if not is_intro and not await is_node_open(db, current_user, node):
         raise HTTPException(status_code=403, detail="Узел ещё закрыт: сначала освой предыдущие темы")
-    return {"node": node.to_dict(), "lesson": node.lesson, "intro": is_intro}
+    return {"node": node.to_dict(), "lesson": node.lesson, "intro": is_intro, "facts": fact_texts(node.facts)}
+
+
+@router.get("/path/node/{node_id}/facts")
+async def get_node_facts(node_id: int, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """«Конспект темы»: факты книги, которых нет в карточках, в порядке книги. Закрытая тема конспекта не отдаёт."""
+    node = await _get_own_node(db, current_user, node_id)
+    if not await is_node_open(db, current_user, node):
+        raise HTTPException(status_code=403, detail="Узел ещё закрыт: сначала освой предыдущие темы")
+    return {"node": node.to_dict(), "facts": fact_texts(node.facts)}
 
 
 @router.post("/path/node/{node_id}/complete")

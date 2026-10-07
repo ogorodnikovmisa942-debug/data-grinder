@@ -16,6 +16,10 @@ from collections import Counter
 
 from .coverage import SourceIndex, join_wrapped, stems
 
+FACT_SHARE_MIN = 0.7          # доля значимых слов факта конспекта в самом похожем окне книги (числа обязаны там быть)
+FACT_BLOCK_MARGIN = 300       # запас вокруг блока, где ещё ищем опору факта
+FACT_CARD_SHARE = 0.75        # факт, слова которого почти целиком уже в вопросе и ответе карточки узла, повторяет карточку
+FACT_DUP_JACCARD = 0.7
 EV_MARGIN = 150               # запас вокруг цитаты, где ищем слова ответа
 EXACT_ANSWER_MIN = 0.6        # доля значимых слов ответа рядом с точно найденной цитатой
 WINDOW_ANSWER_MIN = 0.75      # то же по всему окну (там проверка мягче, поэтому порог выше)
@@ -89,6 +93,7 @@ class CardVerifier:
         self._starts = [a for a, _ in self.index.spans]
         self._win_stems: list[set[str]] | None = None
         self._substantive: dict[int, bool] = {}
+        self._block_cache: dict[tuple[int, int], tuple[set[str], set[str]]] = {}
 
     # --- окна -----------------------------------------------------------
 
@@ -193,6 +198,44 @@ class CardVerifier:
                 flagged.append(c)
             counts[res["status"]] += 1
         return {"cards": len(cards), **{k: counts.get(k, 0) for k in ("grounded", "near", "lexical", "unchecked", "flagged")}}, flagged
+
+    # --- факты конспекта темы ---------------------------------------------
+
+    def check_fact(self, fact: str) -> int | None:
+        """Окно книги, в котором стоят слова и числа факта (без вызова ИИ); None — опоры в книге нет.
+        Короткий текст (окон слишком мало для сравнения): проверка по тексту целиком, ответ 0."""
+        words = set(stems(fact))
+        if not words:
+            return None
+        nums = set(_NUM.findall(fact))
+        if not self.index.usable:
+            if nums and not nums <= set(_NUM.findall(self.text)):
+                return None
+            have = set(stems(self.text))
+            return 0 if sum(1 for w in words if w in have) / len(words) >= FACT_SHARE_MIN else None
+        win_stems = self._stems_of_windows()
+        for win, _ in self._top_windows(fact, LEXICAL_TOP_WINDOWS):
+            a, b = self.index.spans[win]
+            if nums and not nums <= set(_NUM.findall(self.text[a:b])):
+                continue
+            if sum(1 for w in words if w in win_stems[win]) / len(words) >= FACT_SHARE_MIN:
+                return win
+        return None
+
+    def fact_supported_in(self, fact: str, a: int, b: int, margin: int = FACT_BLOCK_MARGIN) -> bool:
+        """Слова и числа факта стоят в блоке книги [a, b) (с запасом по краям: факт может опираться на соседнюю фразу)."""
+        words = set(stems(fact))
+        if not words:
+            return False
+        key = (a, b)
+        if key not in self._block_cache:
+            region = self.text[max(0, a - margin):min(len(self.text), b + margin)]
+            self._block_cache[key] = (set(stems(region)), set(_NUM.findall(region)))
+        region_stems, region_nums = self._block_cache[key]
+        nums = set(_NUM.findall(fact))
+        if nums and not nums <= region_nums:
+            return False
+        return sum(1 for w in words if w in region_stems) / len(words) >= FACT_SHARE_MIN
 
     # --- куски книги -----------------------------------------------------
 
@@ -449,10 +492,55 @@ def dedupe_cards(cards_by_node: dict[str, list[dict]], order: list[str] | None =
     return removed
 
 
+def process_facts(verifier: "CardVerifier", raw_facts: list[dict], blocks: list[tuple[int, int]], matcher,
+                  cards_by_node: dict[str, list[dict]], order: list[str]) -> tuple[dict[str, list[str]], dict]:
+    """Факты «Конспекта темы» перед сохранением. raw_facts: [{"t": факт, "blk": номер блока книги, "seq": номер в ответе}].
+    Отбрасываем: факты без опоры в книге (слов и чисел нет в своём блоке и вообще нигде похожем), повторяющие карточку того же
+    узла или соседнего места, повторяющие соседний факт. Оставшиеся относим к узлу (matcher) и ставим в порядке книги.
+    Возвращает ({узел: [факты]}, отчёт)."""
+    import bisect
+    report = {"received": len(raw_facts), "unsupported": 0, "repeat_card": 0, "repeat_fact": 0, "kept": 0}
+    starts = [a for a, _ in blocks]
+    cards_by_key: dict[str, list[set[str]]] = {}
+    cards_by_blk: dict[int, list[set[str]]] = {}
+    for key in order:
+        for c in cards_by_node.get(key) or []:
+            words = set(stems(f"{c['text']} {c['translation']}"))
+            cards_by_key.setdefault(key, []).append(words)
+            sp = c.get("src_span")
+            if sp:
+                cards_by_blk.setdefault(max(0, bisect.bisect_right(starts, sp[0]) - 1), []).append(words)
+    seen: dict[int, list[set[str]]] = {}
+    placed: dict[str, list[tuple[int, int, str]]] = {}
+    for f in sorted(raw_facts, key=lambda f: (f["blk"], f["seq"])):
+        text, blk = f["t"], f["blk"]
+        words = set(stems(text))
+        a, b = blocks[blk]
+        win = verifier.window_of((a + b) // 2)
+        key = matcher.best(text, win) if matcher else None
+        near_cards = [w for k in (blk - 1, blk, blk + 1) for w in cards_by_blk.get(k, [])] + cards_by_key.get(key, [])
+        if words and any(len(words & cw) / len(words) >= FACT_CARD_SHARE for cw in near_cards):
+            report["repeat_card"] += 1
+            continue
+        if words and any(_jaccard(words, w) >= FACT_DUP_JACCARD for k in range(blk - 2, blk + 3) for w in seen.get(k, [])):
+            report["repeat_fact"] += 1
+            continue
+        if not verifier.fact_supported_in(text, a, b) and verifier.check_fact(text) is None:
+            report["unsupported"] += 1
+            continue
+        seen.setdefault(blk, []).append(words)
+        placed.setdefault(key or (order[0] if order else ""), []).append((blk, f["seq"], text))
+    out: dict[str, list[str]] = {}
+    for key, items in placed.items():
+        out[key] = [t for _, _, t in sorted(items)]
+        report["kept"] += len(items)
+    return out, report
+
+
 def _jaccard(a: set[str], b: set[str]) -> float:
     if not a and not b:
         return 1.0
     return len(a & b) / len(a | b)
 
 
-__all__ = ["CardVerifier", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]
+__all__ = ["CardVerifier", "process_facts", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]

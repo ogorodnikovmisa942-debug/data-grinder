@@ -88,6 +88,7 @@ function pathStateToGraphData(state) {
         parent_id: n.parent_key || undefined,
         prereq_keys: n.prereq_keys || [],
         lesson_status: n.lesson_status,
+        facts_count: n.facts_count || 0,
         cards_total: n.cards_total || 0,
         cards_answered: n.cards_answered || 0,
         is_learned: n.status === 'mastered',
@@ -266,6 +267,7 @@ function getCleanGraphData() {
             tier: n.tier,
             prereq_keys: n.prereq_keys,
             lesson_status: n.lesson_status,
+            facts_count: n.facts_count,
             cards_total: n.cards_total,
             cards_answered: n.cards_answered,
             path_parent: n.path_parent
@@ -2306,6 +2308,8 @@ function renderPathDrawerState(node) {
             hint.classList.add('hidden');
         }
     }
+    const factsBtn = document.getElementById('kg-drawer-btn-facts');
+    if (factsBtn) factsBtn.classList.toggle('hidden', !(node.status !== 'locked' && (node.facts_count || 0) > 0));
     if (lessonBtn) {
         const available = node.status !== 'locked' && node.lesson_status === 'ready';
         lessonBtn.classList.toggle('hidden', !available);
@@ -2317,6 +2321,13 @@ window.openLessonForKgNode = function() {
     if (!currentKgDrawerNode || !currentKgDrawerNode.db_id) return;
     if (window.openLesson) {
         window.openLesson(currentKgDrawerNode.db_id);
+    }
+};
+
+window.openFactsForKgNode = function() {
+    if (!currentKgDrawerNode || !currentKgDrawerNode.db_id) return;
+    if (window.openFactSheet) {
+        window.openFactSheet(currentKgDrawerNode.db_id);
     }
 };
 

@@ -554,6 +554,10 @@ html, body {
 .lesson-text { min-height: 3.5em; }
 .lesson-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .lesson-options { display: flex; flex-direction: column; gap: 8px; }
+/* Конспект темы: список фактов под репликой кота */
+.lesson-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lesson-facts li { font-size: 13px; line-height: 1.5; padding: 2px 0 2px 12px; border-left: 2px solid #d4d4d4; user-select: text; }
+.dark .lesson-facts li { border-left-color: #525252; }
 .lesson-option { padding: 12px 16px; border: 1px solid #e5e5e5; background: #ffffff; }
 .lesson-option:hover:not(:disabled) { border-color: currentColor; }
 .dark .lesson-option { border-color: #404040; background: #171717; }

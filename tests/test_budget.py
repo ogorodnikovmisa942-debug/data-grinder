@@ -19,7 +19,7 @@ def test_book_size_comes_from_the_real_map_request_with_a_fallback():
 def test_typical_book_gets_a_few_hundred_cards_within_the_ceiling():
     b = Budget([MAP_CALL], offpeak=True)
     cap = b.card_cap(1_135_000, nodes=80, batches=8)
-    assert 350 <= cap <= 700                                              # ~450 страниц при потолке 18 центов, «лёгкие» карточки и уроки
+    assert 350 <= cap <= 900                                              # ~450 страниц при потолке 22 цента без фактов, «лёгкие» карточки и уроки
     # Всё, что запланировано, в сумме не превышает потолок
     total = (b.spent() + b.cards_reads_cost(340_000, 8) + b.side_cost(340_000) + b.lessons_cost(80, cap)
              + b.cost(out=CARD_OUT_TOKENS * cap))
@@ -34,7 +34,7 @@ def test_more_already_spent_means_fewer_cards_and_nothing_below_zero():
 
 
 def test_optional_stage_is_trimmed_or_skipped_by_what_is_left_after_the_reserve(capsys):
-    b = Budget([{**MAP_CALL, "cost_usd": 0.17}], offpeak=True)             # осталось 0.01
+    b = Budget([{**MAP_CALL, "cost_usd": BUDGET_USD - 0.01}], offpeak=True)             # осталось 0.01
     unit = b.audit_cost(1)
     assert b.affordable("проверка карточек", unit, must_keep=0.0, wanted=5) == 5
     n = b.affordable("проверка карточек", unit, must_keep=0.0095, wanted=60)
@@ -45,5 +45,5 @@ def test_optional_stage_is_trimmed_or_skipped_by_what_is_left_after_the_reserve(
 
 
 def test_allows_checks_the_estimate_against_the_ceiling():
-    b = Budget([{**MAP_CALL, "cost_usd": 0.17}], offpeak=True)
+    b = Budget([{**MAP_CALL, "cost_usd": BUDGET_USD - 0.01}], offpeak=True)
     assert b.allows("правка", 0.005) and not b.allows("правка", 0.02) and b.skipped == ["правка"]

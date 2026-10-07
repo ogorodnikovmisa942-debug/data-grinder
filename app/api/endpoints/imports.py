@@ -74,20 +74,28 @@ async def guard_new_job(db: AsyncSession, user_id: str, char_count: int) -> None
         raise HTTPException(status_code=429, detail="Слишком много загрузок за час. Попробуйте позже.")
 
 
-async def require_replace_confirmation(db: AsyncSession, user_id: str, subject: str, confirmed: bool) -> None:
-    """Повторная нарезка заменяет путь предмета. Если по нему уже есть повторения — только с явным согласием."""
-    from app.services.knowledge_path import generated_path_stats
-    stats = await generated_path_stats(db, user_id, subject)
-    if stats["reviews"] > 0 and not confirmed:
+async def resolve_import_target(db: AsyncSession, user_id: str, subject: str, text: str, confirmed: bool) -> dict:
+    """Новый материал ДОБАВЛЯЕТСЯ к курсу предмета и ничего не стирает. Исключение — тот же самый материал, загруженный ещё раз:
+    его прежняя нарезка заменяется новой (остальные материалы не затрагиваются); если по ней уже есть повторения — только
+    с явным согласием. Возвращает отпечаток текста и id заменяемого материала (или None)."""
+    from app.services.knowledge_path import text_fingerprint, find_duplicate_source, source_reviews
+    text_hash = text_fingerprint(text)
+    dup = await find_duplicate_source(db, user_id, subject, text_hash)
+    if not dup:
+        return {"text_hash": text_hash, "replace_source_id": None}
+    reviews = await source_reviews(db, dup.id)
+    if reviews > 0 and not confirmed:
         raise HTTPException(status_code=409, detail={
-            "code": "replace_confirm",
-            "cards": stats["cards"],
-            "reviews": stats["reviews"],
+            "code": "duplicate_source",
+            "source": dup.name,
+            "cards": dup.cards_count,
+            "reviews": reviews,
             "message": (
-                f"Предмет уже изучается: {stats['cards']} карточек и {stats['reviews']} ответов. "
-                "Новая нарезка заменит карточки и прогресс этого предмета. Продолжить?"
+                f"Этот материал уже загружен («{dup.name}»): {dup.cards_count} карточек и {reviews} ответов по ним. "
+                "Новая нарезка заменит карточки и ответы именно этого материала, остальные материалы курса останутся. Заменить?"
             ),
         })
+    return {"text_hash": text_hash, "replace_source_id": dup.id}
 
 
 class ImportIn(BaseModel):
@@ -156,7 +164,7 @@ async def import_raw_text(
     if not target_sub:
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
-    await require_replace_confirmation(db, current_user, target_sub, payload.confirm_replace)
+    target = await resolve_import_target(db, current_user, target_sub, payload.text, payload.confirm_replace)
     await guard_new_job(db, current_user, len(payload.text.strip()))
     effective_deferred, is_immediate, is_offpeak, msg = plan_queue(payload.is_deferred, len(payload.text.strip()))
 
@@ -181,6 +189,9 @@ async def import_raw_text(
         volume=payload.volume,
         custom_instruction=payload.custom_instruction.strip(),
         is_deferred=effective_deferred,
+        source_name=extracted_theme,
+        text_hash=target["text_hash"],
+        replace_source_id=target["replace_source_id"],
         status="pending"
     )
     db.add(job)
@@ -381,7 +392,8 @@ async def import_file_at_code_level(
 
     if all_extracted_texts:
         combined_text = "\n\n".join(all_extracted_texts)
-        await require_replace_confirmation(db, current_user, target_sub, str(form.get("confirm_replace", "")).lower() == "true")
+        target = await resolve_import_target(db, current_user, target_sub, combined_text,
+                                             str(form.get("confirm_replace", "")).lower() == "true")
         await guard_new_job(db, current_user, len(combined_text))
         effective_deferred, is_immediate, is_offpeak, msg = plan_queue(is_deferred, len(combined_text))
 
@@ -400,6 +412,9 @@ async def import_file_at_code_level(
             volume=volume,
             custom_instruction=custom_instruction,
             is_deferred=effective_deferred,
+            source_name=", ".join(file_titles[:3])[:200] + (f" и ещё {len(file_titles) - 3}" if len(file_titles) > 3 else ""),
+            text_hash=target["text_hash"],
+            replace_source_id=target["replace_source_id"],
             status="pending"
         )
         db.add(job)

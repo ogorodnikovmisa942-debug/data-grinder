@@ -5,7 +5,7 @@ from sqlalchemy import select, delete, func
 
 from app.database.session import AsyncSessionLocal
 from app.database.models import (
-    GenerationJob, Card, KnowledgeNode, KnowledgeEdge, AiTelemetryLog, ReviewLog, utc_now,
+    GenerationJob, Card, KnowledgeNode, KnowledgeEdge, AiTelemetryLog, ReviewLog, Source, Phrase, ExamPlan, ExamTicket, utc_now,
 )
 from app.services.ai_gateway.path_builder import normalize_map
 from app.services.generation_worker import process_generation_job
@@ -36,18 +36,20 @@ def fake_result():
         "topic": {"lesson": LESSON, "cards": [card("Вопрос темы?")]},
         "sub": {"lesson": None, "cards": [card("Вопрос подтемы?", 2)]},
     }
-    return {"map": path_map, "packs": packs, "missing_nodes": [], "calls": [], "cost_usd": 0.0}
+    facts = {"base": ["Основа первая: суд независим.", "Основа вторая: судья несменяем."], "topic": ["Тема: приговор выносится именем республики."]}
+    return {"map": path_map, "packs": packs, "facts": facts, "missing_nodes": [], "calls": [], "cost_usd": 0.0}
 
 
-async def fake_build(text, subject, calls=None):
+async def fake_build(text, subject, calls=None, course=None):
     calls.append({"label": "map#1", "cost_usd": 0.0123, "prompt_tokens": 100, "cache_hit_tokens": 0,
                   "completion_tokens": 10, "duration_ms": 5, "finish_reason": "stop", "model": "deepseek-flash"})
     return fake_result()
 
 
-async def create_job() -> int:
+async def create_job(replace_source_id: int | None = None, name: str = "Учебник") -> int:
     async with AsyncSessionLocal() as db:
-        job = GenerationJob(user_id=USER, subject=SUBJECT, theme="Тест", raw_text="Текст учебника " * 10, status="processing")
+        job = GenerationJob(user_id=USER, subject=SUBJECT, theme="Тест", raw_text="Текст учебника " * 10, status="processing",
+                            source_name=name, replace_source_id=replace_source_id)
         db.add(job)
         await db.commit()
         return job.id
@@ -61,15 +63,17 @@ async def cleanup():
         await db.commit()
 
 
-def test_worker_saves_path_and_replaces_on_reupload():
+def test_worker_saves_path_and_replaces_the_same_material_on_reupload():
     async def scenario():
         await cleanup()
         try:
             with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
                 job_id = await create_job()
                 await process_generation_job(job_id, is_offpeak=True)
-                # Повторная загрузка того же предмета заменяет его, а не дублирует
-                await process_generation_job(await create_job(), is_offpeak=True)
+                async with AsyncSessionLocal() as db:
+                    first = (await db.execute(select(Source).where(Source.user_id == USER))).scalar_one()
+                # Тот же материал, загруженный ещё раз (replace_source_id ставит загрузка по отпечатку текста), заменяет себя, а не дублирует
+                await process_generation_job(await create_job(replace_source_id=first.id), is_offpeak=True)
 
             async with AsyncSessionLocal() as db:
                 job = (await db.execute(select(GenerationJob).where(GenerationJob.id == job_id))).scalar_one()
@@ -89,6 +93,135 @@ def test_worker_saves_path_and_replaces_on_reupload():
             await cleanup()
 
     asyncio.run(scenario())
+
+
+def test_second_material_is_added_and_keeps_the_first_materials_progress():
+    async def scenario():
+        await cleanup()
+        try:
+            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
+                await process_generation_job(await create_job(name="Учебник"), is_offpeak=True)
+                async with AsyncSessionLocal() as db:
+                    first_cards = (await db.execute(select(Card).where(Card.user_id == USER).order_by(Card.topological_rank))).scalars().all()
+                    for c in first_cards[:3]:
+                        db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=2))
+                    first_ids = [c.id for c in first_cards]
+                    await db.commit()
+                await process_generation_job(await create_job(name="Конспект"), is_offpeak=True)
+
+            async with AsyncSessionLocal() as db:
+                sources = (await db.execute(select(Source).where(Source.user_id == USER).order_by(Source.id))).scalars().all()
+                assert [(s.name, s.role, s.nodes_count, s.cards_count) for s in sources] == [("Учебник", "main", 3, 7), ("Конспект", "extra", 3, 7)]
+                nodes = (await db.execute(select(KnowledgeNode).where(KnowledgeNode.user_id == USER))).scalars().all()
+                assert len(nodes) == 6 and len({n.node_key for n in nodes}) == 6          # одинаковые ключи второго материала получили суффикс
+                second = {n.node_key: n for n in nodes if n.source_id == sources[1].id}
+                assert set(second) == {"base__s%d" % sources[1].id, "topic__s%d" % sources[1].id, "sub__s%d" % sources[1].id}
+                topic2 = second["topic__s%d" % sources[1].id]
+                assert topic2.parent_key is None and topic2.prereq_keys == ["base__s%d" % sources[1].id]
+                sub2 = second["sub__s%d" % sources[1].id]
+                assert sub2.parent_key == "topic__s%d" % sources[1].id
+                assert min(n.order_idx for n in second.values()) > max(n.order_idx for n in nodes if n.source_id == sources[0].id)
+                edges = (await db.execute(select(KnowledgeEdge).where(KnowledgeEdge.user_id == USER))).scalars().all()
+                assert {(e.source_key, e.target_key) for e in edges} == {("base", "topic"), ("base__s%d" % sources[1].id, "topic__s%d" % sources[1].id)}
+                # Повторения и состояние карточек первого материала целы
+                kept = (await db.execute(select(Card.id).where(Card.id.in_(first_ids)))).scalars().all()
+                assert sorted(kept) == sorted(first_ids)
+                assert await db.scalar(select(func.count(ReviewLog.id)).where(ReviewLog.card_id.in_(first_ids))) == 3
+                # Порядок карточек продолжается, а не начинается заново
+                ranks = [c.topological_rank for c in (await db.execute(select(Card).where(Card.user_id == USER))).scalars().all()]
+                assert len(set(ranks)) == len(ranks) == 14
+                # Вводный урок один на курс (fake_result его не содержит, поэтому проверяем только, что дублей не появилось)
+                assert await db.scalar(select(func.count(KnowledgeNode.id)).where(KnowledgeNode.user_id == USER, KnowledgeNode.node_key == "__intro__")) == 0
+                # Название курса — от первого материала
+                state = await get_path_state(db, USER, SUBJECT)
+                assert state["title"] == "Тестовый курс" and len(state["nodes"]) == 6
+        finally:
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_delete_one_source_removes_only_its_content_and_reviews():
+    from app.services.knowledge_path import delete_source, list_sources
+
+    async def scenario():
+        await cleanup()
+        try:
+            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
+                await process_generation_job(await create_job(name="Учебник"), is_offpeak=True)
+                await process_generation_job(await create_job(name="Конспект"), is_offpeak=True)
+            async with AsyncSessionLocal() as db:
+                a, b = (await db.execute(select(Source).where(Source.user_id == USER).order_by(Source.id))).scalars().all()
+                cards_b = (await db.execute(select(Card).where(Card.source_id == b.id))).scalars().all()
+                ph = Phrase(text="ручная", subject=SUBJECT, user_id=USER)
+                db.add(ph)
+                await db.flush()
+                manual = Card(phrase_id=ph.id, user_id=USER, subject=SUBJECT, text="m", translation="m", state=2, next_review=utc_now())
+                db.add(manual)
+                await db.flush()
+                for c in cards_b[:2] + [manual]:
+                    db.add(ReviewLog(card_id=c.id, user_id=USER, rating=3, review_time=utc_now(), state=2))
+                await db.commit()
+                listed = await list_sources(db, USER, SUBJECT)
+                assert [(x["name"], x["nodes"], x["cards"], x["reviews"]) for x in listed] == [("Учебник", 3, 7, 0), ("Конспект", 3, 7, 2)]
+
+                gone = await delete_source(db, USER, SUBJECT, b.id)
+                await db.commit()
+                assert gone == {"name": "Конспект", "nodes": 3, "cards": 7, "reviews": 2, "kept_shared_nodes": 0}
+                assert await db.scalar(select(func.count(KnowledgeNode.id)).where(KnowledgeNode.user_id == USER)) == 3
+                assert await db.scalar(select(func.count(Card.id)).where(Card.user_id == USER, Card.source_id == b.id)) == 0
+                assert await db.scalar(select(func.count(Card.id)).where(Card.user_id == USER, Card.source_id == a.id)) == 7
+                assert await db.scalar(select(func.count(Card.id)).where(Card.id == manual.id)) == 1                  # ручная карточка цела
+                assert await db.scalar(select(func.count(ReviewLog.id)).where(ReviewLog.card_id == manual.id)) == 1  # и её повторение
+                edges = (await db.execute(select(KnowledgeEdge).where(KnowledgeEdge.user_id == USER))).scalars().all()
+                assert [(e.source_key, e.target_key) for e in edges] == [("base", "topic")]
+                assert await delete_source(db, USER, SUBJECT, b.id) is None                                         # второй раз — нет такого
+                assert await delete_source(db, "чужой_пользователь", SUBJECT, a.id) is None                        # чужой материал не удалить
+        finally:
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_deleting_a_source_unlinks_exam_tickets_from_its_nodes():
+    from datetime import date
+    from app.services.knowledge_path import delete_source
+
+    async def scenario():
+        await cleanup()
+        try:
+            with patch("app.services.generation_worker.build_learning_path", side_effect=fake_build):
+                await process_generation_job(await create_job(name="Учебник"), is_offpeak=True)
+                await process_generation_job(await create_job(name="Конспект"), is_offpeak=True)
+            async with AsyncSessionLocal() as db:
+                a, b = (await db.execute(select(Source).where(Source.user_id == USER).order_by(Source.id))).scalars().all()
+                n_a = (await db.execute(select(KnowledgeNode.id).where(KnowledgeNode.source_id == a.id))).scalars().first()
+                n_b = (await db.execute(select(KnowledgeNode.id).where(KnowledgeNode.source_id == b.id))).scalars().first()
+                plan = ExamPlan(user_id=USER, subject=SUBJECT, exam_date=date(2027, 1, 20), status="ready")
+                db.add(plan)
+                await db.flush()
+                db.add(ExamTicket(plan_id=plan.id, user_id=USER, order_idx=1, question="Q", node_ids=[n_a, n_b], status="ok"))
+                await db.commit()
+                await delete_source(db, USER, SUBJECT, b.id)
+                await db.commit()
+                t = (await db.execute(select(ExamTicket).where(ExamTicket.user_id == USER))).scalar_one()
+                assert t.node_ids == [n_a]
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(ExamTicket).where(ExamTicket.user_id == USER))
+                await db.execute(delete(ExamPlan).where(ExamPlan.user_id == USER))
+                await db.commit()
+            await cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_same_text_gives_the_same_fingerprint_and_other_text_does_not():
+    from app.services.knowledge_path import text_fingerprint
+    a = "=== ДОКУМЕНТ: книга.pdf ===\n--- книга.pdf: Стр. 1 ---\nПраво  есть система норм.\n"
+    b = "=== ДОКУМЕНТ: копия (1).pdf ===\n--- копия (1).pdf: Стр. 1 ---\nПраво есть   система норм."
+    assert text_fingerprint(a) == text_fingerprint(b)
+    assert text_fingerprint(a) != text_fingerprint("Право есть система правил.")
 
 
 def test_tiers_unlock_after_lesson_and_answered_cards():
@@ -152,6 +285,8 @@ def test_path_api_and_train_gating():
 
             # Закрытый узел: ни урока, ни отметки
             assert client.get(f"/api/path/node/{ids['topic']}/lesson", headers=h).status_code == 403
+            assert client.get(f"/api/path/node/{ids['topic']}/facts", headers=h).status_code == 403          # конспект закрытой темы не отдаётся
+            assert client.get(f"/api/path/node/{ids['base']}/facts", headers={"X-User-Id": "someone_else"}).status_code == 404
             assert client.post(f"/api/path/node/{ids['topic']}/complete", json={}, headers=h).status_code == 403
             # Чужой пользователь узел не видит
             assert client.get(f"/api/path/node/{ids['base']}/lesson", headers={"X-User-Id": "someone_else"}).status_code == 404
@@ -164,6 +299,10 @@ def test_path_api_and_train_gating():
             assert new_cards() == []  # урок не пройден — новых карточек нет
             lesson = client.get(f"/api/path/node/{ids['base']}/lesson", headers=h).json()
             assert len(lesson["lesson"]["screens"]) == 3
+            assert lesson["facts"] == ["Основа первая: суд независим.", "Основа вторая: судья несменяем."]
+            sheet = client.get(f"/api/path/node/{ids['base']}/facts", headers=h).json()
+            assert sheet["facts"] == lesson["facts"] and sheet["node"]["facts_count"] == 2
+            assert {n["key"]: n["facts_count"] for n in state["nodes"]} == {"base": 2, "topic": 1, "sub": 0}
             assert client.post(f"/api/path/node/{ids['base']}/complete", json={"checkpoint_score": 1}, headers=h).status_code == 200
             cards = new_cards()
             assert cards and all(c["organ_slug"] == "base" for c in cards)
@@ -424,7 +563,7 @@ def test_intro_lesson_is_first_hidden_step_without_cards():
     """Вводный урок: скрыт из графа, идёт первым шагом, не считается темой дня и не открывает карточки."""
     from app.services.knowledge_path import next_path_step, get_day_plan, INTRO_KEY, get_today_summary
 
-    async def fake_with_intro(text, subject, calls=None):
+    async def fake_with_intro(text, subject, calls=None, course=None):
         res = fake_result()
         res["intro"] = INTRO_LESSON
         return res

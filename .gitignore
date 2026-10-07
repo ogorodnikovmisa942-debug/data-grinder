@@ -27,3 +27,5 @@ app/static/presets/shares/*.json
 .DS_Store
 .mimocode/
 .agents/
+.e2e_ledger*.json
+e2e_out/

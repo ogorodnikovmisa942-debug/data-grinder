@@ -8,15 +8,19 @@
 Новые карточки узла попадают в очередь только после прохождения урока.
 """
 
-from sqlalchemy import select, delete, func, case
+import hashlib
+import re
+
+from sqlalchemy import select, delete, func, case, or_, update
 
 from app.core.timeutil import user_day_start, get_user_timezone, local_now
 from app.services.graph_service import get_all_subject_aliases
 
 from app.database.models import (
     Card, Phrase, ReviewLog, PracticeItem, PracticeSessionLog, KnowledgeNode, KnowledgeEdge, NodeProgress,
-    GenerationJob, UserSetting, utc_now,
+    GenerationJob, UserSetting, Source, ExamTicket, utc_now,
 )
+from app.services.ai_gateway.coverage import stems
 from app.services.exam_prep import ticket_card_filter
 
 # Вводный урок курса: скрытый узел без карточек, связей и яруса в графе. Идёт первым шагом пути.
@@ -28,6 +32,25 @@ MASTERY_ANSWERED_SHARE = 0.8
 # место хотя бы на столько карточек; начатый урок доучивается целиком, даже сверх нормы.
 LESSON_MIN_ROOM = 3
 DIFFICULTY_BY_TIER = {"easy": 3.5, "medium": 5.5, "hard": 7.5}
+FACT_DUP_JACCARD = 0.7          # факт нового материала, на 70% совпадающий по словам с имеющимся, в конспект не добавляется
+
+
+def fact_texts(facts) -> list[str]:
+    """Тексты фактов конспекта темы (хранятся как {"t": текст, "s": id материала})."""
+    return [(f.get("t") if isinstance(f, dict) else str(f)) for f in (facts or []) if f]
+
+
+def merge_facts(existing, new: list[str], source_id: int | None) -> list[dict]:
+    """Дописывает факты нового материала к конспекту темы, пропуская те, что в нём уже есть."""
+    out = [f if isinstance(f, dict) else {"t": str(f), "s": None} for f in (existing or []) if f]
+    seen = [set(stems(f["t"])) for f in out]
+    for text in new or []:
+        words = set(stems(text))
+        if words and any(len(words & s) / len(words | s) >= FACT_DUP_JACCARD for s in seen):
+            continue
+        out.append({"t": text, "s": source_id})
+        seen.append(words)
+    return out
 
 
 def normalize_subject(subject: str) -> str:
@@ -67,50 +90,243 @@ async def wipe_subject(db, user_id: str, subject: str, only_generated: bool = Fa
         await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject))
     await db.execute(delete(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject))
     await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject))
+    await db.execute(delete(Source).where(Source.user_id == user_id, Source.subject == subject))
 
 
-async def save_learning_path(db, user_id: str, subject: str, result: dict) -> dict:
-    """Сохраняет карту, уроки и карточки. Порядок карточек: ярус → порядок узла → слой."""
+# ---------------------------------------------------------------------------
+# Материалы курса: добавление без потери повторений
+# ---------------------------------------------------------------------------
+
+_HEADER_RE = re.compile(r"=== [^=\n]+ ===|--- [^\n]+ ---")
+
+
+def text_fingerprint(text: str) -> str:
+    """Отпечаток материала: один и тот же файл даёт один и тот же хэш, как бы он ни назывался. Сам текст не хранится."""
+    clean = re.sub(r"\s+", " ", _HEADER_RE.sub(" ", text or "")).strip().lower()
+    return hashlib.sha256(clean.encode("utf-8")).hexdigest()
+
+
+async def find_duplicate_source(db, user_id: str, subject: str, text_hash: str) -> Source | None:
+    if not text_hash:
+        return None
+    return (await db.execute(
+        select(Source).where(Source.user_id == user_id, Source.subject == normalize_subject(subject), Source.text_hash == text_hash)
+        .order_by(Source.id.desc()).limit(1)
+    )).scalar_one_or_none()
+
+
+async def source_reviews(db, source_id: int) -> int:
+    card_ids = select(Card.id).where(Card.source_id == source_id)
+    return (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.card_id.in_(card_ids)))).scalar() or 0
+
+
+async def list_sources(db, user_id: str, subject: str) -> list[dict]:
+    """Материалы предмета: что в них есть и сколько ответов по ним уже дано (для окна «Материалы» и подтверждения удаления)."""
+    subject = normalize_subject(subject)
+    rows = (await db.execute(
+        select(Source).where(Source.user_id == user_id, Source.subject == subject).order_by(Source.id)
+    )).scalars().all()
+    out = []
+    for src in rows:
+        nodes = (await db.execute(select(func.count(KnowledgeNode.id)).where(KnowledgeNode.source_id == src.id))).scalar() or 0
+        cards = (await db.execute(select(func.count(Card.id)).where(Card.source_id == src.id))).scalar() or 0
+        out.append({
+            "id": src.id, "name": src.name, "title": src.title, "kind": src.kind, "role": src.role, "chars": src.chars,
+            "nodes": nodes, "cards": cards, "reviews": await source_reviews(db, src.id),
+            "cost_usd": round(src.cost_usd or 0.0, 4), "created_at": src.created_at.isoformat() if src.created_at else None,
+        })
+    return out
+
+
+async def delete_source(db, user_id: str, subject: str, source_id: int) -> dict | None:
+    """Удаляет ОДИН материал: его узлы, карточки и ответы по ним. Остальные материалы и их повторения не затрагиваются.
+    Карточки, добавленные вручную или импортом CSV, остаются. None — материала нет у этого пользователя."""
+    subject = normalize_subject(subject)
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id, Source.user_id == user_id, Source.subject == subject)
+    )).scalar_one_or_none()
+    if not src:
+        return None
+    node_rows = (await db.execute(select(KnowledgeNode.id, KnowledgeNode.node_key).where(KnowledgeNode.source_id == source_id))).all()
+    # Тема этого материала, к которой добавлены карточки другого материала, остаётся (переходит к тому материалу): иначе пропали бы чужие карточки
+    shared = dict((await db.execute(
+        select(Card.node_id, func.min(Card.source_id)).where(
+            Card.node_id.in_([r[0] for r in node_rows]), Card.source_id.isnot(None), Card.source_id != source_id)
+        .group_by(Card.node_id)
+    )).all())
+    for nid, other in shared.items():
+        await db.execute(update(KnowledgeNode).where(KnowledgeNode.id == nid).values(source_id=other))
+    node_ids = [r[0] for r in node_rows if r[0] not in shared]
+    node_keys = [r[1] for r in node_rows if r[0] not in shared]
+    card_ids = select(Card.id).where(Card.user_id == user_id, or_(Card.source_id == source_id, Card.node_id.in_(node_ids)))
+    cards = (await db.execute(select(func.count()).select_from(card_ids.subquery()))).scalar() or 0
+    reviews = (await db.execute(select(func.count(ReviewLog.id)).where(ReviewLog.card_id.in_(card_ids)))).scalar() or 0
+
+    await db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
+    await db.execute(delete(NodeProgress).where(NodeProgress.node_id.in_(node_ids)))
+    await db.execute(delete(PracticeItem).where(PracticeItem.user_id == user_id, PracticeItem.node_id.in_(node_ids)))
+    await db.execute(delete(Card).where(Card.user_id == user_id, or_(Card.source_id == source_id, Card.node_id.in_(node_ids))))
+    has_cards = select(Card.phrase_id).where(Card.user_id == user_id, Card.phrase_id.isnot(None))
+    await db.execute(delete(Phrase).where(Phrase.user_id == user_id, Phrase.subject == subject, Phrase.id.notin_(has_cards)))
+    if node_keys:
+        await db.execute(delete(KnowledgeEdge).where(
+            KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject,
+            or_(KnowledgeEdge.source_key.in_(node_keys), KnowledgeEdge.target_key.in_(node_keys))))
+    # Билеты, привязанные к темам этого материала, остаются, но уже без этих тем (их покажет «не найдено» при следующем разборе)
+    gone = set(node_ids)
+    if gone:
+        for t in (await db.execute(select(ExamTicket).where(ExamTicket.user_id == user_id))).scalars().all():
+            ids = list(t.node_ids or [])
+            if gone.intersection(ids):
+                t.node_ids = [i for i in ids if i not in gone]
+    await db.execute(delete(KnowledgeNode).where(KnowledgeNode.id.in_(node_ids)))
+    await db.execute(delete(Source).where(Source.id == source_id))
+    await db.flush()
+    # Факты этого материала, дописанные в конспекты оставшихся тем, уходят вместе с ним
+    for node in (await db.execute(select(KnowledgeNode).where(
+            KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject, KnowledgeNode.facts.isnot(None)))).scalars().all():
+        if not node.facts:                          # JSON null в колонке: isnot(None) его пропускает
+            continue
+        kept = [f for f in node.facts if not (isinstance(f, dict) and f.get("s") == source_id)]
+        if len(kept) != len(node.facts):
+            node.facts = kept or None
+    await db.flush()
+
+    # Не осталось ни одной темы — вводный урок курса тоже не нужен
+    left = (await db.execute(select(func.count(KnowledgeNode.id)).where(
+        KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject, KnowledgeNode.node_key != INTRO_KEY))).scalar() or 0
+    if not left:
+        intro_ids = select(KnowledgeNode.id).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject,
+                                                   KnowledgeNode.node_key == INTRO_KEY)
+        await db.execute(delete(NodeProgress).where(NodeProgress.node_id.in_(intro_ids)))
+        await db.execute(delete(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject,
+                                                     KnowledgeNode.node_key == INTRO_KEY))
+    return {"name": src.name, "nodes": len(node_ids), "cards": cards, "reviews": reviews, "kept_shared_nodes": len(shared)}
+
+
+def _unique_keys(map_keys: list[str], taken: set[str], suffix: str) -> dict[str, str]:
+    """Ключи узлов нового материала: совпавшие с уже существующими получают суффикс материала (общих «основ» двух материалов
+    пока не объединяем: сведение узлов разных материалов — следующий этап)."""
+    out: dict[str, str] = {}
+    used = set(taken)
+    for key in map_keys:
+        new = key if key not in used else f"{key}__{suffix}"
+        n = 2
+        while new in used:
+            new = f"{key}__{suffix}_{n}"
+            n += 1
+        out[key] = new
+        used.add(new)
+    return out
+
+
+async def build_course_context(db, user_id: str, subject: str, exclude_source_id: int | None = None,
+                               max_cards: int = 4000) -> dict | None:
+    """Курс предмета для нового материала: темы (ключ, название, ярус, описание) и вопросы-ответы имеющихся карточек по темам.
+    Нужен, чтобы слить совпавшие темы и не спрашивать уже спрошенное. None — в предмете ещё нет тем.
+    exclude_source_id — материал, который будет заменён этой загрузкой (его в курсе уже «нет»)."""
+    subject = normalize_subject(subject)
+    node_q = select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject,
+                                         KnowledgeNode.node_key != INTRO_KEY).order_by(KnowledgeNode.order_idx)
+    if exclude_source_id:
+        node_q = node_q.where(or_(KnowledgeNode.source_id.is_(None), KnowledgeNode.source_id != exclude_source_id))
+    nodes = (await db.execute(node_q)).scalars().all()
+    if not nodes:
+        return None
+    by_id = {n.id: n.node_key for n in nodes}
+    card_q = select(Card.node_id, Card.text, Card.translation).where(
+        Card.user_id == user_id, Card.subject == subject, Card.node_id.in_(list(by_id))).limit(max_cards)
+    if exclude_source_id:
+        card_q = card_q.where(or_(Card.source_id.is_(None), Card.source_id != exclude_source_id))
+    cards: dict[str, list[dict]] = {}
+    for node_id, q, a in (await db.execute(card_q)).all():
+        cards.setdefault(by_id[node_id], []).append({"q": q, "a": a})
+    return {"nodes": [{"key": n.node_key, "name": n.name, "tier": n.tier, "summary": n.summary} for n in nodes], "cards": cards}
+
+
+async def save_learning_path(db, user_id: str, subject: str, result: dict, *, source_name: str | None = None,
+                             text_hash: str | None = None, chars: int = 0, cost_usd: float = 0.0,
+                             replace_source_id: int | None = None) -> dict:
+    """Сохраняет карту, уроки и карточки НОВОГО материала в курс предмета. Прежние материалы, их карточки и повторения не трогаем.
+    replace_source_id — заменить прежнюю нарезку именно этого материала (повторная загрузка того же файла); остальное остаётся.
+    Порядок карточек: ярус → порядок узла → слой, после уже имеющихся."""
     subject = normalize_subject(subject)
     path_map, packs = result["map"], result["packs"]
-    await wipe_subject(db, user_id, subject, only_generated=True)
+    if replace_source_id:
+        await delete_source(db, user_id, subject, replace_source_id)
 
     now = utc_now()
+    existing = (await db.execute(
+        select(KnowledgeNode.node_key, KnowledgeNode.order_idx).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject)
+    )).all()
+    taken = {r[0] for r in existing}
+    order_offset = (max([r[1] for r in existing if r[0] != INTRO_KEY] or [-1]) + 1) if existing else 0
+    rank = (await db.execute(
+        select(func.max(Card.topological_rank)).where(Card.user_id == user_id, Card.subject == subject)
+    )).scalar() or 0
+
+    source = Source(user_id=user_id, subject=subject, name=(source_name or path_map.get("title") or "Материал")[:200],
+                    title=path_map.get("title"), role="extra" if any(r[0] != INTRO_KEY for r in existing) else "main",
+                    chars=chars, text_hash=text_hash, cost_usd=cost_usd, created_at=now)
+    db.add(source)
+    await db.flush()
+    # Темы нового материала, совпавшие с уже имеющимися (result["merge"]), не создаются заново: их карточки ложатся в существующую тему
+    merge = {k: v for k, v in (result.get("merge") or {}).items() if v in taken}
+    existing_nodes = {n.node_key: n for n in (await db.execute(
+        select(KnowledgeNode).where(KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject))).scalars().all()}
+    keys = _unique_keys([n["key"] for n in path_map["nodes"] if n["key"] not in merge], taken, f"s{source.id}")
+    keys.update(merge)
+
+    def mapped(k):
+        return keys.get(k, k)
+
+    facts_by_key = result.get("facts") or {}
     node_rows: dict[str, KnowledgeNode] = {}
     for n in path_map["nodes"]:
+        if n["key"] in merge:
+            node_rows[n["key"]] = existing_nodes[merge[n["key"]]]
+            continue
         lesson = (packs.get(n["key"]) or {}).get("lesson")
         row = KnowledgeNode(
             user_id=user_id,
             subject=subject,
-            node_key=n["key"],
+            node_key=mapped(n["key"]),
             name=n["name"],
             tier=n["tier"],
-            parent_key=n["parent"],
-            prereq_keys=n["prereqs"],
-            order_idx=n["order"],
+            parent_key=mapped(n["parent"]) if n["parent"] else None,
+            prereq_keys=[mapped(p) for p in n["prereqs"]],
+            order_idx=n["order"] + order_offset,
             summary=n["summary"],
             source_hint=n["src"],
             lesson=lesson,
             lesson_status="ready" if lesson else "failed",
+            facts=merge_facts(None, facts_by_key.get(n["key"]), source.id) or None,
             kind=n.get("kind") or "core",
+            source_id=source.id,
             created_at=now,
         )
         db.add(row)
         node_rows[n["key"]] = row
+    for n in path_map["nodes"]:                  # у совпавшей темы конспект дополняется фактами нового материала
+        if n["key"] in merge and facts_by_key.get(n["key"]):
+            row = node_rows[n["key"]]
+            row.facts = merge_facts(row.facts, facts_by_key[n["key"]], source.id) or None
+    have_edges = {(e.source_key, e.target_key, e.relation) for e in (await db.execute(
+        select(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject))).scalars().all()}
     for e in path_map["edges"]:
-        db.add(KnowledgeEdge(
-            user_id=user_id, subject=subject,
-            source_key=e["from"], target_key=e["to"], relation=e["relation"], label=e["label"],
-        ))
+        edge = (mapped(e["from"]), mapped(e["to"]), e["relation"])
+        if edge[0] == edge[1] or edge in have_edges:
+            continue
+        have_edges.add(edge)
+        db.add(KnowledgeEdge(user_id=user_id, subject=subject, source_key=edge[0], target_key=edge[1], relation=edge[2], label=e["label"]))
     intro = result.get("intro")
-    if intro:
+    if intro and INTRO_KEY not in taken:
         db.add(KnowledgeNode(
             user_id=user_id, subject=subject, node_key=INTRO_KEY, name=INTRO_NAME, tier=0, parent_key=None,
             prereq_keys=[], order_idx=-1, summary=None, source_hint=None, lesson=intro, lesson_status="ready", created_at=now,
         ))
     await db.flush()
 
-    rank = 0
     cards_created = 0
     for n in sorted(path_map["nodes"], key=lambda x: x["order"]):
         cards = (packs.get(n["key"]) or {}).get("cards") or []
@@ -133,23 +349,31 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict) -> di
                 stability=1.0,
                 state=0,
                 content_type="text",
-                organ_slug=n["key"],
+                organ_slug=mapped(n["key"]),
                 layer=c.get("layer", 1),
                 topological_rank=rank,
                 node_id=node_rows[n["key"]].id,
+                source_id=source.id,
                 answer_type=c.get("answer_type"),
                 distractors=c.get("distractors"),
                 next_review=now,
             ))
             cards_created += 1
+    created_nodes = [r for k, r in node_rows.items() if k not in merge]
+    source.nodes_count = len(created_nodes)
+    source.cards_count = cards_created
+    source.kind = result.get("source_type")
 
     return {
         "subject": subject,
         "title": path_map.get("title") or subject,
-        "nodes": len(node_rows),
+        "source_id": source.id,
+        "nodes": len(created_nodes),
+        "merged_nodes": len(merge),
         "edges": len(path_map["edges"]),
         "cards": cards_created,
-        "lessons_failed": sum(1 for r in node_rows.values() if r.lesson_status != "ready"),
+        "facts": sum(len(v) for v in facts_by_key.values()),
+        "lessons_failed": sum(1 for r in created_nodes if r.lesson_status != "ready"),
     }
 
 
@@ -230,8 +454,11 @@ async def get_path_state(db, user_id: str, subject: str) -> dict:
     edges = (await db.execute(
         select(KnowledgeEdge).where(KnowledgeEdge.user_id == user_id, KnowledgeEdge.subject == subject)
     )).scalars().all()
-    # Название курса — из последней успешной нарезки предмета (показывается в центре графа)
-    title = (await db.execute(
+    # Название курса — из первого материала предмета (показывается в центре графа); нет материалов — из последней нарезки
+    first_source = (await db.execute(
+        select(Source.title, Source.name).where(Source.user_id == user_id, Source.subject == subject).order_by(Source.id).limit(1)
+    )).first()
+    title = (first_source[0] or first_source[1]) if first_source else (await db.execute(
         select(GenerationJob.theme)
         .where(GenerationJob.user_id == user_id, GenerationJob.subject == subject, GenerationJob.status == "completed")
         .order_by(GenerationJob.id.desc())

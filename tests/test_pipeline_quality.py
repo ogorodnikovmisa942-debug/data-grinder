@@ -73,9 +73,9 @@ GOOD = {
 }
 
 
-def _run(fake, text=None, subject="s"):
+def _run(fake, text=None, subject="s", card_total=None):
     with patched(fake):
-        return asyncio.run(pb.build_learning_path(text or _book(), subject))
+        return asyncio.run(pb.build_learning_path(text or _book(), subject, card_total=card_total))
 
 
 # --- порядок этапов и состав запросов ---------------------------------------------
@@ -177,7 +177,7 @@ def test_stretch_without_cards_is_filled_and_unverified_cards_are_rejected():
         return {"fill": out}
 
     fake = FakeLLM(raw_map=_map(), cards=_cards_handler(GOOD), fill=fill)
-    res = _run(fake, book)
+    res = _run(fake, book, card_total=60)                                                    # до цели далеко: добор разрешён
     assert res["stats"]["fill"]["added"] == 1 and res["stats"]["fill"]["rejected"] == 1
     added = [c for p in res["packs"].values() for c in p["cards"] if "бюджет республики" in c["text"]]
     assert len(added) == 1 and added[0]["support"] == "grounded"
@@ -190,7 +190,7 @@ def test_no_fill_when_every_paragraph_is_touched_by_a_card():
     book = "\n".join(FACTS[k][2] + "." for k in ("term", "venue", "prosecutor", "notary", "age", "jury")) * 1
     fake = FakeLLM(raw_map=_map(), cards=_cards_handler(GOOD))
     res = _run(fake, book)
-    assert not fake.of("FILL") and res["stats"]["fill"] == {"spans": 0, "added": 0}
+    assert not fake.of("FILL") and res["stats"]["fill"]["added"] == 0
 
 
 def test_untouched_paragraphs_inside_a_covered_section_are_found_by_their_exact_place():
@@ -221,31 +221,30 @@ def test_tiny_budget_skips_optional_stages_but_lessons_are_still_written(monkeyp
     assert all(p["lesson"] for p in res["packs"].values())                           # уроки обязательны
 
 
-def test_card_quotas_follow_the_budget_when_caps_are_on(monkeypatch):
-    monkeypatch.setattr(pb, "CARD_CAPS", True)
+def test_the_card_target_follows_the_book_size_not_the_money(monkeypatch):
     path_map = pb.normalize_map(_map())
-    hints = {"sub_a": 40_000, "sub_b": 30_000}                                       # крупные куски книги
-    free = pb.plan_card_quotas(_book(), path_map, hints)
-    capped = pb.plan_card_quotas(_book(), path_map, hints, total_cap=20)
-    broke = pb.plan_card_quotas(_book(), path_map, hints, total_cap=0)
-    assert free["sub_a"] > 3 and sum(capped.values()) < sum(free.values())
-    assert set(broke.values()) == {3}                                                # бюджета нет: минимум на узел, а не «без лимита»
+    hints = {"sub_a": 40_000, "sub_b": 30_000}
+    book = _book(with_gap=True)
+    free = pb.plan_card_quotas(book, path_map, hints)
+    assert sum(free.values()) == round(len(book) / pb.CHARS_PER_CARD)                 # одна карточка на страницу, цель по смыслу
+    assert free["sub_a"] > free["sub_b"] >= 1                                         # кто больше по книге, тому больше
+    res = _run(FakeLLM(raw_map={**_map(), "source_type": "textbook"}, cards=_cards_handler(GOOD)), book)
+    assert sum(res["quotas"].values()) == sum(free.values())                          # денег хватает: цель по размеру книги
+    assert res["stats"]["quota"]["target"] == sum(free.values())
+    monkeypatch.setattr(budget_mod, "BUDGET_USD", 0.0005)                             # денег нет: цена урезает цель, но не ниже 70% плана
+    poor = _run(FakeLLM(raw_map={**_map(), "source_type": "textbook"}, cards=_cards_handler(GOOD)), book)
+    assert round(pb.PRICE_FLOOR_SHARE * sum(free.values())) <= sum(poor["quotas"].values()) < sum(free.values())
+    assert poor["stats"]["source"]["planned"] == sum(free.values())
 
-    rich = FakeLLM(raw_map=_map(), cards=_cards_handler(GOOD))
-    res_rich = _run(rich, _book())
-    monkeypatch.setattr(budget_mod, "BUDGET_USD", 0.0005)
-    res_poor = _run(FakeLLM(raw_map=_map(), cards=_cards_handler(GOOD)), _book())
-    assert sum(res_poor["quotas"].values()) <= sum(res_rich["quotas"].values())
 
-
-def test_without_caps_quotas_follow_the_book_only():
+def test_explicit_target_and_minimum_one_card_per_node():
     path_map = pb.normalize_map(_map())
     hints = {"sub_a": 90_000, "sub_b": 30_000}
     assert not pb.CARD_CAPS                                                          # по умолчанию потолки выключены
-    free = pb.plan_card_quotas(_book(), path_map, hints)                             # константных потолков нет, денег хватает
-    assert free["sub_a"] > 12 and free["sub_a"] > free["sub_b"] > 3                  # 90 тыс. знаков -> 39 карточек, без потолка на узел
-    broke = pb.plan_card_quotas(_book(), path_map, hints, total_cap=0)              # деньги ограничивают ВСЕГДА, даже без потолков
-    assert set(broke.values()) == {3}
+    big = pb.plan_card_quotas(_book(), path_map, hints, total=120)                    # цель задана явно
+    assert sum(big.values()) == 120 and big["sub_a"] > 12 and big["sub_a"] > big["sub_b"] > 1
+    tiny = pb.plan_card_quotas(_book(), path_map, hints, total=1)                     # цели не хватает даже на минимумы: по карточке на узел
+    assert min(tiny.values()) == 1 and max(tiny.values()) <= 3
 
 
 def test_without_caps_audit_and_fill_are_not_limited_by_count(monkeypatch):
@@ -327,8 +326,8 @@ def test_map_score_prefers_the_subtopic_count_that_fits_the_size_of_the_book():
 
 def test_cards_prompt_demands_quotes_completeness_and_teaching_order_and_lesson_prompt_forbids_new_facts():
     sp = pp.PATH_BUILDER_SYSTEM_PROMPT
-    for marker in ("B1. COMPLETENESS", "TEACHING ORDER", "B2a. EVIDENCE", "copy 5-10 consecutive words", "letter for letter",
-                   "what your cards do not ask is never taught", 'TASK "AUDIT"', 'TASK "FILL"', 'TASK "LESSON"',
+    for marker in ("B1. SELECTION", "TEACHING ORDER", "B2a. EVIDENCE", "copy 5-10 consecutive words", "letter for letter",
+                   "what your cards do not state is never taught", 'TASK "AUDIT"', 'TASK "FILL"', 'TASK "LESSON"',
                    "H1. WHERE FACTS COME FROM", "Do not add rules, numbers, dates, names or conditions from your own knowledge",
                    "THE PREVIOUS LESSON OMITTED THESE ANSWERS", "never use your own knowledge of the subject where it differs from the source"):
         assert marker in sp, marker
@@ -347,12 +346,14 @@ def test_run_report_names_fat_nodes_and_nodes_with_too_few_cards():
     assert pb.quota_report(m, None, None, got) == {}
 
 
-def test_cards_prompt_asks_for_inventory_a_floor_not_a_ceiling_understanding_and_no_references_to_the_text():
+def test_cards_prompt_selects_by_importance_within_the_target_and_keeps_understanding_and_no_references_to_the_text():
     sp = pp.PATH_BUILDER_SYSTEM_PROMPT
-    for marker in ("take inventory as you go", "EVERY member of an enumeration", "The TARGET is a floor, not a ceiling",
-                   "AT LEAST N cards", "UNDERSTANDING SHARE", "at least one card in four", "по учению естественного права"):
+    for marker in ("a deck is a budget", "Write N cards (N-1 to N+1), never more", "Value ladder, highest first", "Do NOT spend a card on",
+                   "Would a student who understood this topic still miss this", "task FACTS", "UNDERSTANDING SHARE", "at least one card in four",
+                   "по учению естественного права"):
         assert marker in sp, marker
-    assert "about N cards" not in sp and "(N-1 to N+1)" not in sp                 # старая верхняя граница «N±1» снята
+    # прежняя установка «обойти всё и писать сверх цели» снята: колоду определяют деньги
+    assert "The TARGET is a floor, not a ceiling" not in sp and "take inventory as you go" not in sp and "AT LEAST N cards" not in sp
 
 
 def test_cards_about_methodology_history_and_famous_authors_are_not_thrown_away():
@@ -416,7 +417,7 @@ def test_fill_request_lists_every_node_so_the_model_can_pick_the_right_one():
         return {"fill": []}
 
     fake = FakeLLM(raw_map=_map(), cards=_cards_handler(GOOD), fill=fill)
-    _run(fake, _book(with_gap=True))
+    _run(fake, _book(with_gap=True), card_total=60)
     prompt = seen[0]
     for key in ("base", "topic", "sub_a", "sub_b", "sub_c", "sub_d"):
         assert f"{key} | " in prompt                                                    # весь список, а не узел-«подсказка»

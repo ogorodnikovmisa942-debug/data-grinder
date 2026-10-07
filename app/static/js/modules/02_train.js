@@ -1765,6 +1765,16 @@ function renderReviewCard(card) {
             }
         }
 
+        // «Из: материал» — только когда в предмете несколько материалов (сервер присылает source_name только тогда)
+        const backSourceBadge = document.getElementById('card-back-source-badge');
+        const backSourceText = document.getElementById('card-back-source-text');
+        if (backSourceBadge && backSourceText) {
+            const srcName = (card.source_name || '').trim();
+            backSourceText.textContent = srcName ? ('Из: ' + srcName) : '';
+            backSourceBadge.classList.toggle('hidden', !srcName);
+            backSourceBadge.classList.toggle('inline-flex', Boolean(srcName));
+        }
+
         const backTerm = document.getElementById('card-back-term-text');
         if (backTerm) {
             if (isCloze) {

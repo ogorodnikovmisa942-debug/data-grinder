@@ -1,13 +1,14 @@
 """
 Ограничитель расходов на одну книгу.
 
-Потолок (PATH_BUDGET_USD, по умолчанию 0.18 $) задан в ценах вне пика, со скидкой 50%. В пиковое время та же работа стоит вдвое
+Потолок (PATH_BUDGET_USD, по умолчанию 0.22 $) задан в ценах вне пика, со скидкой 50%. В пиковое время та же работа стоит вдвое
 дороже, поэтому потолок тогда тоже вдвое выше: иначе ограничитель урезал бы колоду из-за времени суток, а не из-за объёма работы.
 
+Число карточек колоды Budget НЕ определяет: это цель по смыслу (path_builder.CHARS_PER_CARD, одна карточка на ~страницу).
 Как работает:
-  * до генерации карточек считаем, сколько их можно позволить: от потолка отнимаем уже потраченное, неизбежные расходы
-    (чтение книги карточными запросами, уроки, связи, введение) и запас на необязательные проверки;
-  * необязательные этапы (проверка карточек по книге, добор непокрытых участков, правка уроков) запускаются, только если
+  * до генерации карточек считаем прогноз стоимости при заданной цели (projected_cost) и сколько карточек вместил бы потолок
+    (card_cap): если цель дороже потолка, это предупреждение в журнале и в отчёте, а не урезание колоды;
+  * необязательные этапы (проверка карточек по книге, добор до цели, правка уроков) запускаются, только если
     после них останется запас на обязательные уроки;
   * всё считается по токенам и ценам DeepSeek из настроек; константы ниже измерены на пробных прогонах (см. tests/test_budget.py).
 """
@@ -15,14 +16,26 @@ import os
 
 from .client import estimate_call_cost_usd, is_deepseek_offpeak_now
 
-BUDGET_USD = float(os.getenv("PATH_BUDGET_USD", "0.18"))
-OPTIONAL_RESERVE_SHARE = 0.08          # доля потолка, оставляемая на проверки и добор
+# Решение пользователя 2026-10-07: после замеров конспекта темы берём «глубокую» версию за ~21 цент (≈ 490 карточек + 2,6 факта на карточку
+# для книги в 450 страниц; прогноз 21,3¢) с запасом до 22¢. Стандарт за 18¢: PATH_BUDGET_USD=0.18 (цена вперёд сама урежет факты и карточки).
+BUDGET_USD = float(os.getenv("PATH_BUDGET_USD", "0.22"))
+OPTIONAL_RESERVE_SHARE = 0.04          # доля потолка на проверку карточек по книге и правку уроков (добор идёт только из остатка: см. build_learning_path)
 
 CHARS_PER_TOKEN = 2.8                  # русский текст; запасной расчёт, если нет данных о реальном размере запроса
+BOOK_CHARS_PER_TOKEN = 3.3             # замер на «Общей теории права»: 1,135 млн знаков = 337 тыс. токенов
+BOOK_CHARS_PER_NODE = 12600            # там же: 90 узлов на 1,135 млн знаков
+MAP_OUT_PER_NODE = 106                 # ответ карты: ~106 токенов на узел (замер 2026-10-07 на целой книге: 19 тыс. токенов на ~180 узлов)
+MAP_SECOND_SHARE = 0.4                 # какая доля книг получает вторую карту (она строится, только если первая слабая)
 CARD_OUT_TOKENS = 125                  # t, d, ev, y, at, 3 дистрактора; примеров модель не пишет (замер 2026-10-05: 124; полный формат был 165)
-LESSON_OUT_BASE = 300                  # узел: крючок, аналогия, вывод и один вопрос (замер: 561 токен на узел при 5,3 карточки)
+LESSON_OUT_BASE = 330                  # узел: крючок, аналогия, вывод и один вопрос (замер: 561 токен на узел при 5,3 карточки)
 LESSON_OUT_PER_CARD = 50               # модель пишет ~7 экранов на урок, а не 5 по формуле
 LESSON_IN_BASE = 250                   # заголовок узла, ключи для подсветки (замер)
+FACTS_PER_CARD = 2.6                   # факты «Конспекта темы» на карточку для учебника (source_profile.FACTS_PER_CARD): ≈ 1 на 900 знаков; факт в 7 раз дешевле карточки
+FACTS_MIN_SHARE = 0.5                  # цена вперёд урезает факты не ниже этой доли плана, и только потом карточки (см. path_builder)
+FACT_OUT_TOKENS = 42                   # факт в ответе FACTS (замер 2026-10-07: 37–46 токенов вместе с JSON) (урок факты не пересказывает: они лежат готовым списком)
+FACT_TASK_TOKENS_PER_BLOCK = 55        # строка блока в запросе FACTS: id, K и слова начала и конца
+FACT_BLOCK_CHARS = 3200                # блок книги для конспекта (coverage.FACT_BLOCK_CHARS)
+FACT_BATCH_BLOCKS = 60                 # блоков в одном запросе (path_builder.FACT_BATCH_BLOCKS)
 LESSON_IN_PER_CARD = 110               # вопрос и ответ карточки + её доля выдержки из книги (замер: ~155 токенов на карточку вместе с базой)
 LINKS_OUT_TOKENS = 1200
 INTRO_IN_TOKENS = 7000
@@ -80,13 +93,49 @@ class Budget:
 
     # --- решения -----------------------------------------------------------
 
-    def card_cap(self, chars: int, nodes: int, batches: int) -> int:
-        """Сколько карточек можно позволить, чтобы уложиться в потолок вместе с уроками, связями и запасом на проверки."""
+    def facts_cost(self, facts: int) -> float:
+        """Факты конспекта темы: их запись в ответе FACTS."""
+        return self.cost(out=FACT_OUT_TOKENS * facts)
+
+    def facts_overhead(self, book_tokens: int, blocks: int, calls: int) -> float:
+        """Постоянная часть задачи FACTS: каждый запрос читает книгу из кэша, и в каждом есть строки блоков."""
+        return self.cost(hit=book_tokens * calls, miss=FACT_TASK_TOKENS_PER_BLOCK * blocks) if calls else 0.0
+
+    def card_cap(self, chars: int, nodes: int, batches: int, facts: bool | float = False,
+                 fact_blocks: int = 0, fact_calls: int = 0) -> int:
+        """Сколько карточек можно позволить, чтобы уложиться в потолок вместе с уроками, связями, фактами и запасом на проверки.
+        facts: True — по FACTS_PER_CARD фактов на карточку, число — своя доля фактов на карточку, False — без них."""
+        ratio = FACTS_PER_CARD if facts is True else float(facts or 0)
         bt = self.book_tokens(chars)
-        fixed = self.cards_reads_cost(bt, batches) + self.side_cost(bt) + self.lessons_cost(nodes, 0)
+        fixed = (self.cards_reads_cost(bt, batches) + self.side_cost(bt) + self.lessons_cost(nodes, 0)
+                 + (self.facts_overhead(bt, fact_blocks, fact_calls) if ratio else 0.0))
         per_card = self.cost(miss=LESSON_IN_PER_CARD, out=CARD_OUT_TOKENS + LESSON_OUT_PER_CARD)
+        if ratio:                                          # факты идут «в нагрузку» к карточке
+            per_card += self.facts_cost(1) * ratio
         room = self.left() - fixed - OPTIONAL_RESERVE_SHARE * self.limit
         return max(0, int(room / per_card))
+
+    def projected_cost(self, chars: int, nodes: int, batches: int, cards: int, facts: bool | float = False,
+                       fact_blocks: int | None = None, fact_calls: int | None = None) -> float:
+        """Во сколько обойдётся весь прогон при цели в cards карточек: уже потраченное + карточки, уроки, связи, введение,
+        факты и запас на проверки. Это прогноз для журнала; число карточек он не меняет."""
+        ratio = FACTS_PER_CARD if facts is True else float(facts or 0)
+        bt = self.book_tokens(chars)
+        total = (self.spent() + self.cards_reads_cost(bt, batches) + self.side_cost(bt) + self.lessons_cost(nodes, cards)
+                 + self.cost(out=CARD_OUT_TOKENS * cards) + OPTIONAL_RESERVE_SHARE * self.limit)
+        blocks = fact_blocks if fact_blocks is not None else (-(-chars // FACT_BLOCK_CHARS) if ratio else 0)
+        calls = fact_calls if fact_calls is not None else -(-blocks // FACT_BATCH_BLOCKS)
+        return total + self.facts_cost(round(ratio * cards)) + (self.facts_overhead(bt, blocks, calls) if ratio else 0.0)
+
+    @classmethod
+    def estimate_book_cost(cls, chars: int, cards: int, offpeak: bool = True, facts: bool | float = True) -> float:
+        """Прогноз стоимости книги на chars знаков при цели в cards карточек ДО запуска (расход карты оценивается по размеру книги)."""
+        nodes = max(6, round(cards / 4))                 # бюджет узлов от цели: ≈ 4 карточки на узел (source_profile.node_budget)
+        bt = int(chars / BOOK_CHARS_PER_TOKEN)
+        probe = cls([], offpeak=offpeak)
+        map_cost = probe.cost(miss=bt, out=MAP_OUT_PER_NODE * nodes) + MAP_SECOND_SHARE * probe.cost(hit=bt, out=MAP_OUT_PER_NODE * nodes)
+        b = cls([{"label": "map#1", "prompt_tokens": bt, "cost_usd": map_cost}], offpeak=offpeak)
+        return b.projected_cost(chars, nodes, max(1, -(-nodes // 14)), cards, facts)
 
     def allows(self, stage: str, estimate: float, must_keep: float = 0.0) -> bool:
         """Можно ли запускать необязательный этап: после него должно остаться must_keep (на обязательные уроки)."""

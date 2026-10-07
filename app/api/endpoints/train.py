@@ -8,7 +8,7 @@ from sqlalchemy import select, func, or_
 from pydantic import BaseModel, Field
 from collections import defaultdict
 from app.database.session import get_db
-from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, utc_now
+from app.database.models import Card, ReviewLog, Phrase, UserSetting, UserSession, Category, Source, utc_now
 from app.services.fsrs_core import calculate_intervals, calculate_adaptive_retention_factor
 from app.core.auth import get_current_user_id
 from app.core.timeutil import user_day_start
@@ -307,6 +307,18 @@ async def get_session_cards(
         display_names_cache[s] = name
         display_names_cache[canon_s] = name
 
+    # Название материала: показываем «Из: …», только когда в предмете больше одного материала (иначе это шум)
+    source_ids = {c.source_id for c in full_pool if getattr(c, "source_id", None)}
+    source_names: dict[int, str] = {}
+    if source_ids:
+        subjects_with_many = {r[0] for r in (await db.execute(
+            select(Source.subject).where(Source.user_id == current_user).group_by(Source.subject).having(func.count(Source.id) > 1)
+        )).all()}
+        if subjects_with_many:
+            source_names = {r[0]: r[1] for r in (await db.execute(
+                select(Source.id, Source.name).where(Source.id.in_(source_ids), Source.subject.in_(subjects_with_many))
+            )).all()}
+
     # Формат предъявления: часть подходящих зрелых карточек показываем письменно (политика — в open_policy)
     open_ids: set = set()
     if mode in ("mixed", "review") and not (is_participant and phase == 1):
@@ -395,6 +407,7 @@ async def get_session_cards(
             "topological_rank": c.topological_rank or 0,
             "organ_slug": c.organ_slug or "",
             "node_id": c.node_id,
+            "source_name": source_names.get(c.source_id, "") if getattr(c, "source_id", None) else "",
             "presentation": "open" if (c.content_type == "open" or c.id in open_ids) else "flip",
             "answer_kind": answer_kind(c.translation),
             "layer": c.layer if c.layer is not None else 1,
