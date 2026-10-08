@@ -989,6 +989,18 @@ html, body {
 .exam-st-ready { color: var(--dg-violet); }
 .exam-st-waiting, .exam-st-skipped { color: #a3a3a3; }
 .exam-st-missing { color: var(--dg-red); }
+.exam-st-postponed { color: #a3a3a3; }
+.exam-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid #e5e5e5; }
+.dark .exam-card { border-color: #2a2a2a; }
+.exam-card-warn { border-color: var(--dg-red-line); background: var(--dg-red-soft); }
+.exam-card.hidden { display: none; }
+.exam-sim-timer { font: 700 22px/1 "JetBrains Mono", ui-monospace, monospace; text-align: center; }
+.exam-sim-timer.over { color: var(--dg-red); }
+.exam-sim-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; }
+.exam-sim-hit { color: var(--dg-green-ink); }
+.exam-sim-miss { color: var(--dg-red); }
+.starter-priority { margin-top: 6px; }
+.starter-priority.hidden { display: none; }
 
 /* ==========================================================================
    Единый вид карточки, штурм в две кнопки, мелочи

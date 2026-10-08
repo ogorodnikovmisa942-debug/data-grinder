@@ -232,7 +232,7 @@ async def _job(name):
 def test_merged_topic_gets_new_cards_without_a_second_node_and_shared_nodes_survive_deletion():
     calls_seen = []
 
-    async def fake_build(text, subject, calls=None, course=None):
+    async def fake_build(text, subject, calls=None, course=None, **options):
         calls_seen.append(course)
         calls.append({"label": "map#1", "cost_usd": 0.01, "prompt_tokens": 10, "cache_hit_tokens": 0, "completion_tokens": 1,
                       "duration_ms": 1, "finish_reason": "stop", "model": "deepseek-flash"})

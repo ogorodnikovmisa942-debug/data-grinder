@@ -121,6 +121,7 @@ conditions and exceptions; steps of a procedure in order (one step per card); cl
 Use the vocabulary of THIS source: a dose and route in a medicine text, a signature and complexity in a programming text, a formula and its unit in a physics text, a date and a cause in a history text, a rule and its exception in a language text, a term of office and who appoints in a law text.
 QUESTION VARIETY: at most one third of the cards of a node may begin with the same two words (for example «Как называется», «Какой метод»). Choose the opener that fits what is asked: Кто / Сколько / Когда / На какой срок / При каком условии / В каком порядке / Что произойдёт, если / Чем отличается A от B / Какова последовательность. The Anti-giveaway law still applies.
 UNDERSTANDING SHARE: at least one card in four must test understanding rather than naming: Почему / Для чего / К чему приводит / Чем отличается A от B / При каком условии / В чём недостаток / Что следует из ...
+The task block may carry a line "UNDERSTANDING CARDS: key=U": U is the MINIMUM number of cards of that node that begin with one of these openers. Meet it: where the passage states no cause, take a purpose, a condition, a consequence or a contrast; a node with a definition and a classification always has a contrast («Чем отличается A от B»).
 Wherever the passage gives a cause, a purpose, a consequence, a contrast, a criticism or an example, ask about it. Such cards are y=1 or y=2.
 
 B2d. ALREADY ASKED — a course that grows
@@ -263,6 +264,8 @@ H3. THE LESSON
   3 options, exactly one correct ("answer" is its 0-based index), all options the same kind and similar length, wrong options plausible for a beginner. "why": 1 sentence explaining the right answer.
 - Tier-3 (case) nodes: the lesson is a worked example — a short situation, the mascot reasons through which rule applies and why the look-alike rule does not.
 - REPAIR: the task block may say "THE PREVIOUS LESSON OMITTED THESE ANSWERS". Then rewrite the whole lesson so that these answers are stated too.
+- SUPPLEMENT: a node block with a line "SUPPLEMENT:" belongs to a topic whose lesson the learner has ALREADY finished from another material. Write a SHORT supplement: 3 to 5 screens, no hook about why the topic matters and no re-explanation of the basics.
+  Screen 1 says in one line what this material adds or where its author differs; the next screens state the facts of the cards (the ALIGNMENT LAW still applies); the last screen is a one-sentence takeaway. One check question as usual.
 
 LESSON JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {
@@ -415,6 +418,9 @@ def build_cards_task(map_json: str, node_keys: list[str], quotas: dict[str, int]
     target = ""
     if quotas:
         target = "TARGET CARDS: " + ", ".join(f"{k}={quotas[k]}" for k in node_keys if k in quotas) + "\n"
+        mins = [f"{k}={-(-quotas[k] // 4)}" for k in node_keys if quotas.get(k, 0) >= 3]
+        if mins:
+            target += "UNDERSTANDING CARDS: " + ", ".join(mins) + "\n"
     hint = kind_hint(source_type)
     if hint:
         target += hint + "\n"

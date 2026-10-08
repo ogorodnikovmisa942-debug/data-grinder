@@ -44,6 +44,10 @@ class Settings:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip().strip('"\'')
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip().strip('"\'')
     # Пиковые цены deepseek-flash, $ за 1M токенов (вне пика — половина). Источник: api-docs.deepseek.com/quick_start/pricing
+    # Второй поставщик ИИ на случай сбоя DeepSeek (любой совместимый с OpenAI API: /chat/completions, JSON-режим). Пусто — выключен.
+    FALLBACK_AI_BASE_URL: str = os.getenv("FALLBACK_AI_BASE_URL", "").strip().strip('"\'')
+    FALLBACK_AI_API_KEY: str = os.getenv("FALLBACK_AI_API_KEY", "").strip().strip('"\'')
+    FALLBACK_AI_MODEL: str = os.getenv("FALLBACK_AI_MODEL", "").strip().strip('"\'')
     DEEPSEEK_PRICE_CACHE_HIT: float = float(os.getenv("DEEPSEEK_PRICE_CACHE_HIT", "0.006"))
     DEEPSEEK_PRICE_CACHE_MISS: float = float(os.getenv("DEEPSEEK_PRICE_CACHE_MISS", "0.30"))
     DEEPSEEK_PRICE_OUTPUT: float = float(os.getenv("DEEPSEEK_PRICE_OUTPUT", "1.20"))
@@ -61,6 +65,23 @@ class Settings:
     MAX_IMPORT_FILES: int = int(os.getenv("MAX_IMPORT_FILES", "10"))
     MAX_ACTIVE_JOBS_PER_USER: int = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
     MAX_JOBS_PER_HOUR: int = int(os.getenv("MAX_JOBS_PER_HOUR", "10"))
+
+    # Ежедневные копии базы (app/services/backup.py): сколько хранить и куда класть вторую копию (папка, синхронизируемая в облако)
+    BACKUP_ENABLED: bool = os.getenv("BACKUP_ENABLED", "1").lower() in ("1", "true", "yes")
+    BACKUP_KEEP: int = int(os.getenv("BACKUP_KEEP", "14"))
+    BACKUP_EXTERNAL_DIR: str = os.getenv("BACKUP_EXTERNAL_DIR", "").strip()
+
+    # Тарифы и месячные квоты на ИИ (app/services/quota.py). По умолчанию ВЫКЛЮЧЕНЫ: включает владелец, когда появится оплата.
+    # Числа из плана 2026-10-06 — гипотезы для проверки: бесплатно одна небольшая книга в ночной очереди, платно до 5 книг в месяц.
+    QUOTAS_ENABLED: bool = os.getenv("QUOTAS_ENABLED", "0").lower() in ("1", "true", "yes")
+    FREE_BOOK_CHARS: int = int(os.getenv("FREE_BOOK_CHARS", "50000"))
+    FREE_BOOKS_PER_MONTH: int = int(os.getenv("FREE_BOOKS_PER_MONTH", "1"))
+    FREE_MONTHLY_AI_USD: float = float(os.getenv("FREE_MONTHLY_AI_USD", "0.15"))
+    FREE_EXAM_PLANS_PER_SUBJECT: int = int(os.getenv("FREE_EXAM_PLANS_PER_SUBJECT", "1"))
+    PAID_BOOK_CHARS: int = int(os.getenv("PAID_BOOK_CHARS", "1500000"))
+    PAID_BOOKS_PER_MONTH: int = int(os.getenv("PAID_BOOKS_PER_MONTH", "5"))
+    PAID_MONTHLY_AI_USD: float = float(os.getenv("PAID_MONTHLY_AI_USD", "1.20"))
+    PAID_AI_CHECKS_PER_MONTH: int = int(os.getenv("PAID_AI_CHECKS_PER_MONTH", "30"))   # ИИ-оценка смысла ответа на билет
 
     # Максимальный возраст подписанного initData (Telegram кэширует WebView, поэтому с запасом)
     INIT_DATA_MAX_AGE_SECONDS: int = int(os.getenv("INIT_DATA_MAX_AGE_SECONDS", str(7 * 24 * 3600)))

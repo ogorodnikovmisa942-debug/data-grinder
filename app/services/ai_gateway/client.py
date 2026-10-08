@@ -133,6 +133,20 @@ def _debug_dump_raw(content: str | None) -> None:
         pass
 
 
+def _second_provider_ready() -> bool:
+    return bool(settings.FALLBACK_AI_BASE_URL and settings.FALLBACK_AI_API_KEY and settings.FALLBACK_AI_MODEL)
+
+
+async def _post_second_provider(client, payload: dict, timeout: float):
+    """Тот же запрос ко второму поставщику (совместимому с OpenAI): режим «обдумывания» DeepSeek ему не отправляется."""
+    body = {k: v for k, v in payload.items() if k != "thinking"}
+    body["model"] = settings.FALLBACK_AI_MODEL
+    print(f"[AI Gateway WARNING] DeepSeek недоступен, пробуем второго поставщика: {settings.FALLBACK_AI_MODEL}", flush=True)
+    return await asyncio.wait_for(client.post(
+        f"{settings.FALLBACK_AI_BASE_URL.rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {settings.FALLBACK_AI_API_KEY}", "Content-Type": "application/json"}, json=body), timeout)
+
+
 async def call_deepseek(
     user_prompt: str,
     system_instruction: str,
@@ -177,10 +191,20 @@ async def call_deepseek(
     async with httpx.AsyncClient(timeout=timeout) as client:
         # Жёсткий предел: timeout httpx — пауза между байтами, а перегруженный DeepSeek держит соединение
         # пустыми строками до 10 минут. Без wait_for вызов «висел» бы без ответа и без счёта.
-        response = await asyncio.wait_for(client.post(url, headers=headers, json=payload), timeout)
+        used_second = False
+        try:
+            response = await asyncio.wait_for(client.post(url, headers=headers, json=payload), timeout)
+        except (asyncio.TimeoutError, httpx.HTTPError):
+            if not _second_provider_ready():
+                raise
+            response, used_second = await _post_second_provider(client, payload, timeout), True
+        if response.status_code >= 500 and not used_second and _second_provider_ready():
+            response, used_second = await _post_second_provider(client, payload, timeout), True
+        if used_second:
+            resolved_model = settings.FALLBACK_AI_MODEL
 
         # Автоматический fallback: запрошенная модель недоступна/не найдена — пробуем страховочную deepseek-v4-pro
-        if response.status_code in (400, 404) and target_model != MODEL_FALLBACK:
+        if response.status_code in (400, 404) and target_model != MODEL_FALLBACK and not used_second:
             print(f"[AI Gateway / DeepSeek WARNING] Модель '{target_model}' вернула код {response.status_code}. Пробуем '{MODEL_FALLBACK}'...")
             payload["model"] = MODEL_FALLBACK
             resolved_model = MODEL_FALLBACK

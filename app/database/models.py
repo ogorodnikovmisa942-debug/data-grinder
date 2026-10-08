@@ -173,6 +173,8 @@ class UserSetting(Base):
     experiment_phase = Column(Integer, default=1, nullable=False)
     open_mode = Column(String(16), default="auto", nullable=True)  # auto | exam | off: доля вопросов с письменным ответом
     timezone = Column(String(64), nullable=True)  # IANA, например Europe/Moscow: границы суток и уведомления
+    plan = Column(String(12), nullable=True)      # free | paid (пусто = free); пока нет оплаты, выставляет администратор
+    plan_until = Column(DateTime, nullable=True)  # платный тариф действует до этого момента (пусто = без срока)
 
 
 class GenerationJob(Base):
@@ -209,6 +211,9 @@ class GenerationJob(Base):
     source_name = Column(String, nullable=True)
     text_hash = Column(String(64), nullable=True)
     replace_source_id = Column(Integer, nullable=True)
+    # Параметры загрузки: насколько подробно (compact | standard | detailed) и тип материала, если его назвал пользователь
+    depth = Column(String(12), nullable=True)
+    source_kind = Column(String(16), nullable=True)
 
 
 class AiTelemetryLog(Base):

@@ -106,7 +106,7 @@
                         <span>Нарезка материалов заблокирована</span>
                     </div>
                     <p class="text-[11px] text-neutral-600 dark:text-neutral-300 font-sans leading-relaxed">
-                        В рамках <strong>Фазы 1</strong> научного эксперимента нарезка материалов и создание карточек отключены. Сейчас проводится чистое тестирование готовых колод (лимит <strong>10 карт в день</strong>). Обучайтесь во вкладке <strong>LEARN</strong>.
+                        В рамках <strong>Фазы 1</strong> научного эксперимента нарезка материалов и создание карточек отключены. Сейчас проводится чистое тестирование готовых колод (лимит <strong>10 карт в день</strong>). Обучайтесь во вкладке <strong>Учёба</strong>.
                     </p>
                 </div>
 
@@ -149,7 +149,7 @@
                     
                     <!-- Быстрый импорт файлов прямо под полем ввода -->
                     <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
                             <span class="material-symbols-outlined text-[14px]">attach_file</span>
                             <span>Документ (PDF/Word/PPTX)</span>
@@ -166,26 +166,37 @@
 
                 <!-- 3 смысловых пресета генерации FSRS -->
                 <div class="flex flex-col gap-1.5 border-t border-neutral-200/60 dark:border-neutral-800 pt-3 mt-2">
-                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Пресет декомпозиции</span>
+                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Насколько подробно</span>
                     
                     <div class="grid grid-cols-3 gap-1.5">
                         <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">High-Yield</span>
-                            <span class="text-[8px] opacity-80 font-normal">Парето (авто)</span>
+                            <span class="tracking-wide font-sans">Стандарт</span>
+                            <span class="text-[8px] opacity-80 font-normal">≈ 1 карточка на страницу</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('detailed')" id="gran-detailed" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">Полный</span>
-                            <span class="text-[8px] opacity-80 font-normal">все факты (макс)</span>
+                            <span class="tracking-wide font-sans">Подробно</span>
+                            <span class="text-[8px] opacity-80 font-normal">на 40% больше</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('blitz')" id="gran-blitz" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">Экспресс</span>
-                            <span class="text-[8px] opacity-80 font-normal">основы темы</span>
+                            <span class="tracking-wide font-sans">Кратко</span>
+                            <span class="text-[8px] opacity-80 font-normal">только главное</span>
                         </button>
                     </div>
 
                     <!-- Пояснение текущего пресета -->
                     <div id="import-mode-explanation" class="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans px-2.5 py-1.5 bg-surface-container rounded-xl">
-                        High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).
+                        Стандарт: самое важное из материала, около 500 карточек на учебник; остальное попадает в «Конспект темы». Если в предмете уже есть материалы, повторов не будет: берётся только новое.
+                    </div>
+
+                    <div class="flex flex-col gap-1 mt-1">
+                        <label for="import-source-kind" class="text-[9px] text-neutral-400 uppercase font-mono">Что за материал:</label>
+                        <select id="import-source-kind" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs">
+                            <option value="">Определить автоматически</option>
+                            <option value="textbook">Учебник или глава учебника</option>
+                            <option value="article">Статья или доклад</option>
+                            <option value="notes">Конспект, шпаргалка, тезисы</option>
+                            <option value="lecture">Лекция (текст или слайды)</option>
+                        </select>
                     </div>
 
                     <!-- Быстрые чипы фокусировки -->
@@ -222,6 +233,9 @@
                         </div>
                     </details>
                 </div>
+
+                <!-- Тариф и расход ИИ в этом месяце (виден, только когда включены квоты) -->
+                <div id="plan-usage" class="hidden text-[10px] font-mono border border-neutral-200 dark:border-neutral-800 p-2.5 bg-surface-container rounded-xl mt-2 text-neutral-600 dark:text-neutral-300"></div>
 
                 <!-- Индикатор тарифа DeepSeek и окно Ночного Грайндера -->
                 <div id="tariff-banner" class="flex justify-between items-center text-[10px] font-mono border border-neutral-200 dark:border-neutral-800 p-2.5 bg-surface-container rounded-xl mt-2 select-none">

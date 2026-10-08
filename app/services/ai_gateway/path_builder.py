@@ -39,7 +39,7 @@ from .path_prompts import (
 from . import coverage
 from . import card_quality
 from . import source_profile
-from .budget import Budget, FACTS_MIN_SHARE
+from .budget import Budget
 
 # ~1M токенов контекста deepseek-flash; оставляем запас под промпт, карту и ответ
 MAX_SOURCE_CHARS = 1_800_000
@@ -124,8 +124,8 @@ LLM_TIMEOUT_S = 600.0
 # Вторая нужна, только если первая получила оценку ниже MAP_GOOD_SCORE (из 8 возможных баллов score_map)
 MAP_CANDIDATES = 2
 MAP_GOOD_SCORE = 5.5
-# Цена вперёд: если прогноз выходит за потолок (по замеру стоимости узлов и карточек), цель урезается, но не ниже этой доли плана
-PRICE_FLOOR_SHARE = 0.7
+# Отбраковка непроверенных карточек и обрезка лишнего по важности (PATH_QUALITY_GATE=0 выключает)
+QUALITY_GATE = os.getenv("PATH_QUALITY_GATE", "1").lower() in ("1", "true", "yes")
 MAP_SECOND_TEMPERATURE = 0.4
 # Уроки и карточки основ и тем (ярус 0–1) можно писать в режиме «обдумывания» (PATH_THINK_CORE=1).
 # Замер на «Общей теории права» (481 с., дешёвые часы): +≈$0.035 к книге (~+20%), а метафоры и качество уроков
@@ -1038,7 +1038,7 @@ async def audit_cards(verifier: "card_quality.CardVerifier", cards_by_node: dict
     n = budget.affordable("проверка карточек", budget.audit_cost(1), must_keep,
                           min(len(ordered), AUDIT_MAX_CARDS) if CARD_CAPS else len(ordered))
     if n <= 0:
-        return {"checked": 0, "skipped": len(flagged)}
+        return {"checked": 0, "budget_skipped": len(flagged)}
     ordered = ordered[:n]
     chunks = [ordered[i:i + AUDIT_BATCH] for i in range(0, len(ordered), AUDIT_BATCH)]
 
@@ -1182,7 +1182,7 @@ def _related_lines(key: str, by_key: dict, edges: list[dict]) -> str:
 
 
 def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, verifier: "card_quality.CardVerifier",
-                  omitted: list[str] | None = None) -> str:
+                  omitted: list[str] | None = None, supplement: bool = False) -> str:
     keys = [node["key"]] + list(node.get("prereqs") or [])
     if node.get("parent"):
         keys.append(node["parent"])
@@ -1204,6 +1204,8 @@ def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, v
     ]
     lines += [f"{i}. Q: {c['text']} | A: {c['translation']}" for i, c in enumerate(cards, 1)]
     lines.append(f"EXCERPT: «{excerpt}»")
+    if supplement:
+        lines.append("SUPPLEMENT: the learner already finished the lesson of this topic from another material; these cards are what THIS material adds.")
     if omitted:
         lines.append("THE PREVIOUS LESSON OMITTED THESE ANSWERS: " + " ; ".join(omitted))
     return "\n".join(lines)
@@ -1211,7 +1213,7 @@ def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, v
 
 async def build_lessons(verifier: "card_quality.CardVerifier", path_map: dict, cards_by_node: dict[str, list[dict]],
                         calls_log: list, keys: list[str] | None = None, omitted: dict[str, list[str]] | None = None,
-                        attempts: int = 3, source_type: str | None = None) -> dict[str, dict]:
+                        attempts: int = 3, source_type: str | None = None, supplements: set[str] | None = None) -> dict[str, dict]:
     """Уроки узлов: по LESSON_BATCH_NODES узлов в запросе, запросы идут одновременно. Узел без карточек урока не получает."""
     by_key = {n["key"]: n for n in path_map["nodes"]}
     order = [n["key"] for n in path_map["nodes"] if (keys is None or n["key"] in keys) and cards_by_node.get(n["key"])]
@@ -1220,7 +1222,8 @@ async def build_lessons(verifier: "card_quality.CardVerifier", path_map: dict, c
     sem = asyncio.Semaphore(PACK_CONCURRENCY)
 
     def make_prompt(missing: list[str]) -> str:
-        blocks = [_lesson_block(by_key[k], cards_by_node[k], path_map, by_key, verifier, (omitted or {}).get(k)) for k in missing]
+        blocks = [_lesson_block(by_key[k], cards_by_node[k], path_map, by_key, verifier, (omitted or {}).get(k), k in (supplements or set()))
+                  for k in missing]
         return build_lessons_task("\n\n".join(blocks), source_type)
 
     def normalize(raw, missing):
@@ -1416,11 +1419,14 @@ async def build_align(path_map: dict, course: dict, calls_log: list) -> tuple[di
 # ---------------------------------------------------------------------------
 
 async def build_learning_path(text: str, subject: str, calls: list | None = None, card_total: int | None = None,
-                              course: dict | None = None) -> dict:
+                              course: dict | None = None, depth: str | None = None, source_kind: str | None = None) -> dict:
     """Полный прогон: MAP → тип материала и цель → (ALIGN с имеющимся курсом) → CARDS → проверка по книге (AUDIT) → добор до цели (FILL)
     → LESSON из карточек. Возвращает карту, пакеты узлов {урок, карточки} и телеметрию.
     Цель по карточкам зависит от типа материала (source_profile): учебник ≈ одна на страницу, конспект ≈ по карточке на пункт.
-    card_total задаёт другое число (scripts/run_book.py --cards).
+    card_total задаёт другое число (scripts/run_book.py --cards). depth — «насколько подробно» (compact | standard | detailed),
+    source_kind — тип материала, названный пользователем (иначе его называет модель или определяет код).
+    Размер колоды задаёт source_profile.deck_goal: содержание материала, глубина и общий потолок карточек предмета (несколько источников
+    не складываются в тысячи карточек); деньги размер не меняют.
     course — курс предмета, если материал добавляется к уже имеющемуся: {"nodes": [{key, name, tier, summary}], "cards": {key: [{"q", "a"}]}}.
     Тогда темы, совпавшие с имеющимися, сливаются (result["merge"]), уже покрытые куски получают меньше карточек, а по совпавшим
     темам модель видит, что уже спрошено, и пишет только новое."""
@@ -1436,7 +1442,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES)
     path_map, size_hints, gap_report = await fill_map_gaps(text, path_map, calls)
 
-    kind = source_profile.resolve_kind(path_map.get("source_type"), text)
+    kind = source_profile.resolve_kind(source_kind or path_map.get("source_type"), text)
+    depth = source_profile.normalize_depth(depth)
     index = coverage.SourceIndex(text)
     verifier = card_quality.CardVerifier(text, index)
 
@@ -1459,30 +1466,20 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     batches = plan_pack_batches(path_map, split_core=THINK_CORE)
     effective = coverage.effective_chars(index, novelty) if novelty else len(text)
     planned = card_total or max(1, round(source_profile.target_cards(kind, text) * effective / max(1, len(text))))
+    existing_total = sum(len(v) for v in existing_cards.values())
+    new_share = effective / max(1, len(text))
+    if card_total is None:
+        policy = source_profile.deck_goal(planned, depth, existing_total, new_share)
+    else:
+        policy = {"goal": card_total, "planned": card_total, "mult": 1.0, "source_cap": None, "room": None, "limited_by": "explicit"}
+    goal = policy["goal"]
     use_facts = bool(FACTS and len(text) >= MIN_FACT_SOURCE_CHARS)
     fact_ratio = source_profile.facts_per_card(kind) if use_facts else 0.0
-    fact_ratio_min = round(FACTS_MIN_SHARE * fact_ratio, 2)
     fact_blocks_est = len(coverage.fact_blocks(text)) if use_facts else 0
     fact_calls = -(-fact_blocks_est // FACT_BATCH_BLOCKS)
     fits = budget.card_cap(len(text), len(path_map["nodes"]), len(batches), facts=fact_ratio, fact_blocks=fact_blocks_est, fact_calls=fact_calls)
-    goal = planned
-    if card_total is None and fits < planned:
-        # Цена вперёд: урезаем понемногу и факты (до половины от плана), и карточки (до PRICE_FLOOR_SHARE плана), пока не уложимся в потолок.
-        # Факт в 7 раз дешевле карточки и по замеру даёт не меньше покрытия, но колода из одних фактов — не колода: режем обоих вместе
-        floor_cards = round(PRICE_FLOOR_SHARE * planned)
-        while fits < goal:
-            can_facts = use_facts and fact_ratio > fact_ratio_min
-            can_cards = goal > floor_cards
-            if not (can_facts or can_cards):
-                break
-            if can_facts:
-                fact_ratio = max(fact_ratio_min, round(fact_ratio - 0.2, 2))
-            if can_cards:
-                goal = max(floor_cards, round(goal * 0.95))
-            fits = budget.card_cap(len(text), len(path_map["nodes"]), len(batches), facts=fact_ratio,
-                                   fact_blocks=fact_blocks_est, fact_calls=fact_calls)
-        print(f"[Path Builder] цена: план {planned} карточек; в потолок ${budget.limit:.2f} помещается ~{fits} при {fact_ratio:.2f} факта на карточку; "
-              f"цель {goal} карточек, фактов на карточку {fact_ratio:.2f}", flush=True)
+    print(f"[Path Builder] размер колоды: по содержанию {planned}, глубина «{depth}», в курсе уже {existing_total} карточек; цель {goal} "
+          f"({'ограничение: ' + policy['limited_by'] if policy['limited_by'] else 'без ограничений'})", flush=True)
     quotas = plan_card_quotas(text, path_map, size_hints, total=goal, index=index, sizes=node_sizes,
                               floor_override={k: 1 for k in merge})
     target = sum(quotas.values()) if quotas else None                                    # цель по числу карточек (не зависит от денег)
@@ -1492,8 +1489,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
                                       fact_blocks=len(fact_blocks), fact_calls=-(-len(fact_blocks) // FACT_BATCH_BLOCKS))
     print(f"[Path Builder] тип материала: {kind} (модель назвала: {path_map.get('source_type')}); цель: {target if target else '—'} карточек; "
           f"покрыто курсом {0 if not novelty else sum(1 for x in novelty if x < 0.5)} из {len(novelty or [])} окон; слито тем: {len(merge)}; "
-          f"потрачено ${budget.spent():.4f}, ожидаемо всего ~${projected:.3f} при потолке ${budget.limit:.2f}"
-          f"{'' if not target or target <= fits else f' — ЦЕЛЬ ДОРОЖЕ ПОТОЛКА (в потолок помещается ~{fits})'}; "
+          f"потрачено ${budget.spent():.4f}, ожидаемо всего ~${projected:.3f} (аварийный потолок ${budget.limit:.2f})"
+          f"{'' if not target or target <= fits else f' — ВНИМАНИЕ: дороже аварийного потолка (в него помещается ~{fits})'}; "
           f"прочие потолки числа карточек {'ВКЛ' if CARD_CAPS else 'выкл'}", flush=True)
 
     semaphore = asyncio.Semaphore(PACK_CONCURRENCY)
@@ -1539,19 +1536,26 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
                                    sum(len(v) for k, v in cards_by_node.items() if k not in merge))
 
     audit_report = await audit_cards(verifier, cards_by_node, flagged, calls, budget, reserve())
+    # Непроверенное ученику не показываем; но если сама проверка не состоялась (сбой, не хватило денег), карточки остаются как есть
+    dropped_unsupported = (card_quality.drop_unsupported(cards_by_node)
+                           if QUALITY_GATE and not audit_report.get("error") and not audit_report.get("budget_skipped") else 0)
     # Добор — только чтобы дотянуть до цели, если модель дала меньше квот (не раздувает колоду сверх неё); берёт абзацы без карточек
     have = sum(len(v) for v in cards_by_node.values())
     deficit = (target - have) if target else None
     fill_report = ({"spans": 0, "added": 0, "skipped": "цель достигнута"} if deficit is not None and deficit < FILL_MIN_CARDS
                    else await fill_cards(verifier, path_map, cards_by_node, calls, budget, reserve(), rejected, max_cards=deficit))
     dedupe_removed += card_quality.dedupe_cards(cards_by_node, order)       # добранные карточки могут повторять уже имеющиеся
+    trimmed = card_quality.trim_to_goal(cards_by_node, target, weights) if (QUALITY_GATE and target) else 0    # лишнее сверх цели — наименее важное
 
     # Конспект темы: проверка по книге и порядок книги (до уроков: сами уроки факты не пересказывают)
     matcher = coverage.NodeMatcher(index, path_map["nodes"], cards_by_node) if raw_facts else None
     facts_by_node, facts_report = card_quality.process_facts(verifier, raw_facts, coverage.fact_blocks(text),
                                                              matcher, cards_by_node, order)
-    lesson_keys = [k for k in order if cards_by_node.get(k) and k not in merge]          # у совпавшей темы урок уже есть
-    lessons = await build_lessons(verifier, path_map, cards_by_node, calls, keys=lesson_keys, source_type=kind)
+    # У совпавшей с курсом темы основной урок уже есть; если новый материал добавил ей не меньше SUPPLEMENT_MIN_CARDS карточек,
+    # они получают короткий урок-дополнение (в базе это отдельная подтема «… : дополнение»)
+    supplements = {k for k in merge if len(cards_by_node.get(k) or []) >= source_profile.SUPPLEMENT_MIN_CARDS}
+    lesson_keys = [k for k in order if cards_by_node.get(k) and (k not in merge or k in supplements)]
+    lessons = await build_lessons(verifier, path_map, cards_by_node, calls, keys=lesson_keys, source_type=kind, supplements=supplements)
     repair_report = await repair_lessons(verifier, path_map, cards_by_node, lessons, calls, budget)
 
     packs = {k: {"lesson": lessons.get(k), "cards": cards_by_node[k]} for k in order if cards_by_node.get(k)}
@@ -1563,6 +1567,7 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         "packs": packs,
         "intro": intro,
         "merge": merge,
+        "supplements": sorted(k for k in supplements if lessons.get(k)),
         "facts": facts_by_node,
         "source_type": kind,
         "quotas": quotas,
@@ -1572,6 +1577,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
                             "effective_chars": effective, "covered_windows": 0 if not novelty else sum(1 for x in novelty if x < 0.5),
                             "windows": len(novelty or []), "align": align_report, "merged_nodes": len(merge),
                             "dropped_existing_fronts": dropped_existing},
+                  "quality": card_quality.quality_report(final_cards, dropped_unsupported, trimmed, weights),
+                  "deck_policy": {**policy, "depth": depth, "existing_cards": existing_total, "new_share": round(new_share, 3)},
                   "lesson_alignment": coverage.lesson_alignment(packs),
                   "support": {**dict(support_final), "checked_first_pass": support},
                   "dedupe_removed": dedupe_removed, "audit": audit_report, "fill": fill_report,

@@ -21,6 +21,7 @@ from app.database.models import (
     GenerationJob, UserSetting, Source, ExamTicket, utc_now,
 )
 from app.services.ai_gateway.coverage import stems
+from app.services.ai_gateway.source_profile import SUPPLEMENT_MIN_CARDS
 from app.services.exam_prep import ticket_card_filter
 
 # Вводный урок курса: скрытый узел без карточек, связей и яруса в графе. Идёт первым шагом пути.
@@ -282,9 +283,30 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
 
     facts_by_key = result.get("facts") or {}
     node_rows: dict[str, KnowledgeNode] = {}
+    supplement_rows: dict[str, KnowledgeNode] = {}
+    used_keys = set(taken) | set(keys.values())
     for n in path_map["nodes"]:
         if n["key"] in merge:
-            node_rows[n["key"]] = existing_nodes[merge[n["key"]]]
+            ex = existing_nodes[merge[n["key"]]]
+            pack = packs.get(n["key"]) or {}
+            if pack.get("lesson") and len(pack.get("cards") or []) >= SUPPLEMENT_MIN_CARDS:
+                # Новый материал добавил совпавшей теме заметный кусок: он идёт отдельной подтемой с коротким уроком-дополнением
+                sup_key, i = f"{ex.node_key}__add{source.id}", 2
+                while sup_key in used_keys:
+                    sup_key, i = f"{ex.node_key}__add{source.id}_{i}", i + 1
+                used_keys.add(sup_key)
+                row = KnowledgeNode(
+                    user_id=user_id, subject=subject, node_key=sup_key, name=f"{ex.name}: дополнение", tier=2,
+                    parent_key=ex.node_key if ex.tier < 2 else ex.parent_key, prereq_keys=[ex.node_key],
+                    order_idx=n["order"] + order_offset, summary=n["summary"], source_hint=n["src"], lesson=pack["lesson"],
+                    lesson_status="ready", kind="core", source_id=source.id, created_at=now,
+                    facts=merge_facts(None, facts_by_key.get(n["key"]), source.id) or None,
+                )
+                db.add(row)
+                supplement_rows[n["key"]] = row
+                node_rows[n["key"]] = row
+            else:
+                node_rows[n["key"]] = ex
             continue
         lesson = (packs.get(n["key"]) or {}).get("lesson")
         row = KnowledgeNode(
@@ -307,8 +329,8 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
         )
         db.add(row)
         node_rows[n["key"]] = row
-    for n in path_map["nodes"]:                  # у совпавшей темы конспект дополняется фактами нового материала
-        if n["key"] in merge and facts_by_key.get(n["key"]):
+    for n in path_map["nodes"]:                  # у совпавшей темы без дополнения конспект пополняется фактами нового материала
+        if n["key"] in merge and n["key"] not in supplement_rows and facts_by_key.get(n["key"]):
             row = node_rows[n["key"]]
             row.facts = merge_facts(row.facts, facts_by_key[n["key"]], source.id) or None
     have_edges = {(e.source_key, e.target_key, e.relation) for e in (await db.execute(
@@ -349,7 +371,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
                 stability=1.0,
                 state=0,
                 content_type="text",
-                organ_slug=mapped(n["key"]),
+                organ_slug=node_rows[n["key"]].node_key,
                 layer=c.get("layer", 1),
                 topological_rank=rank,
                 node_id=node_rows[n["key"]].id,
@@ -359,7 +381,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
                 next_review=now,
             ))
             cards_created += 1
-    created_nodes = [r for k, r in node_rows.items() if k not in merge]
+    created_nodes = [r for k, r in node_rows.items() if k not in merge or k in supplement_rows]
     source.nodes_count = len(created_nodes)
     source.cards_count = cards_created
     source.kind = result.get("source_type")
@@ -370,6 +392,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
         "source_id": source.id,
         "nodes": len(created_nodes),
         "merged_nodes": len(merge),
+        "supplements": len(supplement_rows),
         "edges": len(path_map["edges"]),
         "cards": cards_created,
         "facts": sum(len(v) for v in facts_by_key.values()),

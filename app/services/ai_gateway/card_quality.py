@@ -537,10 +537,99 @@ def process_facts(verifier: "CardVerifier", raw_facts: list[dict], blocks: list[
     return out, report
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Качество колоды: оценка карточки, отбраковка неподтверждённых, обрезка лишнего по важности, отчёт
+# ---------------------------------------------------------------------------------------------------------------------
+SUPPORT_SCORE = {"grounded": 1.0, "audited": 0.95, "fixed": 0.85, "near": 0.8, "lexical": 0.55, "unchecked": 0.55, "flagged": 0.0}
+SUPPORTED = ("grounded", "audited", "fixed", "near")
+_UNDERSTANDING = ("почему", "для чего", "чем отличается", "чем отличаются", "к чему", "при каком условии", "в чём", "что следует", "зачем",
+                  "как связан", "что произойдёт", "что произойдет")
+TRIM_TOLERANCE = 1.08            # модель пишет «N±1» на узел: до +8% от цели оставляем, остальное режем по важности
+
+
+def card_priority(card: dict, window_weight: float = 1.0) -> float:
+    """Насколько карточка стоит места в колоде (чем выше, тем важнее): подтверждённость книгой, конкретность ответа (число, термин),
+    вопрос на понимание, основа понятия, насыщенность куска книги, из которого она взята. Только программа, без вызовов ИИ."""
+    score = SUPPORT_SCORE.get(card.get("support"), 0.55)
+    answer = card.get("translation") or ""
+    if re.search(r"\d", answer):
+        score += 0.12
+    elif len(answer.split()) >= 3:
+        score += 0.05
+    if (card.get("text") or "").strip().lower().startswith(_UNDERSTANDING):
+        score += 0.08
+    if card.get("layer") == 0:
+        score += 0.05
+    return score + max(-0.15, min(0.3, 0.15 * (window_weight - 1.0)))
+
+
+def drop_unsupported(cards_by_node: dict[str, list[dict]]) -> int:
+    """Карточка, которой не нашлось опоры в книге и которую не подтвердила проверка, в колоду не идёт: ученик не должен учить непроверенное.
+    Последняя карточка узла остаётся (узел без карточек остался бы и без урока); её подозрительность видна в support."""
+    removed = 0
+    for key, lst in cards_by_node.items():
+        kept = [c for c in lst if c.get("support") != "flagged"]
+        if lst and not kept:
+            kept = lst[:1]
+        removed += len(lst) - len(kept)
+        cards_by_node[key] = kept
+    return removed
+
+
+def trim_to_goal(cards_by_node: dict[str, list[dict]], goal: int, weights: list[float] | None = None,
+                 tolerance: float = TRIM_TOLERANCE) -> int:
+    """Если карточек больше цели (с допуском), убираем наименее важные; в узле остаётся не меньше одной. Возвращает число убранных."""
+    limit = max(1, int(goal * tolerance))
+    total = sum(len(v) for v in cards_by_node.values())
+    if total <= limit:
+        return 0
+    ranked = []
+    for key, lst in cards_by_node.items():
+        for i, c in enumerate(lst):
+            w = weights[c["src_window"]] if (weights and c.get("src_window") is not None and c["src_window"] < len(weights)) else 1.0
+            ranked.append((card_priority(c, w), key, i))
+    ranked.sort()
+    left = {k: len(v) for k, v in cards_by_node.items()}
+    drop: set[tuple[str, int]] = set()
+    for _, key, i in ranked:
+        if total <= limit:
+            break
+        if left[key] > 1:
+            drop.add((key, i))
+            left[key] -= 1
+            total -= 1
+    for key in cards_by_node:
+        cards_by_node[key] = [c for i, c in enumerate(cards_by_node[key]) if (key, i) not in drop]
+    return len(drop)
+
+
+def quality_report(cards: list[dict], dropped_unsupported: int = 0, trimmed: int = 0, weights: list[float] | None = None) -> dict:
+    """Показатели качества готовой колоды (в журнал и в отчёт): доля подтверждённых книгой, вопросов на понимание и с числом в ответе,
+    повторы вопросов, средняя оценка карточки. Пороги — предупреждения в журнале, а не остановка."""
+    n = max(1, len(cards))
+    fronts = [_fold(c.get("text") or "") for c in cards]
+    prios = [card_priority(c, weights[c["src_window"]] if (weights and c.get("src_window") is not None and c["src_window"] < len(weights)) else 1.0)
+             for c in cards]
+    rep = {
+        "cards": len(cards),
+        "supported_share": round(sum(1 for c in cards if c.get("support") in SUPPORTED) / n, 3),
+        "understanding_share": round(sum(1 for c in cards if (c.get("text") or "").strip().lower().startswith(_UNDERSTANDING)) / n, 3),
+        "numeric_share": round(sum(1 for c in cards if re.search(r"\d", c.get("translation") or "")) / n, 3),
+        "duplicate_fronts": len(fronts) - len(set(fronts)),
+        "mean_priority": round(sum(prios) / n, 3),
+        "dropped_unsupported": dropped_unsupported,
+        "trimmed_by_priority": trimmed,
+    }
+    rep["warnings"] = [w for w, bad in (("мало подтверждённых книгой карточек (<85%)", rep["supported_share"] < 0.85),
+                                        ("мало вопросов на понимание (<15%)", rep["understanding_share"] < 0.15),
+                                        ("есть повторы вопросов", rep["duplicate_fronts"] > 0)) if bad and len(cards) >= 20]
+    return rep
+
+
 def _jaccard(a: set[str], b: set[str]) -> float:
     if not a and not b:
         return 1.0
     return len(a & b) / len(a | b)
 
 
-__all__ = ["CardVerifier", "process_facts", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]
+__all__ = ["CardVerifier", "process_facts", "card_priority", "drop_unsupported", "trim_to_goal", "quality_report", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]

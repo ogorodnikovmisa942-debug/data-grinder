@@ -109,7 +109,7 @@ def test_kind_is_saved_as_core_for_every_node():
     path_map = pb.normalize_map(_raw("law"))
     lesson = {"screens": [{"say": "1", "emo": "talk", "focus": []}] * 3, "check": []}
 
-    async def fake_build(text, subject, calls=None, course=None):
+    async def fake_build(text, subject, calls=None, course=None, **options):
         return {"map": path_map, "packs": {n["key"]: {"lesson": lesson, "cards": []} for n in path_map["nodes"]},
                 "missing_nodes": [], "calls": [], "cost_usd": 0.0}
 

@@ -118,6 +118,13 @@ async def update_config(
     return {"status": "updated", "config": {"daily_limit": payload.daily_limit}}
 
 
+@router.get("/usage")
+async def get_usage(current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """Тариф, лимиты и расход ИИ за текущий месяц (для экрана «Тариф»)."""
+    from app.services.quota import overview
+    return await overview(db, current_user)
+
+
 @router.get("/config/ai-provider")
 async def get_public_ai_provider():
     """Публичный статус активного ИИ-провайдера и модели для отображения в MiniApp."""

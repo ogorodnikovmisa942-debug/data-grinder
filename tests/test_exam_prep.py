@@ -93,7 +93,7 @@ def _card(text, layer=1):
             "initial_difficulty_tier": "medium", "answer_type": "term", "distractors": ["Н1.", "Н2.", "Н3."]}
 
 
-async def _fake_build(text, subject, calls=None, course=None):
+async def _fake_build(text, subject, calls=None, course=None, **options):
     from app.services.ai_gateway.path_builder import normalize_map
     path_map = normalize_map({"title": "Курс", "domain": "law", "nodes": [
         {"key": "base", "name": "Основа", "tier": 0, "order": 1},

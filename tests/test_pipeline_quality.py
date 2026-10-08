@@ -231,10 +231,10 @@ def test_the_card_target_follows_the_book_size_not_the_money(monkeypatch):
     res = _run(FakeLLM(raw_map={**_map(), "source_type": "textbook"}, cards=_cards_handler(GOOD)), book)
     assert sum(res["quotas"].values()) == sum(free.values())                          # денег хватает: цель по размеру книги
     assert res["stats"]["quota"]["target"] == sum(free.values())
-    monkeypatch.setattr(budget_mod, "BUDGET_USD", 0.0005)                             # денег нет: цена урезает цель, но не ниже 70% плана
+    monkeypatch.setattr(budget_mod, "BUDGET_USD", 0.0005)                             # аварийный потолок крошечный: размер колоды всё равно по содержанию
     poor = _run(FakeLLM(raw_map={**_map(), "source_type": "textbook"}, cards=_cards_handler(GOOD)), book)
-    assert round(pb.PRICE_FLOOR_SHARE * sum(free.values())) <= sum(poor["quotas"].values()) < sum(free.values())
-    assert poor["stats"]["source"]["planned"] == sum(free.values())
+    assert sum(poor["quotas"].values()) == sum(free.values())
+    assert poor["stats"]["source"]["planned"] == sum(free.values()) and poor["stats"]["deck_policy"]["limited_by"] is None
 
 
 def test_explicit_target_and_minimum_one_card_per_node():

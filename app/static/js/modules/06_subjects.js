@@ -138,6 +138,13 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const sources = data.sources || [];
+        const totalEl = document.getElementById('subject-sources-total');
+        if (totalEl) {
+            const cards = sources.reduce((a, s) => a + (s.cards || 0), 0);
+            totalEl.textContent = sources.length
+                ? `Всего в курсе ${cards} карточек из ${sources.length} ${sources.length === 1 ? 'материала' : 'материалов'}. Колода не раздувается: новый материал получает карточки только на то, чего в курсе ещё нет, и не больше общего потолка предмета.`
+                : '';
+        }
         if (!sources.length) {
             list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Материалов нет. Карточки этого предмета созданы вручную или импортом.</div>';
             return;
@@ -159,6 +166,38 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
     } catch (e) {
         console.error('Сбой загрузки материалов:', e);
         list.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Не удалось загрузить материалы</div>';
+    }
+};
+
+// Колода предмета в Anki (.apkg): файлом или документом в чат с ботом
+window.exportSubjectAnki = async function(mode) {
+    const modal = document.getElementById('subject-sources-modal');
+    const subject = modal && modal.dataset.subject;
+    if (!subject) return;
+    try {
+        if (mode === 'chat') {
+            const res = await apiFetch('/api/export/anki/send?subject=' + encodeURIComponent(subject), { method: 'POST' });
+            const body = await res.json().catch(() => ({}));
+            alert(res.ok ? `Отправил в чат с ботом: ${body.cards} карточек.` : (body.detail || 'Не получилось отправить.'));
+            return;
+        }
+        const res = await apiFetch('/api/export/anki?subject=' + encodeURIComponent(subject));
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            alert(body.detail || 'Не получилось собрать колоду.');
+            return;
+        }
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `data_grinder_${subject}.apkg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+        console.error('Сбой экспорта в Anki:', e);
+        alert('Не получилось. Проверь связь и попробуй ещё раз.');
     }
 };
 

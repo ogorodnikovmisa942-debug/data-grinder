@@ -276,6 +276,22 @@ async def finish_experiment(
         "message": f"Эксперимент успешно завершен. {updated_sessions} участников переведены в обычный режим со свободным доступом."
     }
 
+class SetPlanIn(BaseModel):
+    user_id: str
+    plan: str = "paid"          # free | paid
+    days: Optional[int] = 30    # срок платного тарифа; пусто — без срока
+
+
+# --- 5.3а. ТАРИФ ПОЛЬЗОВАТЕЛЯ (пока оплаты в продукте нет, платный тариф выставляет администратор) ---
+@router.post("/users/plan")
+async def set_user_plan(payload: SetPlanIn, token: str = Depends(verify_admin_token), db: AsyncSession = Depends(get_db)):
+    from app.services.quota import set_plan
+    try:
+        return await set_plan(db, payload.user_id.strip(), payload.plan, payload.days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # --- 5.4. УПРАВЛЕНИЕ СТАТУСОМ УЧАСТНИКА (ВКЛЮЧЕНИЕ / ВЫКЛЮЧЕНИЕ) ---
 @router.post("/experiment/set-participant")
 async def set_experiment_participant(

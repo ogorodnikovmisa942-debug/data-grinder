@@ -40,7 +40,7 @@ def fake_result():
     return {"map": path_map, "packs": packs, "facts": facts, "missing_nodes": [], "calls": [], "cost_usd": 0.0}
 
 
-async def fake_build(text, subject, calls=None, course=None):
+async def fake_build(text, subject, calls=None, course=None, **options):
     calls.append({"label": "map#1", "cost_usd": 0.0123, "prompt_tokens": 100, "cache_hit_tokens": 0,
                   "completion_tokens": 10, "duration_ms": 5, "finish_reason": "stop", "model": "deepseek-flash"})
     return fake_result()
@@ -563,7 +563,7 @@ def test_intro_lesson_is_first_hidden_step_without_cards():
     """Вводный урок: скрыт из графа, идёт первым шагом, не считается темой дня и не открывает карточки."""
     from app.services.knowledge_path import next_path_step, get_day_plan, INTRO_KEY, get_today_summary
 
-    async def fake_with_intro(text, subject, calls=None, course=None):
+    async def fake_with_intro(text, subject, calls=None, course=None, **options):
         res = fake_result()
         res["intro"] = INTRO_LESSON
         return res

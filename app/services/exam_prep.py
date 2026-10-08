@@ -11,6 +11,7 @@
 Билет, которого нет в курсе, не выдумывается: пользователь вписывает эталон сам или пропускает билет.
 """
 import asyncio
+import random
 import re
 from datetime import date, timedelta
 from math import ceil
@@ -31,6 +32,10 @@ MATCHING_STALE_MINUTES = 8   # разбор дольше этого — сорв
 EXAM_STEP_LIMITS = {"review": 3, "cards": 6, "lesson": 8, "ticket": 4, "drill": 2, "practice": 1}
 MIN_TICKETS = 1
 MAX_TICKETS = 150
+MAX_LESSONS_PER_DAY = 3     # больше трёх новых тем в день не вытягиваем: тогда аварийный режим предлагает отложить часть билетов
+PACE_DAYS = 7               # по скольким последним дням считаем реальный темп уроков
+SIMULATOR_SECONDS = 900     # время на билет в симуляторе: 15 минут
+REMINDER_MAX_DAYS = 60      # напоминаем о приближающемся экзамене не раньше чем за два месяца
 
 _BULLET_OR_ANSWER = re.compile(r"^\s*(?:[-•*–]\s+|ответ\s*[:.)]|a\s*[:.)])", re.IGNORECASE)
 _ANSWER_MARK = re.compile(r"^\s*(?:ответ|a)\s*[:.)]\s*", re.IGNORECASE)
@@ -179,19 +184,26 @@ async def _plan_phrase_id(db, plan: ExamPlan) -> int:
     return phrase.id
 
 
-async def run_plan_matching(plan_id: int) -> None:
-    """Фоновая задача: ИИ сопоставляет билеты с графом, затем создаются карточки билетов."""
+async def run_plan_matching(plan_id: int, only_missing: bool = False) -> int:
+    """Фоновая задача: ИИ сопоставляет билеты с графом, затем создаются карточки билетов.
+    only_missing — повторный разбор только билетов «нет в книге» после добавления нового материала (план остаётся готовым;
+    сбой ничего не портит). Возвращает, сколько билетов нашлось в курсе."""
     from app.database.session import AsyncSessionLocal
     from app.services.ai_gateway.exam_matcher import match_tickets
 
     async with AsyncSessionLocal() as db:
         plan = (await db.execute(select(ExamPlan).where(ExamPlan.id == plan_id))).scalar_one_or_none()
         if not plan:
-            return
+            return 0
         user_id, subject = plan.user_id, plan.subject
         tickets = (await db.execute(
             select(ExamTicket).where(ExamTicket.plan_id == plan_id).order_by(ExamTicket.order_idx)
         )).scalars().all()
+        if only_missing:
+            tickets = [t for t in tickets if t.status == "missing"]
+            if not tickets:
+                return 0
+        ticket_ids = [t.id for t in tickets]
         questions = [t.question for t in tickets]
         nodes, cards_by_node = await _course_for_matching(db, user_id, subject)
 
@@ -207,18 +219,20 @@ async def run_plan_matching(plan_id: int) -> None:
             print(f"[Exam WARN] план {plan_id}: {e}", flush=True)
             error = "DeepSeek сейчас не ответил — похоже, перегружен. Попробуй ещё раз через пару минут."
 
+    closed = 0
     async with AsyncSessionLocal() as db:
         plan = (await db.execute(select(ExamPlan).where(ExamPlan.id == plan_id))).scalar_one_or_none()
         if not plan:
-            return
+            return 0
         plan.cost_usd = round((plan.cost_usd or 0) + sum(c.get("cost_usd", 0.0) for c in calls), 6)
         if error:
-            plan.status, plan.error = "failed", error
+            if not only_missing:
+                plan.status, plan.error = "failed", error
             await db.commit()
         else:
             id_by_key = {n["key"]: n["id"] for n in nodes}
             tickets = (await db.execute(
-                select(ExamTicket).where(ExamTicket.plan_id == plan_id).order_by(ExamTicket.order_idx)
+                select(ExamTicket).where(ExamTicket.id.in_(ticket_ids)).order_by(ExamTicket.order_idx)
             )).scalars().all()
             phrase_id = await _plan_phrase_id(db, plan)
             for t, res in zip(tickets, results):
@@ -228,6 +242,7 @@ async def run_plan_matching(plan_id: int) -> None:
                     await _upsert_ticket_card(db, plan, t, ticket_fields_from_answer(t.user_answer), phrase_id)
                 elif res["found"]:
                     t.status = "ok"
+                    closed += 1
                     await _upsert_ticket_card(db, plan, t, ticket_fields_from_points(res["points"]), phrase_id)
                 else:
                     t.status = "missing"
@@ -237,10 +252,29 @@ async def run_plan_matching(plan_id: int) -> None:
     if calls:
         from app.services.generation_worker import _record_path_calls
         await _record_path_calls(f"exam:{plan_id}", user_id, calls)
+    return closed
 
 
-def start_matching(plan_id: int) -> None:
-    asyncio.create_task(run_plan_matching(plan_id))
+def start_matching(plan_id: int, only_missing: bool = False) -> None:
+    asyncio.create_task(run_plan_matching(plan_id, only_missing))
+
+
+async def rematch_after_new_source(user_id: str, subject: str) -> dict | None:
+    """Загружен новый материал: билеты «нет в книге» ищутся заново, остальные не трогаются (дёшево: один разбор только недостающих).
+    Возвращает {"closed", "missing"} или None, если плана или недостающих билетов нет."""
+    from app.database.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        plan = await get_active_plan(db, user_id, subject)
+        if not plan or plan.status != "ready":
+            return None
+        missing = (await db.execute(
+            select(func.count(ExamTicket.id)).where(ExamTicket.plan_id == plan.id, ExamTicket.status == "missing")
+        )).scalar() or 0
+        plan_id = plan.id
+    if not missing:
+        return None
+    closed = await run_plan_matching(plan_id, only_missing=True)
+    return {"closed": closed, "missing": missing, "plan_id": plan_id}
 
 
 async def set_ticket_answer(db, user_id: str, ticket_id: int, answer: str) -> ExamTicket:
@@ -365,15 +399,20 @@ async def exam_overview(db, user_id: str, subject: str) -> dict:
             "user_answer": t.user_answer,
         })
     days_left = ctx["days_left"]
+    emergency = _emergency(ctx)
     return {
         **base,
         "days_left": days_left,
         "phase": "past" if days_left < 0 else ("drill" if days_left <= EXAM_RESERVE_DAYS else "learn"),
+        "readiness": {"percent": readiness_percent(ctx), **exam_forecast(ctx, await lesson_pace(db, user_id, plan.subject))},
+        "emergency": {"needed": emergency["needed"], "capacity": emergency["capacity"], "postpone": len(emergency["postpone"]),
+                      "postponed_now": len(emergency["postponed_now"])},
         "tickets": {
             "total": len(items),
             "ok": sum(1 for x in items if x["status"] == "ok"),
             "missing": sum(1 for x in items if x["status"] == "missing"),
             "skipped": sum(1 for x in items if x["status"] == "skipped"),
+            "postponed": sum(1 for x in items if x["status"] == "postponed"),
             "ready": sum(1 for x in items if x["ready"]),
             "answered": sum(1 for x in items if x["answered"]),
             "strong": sum(1 for x in items if x["strong"]),
@@ -412,6 +451,250 @@ async def exam_session_cards(db, user_id: str, plan_id: int, drill: bool, limit:
     pool = [ctx["cards"][t.card_id] for t in ctx["active"]
             if _ticket_ready(t, ctx["studied"]) and t.card_id in ctx["cards"] and ctx["cards"][t.card_id].state == 0]
     return pool[:limit or TICKETS_PER_STEP]
+
+
+# ---------------------------------------------------------------------------
+# Готовность, прогноз, аварийный режим (всё считает код, без ИИ)
+# ---------------------------------------------------------------------------
+
+def ticket_strength(card, nodes_share: float, ready: bool, days_left: int) -> float:
+    """Насколько билет готов, от 0 до 1: закреплён надолго (запомнится до экзамена) = 1; в повторениях, но стойкость короче срока = 0,7;
+    отвечен, ещё заучивается = 0,4; темы пройдены, билет не отвечен = 0,15; иначе — доля пройденных тем билета, умноженная на 0,1."""
+    if card is not None and card.state == 2:
+        return 1.0 if (card.stability or 0) >= max(1, days_left) else 0.7
+    if card is not None and card.state in (1, 3):
+        return 0.4
+    return 0.15 if ready else 0.1 * nodes_share
+
+
+def readiness_percent(ctx: dict) -> int:
+    """Готовность к экзамену в процентах: средняя готовность билетов плана (отложенные и «нет в книге» не считаются)."""
+    active = ctx["active"]
+    if not active:
+        return 0
+    days_left = max(0, ctx["days_left"])
+    total = 0.0
+    for t in active:
+        ids = list(t.node_ids or [])
+        share = (sum(1 for i in ids if i in ctx["studied"]) / len(ids)) if ids else 0.0
+        total += ticket_strength(ctx["cards"].get(t.card_id), share, _ticket_ready(t, ctx["studied"]), days_left)
+    return round(100 * total / len(active))
+
+
+def ticket_needs(ctx: dict) -> dict[int, frozenset]:
+    """Для каждого билета — какие ещё не пройденные темы нужны ему (с пререквизитами)."""
+    return {t.id: frozenset(required_node_ids(ctx["nodes"], set(t.node_ids or [])) - ctx["studied"]) for t in ctx["active"]}
+
+
+def greedy_tickets(tickets: list, needs: dict[int, frozenset], capacity: int) -> tuple[list, set]:
+    """Жадный выбор билетов, которые можно закрыть при запасе capacity новых тем: каждый раз берём билет, которому нужно меньше всего
+    ещё не взятых тем (билеты на уже пройденных темах — бесплатно). Возвращает (выбранные билеты, темы, которые придётся пройти)."""
+    pool = sorted(tickets, key=lambda t: t.order_idx)
+    chosen, covered = [], set()
+    while pool:
+        best = min(pool, key=lambda t: len(needs[t.id] - covered))
+        add = needs[best.id] - covered
+        if len(covered) + len(add) > capacity:
+            break
+        chosen.append(best)
+        covered |= add
+        pool.remove(best)
+    return chosen, covered
+
+
+async def lesson_pace(db, user_id: str, subject: str) -> float:
+    """Темп: уроков в день за последние PACE_DAYS дней."""
+    since = utc_now() - timedelta(days=PACE_DAYS)
+    done = (await db.execute(
+        select(func.count(NodeProgress.id)).join(KnowledgeNode, KnowledgeNode.id == NodeProgress.node_id)
+        .where(NodeProgress.user_id == user_id, KnowledgeNode.subject == subject, NodeProgress.lesson_done_at >= since)
+    )).scalar() or 0
+    return done / PACE_DAYS
+
+
+def exam_forecast(ctx: dict, pace: float) -> dict:
+    """«Что успеете к экзамену»: при нынешнем темпе (нет истории — считаем, что идёте по плану) сколько новых тем пройдёте до прогона
+    и сколько билетов это закроет."""
+    learn_days = max(0, ctx["days_left"] - EXAM_RESERVE_DAYS)
+    effective = pace if pace > 0 else ctx["quota"]
+    capacity = int(round(effective * learn_days))
+    chosen, _ = greedy_tickets(ctx["active"], ticket_needs(ctx), capacity)
+    return {
+        "pace": round(pace, 2), "needed_pace": round(ctx["remaining"] / max(1, learn_days), 2), "capacity": capacity,
+        "tickets_closable": len(chosen), "tickets_total": len(ctx["active"]), "will_make_it": ctx["remaining"] <= capacity,
+    }
+
+
+def _emergency(ctx: dict) -> dict:
+    learn_days = max(0, ctx["days_left"] - EXAM_RESERVE_DAYS)
+    capacity = learn_days * MAX_LESSONS_PER_DAY
+    chosen, covered = greedy_tickets(ctx["active"], ticket_needs(ctx), capacity)
+    keep = {t.id for t in chosen}
+    needed = ctx["days_left"] >= 0 and ctx["remaining"] > capacity
+    return {
+        "needed": needed, "days_left": ctx["days_left"], "capacity": capacity, "remaining_lessons": ctx["remaining"],
+        "keep": len(chosen), "lessons_after": len(covered),
+        "postpone": [{"id": t.id, "n": t.order_idx, "question": t.question} for t in ctx["active"] if t.id not in keep],
+        "postponed_now": [{"id": t.id, "n": t.order_idx, "question": t.question} for t in ctx["tickets"] if t.status == "postponed"],
+    }
+
+
+async def emergency_overview(db, user_id: str, subject: str) -> dict:
+    """Аварийный режим: если новых тем больше, чем можно пройти (MAX_LESSONS_PER_DAY в день), показываем, какие билеты закрываются
+    минимумом тем и какие разумно отложить."""
+    plan = await get_active_plan(db, user_id, subject)
+    if not plan or plan.status != "ready":
+        return {"available": False}
+    return {"available": True, **_emergency(await _plan_context(db, user_id, plan))}
+
+
+async def apply_emergency(db, user_id: str, subject: str) -> dict:
+    """Откладывает билеты, которые не помещаются (status postponed): они выходят из плана, пока их не вернут."""
+    plan = await get_active_plan(db, user_id, subject)
+    if not plan or plan.status != "ready":
+        raise LookupError("План не готов")
+    info = _emergency(await _plan_context(db, user_id, plan))
+    ids = [p["id"] for p in info["postpone"]] if info["needed"] else []
+    if ids:
+        for t in (await db.execute(select(ExamTicket).where(ExamTicket.id.in_(ids)))).scalars().all():
+            t.status = "postponed"
+        await db.commit()
+    return {"postponed": len(ids)}
+
+
+async def undo_emergency(db, user_id: str, subject: str) -> dict:
+    plan = await get_active_plan(db, user_id, subject)
+    if not plan:
+        raise LookupError("План не найден")
+    rows = (await db.execute(
+        select(ExamTicket).where(ExamTicket.plan_id == plan.id, ExamTicket.status == "postponed")
+    )).scalars().all()
+    for t in rows:
+        t.status = "ok"
+    await db.commit()
+    return {"restored": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# Симулятор экзамена: случайный билет, таймер на клиенте, проверка по тезисам (без записи в повторения)
+# ---------------------------------------------------------------------------
+
+async def simulator_draw(db, user_id: str, subject: str, exclude: list[int] | None = None) -> dict:
+    plan = await get_active_plan(db, user_id, subject)
+    if not plan or plan.status != "ready":
+        raise LookupError("План не готов")
+    ctx = await _plan_context(db, user_id, plan)
+    pool = [t for t in ctx["active"] if ctx["cards"].get(t.card_id) is not None and _ticket_ready(t, ctx["studied"])]
+    if not pool:
+        raise LookupError("Пока нет билетов, темы которых пройдены")
+    fresh = [t for t in pool if t.id not in set(exclude or [])] or pool
+    t = random.choice(fresh)
+    card = ctx["cards"][t.card_id]
+    return {"ticket_id": t.id, "n": t.order_idx, "question": t.question, "seconds": SIMULATOR_SECONDS,
+            "points": len(card.key_points or []), "pool": len(pool), "left": max(0, len(fresh) - 1)}
+
+
+async def simulator_check(db, user_id: str, ticket_id: int, answer: str) -> dict:
+    """Ответ на билет сверяется с тезисами эталона: что названо, что названо частично, что упущено."""
+    from app.services.open_answer import grade_answer
+    ticket, _ = await _own_ticket(db, user_id, ticket_id)
+    card = (await db.execute(select(Card).where(Card.id == ticket.card_id, Card.user_id == user_id))).scalar_one_or_none() if ticket.card_id else None
+    if not card:
+        raise LookupError("У билета нет эталона")
+    res = grade_answer(answer, card.key_points, card.translation)
+    pts = res["points"]
+    return {
+        "percent": res["percent"], "matched": res["matched"], "total": res["total"], "graded": res["graded"],
+        "hit": [p["text"] for p in pts if p["matched"]],
+        "partial": [p["text"] for p in pts if p["partial"] and not p["matched"]],
+        "missed": [p["text"] for p in pts if not p["matched"] and not p["partial"]],
+        "reference": card.translation,
+    }
+
+
+async def ai_check_ticket(db, user_id: str, ticket_id: int, answer: str) -> dict:
+    """ИИ-оценка смысла ответа на билет (платно, месячная квота): тезисы эталона берутся из карточки билета, расход пишется в телеметрию."""
+    from app.services.ai_gateway.answer_judge import judge_answer
+    from app.services.open_answer import derive_key_points, normalize_key_points
+    from app.services.quota import AI_CHECK_PREFIX, enforce_ai_check
+    ticket, _ = await _own_ticket(db, user_id, ticket_id)
+    card = (await db.execute(select(Card).where(Card.id == ticket.card_id, Card.user_id == user_id))).scalar_one_or_none() if ticket.card_id else None
+    if not card:
+        raise LookupError("У билета нет эталона")
+    points = [p["text"] for p in (normalize_key_points(card.key_points) or derive_key_points(card.translation or ""))]
+    if not points:
+        raise LookupError("У билета нет тезисов эталона")
+    if not (answer or "").strip():
+        raise ValueError("Ответ пустой")
+    left = await enforce_ai_check(db, user_id)
+    calls: list[dict] = []
+    try:
+        result = await judge_answer(ticket.question, points, answer, calls)
+    finally:
+        if calls:
+            from app.services.generation_worker import _record_path_calls
+            await _record_path_calls(f"{AI_CHECK_PREFIX}{ticket_id}", user_id, calls)
+    return {**result, "reference": card.translation, "checks_left": left}
+
+
+# ---------------------------------------------------------------------------
+# Несколько предметов: что сегодня важнее; напоминания с обратным отсчётом
+# ---------------------------------------------------------------------------
+
+async def exam_priorities(db, user_id: str) -> list[dict]:
+    """Активные планы по всем предметам пользователя, от самого срочного: чем ближе экзамен и ниже готовность, тем выше приоритет."""
+    plans = (await db.execute(
+        select(ExamPlan).where(ExamPlan.user_id == user_id, ExamPlan.active == True, ExamPlan.status == "ready")  # noqa: E712
+    )).scalars().all()
+    out = []
+    for plan in plans:
+        ctx = await _plan_context(db, user_id, plan)
+        if ctx["days_left"] < 0:
+            continue
+        ready = readiness_percent(ctx)
+        left = sum(1 for t in ctx["active"] if not (ctx["cards"].get(t.card_id) is not None and ctx["cards"][t.card_id].state == 2))
+        out.append({"subject": plan.subject, "title": plan.title, "days_left": ctx["days_left"], "readiness": ready,
+                    "tickets_left": left, "priority": round((100 - ready) / 100 / (ctx["days_left"] + 1), 4)})
+    return sorted(out, key=lambda x: -x["priority"])
+
+
+async def exam_reminders(db, user_ids: list[str]) -> dict[str, list[dict]]:
+    """Для утреннего уведомления: у кого есть план, сколько билетов ещё не закреплено. Лёгкие запросы (без разбора графа)."""
+    if not user_ids:
+        return {}
+    plans = (await db.execute(
+        select(ExamPlan).where(ExamPlan.user_id.in_(user_ids), ExamPlan.active == True, ExamPlan.status == "ready")  # noqa: E712
+    )).scalars().all()
+    out: dict[str, list[dict]] = {}
+    for plan in plans:
+        rows = (await db.execute(
+            select(Card.state).join(ExamTicket, ExamTicket.card_id == Card.id)
+            .where(ExamTicket.plan_id == plan.id, ExamTicket.status == "ok")
+        )).scalars().all()
+        out.setdefault(plan.user_id, []).append({
+            "subject": plan.subject, "title": plan.title, "exam_date": plan.exam_date,
+            "tickets": len(rows), "not_strong": sum(1 for st in rows if st != 2),
+        })
+    return out
+
+
+def _days_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "день"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "дня"
+    return "дней"
+
+
+def exam_reminder_text(info: dict, today: date) -> str | None:
+    """«До экзамена 6 дней по предмету «X»: 14 из 40 билетов не закреплено.» None — напоминать рано, поздно или нечего."""
+    days = (info["exam_date"] - today).days
+    if days < 0 or days > REMINDER_MAX_DAYS or not info["tickets"]:
+        return None
+    left = info["not_strong"]
+    when = "Сегодня экзамен" if days == 0 else f"До экзамена {days} {_days_word(days)}"
+    tail = f"{left} из {info['tickets']} билетов не закреплено" if left else "все билеты закреплены, держим форму"
+    return f"{when} по предмету «{info['subject']}»: {tail}."
 
 
 # ---------------------------------------------------------------------------

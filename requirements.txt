@@ -14,3 +14,4 @@ alembic>=1.13.0
 asyncpg>=0.30.0
 snowballstemmer>=2.2.0
 tzdata>=2024.1
+genanki>=0.13.1

@@ -48,16 +48,19 @@ def plan_queue(is_deferred_requested: bool, char_count: int) -> tuple[bool, bool
     return False, True, False, f"Материал ({char_count} знаков) взят в работу по пиковому тарифу: ИИ строит путь знаний."
 
 
-async def guard_new_job(db: AsyncSession, user_id: str, char_count: int) -> None:
-    """Не даёт одному пользователю сжечь бюджет ИИ: лимит размера, активных задач и задач в час."""
+async def guard_new_job(db: AsyncSession, user_id: str, char_count: int, is_deferred: bool = False) -> bool:
+    """Не даёт одному пользователю сжечь бюджет ИИ: лимит размера, активных задач и задач в час, тариф и месячная квота.
+    Возвращает, можно ли обработать материал сразу (иначе — только в ночной очереди со скидкой)."""
     from app.services.card_db_sync import is_admin_or_dev
+    from app.services.quota import enforce_new_job
     if char_count > settings.MAX_IMPORT_CHARS:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Материал слишком большой ({char_count:,} знаков, максимум {settings.MAX_IMPORT_CHARS:,}). Разбейте его на части.".replace(",", " "),
         )
     if is_admin_or_dev(user_id):
-        return
+        return True
+    instant_allowed = await enforce_new_job(db, user_id, char_count, is_deferred)
     active = (await db.execute(
         select(func.count(GenerationJob.id)).where(
             GenerationJob.user_id == user_id, GenerationJob.status.in_(("pending", "processing"))
@@ -72,6 +75,7 @@ async def guard_new_job(db: AsyncSession, user_id: str, char_count: int) -> None
     )).scalar() or 0
     if recent >= settings.MAX_JOBS_PER_HOUR:
         raise HTTPException(status_code=429, detail="Слишком много загрузок за час. Попробуйте позже.")
+    return instant_allowed
 
 
 async def resolve_import_target(db: AsyncSession, user_id: str, subject: str, text: str, confirmed: bool) -> dict:
@@ -98,6 +102,20 @@ async def resolve_import_target(db: AsyncSession, user_id: str, subject: str, te
     return {"text_hash": text_hash, "replace_source_id": dup.id}
 
 
+# Прежний «пресет декомпозиции» теперь задаёт глубину: High-Yield — стандарт, «Полный» — подробно, «Экспресс» — кратко
+_DEPTH_BY_PRESET = {"atomic": "standard", "detailed": "detailed", "blitz": "compact", "cheatsheet": "compact", "single_deep": "standard"}
+
+
+def job_options(depth: str | None, source_kind: str | None, granularity_mode: str | None = None) -> tuple[str, str | None]:
+    """(глубина, тип материала) для задачи: явно названные значения главнее пресета; неизвестные — «стандарт» и «определить самому»."""
+    from app.services.ai_gateway.source_profile import DEPTHS, KINDS
+    d = (depth or "").strip().lower()
+    if d not in DEPTHS:
+        d = _DEPTH_BY_PRESET.get((granularity_mode or "").strip().lower(), "standard")
+    k = (source_kind or "").strip().lower()
+    return d, (k if k in KINDS else None)
+
+
 class ImportIn(BaseModel):
     text: str
     subject: str = ""                    # Целевой предмет, выбранный человеком
@@ -110,6 +128,8 @@ class ImportIn(BaseModel):
     commit_now: bool = False            # False = вернуть в Песочницу (Staging)
     confirm_replace: bool = False       # согласие заменить уже изучаемый путь предмета
     is_deferred: bool = False           # True = отправить в очередь Ночного Грайндера (-50% стоимости)
+    depth: str = ""                     # compact | standard | detailed; пусто — по пресету
+    source_kind: str = ""               # textbook | article | notes | lecture; пусто — определить самому
 
 
 class PresetImportIn(BaseModel):
@@ -165,8 +185,8 @@ async def import_raw_text(
         return {"status": "error", "message": "Целевой предмет не выбран. Выберите предмет из списка или укажите новый."}
 
     target = await resolve_import_target(db, current_user, target_sub, payload.text, payload.confirm_replace)
-    await guard_new_job(db, current_user, len(payload.text.strip()))
-    effective_deferred, is_immediate, is_offpeak, msg = plan_queue(payload.is_deferred, len(payload.text.strip()))
+    instant_ok = await guard_new_job(db, current_user, len(payload.text.strip()), payload.is_deferred)
+    effective_deferred, is_immediate, is_offpeak, msg = plan_queue(payload.is_deferred or not instant_ok, len(payload.text.strip()))
 
     meaningful_lines = [
         l.strip() for l in payload.text.strip().split("\n")
@@ -192,6 +212,8 @@ async def import_raw_text(
         source_name=extracted_theme,
         text_hash=target["text_hash"],
         replace_source_id=target["replace_source_id"],
+        depth=job_options(payload.depth, payload.source_kind, payload.granularity_mode)[0],
+        source_kind=job_options(payload.depth, payload.source_kind, payload.granularity_mode)[1],
         status="pending"
     )
     db.add(job)
@@ -342,6 +364,14 @@ async def import_file_at_code_level(
             except Exception as e:
                 print(f"[WARN] Ошибка чтения CSV {up_file.filename}: {e}")
 
+        # 2а. Колода Anki (.apkg): готовые карточки, ИИ не нужен
+        elif filename.endswith(".apkg"):
+            from app.services.anki_export import ApkgError, read_apkg
+            try:
+                all_cards.extend(read_apkg(contents))
+            except ApkgError as e:
+                raise HTTPException(status_code=400, detail=f"{up_file.filename}: {e}")
+
         # 3. Обычный текстовый или Markdown файл
         elif filename.endswith(".txt") or filename.endswith(".md"):
             try:
@@ -394,8 +424,8 @@ async def import_file_at_code_level(
         combined_text = "\n\n".join(all_extracted_texts)
         target = await resolve_import_target(db, current_user, target_sub, combined_text,
                                              str(form.get("confirm_replace", "")).lower() == "true")
-        await guard_new_job(db, current_user, len(combined_text))
-        effective_deferred, is_immediate, is_offpeak, msg = plan_queue(is_deferred, len(combined_text))
+        instant_ok = await guard_new_job(db, current_user, len(combined_text), is_deferred)
+        effective_deferred, is_immediate, is_offpeak, msg = plan_queue(is_deferred or not instant_ok, len(combined_text))
 
         theme_name = f"Пакетный импорт ({len(upload_list)} док.): {', '.join(file_titles[:2])}"
         if len(file_titles) > 2:
@@ -415,6 +445,8 @@ async def import_file_at_code_level(
             source_name=", ".join(file_titles[:3])[:200] + (f" и ещё {len(file_titles) - 3}" if len(file_titles) > 3 else ""),
             text_hash=target["text_hash"],
             replace_source_id=target["replace_source_id"],
+            depth=job_options(str(form.get("depth", "")), str(form.get("source_kind", "")), granularity_mode)[0],
+            source_kind=job_options(str(form.get("depth", "")), str(form.get("source_kind", "")), granularity_mode)[1],
             status="pending"
         )
         db.add(job)
@@ -430,6 +462,14 @@ async def import_file_at_code_level(
             "is_offpeak": is_offpeak,
             "message": msg
         }
+
+    if all_cards:
+        # Готовые карточки (CSV, Anki) сразу в предмет: ИИ и расход не нужны, ответы по уже имеющимся карточкам не трогаем
+        theme_name = (file_titles[0] if len(file_titles) == 1 else f"Импорт ({len(file_titles)} файла)")[:80]
+        created, clean_sub, clean_title = await save_cards_to_database(
+            cards_data=all_cards, subject_slug=target_sub, phrase_title=theme_name, user_id=current_user, db=db)
+        await db.commit()
+        return {"status": "success", "cards_count": created, "subject": clean_sub, "theme": clean_title}
 
     raise HTTPException(status_code=400, detail="Не удалось извлечь текст из переданных файлов.")
 

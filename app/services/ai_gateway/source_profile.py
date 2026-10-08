@@ -14,10 +14,11 @@ KINDS = ("textbook", "article", "notes", "lecture")
 # плотнее: там почти нет «воды»; лекция реже: много повторов и отступлений. Для конспекта считаем по пунктам (см. target_cards).
 # Для учебника: ≈ карточка на страницу. Цена целой книги при такой плотности ≈ 17¢ (замер на «Судоустройстве», 1 млн знаков), при 2000 знаках — уже ≈ 18,6¢.
 CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600}
-# Фактов «Конспекта темы» на одну карточку: остаток текста, которого карточки не спрашивают, идёт готовым списком. Учебник: 2,6 факта на
-# карточку = ~1 факт на 900 знаков (замер 2026-10-07: ~13% фактов повторяют карточку и отбрасываются, поэтому просим с запасом).
+# Фактов «Конспекта темы» на одну карточку: остаток текста, которого карточки не спрашивают, идёт готовым списком. Учебник: 3,2 факта на
+# карточку = ~1 факт на 700 знаков. Замеры 2026-10-07/08: при 1 факте на 880 знаков эталон «Судоустройства» покрыт на 56%, на 550 — около 65%
+# (+7 пунктов покрытия за каждые +40% фактов); ~6–13% фактов повторяют карточку и отбрасываются, поэтому просим с запасом.
 # В конспекте почти каждый пункт уже карточка — фактов там немного. PATH_FACTS_SCALE меняет всё сразу (0 — без фактов).
-FACTS_PER_CARD = {"textbook": 2.6, "article": 1.7, "lecture": 2.2, "notes": 0.4}
+FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5}
 FACTS_SCALE = float(os.getenv("PATH_FACTS_SCALE", "1.0"))
 NOTES_CARDS_PER_ITEM = 0.85          # конспект: почти по карточке на пункт (часть пунктов — пояснения и повторы)
 ARTICLE_MAX_CHARS = 40_000           # короче этого экспозиционный текст считаем статьёй/докладом, а не учебником
@@ -107,8 +108,48 @@ def node_budget(target_cards: int) -> dict:
     return {"total": t0 + t1 + t2 + t3, "tier0": t0, "tier1": t1, "tier2": t2, "tier3": t3}
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Размер колоды задаёт содержание, а не деньги (решение пользователя 2026-10-08): хорошая колода на учебник ≈ 500 карточек, не тысячи.
+# Источников в предмете может быть несколько, поэтому есть общий «бюджет карточек» предмета: новый материал получает карточки только
+# на то, чего в курсе ещё нет, и не больше, чем остаётся до потолка предмета. Какие именно карточки — решает важность (насыщенность
+# кусков, проверка по книге, оценка карточки), а не порядок в книге.
+# ---------------------------------------------------------------------------------------------------------------------
+DEPTHS = {"compact": 0.6, "standard": 1.0, "detailed": 1.4}      # «насколько подробно»: множитель числа карточек
+DEPTH_NAMES = {"compact": "Кратко", "standard": "Стандарт", "detailed": "Подробно"}
+MAX_CARDS_PER_SOURCE = int(os.getenv("PATH_MAX_CARDS_PER_SOURCE", "600"))   # даже очень толстый учебник даёт не больше (до множителя глубины)
+COURSE_CARD_CAP = int(os.getenv("PATH_COURSE_CARD_CAP", "750"))             # потолок сгенерированных карточек одного предмета (до множителя)
+MIN_ADD_CARDS = 20                                               # курс уже полон, но в новом материале есть своё: столько карточек всё равно можно
+MIN_NEW_SHARE = 0.05                                             # «своё» — не меньше 5% знаков, которых курс ещё не покрывает
+
+
+SUPPLEMENT_MIN_CARDS = 3     # у совпавшей с курсом темы новых карточек не меньше стольких: тогда они получают свой короткий урок («дополнение»)
+
+
+def normalize_depth(depth: str | None) -> str:
+    d = (depth or "standard").strip().lower()
+    return d if d in DEPTHS else "standard"
+
+
+def deck_goal(planned: int, depth: str | None = "standard", existing_cards: int = 0, new_share: float = 1.0) -> dict:
+    """Сколько карточек просить у нового материала. planned — цель по его размеру, типу и тому, что в нём ново (target_cards × доля нового).
+    Потолок материала: MAX_CARDS_PER_SOURCE × глубина; потолок предмета: COURSE_CARD_CAP × глубина минус карточки, уже имеющиеся в предмете.
+    Если предмет уже полон, а нового в материале заметно (≥ MIN_NEW_SHARE), даём MIN_ADD_CARDS: самые важные из нового.
+    Возвращает {"goal", "planned", "mult", "source_cap", "room", "limited_by"}."""
+    mult = DEPTHS[normalize_depth(depth)]
+    wanted = max(1, round(planned * mult))
+    source_cap = round(MAX_CARDS_PER_SOURCE * mult)
+    room = max(0, round(COURSE_CARD_CAP * mult) - max(0, existing_cards))
+    goal, limited = wanted, None
+    if goal > source_cap:
+        goal, limited = source_cap, "source"
+    if existing_cards and goal > room:
+        goal, limited = max(room, MIN_ADD_CARDS if new_share >= MIN_NEW_SHARE else 0), "course"
+        goal = max(1, min(goal, wanted))
+    return {"goal": goal, "planned": planned, "mult": mult, "source_cap": source_cap, "room": room, "limited_by": limited}
+
+
 def kind_hint(kind: str | None) -> str:
     return KIND_HINTS.get(kind or "", "")
 
 
-__all__ = ["KINDS", "CHARS_PER_CARD", "FACTS_PER_CARD", "facts_per_card", "CARDS_PER_NODE", "node_budget", "count_items", "metrics", "heuristic_kind", "resolve_kind", "target_cards", "kind_hint"]
+__all__ = ["SUPPLEMENT_MIN_CARDS", "DEPTHS", "DEPTH_NAMES", "normalize_depth", "deck_goal", "MAX_CARDS_PER_SOURCE", "COURSE_CARD_CAP", "KINDS", "CHARS_PER_CARD", "FACTS_PER_CARD", "facts_per_card", "CARDS_PER_NODE", "node_budget", "count_items", "metrics", "heuristic_kind", "resolve_kind", "target_cards", "kind_hint"]

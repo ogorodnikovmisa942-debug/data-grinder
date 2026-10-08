@@ -2614,13 +2614,13 @@ async function updateGlobalBadges() {
         
         const dataTab = document.getElementById('tab-text-data');
         const learnTab = document.getElementById('tab-text-train');
-        if (dataTab) dataTab.innerText = totalCards > 0 ? `DATA [${totalCards}]` : 'DATA';
+        if (dataTab) dataTab.innerText = totalCards > 0 ? `ДАННЫЕ [${totalCards}]` : 'ДАННЫЕ';
         if (learnTab) {
             if (dueCount > 0) {
-                learnTab.innerText = `LEARN [${dueCount}]`;
+                learnTab.innerText = `УЧЁБА [${dueCount}]`;
                 learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-secondary";
             } else {
-                learnTab.innerText = 'LEARN';
+                learnTab.innerText = 'УЧЁБА';
                 learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-primary";
             }
         }
@@ -3162,7 +3162,24 @@ async function loadStatsTab() {
     } catch (e) { console.error("Ошибка дашборда статистики:", e); }
 }
 
+// Тариф и квоты: строка видна, только если владелец включил квоты
+async function refreshPlanUsage() {
+    const box = document.getElementById('plan-usage');
+    if (!box) return;
+    try {
+        const res = await apiFetch('/api/usage');
+        if (!res.ok) return;
+        const u = await res.json();
+        box.classList.toggle('hidden', !u.enabled);
+        if (!u.enabled) return;
+        const name = u.plan === 'paid' ? 'Платный' : 'Бесплатный';
+        const queue = u.limits.instant ? '' : ' · материалы идут в ночную очередь со скидкой';
+        box.textContent = `${name} тариф · материалов в этом месяце: ${u.usage.books_this_month} из ${u.limits.books_per_month} (до ${Math.round(u.limits.book_chars / 1000)} тыс. знаков каждый)${queue}`;
+    } catch (_) { /* строка не критична */ }
+}
+
 async function loadConfigTab() {
+    refreshPlanUsage();
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
@@ -3464,6 +3481,13 @@ let currentGranularityMode = 'atomic';
 let currentVolumeLimit = 'auto';
 let currentDetailDensity = 'medium';
 
+// Глубина нарезки по выбранному пресету: сколько карточек просить у материала
+function importDepth() {
+    if (currentGranularityMode === 'detailed') return 'detailed';
+    if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') return 'compact';
+    return 'standard';
+}
+
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
     ['atomic', 'detailed', 'blitz'].forEach(m => {
@@ -3519,11 +3543,11 @@ function updateImportExplanation() {
     if (!explEl) return;
 
     if (currentGranularityMode === 'detailed') {
-        explEl.textContent = 'Полный разбор: максимальная глубина без сокращений. Извлечение 100% ветвей схем, условий, статей, формул и исключений.';
+        explEl.textContent = 'Подробно: на 40% больше карточек и конспекта (около 700 на учебник). Для экзамена с большим числом деталей.';
     } else if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') {
-        explEl.textContent = 'Экспресс-блиц: только фундаментальный понятийный каркас верхнего уровня для быстрого входа в тему.';
+        explEl.textContent = 'Кратко: на 40% меньше карточек (около 300 на учебник), только главное. Для быстрого входа в тему.';
     } else {
-        explEl.textContent = 'High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).';
+        explEl.textContent = 'Стандарт: самое важное из материала, около 500 карточек на учебник; остальное попадает в «Конспект темы». Если в предмете уже есть материалы, повторов не будет: берётся только новое.';
     }
 }
 
@@ -3851,6 +3875,8 @@ async function importTextKnowledge(isDeferred = false) {
                 assoc_preference: pref,
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
+                depth: importDepth(),
+                source_kind: document.getElementById('import-source-kind')?.value || '',
                 commit_now: false, // Направляем на проверку
                 is_deferred: isDeferred,
                 confirm_replace: confirmReplace
@@ -4039,6 +4065,8 @@ window.handleFileUpload = async function(event) {
     formData.append('priority', 'balanced');
     formData.append('assoc_preference', pref);
     formData.append('granularity_mode', currentGranularityMode);
+    formData.append('depth', importDepth());
+    formData.append('source_kind', document.getElementById('import-source-kind')?.value || '');
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
@@ -4091,6 +4119,12 @@ window.handleFileUpload = async function(event) {
         } else if (response.ok && data.status === 'staging') {
             if (statusEl) statusEl.classList.add('hidden');
             startStagingSession(data);
+        } else if (response.ok && data.status === 'success') {
+            // Готовые карточки (Anki, CSV) уже в предмете
+            if (statusEl) statusEl.classList.add('hidden');
+            alert(`Добавлено карточек: ${data.cards_count}`);
+            if (typeof loadDynamicSubjects === 'function') await loadDynamicSubjects();
+            if (typeof updateGlobalBadges === 'function') updateGlobalBadges();
         } else {
             let errorText = data.detail || data.message || "Неизвестная ошибка";
             if (typeof errorText === 'object') {
@@ -4311,6 +4345,32 @@ window.handleImageOcr = async function(event) {
 };
 
 
+
+// Распознавание текста на фото в браузере (Tesseract, бесплатно, без сервера): для списков билетов и других коротких текстов
+window.ocrImagesToText = async function(files, onStatus) {
+    const say = (t) => { if (onStatus) onStatus(t); };
+    if (typeof Tesseract === 'undefined') {
+        say('Загружаю распознавание текста…');
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('Не удалось загрузить распознавание текста'));
+            document.head.appendChild(s);
+        });
+    }
+    const pages = [];
+    for (let i = 0; i < files.length; i++) {
+        say(`Фото ${i + 1} из ${files.length}: подготовка…`);
+        const blob = await preprocessImageForOcr(files[i]);
+        const result = await Tesseract.recognize(blob, 'rus+eng', {
+            logger: m => { if (m.status === 'recognizing text') say(`Фото ${i + 1} из ${files.length}: ${Math.round((m.progress || 0) * 100)}%`); }
+        });
+        const text = ((result && result.data && result.data.text) || '').replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+        if (text.replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').length >= 8) pages.push(text);
+    }
+    return pages.join('\n');
+};
 
 // ---- Просмотр карточки из архива (по нажатию на строку; долгое нажатие по-прежнему включает выбор)
 const CARD_STATE_LABELS = ['Новая', 'Заучивание', 'Повторение', 'Переобучение'];
@@ -5646,6 +5706,13 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const sources = data.sources || [];
+        const totalEl = document.getElementById('subject-sources-total');
+        if (totalEl) {
+            const cards = sources.reduce((a, s) => a + (s.cards || 0), 0);
+            totalEl.textContent = sources.length
+                ? `Всего в курсе ${cards} карточек из ${sources.length} ${sources.length === 1 ? 'материала' : 'материалов'}. Колода не раздувается: новый материал получает карточки только на то, чего в курсе ещё нет, и не больше общего потолка предмета.`
+                : '';
+        }
         if (!sources.length) {
             list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Материалов нет. Карточки этого предмета созданы вручную или импортом.</div>';
             return;
@@ -5667,6 +5734,38 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
     } catch (e) {
         console.error('Сбой загрузки материалов:', e);
         list.innerHTML = '<div class="text-center py-6 text-secondary text-xs font-mono">Не удалось загрузить материалы</div>';
+    }
+};
+
+// Колода предмета в Anki (.apkg): файлом или документом в чат с ботом
+window.exportSubjectAnki = async function(mode) {
+    const modal = document.getElementById('subject-sources-modal');
+    const subject = modal && modal.dataset.subject;
+    if (!subject) return;
+    try {
+        if (mode === 'chat') {
+            const res = await apiFetch('/api/export/anki/send?subject=' + encodeURIComponent(subject), { method: 'POST' });
+            const body = await res.json().catch(() => ({}));
+            alert(res.ok ? `Отправил в чат с ботом: ${body.cards} карточек.` : (body.detail || 'Не получилось отправить.'));
+            return;
+        }
+        const res = await apiFetch('/api/export/anki?subject=' + encodeURIComponent(subject));
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            alert(body.detail || 'Не получилось собрать колоду.');
+            return;
+        }
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `data_grinder_${subject}.apkg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+        console.error('Сбой экспорта в Anki:', e);
+        alert('Не получилось. Проверь связь и попробуй ещё раз.');
     }
 };
 
@@ -10166,11 +10265,39 @@ function renderStarterExam(exam) {
     } else {
         const t = exam.tickets || {};
         const d = exam.days_left;
+        const ready = exam.readiness ? ` · готовность ${exam.readiness.percent}%` : '';
         text.textContent = d < 0
             ? 'Экзамен прошёл — выключить режим'
-            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
+            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')}${ready} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
     }
 }
+
+// Несколько предметов с экзаменом: подсказка, куда сегодня идти в первую очередь (ближе срок и ниже готовность — выше)
+let starterPrioritySubject = '';
+async function refreshStarterPriority(subject) {
+    const el = document.getElementById('starter-priority');
+    const text = document.getElementById('starter-priority-text');
+    if (!el || !text) return;
+    el.classList.add('hidden');
+    try {
+        const res = await apiFetch('/api/exams/priorities');
+        if (!res.ok) return;
+        const items = (await res.json()).items || [];
+        if (items.length < 2 || items[0].subject === subject) return;
+        const top = items[0];
+        starterPrioritySubject = top.subject;
+        text.textContent = `Срочнее: «${top.title && top.title !== 'Билеты' ? top.title : top.subject}» — экзамен через ${top.days_left} ${pathRunPlural(top.days_left, 'день', 'дня', 'дней')}, готовность ${top.readiness}%`;
+        el.classList.remove('hidden');
+    } catch (_) { /* подсказка не критична */ }
+}
+
+window.switchToPrioritySubject = function() {
+    const sel = document.getElementById('subject-selector');
+    if (!sel || !starterPrioritySubject) return;
+    sel.value = starterPrioritySubject;
+    if (sel.onchange) sel.onchange({ target: sel });
+    if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
+};
 
 function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
     if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
@@ -10204,6 +10331,7 @@ window.refreshPathRunButton = async function(attempt = 0) {
     try {
         const exam = typeof loadExamOverview === 'function' ? await loadExamOverview(subject) : { active: false };
         renderStarterExam(exam);
+        refreshStarterPriority(subject);
         const scope = exam.active && exam.status === 'ready' && exam.phase !== 'past' ? 'exam' : 'day';
         const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next?scope=${scope}`);
         if (!res.ok) return;
@@ -10759,7 +10887,7 @@ function setExamButtons(primary, secondary, primaryEnabled = true) {
 }
 
 function showExamSection(name) {
-    ['setup', 'review'].forEach(v => {
+    ['setup', 'review', 'sim'].forEach(v => {
         const el = document.getElementById(`exam-${v}`);
         if (el) el.classList.toggle('hidden', v !== name);
     });
@@ -10795,6 +10923,7 @@ window.openExamModal = async function() {
 
 window.closeExamModal = function() {
     clearTimeout(examUi.pollTimer);
+    clearInterval(examSim.timer);
     const modal = document.getElementById('exam-modal');
     if (modal) modal.classList.add('hidden');
     if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
@@ -10924,10 +11053,12 @@ const EXAM_TICKET_STATE = {
     ready:   { icon: 'assignment',   cls: 'exam-st-ready',   label: 'готов к ответу' },
     waiting: { icon: 'schedule',     cls: 'exam-st-waiting', label: 'ждёт своих тем' },
     missing: { icon: 'help',         cls: 'exam-st-missing', label: 'нет в книге' },
-    skipped: { icon: 'block',        cls: 'exam-st-skipped', label: 'пропущен' }
+    skipped: { icon: 'block',        cls: 'exam-st-skipped', label: 'пропущен' },
+    postponed: { icon: 'pause_circle', cls: 'exam-st-postponed', label: 'отложен' }
 };
 
 function ticketState(t) {
+    if (t.status === 'postponed') return 'postponed';
     if (t.status === 'missing') return 'missing';
     if (t.status === 'skipped') return 'skipped';
     if (t.strong) return 'strong';
@@ -10961,9 +11092,283 @@ function showExamReview(data) {
     }
     setExamCat(t.missing ? 'think' : 'happy', say);
 
+    renderExamReadiness(data);
+    renderExamEmergency(data);
+    const simBtn = document.getElementById('exam-sim-btn');
+    if (simBtn) simBtn.classList.toggle('hidden', data.phase === 'past' || !(data.tickets && data.tickets.ok));
     renderExamMissing(data.items || []);
     renderExamList(data.items || []);
     setExamButtons(data.phase === 'past' ? 'Закрыть' : 'Начать подготовку', 'Выключить режим', true);
+}
+
+// --- Готовность и прогноз ---
+function renderExamReadiness(data) {
+    const box = document.getElementById('exam-readiness');
+    if (!box) return;
+    const r = data.readiness;
+    box.classList.toggle('hidden', !r || data.phase === 'past');
+    if (!r) return;
+    const num = document.getElementById('exam-readiness-num');
+    const note = document.getElementById('exam-forecast');
+    if (num) num.textContent = `${r.percent}%`;
+    if (!note) return;
+    if (data.phase === 'drill') {
+        note.textContent = 'Идёт прогон билетов: закрепляй самые шаткие, новые темы уже не успеть.';
+    } else if (r.will_make_it) {
+        note.textContent = `При нынешнем темпе успеешь пройти все нужные темы: все ${r.tickets_total} ${examPlural(r.tickets_total, 'билет', 'билета', 'билетов')} будут закрыты до прогона.`;
+    } else {
+        note.textContent = `При нынешнем темпе (${r.pace} тем в день) успеешь закрыть ${r.tickets_closable} из ${r.tickets_total} ${examPlural(r.tickets_total, 'билета', 'билетов', 'билетов')}. Чтобы успеть всё, нужно ${r.needed_pace} тем в день.`;
+    }
+}
+
+// --- Аварийный режим: если всё не успевается, отложить билеты, которые закрываются слишком дорого ---
+function renderExamEmergency(data) {
+    const box = document.getElementById('exam-emergency');
+    if (!box) return;
+    const e = data.emergency || {};
+    const show = (e.needed && e.postpone > 0) || e.postponed_now > 0;
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    const text = document.getElementById('exam-emergency-text');
+    const apply = document.getElementById('exam-emergency-apply');
+    const undo = document.getElementById('exam-emergency-undo');
+    const left = data.nodes ? data.nodes.required - data.nodes.done : 0;
+    if (text) {
+        text.textContent = e.needed && e.postpone > 0
+            ? `Новых тем ${left}, а до прогона успеть можно около ${e.capacity}. Предлагаю отложить ${e.postpone} ${examPlural(e.postpone, 'билет', 'билета', 'билетов')}: остальные закрываются заметно меньшим числом тем.`
+            : `Отложено билетов: ${e.postponed_now}. Они вне плана и вне расчёта готовности; вернуть можно в любой момент.`;
+    }
+    if (apply) apply.classList.toggle('hidden', !(e.needed && e.postpone > 0));
+    if (undo) undo.classList.toggle('hidden', !(e.postponed_now > 0));
+}
+
+window.examEmergency = async function(action) {
+    if (action === 'apply' && !confirm('Отложить часть билетов? Их можно вернуть позже, отвеченные остаются в повторениях.')) return;
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/emergency/${action}`, { method: 'POST' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        triggerHaptic('medium');
+    } catch (_) {
+        alert('Не получилось. Проверь связь и попробуй ещё раз.');
+        return;
+    }
+    renderExam(await loadExamOverview(examUi.subject));
+};
+
+// --- Повторный поиск билетов «нет в книге» после добавления материала ---
+window.examRematch = async function() {
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/rematch`, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(body.detail || 'Не получилось.'); return; }
+        setExamCat('think', 'Ищу недостающие билеты в обновлённой книге. Это меньше минуты.');
+        const reload = async () => { if (examModalOpen() && examUi.view === 'review') renderExam(await loadExamOverview(examUi.subject)); };
+        setTimeout(reload, 6000);
+        setTimeout(reload, 15000);
+    } catch (_) {
+        alert('Нет связи с сервером.');
+    }
+};
+
+// --- Список билетов из файла или с фото ---
+function appendExamText(text) {
+    const area = document.getElementById('exam-text');
+    if (!area || !text) return;
+    area.value = area.value.trim() ? `${area.value.trim()}\n${text}` : text;
+    area.dispatchEvent(new Event('input'));
+}
+
+window.examLoadFile = async function(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    showExamError('');
+    const note = document.getElementById('exam-count');
+    if (note) note.textContent = 'Читаю файл…';
+    try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await apiFetch('/api/exam/extract', { method: 'POST', body: fd });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return showExamError(body.detail || 'Не получилось прочитать файл.');
+        appendExamText(body.text);
+    } catch (_) {
+        showExamError('Нет связи с сервером. Попробуй ещё раз.');
+    }
+};
+
+window.examLoadPhoto = async function(event) {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    event.target.value = '';
+    if (!files.length) return;
+    showExamError('');
+    const note = document.getElementById('exam-count');
+    try {
+        const text = await window.ocrImagesToText(files, msg => { if (note) note.textContent = msg; });
+        if (!text.trim()) return showExamError('На фото не нашёлся читаемый текст. Сфотографируй список прямо и при хорошем свете.');
+        appendExamText(text);
+    } catch (e) {
+        showExamError(`Не получилось распознать фото: ${e.message}`);
+    }
+};
+
+// --- Симулятор экзамена ---
+const examSim = { ticketId: 0, timer: null, deadline: 0, seen: [], submitted: false };
+
+function examSimTick() {
+    const el = document.getElementById('exam-sim-timer');
+    if (!el) return;
+    const left = Math.round((examSim.deadline - Date.now()) / 1000);
+    const abs = Math.abs(left);
+    el.textContent = `${left < 0 ? '−' : ''}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+    el.classList.toggle('over', left < 0);
+}
+
+window.examSimStart = async function() {
+    clearInterval(examSim.timer);
+    let draw;
+    try {
+        const res = await apiFetch(`/api/exam/${encodeURIComponent(examUi.subject)}/simulator/draw?exclude=${examSim.seen.join(',')}`);
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(body.detail || 'Билет не вытянулся.'); return; }
+        draw = body;
+    } catch (_) {
+        alert('Нет связи с сервером.');
+        return;
+    }
+    examUi.view = 'sim';
+    showExamSection('sim');
+    examSim.ticketId = draw.ticket_id;
+    examSim.submitted = false;
+    examSim.seen.push(draw.ticket_id);
+    if (examSim.seen.length >= draw.pool) examSim.seen = [draw.ticket_id];
+    examSim.deadline = Date.now() + draw.seconds * 1000;
+    document.getElementById('exam-sim-question').textContent = `Билет ${draw.n}. ${draw.question}`;
+    const area = document.getElementById('exam-sim-answer');
+    area.value = '';
+    area.disabled = false;
+    document.getElementById('exam-sim-result').classList.add('hidden');
+    examSimTick();
+    examSim.timer = setInterval(examSimTick, 1000);
+    setExamCat('think', `Как на экзамене: ${Math.round(draw.seconds / 60)} минут на билет. Пиши ответ своими словами, потом я сверю его с тезисами из твоей книги.`);
+    setExamButtons('Сдать ответ', 'Закончить', true);
+};
+
+async function examSimSubmit() {
+    const area = document.getElementById('exam-sim-answer');
+    clearInterval(examSim.timer);
+    setExamButtons('Проверяю…', null, false);
+    try {
+        const res = await apiFetch(`/api/exam/ticket/${examSim.ticketId}/simulate`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: area.value })
+        });
+        const r = await res.json();
+        if (!res.ok) throw new Error(r.detail || `HTTP ${res.status}`);
+        examSim.submitted = true;
+        area.disabled = true;
+        renderExamSimResult(r);
+        triggerHaptic(r.percent >= 70 ? 'success' : 'light');
+        setExamButtons('Ещё билет', 'Закончить', true);
+    } catch (e) {
+        setExamButtons('Сдать ответ', 'Закончить', true);
+        alert(`Не получилось проверить: ${e.message}`);
+    }
+}
+
+function renderExamSimResult(r) {
+    const box = document.getElementById('exam-sim-result');
+    box.replaceChildren();
+    const head = document.createElement('p');
+    head.className = 'text-sm font-bold';
+    head.textContent = r.graded ? `Совпало с эталоном на ${r.percent}%: названо ${r.matched} из ${r.total} тезисов.` : 'У этого билета нет тезисов для проверки, сравни ответ с эталоном сам.';
+    box.appendChild(head);
+    const block = (title, items, cls) => {
+        if (!items || !items.length) return;
+        const h = document.createElement('p');
+        h.className = `exam-note ${cls}`;
+        h.textContent = title;
+        const ul = document.createElement('ul');
+        ul.className = 'exam-sim-list';
+        items.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+        box.append(h, ul);
+    };
+    block('Названо:', r.hit, 'exam-sim-hit');
+    block('Названо не до конца:', r.partial, '');
+    block('Упущено:', r.missed, 'exam-sim-miss');
+    const ai = document.createElement('button');
+    ai.type = 'button';
+    ai.className = 'oq-btn';
+    ai.textContent = 'Оценить по смыслу (ИИ)';
+    ai.title = 'Платная возможность: ИИ сверит ответ с тезисами по смыслу, а не по словам';
+    ai.onclick = () => examSimAiCheck(ai);
+    box.appendChild(ai);
+    box.classList.remove('hidden');
+}
+
+// ИИ-оценка по смыслу: платный тариф, месячная квота
+async function examSimAiCheck(btn) {
+    btn.disabled = true;
+    btn.textContent = 'Оцениваю…';
+    try {
+        const res = await apiFetch(`/api/exam/ticket/${examSim.ticketId}/ai-check`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answer: document.getElementById('exam-sim-answer').value })
+        });
+        const r = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert(typeof apiErrorText === 'function' ? apiErrorText(r, 'Не получилось оценить.') : (r.detail || 'Не получилось оценить.'));
+            btn.disabled = false;
+            btn.textContent = 'Оценить по смыслу (ИИ)';
+            return;
+        }
+        const box = document.getElementById('exam-sim-result');
+        btn.remove();
+        const wrap = document.createElement('div');
+        wrap.className = 'exam-card';
+        const head = document.createElement('p');
+        head.className = 'text-sm font-bold';
+        head.textContent = `По смыслу: ${r.score}%`;
+        wrap.appendChild(head);
+        const add = (title, items, cls) => {
+            if (!items || !items.length) return;
+            const h = document.createElement('p');
+            h.className = `exam-note ${cls}`;
+            h.textContent = title;
+            const ul = document.createElement('ul');
+            ul.className = 'exam-sim-list';
+            items.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+            wrap.append(h, ul);
+        };
+        add('Сказано верно:', r.covered, 'exam-sim-hit');
+        add('Сказано не до конца:', r.partial, '');
+        add('Упущено:', r.missed, 'exam-sim-miss');
+        add('Неверно:', r.wrong, 'exam-sim-miss');
+        if (r.advice) {
+            const adv = document.createElement('p');
+            adv.className = 'exam-note';
+            adv.textContent = r.advice;
+            wrap.appendChild(adv);
+        }
+        if (r.checks_left !== null && r.checks_left !== undefined) {
+            const left = document.createElement('p');
+            left.className = 'exam-note';
+            left.textContent = `ИИ-оценок осталось в этом месяце: ${r.checks_left}.`;
+            wrap.appendChild(left);
+        }
+        box.appendChild(wrap);
+    } catch (_) {
+        alert('Нет связи с сервером.');
+        btn.disabled = false;
+        btn.textContent = 'Оценить по смыслу (ИИ)';
+    }
+}
+
+function examSimClose() {
+    clearInterval(examSim.timer);
+    examUi.view = 'review';
+    showExamSection('review');
+    setExamButtons('Начать подготовку', 'Выключить режим', true);
+    loadExamOverview(examUi.subject).then(renderExam);
 }
 
 function renderExamMissing(items) {
@@ -11048,6 +11453,7 @@ function renderExamList(items) {
 
 // --- Кнопки ---
 window.examPrimary = function() {
+    if (examUi.view === 'sim') return examSim.submitted ? window.examSimStart() : examSimSubmit();
     if (examUi.view === 'setup') return submitExamPlan();
     if (examUi.view === 'failed') return retryExamPlan();
     if (examUi.view === 'review') {
@@ -11059,6 +11465,7 @@ window.examPrimary = function() {
 };
 
 window.examSecondary = async function() {
+    if (examUi.view === 'sim') return examSimClose();
     if (examUi.view === 'failed') return showExamSetup();
     if (examUi.view === 'review') {
         if (!confirm('Выключить режим экзамена? Отвеченные билеты останутся в повторениях.')) return;

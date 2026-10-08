@@ -6,6 +6,7 @@ from app.database.session import AsyncSessionLocal
 from app.database.models import UserSession, UserSetting, ReviewLog, Card, utc_now
 from app.core.timeutil import local_now
 from app.core.config import settings
+from app.services.exam_prep import exam_reminders, exam_reminder_text
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -89,6 +90,8 @@ async def check_and_send_alerts():
                 select(ReviewLog.user_id, func.max(ReviewLog.review_time)).group_by(ReviewLog.user_id)
             )).all())
             tz_map = dict((await db.execute(select(UserSetting.user_id, UserSetting.timezone))).all())
+            # Планы подготовки к экзамену: напоминание с обратным отсчётом идёт в утреннем сообщении
+            reminders = await exam_reminders(db, [u.telegram_id for u in users])
 
             for user in users:
                 user_total_cards = total_cards_map.get(user.telegram_id, 0)
@@ -98,16 +101,16 @@ async def check_and_send_alerts():
                 date_str = local.strftime("%Y-%m-%d")
                 hour = local.hour
 
-                # 1. Утреннее уведомление (09:00 - 09:59): только если есть что повторять
+                # 1. Утреннее уведомление (09:00 - 09:59): если есть что повторять или близок экзамен
                 if hour == 9 and user.last_morning_sent != date_str:
-                    if user_total_cards > 0 and user_due_count > 0:
+                    exam_lines = [t for t in (exam_reminder_text(info, local.date()) for info in reminders.get(user.telegram_id, [])) if t]
+                    if (user_total_cards > 0 and user_due_count > 0) or exam_lines:
                         user.last_morning_sent = date_str
                         await db.commit()  # Фиксация в БД
-                        text = (
-                            f"Карточек к повторению: {user_due_count} шт.\n"
-                            "Зайди уделить 2-3 минуты."
-                        )
-                        await send_telegram_alert(user.telegram_id, text, bot=bot)
+                        lines = list(exam_lines)
+                        if user_due_count > 0:
+                            lines.append(f"Карточек к повторению: {user_due_count} шт. Зайди уделить 2-3 минуты.")
+                        await send_telegram_alert(user.telegram_id, "\n".join(lines), bot=bot)
 
                 # 2. Вечернее уведомление (21:00 - 21:59)
                 if hour == 21 and user.last_evening_sent != date_str:

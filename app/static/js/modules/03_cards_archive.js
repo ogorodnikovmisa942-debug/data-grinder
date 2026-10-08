@@ -415,7 +415,24 @@ async function loadStatsTab() {
     } catch (e) { console.error("Ошибка дашборда статистики:", e); }
 }
 
+// Тариф и квоты: строка видна, только если владелец включил квоты
+async function refreshPlanUsage() {
+    const box = document.getElementById('plan-usage');
+    if (!box) return;
+    try {
+        const res = await apiFetch('/api/usage');
+        if (!res.ok) return;
+        const u = await res.json();
+        box.classList.toggle('hidden', !u.enabled);
+        if (!u.enabled) return;
+        const name = u.plan === 'paid' ? 'Платный' : 'Бесплатный';
+        const queue = u.limits.instant ? '' : ' · материалы идут в ночную очередь со скидкой';
+        box.textContent = `${name} тариф · материалов в этом месяце: ${u.usage.books_this_month} из ${u.limits.books_per_month} (до ${Math.round(u.limits.book_chars / 1000)} тыс. знаков каждый)${queue}`;
+    } catch (_) { /* строка не критична */ }
+}
+
 async function loadConfigTab() {
+    refreshPlanUsage();
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
@@ -717,6 +734,13 @@ let currentGranularityMode = 'atomic';
 let currentVolumeLimit = 'auto';
 let currentDetailDensity = 'medium';
 
+// Глубина нарезки по выбранному пресету: сколько карточек просить у материала
+function importDepth() {
+    if (currentGranularityMode === 'detailed') return 'detailed';
+    if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') return 'compact';
+    return 'standard';
+}
+
 window.setGranularityMode = function(mode) {
     currentGranularityMode = mode;
     ['atomic', 'detailed', 'blitz'].forEach(m => {
@@ -772,11 +796,11 @@ function updateImportExplanation() {
     if (!explEl) return;
 
     if (currentGranularityMode === 'detailed') {
-        explEl.textContent = 'Полный разбор: максимальная глубина без сокращений. Извлечение 100% ветвей схем, условий, статей, формул и исключений.';
+        explEl.textContent = 'Подробно: на 40% больше карточек и конспекта (около 700 на учебник). Для экзамена с большим числом деталей.';
     } else if (currentGranularityMode === 'blitz' || currentGranularityMode === 'cheatsheet') {
-        explEl.textContent = 'Экспресс-блиц: только фундаментальный понятийный каркас верхнего уровня для быстрого входа в тему.';
+        explEl.textContent = 'Кратко: на 40% меньше карточек (около 300 на учебник), только главное. Для быстрого входа в тему.';
     } else {
-        explEl.textContent = 'High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).';
+        explEl.textContent = 'Стандарт: самое важное из материала, около 500 карточек на учебник; остальное попадает в «Конспект темы». Если в предмете уже есть материалы, повторов не будет: берётся только новое.';
     }
 }
 
@@ -1104,6 +1128,8 @@ async function importTextKnowledge(isDeferred = false) {
                 assoc_preference: pref,
                 granularity_mode: currentGranularityMode,
                 custom_instruction: customInstruction,
+                depth: importDepth(),
+                source_kind: document.getElementById('import-source-kind')?.value || '',
                 commit_now: false, // Направляем на проверку
                 is_deferred: isDeferred,
                 confirm_replace: confirmReplace
@@ -1292,6 +1318,8 @@ window.handleFileUpload = async function(event) {
     formData.append('priority', 'balanced');
     formData.append('assoc_preference', pref);
     formData.append('granularity_mode', currentGranularityMode);
+    formData.append('depth', importDepth());
+    formData.append('source_kind', document.getElementById('import-source-kind')?.value || '');
     formData.append('custom_instruction', document.getElementById('import-custom-instruction')?.value.trim() || '');
     formData.append('commit_now', 'false');
 
@@ -1344,6 +1372,12 @@ window.handleFileUpload = async function(event) {
         } else if (response.ok && data.status === 'staging') {
             if (statusEl) statusEl.classList.add('hidden');
             startStagingSession(data);
+        } else if (response.ok && data.status === 'success') {
+            // Готовые карточки (Anki, CSV) уже в предмете
+            if (statusEl) statusEl.classList.add('hidden');
+            alert(`Добавлено карточек: ${data.cards_count}`);
+            if (typeof loadDynamicSubjects === 'function') await loadDynamicSubjects();
+            if (typeof updateGlobalBadges === 'function') updateGlobalBadges();
         } else {
             let errorText = data.detail || data.message || "Неизвестная ошибка";
             if (typeof errorText === 'object') {
@@ -1564,6 +1598,32 @@ window.handleImageOcr = async function(event) {
 };
 
 
+
+// Распознавание текста на фото в браузере (Tesseract, бесплатно, без сервера): для списков билетов и других коротких текстов
+window.ocrImagesToText = async function(files, onStatus) {
+    const say = (t) => { if (onStatus) onStatus(t); };
+    if (typeof Tesseract === 'undefined') {
+        say('Загружаю распознавание текста…');
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('Не удалось загрузить распознавание текста'));
+            document.head.appendChild(s);
+        });
+    }
+    const pages = [];
+    for (let i = 0; i < files.length; i++) {
+        say(`Фото ${i + 1} из ${files.length}: подготовка…`);
+        const blob = await preprocessImageForOcr(files[i]);
+        const result = await Tesseract.recognize(blob, 'rus+eng', {
+            logger: m => { if (m.status === 'recognizing text') say(`Фото ${i + 1} из ${files.length}: ${Math.round((m.progress || 0) * 100)}%`); }
+        });
+        const text = ((result && result.data && result.data.text) || '').replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+        if (text.replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').length >= 8) pages.push(text);
+    }
+    return pages.join('\n');
+};
 
 // ---- Просмотр карточки из архива (по нажатию на строку; долгое нажатие по-прежнему включает выбор)
 const CARD_STATE_LABELS = ['Новая', 'Заучивание', 'Повторение', 'Переобучение'];

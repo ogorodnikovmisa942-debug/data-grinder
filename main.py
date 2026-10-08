@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
-from app.api.endpoints import train, management, admin, practice, open_questions, exam
+from app.api.endpoints import train, management, admin, practice, open_questions, exam, anki
 from app.api.endpoints import path as knowledge_path_api
 from app.core.config import settings
 from sqlalchemy import select, func
@@ -14,6 +14,7 @@ from app.database.session import engine, AsyncSessionLocal
 from app.database.models import Base, UserSession, Card, ReviewLog
 from app.database.migrations import backup_sqlite_database, run_sqlite_pragma_migrations
 from app.services.notifications import notification_scheduler_loop
+from app.services.backup import backup_scheduler_loop
 from app.services.generation_worker import generation_worker_loop
 from app.services.frontend_bundler import bundle_modules, bundle_html
 
@@ -43,6 +44,8 @@ async def lifespan(app: FastAPI):
     # 4. Запускаем фоновый планировщик уведомлений Telegram и воркер нарезки карточек
     asyncio.create_task(notification_scheduler_loop())
     asyncio.create_task(generation_worker_loop())
+    if settings.BACKUP_ENABLED and "sqlite" in engine.url.drivername and not settings.TESTING:
+        asyncio.create_task(backup_scheduler_loop())
 
     yield
 
@@ -73,6 +76,7 @@ app.include_router(practice.router, prefix="/api", tags=["Practice"])
 app.include_router(knowledge_path_api.router, prefix="/api", tags=["Knowledge Path"])
 app.include_router(open_questions.router, prefix="/api", tags=["Open Questions"])
 app.include_router(exam.router, prefix="/api", tags=["Exam Prep"])
+app.include_router(anki.router, prefix="/api", tags=["Anki Export"])
 
 
 # Главная страница MiniApp

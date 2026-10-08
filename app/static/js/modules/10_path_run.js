@@ -509,11 +509,39 @@ function renderStarterExam(exam) {
     } else {
         const t = exam.tickets || {};
         const d = exam.days_left;
+        const ready = exam.readiness ? ` · готовность ${exam.readiness.percent}%` : '';
         text.textContent = d < 0
             ? 'Экзамен прошёл — выключить режим'
-            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
+            : `Экзамен через ${d} ${pathRunPlural(d, 'день', 'дня', 'дней')}${ready} · закреплено ${t.strong || 0} из ${t.ok || 0}`;
     }
 }
+
+// Несколько предметов с экзаменом: подсказка, куда сегодня идти в первую очередь (ближе срок и ниже готовность — выше)
+let starterPrioritySubject = '';
+async function refreshStarterPriority(subject) {
+    const el = document.getElementById('starter-priority');
+    const text = document.getElementById('starter-priority-text');
+    if (!el || !text) return;
+    el.classList.add('hidden');
+    try {
+        const res = await apiFetch('/api/exams/priorities');
+        if (!res.ok) return;
+        const items = (await res.json()).items || [];
+        if (items.length < 2 || items[0].subject === subject) return;
+        const top = items[0];
+        starterPrioritySubject = top.subject;
+        text.textContent = `Срочнее: «${top.title && top.title !== 'Билеты' ? top.title : top.subject}» — экзамен через ${top.days_left} ${pathRunPlural(top.days_left, 'день', 'дня', 'дней')}, готовность ${top.readiness}%`;
+        el.classList.remove('hidden');
+    } catch (_) { /* подсказка не критична */ }
+}
+
+window.switchToPrioritySubject = function() {
+    const sel = document.getElementById('subject-selector');
+    if (!sel || !starterPrioritySubject) return;
+    sel.value = starterPrioritySubject;
+    if (sel.onchange) sel.onchange({ target: sel });
+    if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
+};
 
 function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
     if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
@@ -547,6 +575,7 @@ window.refreshPathRunButton = async function(attempt = 0) {
     try {
         const exam = typeof loadExamOverview === 'function' ? await loadExamOverview(subject) : { active: false };
         renderStarterExam(exam);
+        refreshStarterPriority(subject);
         const scope = exam.active && exam.status === 'ready' && exam.phase !== 'past' ? 'exam' : 'day';
         const res = await apiFetch(`/api/path/${encodeURIComponent(subject)}/next?scope=${scope}`);
         if (!res.ok) return;

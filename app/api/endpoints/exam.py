@@ -2,7 +2,7 @@
 """Подготовка к экзамену по билетам: план (билеты + дата), его состояние, эталоны для билетов вне курса."""
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +14,13 @@ from app.database.models import KnowledgeNode, utc_now
 from app.database.session import get_db
 from app.services.card_db_sync import check_experiment_lock
 from app.services.exam_prep import (
-    MAX_TICKETS, MIN_TICKETS, create_plan, deactivate_plan, exam_overview, get_active_plan,
-    parse_ticket_list, set_ticket_answer, skip_ticket, start_matching,
+    MAX_TICKETS, MIN_TICKETS, apply_emergency, create_plan, deactivate_plan, emergency_overview, exam_overview, exam_priorities,
+    get_active_plan, parse_ticket_list, set_ticket_answer, simulator_check, simulator_draw, skip_ticket, start_matching, undo_emergency,
 )
+from app.services.text_extract import ExtractError, MAX_EXTRACT_BYTES, extract_text
 from app.services.graph_service import resolve_subject_alias
 from app.services.knowledge_path import normalize_subject
+from app.services.quota import allows_rematch, enforce_exam_plan
 
 router = APIRouter()
 
@@ -39,6 +41,27 @@ class TicketAnswerIn(BaseModel):
 
 def _subject(subject: str) -> str:
     return normalize_subject(resolve_subject_alias(subject.strip().lower()) or subject)
+
+
+@router.get("/exams/priorities")
+async def get_exam_priorities(current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """Планы по всем предметам, от самого срочного: ближе экзамен и ниже готовность — выше в списке."""
+    return {"items": await exam_priorities(db, current_user)}
+
+
+@router.post("/exam/extract")
+@limiter.limit("30/hour")
+async def extract_tickets_file(request: Request, file: UploadFile = File(...), current_user: str = Depends(get_current_user_id)):
+    """Список билетов из файла (PDF, Word, PowerPoint, текст): возвращает текст, пользователь проверяет его и отправляет как обычно."""
+    contents = await file.read(MAX_EXTRACT_BYTES + 1)
+    try:
+        text = extract_text(file.filename or "", contents)
+    except ExtractError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:  # noqa: BLE001 — битый файл
+        raise HTTPException(status_code=400, detail="Не получилось прочитать файл.")
+    items = parse_ticket_list(text)
+    return {"text": text[:100_000], "count": len(items), "sample": [it["question"] for it in items[:3]]}
 
 
 @router.get("/exam/{subject}")
@@ -80,6 +103,7 @@ async def create_exam(
     items = parse_ticket_list(payload.text)
     if len(items) < MIN_TICKETS:
         raise HTTPException(status_code=400, detail="Не нашёл ни одного билета. Пишите по билету на строку.")
+    await enforce_exam_plan(db, current_user, subject)
     plan = await create_plan(db, current_user, subject, payload.title, payload.exam_date, items[:MAX_TICKETS])
     start_matching(plan.id)
     return {"id": plan.id, "status": plan.status, "tickets": len(items)}
@@ -97,6 +121,91 @@ async def retry_exam(request: Request, subject: str, current_user: str = Depends
     await db.commit()
     start_matching(plan.id)
     return {"id": plan.id, "status": "matching"}
+
+
+@router.post("/exam/{subject}/rematch")
+@limiter.limit("10/hour")
+async def rematch_exam(request: Request, subject: str, current_user: str = Depends(get_current_user_id),
+                       db: AsyncSession = Depends(get_db)):
+    """Найти заново только билеты «нет в книге» (после добавления нового материала в предмет). Остальные билеты не трогаются."""
+    from app.database.models import ExamTicket
+    plan = await get_active_plan(db, current_user, _subject(subject))
+    if not plan or plan.status != "ready":
+        raise HTTPException(status_code=409, detail="План не готов.")
+    if not await allows_rematch(db, current_user):
+        raise HTTPException(status_code=402, detail={"code": "quota", "message": "Повторный поиск билетов после нового материала доступен на платном тарифе."})
+    missing = (await db.execute(
+        select(func.count(ExamTicket.id)).where(ExamTicket.plan_id == plan.id, ExamTicket.status == "missing")
+    )).scalar() or 0
+    if not missing:
+        raise HTTPException(status_code=409, detail="Все билеты уже найдены или пропущены.")
+    start_matching(plan.id, only_missing=True)
+    return {"id": plan.id, "searching": missing}
+
+
+@router.get("/exam/{subject}/emergency")
+async def get_emergency(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """Аварийный режим: если всё не успевается, какие билеты закрываются минимумом тем, а какие разумно отложить."""
+    return await emergency_overview(db, current_user, _subject(subject))
+
+
+@router.post("/exam/{subject}/emergency/apply")
+async def apply_exam_emergency(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    try:
+        return await apply_emergency(db, current_user, _subject(subject))
+    except LookupError:
+        raise HTTPException(status_code=409, detail="План не готов.")
+
+
+@router.post("/exam/{subject}/emergency/undo")
+async def undo_exam_emergency(subject: str, current_user: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    try:
+        return await undo_emergency(db, current_user, _subject(subject))
+    except LookupError:
+        raise HTTPException(status_code=404, detail="План не найден.")
+
+
+@router.get("/exam/{subject}/simulator/draw")
+async def draw_simulator_ticket(subject: str, exclude: str = "", current_user: str = Depends(get_current_user_id),
+                                db: AsyncSession = Depends(get_db)):
+    """Симулятор: случайный билет из тех, чьи темы уже пройдены, и время на ответ."""
+    ids = [int(x) for x in exclude.split(",") if x.strip().isdigit()][:200]
+    try:
+        return await simulator_draw(db, current_user, _subject(subject), ids)
+    except LookupError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+class SimulatorAnswerIn(BaseModel):
+    answer: str = Field("", max_length=6000)
+
+
+@router.post("/exam/ticket/{ticket_id}/simulate")
+async def check_simulator_answer(ticket_id: int, payload: SimulatorAnswerIn, current_user: str = Depends(get_current_user_id),
+                                 db: AsyncSession = Depends(get_db)):
+    """Проверка ответа в симуляторе: что названо, что упущено. В повторения ничего не записывается."""
+    try:
+        return await simulator_check(db, current_user, ticket_id, payload.answer)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/exam/ticket/{ticket_id}/ai-check")
+@limiter.limit("30/hour")
+async def ai_check_answer(request: Request, ticket_id: int, payload: SimulatorAnswerIn, current_user: str = Depends(get_current_user_id),
+                          db: AsyncSession = Depends(get_db)):
+    """ИИ-оценка смысла ответа (платная, месячная квота): по смыслу, а не по словам. В повторения ничего не записывается."""
+    from app.services.exam_prep import ai_check_ticket
+    try:
+        return await ai_check_ticket(db, current_user, ticket_id, payload.answer)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="ИИ сейчас не ответил. Попробуйте ещё раз через минуту: проверка не засчитана.")
 
 
 @router.post("/exam/{subject}/off")

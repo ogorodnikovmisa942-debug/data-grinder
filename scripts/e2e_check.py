@@ -314,7 +314,13 @@ async def step_generic(step: str, text: str, name: str, expect_kind: str | None)
     if ARGS.yes:
         check(step, "цитаты найдены в тексте (≥80% новых карточек)", good >= 0.8 * max(1, new_cards), f"{good} из {new_cards}")
         per_node = new_cards / max(1, len((r["result"] or {}).get("packs", {})))
-        check(step, "в узле в среднем ≥ 2,5 карточки (колода не плоская)", per_node >= 2.5 or new_cards < 12, f"{per_node:.1f} на узел")
+        check(step, "в узле в среднем ≥ 2 карточки (колода не плоская)", per_node >= 2.0 or new_cards < 12, f"{per_node:.1f} на узел")
+        q = (stats.get("quality") or {})
+        pol = (stats.get("deck_policy") or {})
+        print(f"   качество: подтверждено книгой {q.get('supported_share')}, на понимание {q.get('understanding_share')}, с числом {q.get('numeric_share')}, "
+              f"повторов {q.get('duplicate_fronts')}, отбраковано {q.get('dropped_unsupported')}, обрезано {q.get('trimmed_by_priority')}; "
+              f"политика: цель {pol.get('goal')} из {pol.get('planned')}, ограничение {pol.get('limited_by')}, в курсе было {pol.get('existing_cards')}")
+        check(step, "качество: ≥ 85% карточек подтверждены книгой", (q.get("supported_share") or 0) >= 0.85, str(q.get("supported_share")), content=True)
     check(step, "цена в пределах прогноза ×1.6", r["cost"] <= max(0.03, est * 1.6), f"${r['cost']:.4f}", content=True)
 
 

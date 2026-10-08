@@ -92,6 +92,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             "source_name": job.source_name or job.theme,
             "text_hash": job.text_hash,
             "replace_source_id": job.replace_source_id,
+            "depth": job.depth,
+            "source_kind": job.source_kind,
         }
 
     char_count = len(job_data["raw_text"] or "")
@@ -115,7 +117,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         async with AsyncSessionLocal() as db:
             course = await build_course_context(db, job_data["user_id"], job_data["subject"], exclude_source_id=job_data["replace_source_id"])
         try:
-            result = await build_learning_path(job_data["raw_text"], job_data["subject"], calls=calls, course=course)
+            result = await build_learning_path(job_data["raw_text"], job_data["subject"], calls=calls, course=course,
+                                               depth=job_data["depth"], source_kind=job_data["source_kind"])
         finally:
             await _record_path_calls(job_id, job_data["user_id"], calls)
 
@@ -160,6 +163,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 f"{stats['nodes']} тем, {stats['cards']} карточек.\nНачни с основ.",
                 reply_markup=markup,
             )
+        await _rematch_exam_after_source(job_data)
 
     except Exception as proc_err:
         import traceback
@@ -181,6 +185,28 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
                 job_data["telegram_id"],
                 f"Не удалось обработать «{html.escape(str(job_data['theme']))}»: {html.escape(str(proc_err)[:200])}",
             )
+
+async def _rematch_exam_after_source(job_data: dict) -> None:
+    """Новый материал мог закрыть билеты «нет в книге»: ищем заново только их (один дешёвый разбор) и сообщаем, сколько нашлось."""
+    if settings.TESTING:
+        return
+    try:
+        from app.services.exam_prep import rematch_after_new_source
+        from app.services.quota import allows_rematch
+        async with AsyncSessionLocal() as db:
+            if not await allows_rematch(db, job_data["user_id"]):
+                return
+        res = await rematch_after_new_source(job_data["user_id"], job_data["subject"])
+        if res and job_data.get("telegram_id"):
+            await send_worker_telegram_push(
+                job_data["telegram_id"],
+                f"Новый материал помог с билетами: найдено {res['closed']} из {res['missing']}, которых раньше не было в книге.",
+            )
+        if res:
+            print(f"[Generation Worker] Билеты после нового материала: найдено {res['closed']} из {res['missing']}", flush=True)
+    except Exception as e:  # noqa: BLE001 — на результат загрузки не влияет
+        print(f"[Generation Worker WARN] повторный разбор билетов: {e}", flush=True)
+
 
 async def reset_stalled_jobs():
     """Сбрасывает зависшие задачи 'processing' обратно в 'pending' при старте сервера."""

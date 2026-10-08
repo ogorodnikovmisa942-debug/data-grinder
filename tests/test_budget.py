@@ -17,7 +17,7 @@ def test_book_size_comes_from_the_real_map_request_with_a_fallback():
 
 
 def test_typical_book_gets_a_few_hundred_cards_within_the_ceiling():
-    b = Budget([MAP_CALL], offpeak=True)
+    b = Budget([MAP_CALL], offpeak=True, limit_usd=0.22)
     cap = b.card_cap(1_135_000, nodes=80, batches=8)
     assert 350 <= cap <= 900                                              # ~450 страниц при потолке 22 цента без фактов, «лёгкие» карточки и уроки
     # Всё, что запланировано, в сумме не превышает потолок
@@ -27,9 +27,9 @@ def test_typical_book_gets_a_few_hundred_cards_within_the_ceiling():
 
 
 def test_more_already_spent_means_fewer_cards_and_nothing_below_zero():
-    cheap = Budget([{**MAP_CALL, "cost_usd": 0.05}], offpeak=True).card_cap(1_000_000, 80, 8)
-    dear = Budget([{**MAP_CALL, "cost_usd": 0.10}], offpeak=True).card_cap(1_000_000, 80, 8)
-    broke = Budget([{**MAP_CALL, "cost_usd": 0.50}], offpeak=True).card_cap(1_000_000, 80, 8)
+    cheap = Budget([{**MAP_CALL, "cost_usd": 0.05}], offpeak=True, limit_usd=0.22).card_cap(1_000_000, 80, 8)
+    dear = Budget([{**MAP_CALL, "cost_usd": 0.10}], offpeak=True, limit_usd=0.22).card_cap(1_000_000, 80, 8)
+    broke = Budget([{**MAP_CALL, "cost_usd": 0.50}], offpeak=True, limit_usd=0.22).card_cap(1_000_000, 80, 8)
     assert cheap > dear > broke == 0
 
 

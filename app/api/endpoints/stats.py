@@ -124,6 +124,9 @@ async def get_analytics(
     )
     survey_res = await db.execute(survey_stmt)
     survey_completed = survey_res.scalars().first() is not None
+    # Опрос после сессии нужен только участникам научного эксперимента; остальным его не показываем (решение плана 2026-10-06)
+    if not (await get_user_experiment_status(current_user, db))[0]:
+        survey_completed = True
 
     # Карты к вечеру для текущего пользователя
     if msk_now.hour < 21:

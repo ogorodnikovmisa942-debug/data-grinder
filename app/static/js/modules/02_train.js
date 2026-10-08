@@ -2032,13 +2032,13 @@ async function updateGlobalBadges() {
         
         const dataTab = document.getElementById('tab-text-data');
         const learnTab = document.getElementById('tab-text-train');
-        if (dataTab) dataTab.innerText = totalCards > 0 ? `DATA [${totalCards}]` : 'DATA';
+        if (dataTab) dataTab.innerText = totalCards > 0 ? `ДАННЫЕ [${totalCards}]` : 'ДАННЫЕ';
         if (learnTab) {
             if (dueCount > 0) {
-                learnTab.innerText = `LEARN [${dueCount}]`;
+                learnTab.innerText = `УЧЁБА [${dueCount}]`;
                 learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-secondary";
             } else {
-                learnTab.innerText = 'LEARN';
+                learnTab.innerText = 'УЧЁБА';
                 learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-primary";
             }
         }

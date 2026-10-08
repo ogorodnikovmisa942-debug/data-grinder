@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=35">
+    <link rel="stylesheet" href="/css/main.css?v=36">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -118,6 +118,12 @@
                     <button id="starter-exam" type="button" onclick="openExamModal()" class="starter-exam">
                         <span class="material-symbols-outlined">assignment</span>
                         <span id="starter-exam-text" class="starter-exam-text">Готовишься к экзамену? Загрузи билеты</span>
+                        <span class="material-symbols-outlined starter-exam-arrow">chevron_right</span>
+                    </button>
+
+                    <button id="starter-priority" type="button" class="starter-exam starter-priority hidden" onclick="switchToPrioritySubject()">
+                        <span class="material-symbols-outlined">priority_high</span>
+                        <span id="starter-priority-text" class="starter-exam-text"></span>
                         <span class="material-symbols-outlined starter-exam-arrow">chevron_right</span>
                     </button>
 
@@ -766,7 +772,7 @@
                         <span>Нарезка материалов заблокирована</span>
                     </div>
                     <p class="text-[11px] text-neutral-600 dark:text-neutral-300 font-sans leading-relaxed">
-                        В рамках <strong>Фазы 1</strong> научного эксперимента нарезка материалов и создание карточек отключены. Сейчас проводится чистое тестирование готовых колод (лимит <strong>10 карт в день</strong>). Обучайтесь во вкладке <strong>LEARN</strong>.
+                        В рамках <strong>Фазы 1</strong> научного эксперимента нарезка материалов и создание карточек отключены. Сейчас проводится чистое тестирование готовых колод (лимит <strong>10 карт в день</strong>). Обучайтесь во вкладке <strong>Учёба</strong>.
                     </p>
                 </div>
 
@@ -809,7 +815,7 @@
                     
                     <!-- Быстрый импорт файлов прямо под полем ввода -->
                     <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
                             <span class="material-symbols-outlined text-[14px]">attach_file</span>
                             <span>Документ (PDF/Word/PPTX)</span>
@@ -826,26 +832,37 @@
 
                 <!-- 3 смысловых пресета генерации FSRS -->
                 <div class="flex flex-col gap-1.5 border-t border-neutral-200/60 dark:border-neutral-800 pt-3 mt-2">
-                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Пресет декомпозиции</span>
+                    <span class="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-mono">Насколько подробно</span>
                     
                     <div class="grid grid-cols-3 gap-1.5">
                         <button type="button" onclick="setGranularityMode('atomic')" id="gran-atomic" class="border border-primary bg-primary text-on-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">High-Yield</span>
-                            <span class="text-[8px] opacity-80 font-normal">Парето (авто)</span>
+                            <span class="tracking-wide font-sans">Стандарт</span>
+                            <span class="text-[8px] opacity-80 font-normal">≈ 1 карточка на страницу</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('detailed')" id="gran-detailed" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">Полный</span>
-                            <span class="text-[8px] opacity-80 font-normal">все факты (макс)</span>
+                            <span class="tracking-wide font-sans">Подробно</span>
+                            <span class="text-[8px] opacity-80 font-normal">на 40% больше</span>
                         </button>
                         <button type="button" onclick="setGranularityMode('blitz')" id="gran-blitz" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-1 text-[10px] font-bold transition-all flex flex-col items-center justify-center rounded-xl shadow-xs cursor-pointer">
-                            <span class="tracking-wide font-sans">Экспресс</span>
-                            <span class="text-[8px] opacity-80 font-normal">основы темы</span>
+                            <span class="tracking-wide font-sans">Кратко</span>
+                            <span class="text-[8px] opacity-80 font-normal">только главное</span>
                         </button>
                     </div>
 
                     <!-- Пояснение текущего пресета -->
                     <div id="import-mode-explanation" class="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans px-2.5 py-1.5 bg-surface-container rounded-xl">
-                        High-Yield FSRS (Парето): умная авто-адаптация к формату источника (слайды, конспект, учебник). 1 карточка = 1 ключевой факт (отклик 1.5–3.5 сек).
+                        Стандарт: самое важное из материала, около 500 карточек на учебник; остальное попадает в «Конспект темы». Если в предмете уже есть материалы, повторов не будет: берётся только новое.
+                    </div>
+
+                    <div class="flex flex-col gap-1 mt-1">
+                        <label for="import-source-kind" class="text-[9px] text-neutral-400 uppercase font-mono">Что за материал:</label>
+                        <select id="import-source-kind" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs">
+                            <option value="">Определить автоматически</option>
+                            <option value="textbook">Учебник или глава учебника</option>
+                            <option value="article">Статья или доклад</option>
+                            <option value="notes">Конспект, шпаргалка, тезисы</option>
+                            <option value="lecture">Лекция (текст или слайды)</option>
+                        </select>
                     </div>
 
                     <!-- Быстрые чипы фокусировки -->
@@ -882,6 +899,9 @@
                         </div>
                     </details>
                 </div>
+
+                <!-- Тариф и расход ИИ в этом месяце (виден, только когда включены квоты) -->
+                <div id="plan-usage" class="hidden text-[10px] font-mono border border-neutral-200 dark:border-neutral-800 p-2.5 bg-surface-container rounded-xl mt-2 text-neutral-600 dark:text-neutral-300"></div>
 
                 <!-- Индикатор тарифа DeepSeek и окно Ночного Грайндера -->
                 <div id="tariff-banner" class="flex justify-between items-center text-[10px] font-mono border border-neutral-200 dark:border-neutral-800 p-2.5 bg-surface-container rounded-xl mt-2 select-none">
@@ -937,16 +957,16 @@
         <!-- Нижняя навигация -->
     <nav class="w-full flex justify-around items-center bg-background border-t border-outline-variant shrink-0 transition-all duration-300" id="bottom-nav" style="padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); height: calc(4.5rem + max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)));">
         <button onclick="window.switchTab && window.switchTab('data')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="data" aria-label="Данные">
-            <span id="tab-text-data" class="text-[11px] font-bold tracking-wider font-mono">DATA</span>
+            <span id="tab-text-data" class="text-[11px] font-bold tracking-wider font-mono uppercase">Данные</span>
         </button>
         <button onclick="window.switchTab && window.switchTab('train')" class="nav-link flex flex-col items-center justify-center text-primary transition-colors p-3 w-1/4" data-tab="train" aria-label="Обучение">
-            <span id="tab-text-train" class="text-[11px] font-bold tracking-wider font-mono uppercase">LEARN</span>
+            <span id="tab-text-train" class="text-[11px] font-bold tracking-wider font-mono uppercase">Учёба</span>
         </button>
         <button onclick="window.switchTab && window.switchTab('stats')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="stats" aria-label="Статистика">
-            <span class="text-[11px] font-bold tracking-wider font-mono">STATS</span>
+            <span class="text-[11px] font-bold tracking-wider font-mono uppercase">Статистика</span>
         </button>
         <button onclick="window.switchTab && window.switchTab('config')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="config" aria-label="Настройки">
-            <span class="text-[11px] font-bold tracking-wider font-mono">CONFIG</span>
+            <span class="text-[11px] font-bold tracking-wider font-mono uppercase">Настройки</span>
         </button>
     </nav>
 
@@ -1284,6 +1304,11 @@
                 Курс собран из этих материалов. Чтобы добавить ещё один (главу, конспект, другой учебник), загрузите файл в этот же предмет: он добавится к курсу, а ваши повторения останутся.
             </p>
             <div id="subject-sources-list" class="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800/80 pr-1 flex flex-col gap-1 min-h-[100px] max-h-[45vh]"></div>
+            <p id="subject-sources-total" class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed"></p>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="exportSubjectAnki('file')" class="border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 px-3 py-1.5 text-[10px] font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Колода одним файлом для Anki">Скачать для Anki</button>
+                <button onclick="exportSubjectAnki('chat')" class="border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 px-3 py-1.5 text-[10px] font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Файл придёт в чат с ботом: в мини-приложении скачивание нередко заблокировано">Прислать в чат</button>
+            </div>
             <div class="flex justify-end pt-3 border-t border-neutral-200/60 dark:border-neutral-800">
                 <button onclick="closeSubjectSourcesModal()" class="border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-4 py-1.5 text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800">
                     Закрыть
@@ -1790,6 +1815,12 @@
                     <label class="exam-field">Билеты — по одному на строку
                         <textarea id="exam-text" class="oq-modal-field" rows="9" placeholder="1. Понятие и признаки государства&#10;2. Функции государства&#10;3. Форма правления"></textarea>
                     </label>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="document.getElementById('exam-file').click()" class="oq-btn flex-1">Файл со списком</button>
+                        <button type="button" onclick="document.getElementById('exam-photo').click()" class="oq-btn flex-1">Фото списка</button>
+                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.txt,.md" onchange="examLoadFile(event)">
+                        <input type="file" id="exam-photo" class="hidden" accept="image/*" multiple onchange="examLoadPhoto(event)">
+                    </div>
                     <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>
                     <p id="exam-error" class="exam-error hidden" role="alert"></p>
                 </div>
@@ -1803,8 +1834,29 @@
                     </div>
                     <div class="exam-progress" aria-hidden="true"><div id="exam-progress-fill" class="exam-progress-fill"></div></div>
 
+                    <div id="exam-readiness" class="exam-card hidden">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="exam-section">Готовность</span>
+                            <span id="exam-readiness-num" class="exam-stat-num">0%</span>
+                        </div>
+                        <p id="exam-forecast" class="exam-note"></p>
+                    </div>
+
+                    <div id="exam-emergency" class="exam-card exam-card-warn hidden">
+                        <h4 class="exam-section">Не успеваем всё</h4>
+                        <p id="exam-emergency-text" class="exam-note"></p>
+                        <div class="flex gap-2">
+                            <button id="exam-emergency-apply" type="button" class="oq-btn oq-btn-primary flex-1" onclick="examEmergency('apply')">Отложить лишние</button>
+                            <button id="exam-emergency-undo" type="button" class="oq-btn flex-1 hidden" onclick="examEmergency('undo')">Вернуть отложенные</button>
+                        </div>
+                    </div>
+
+                    <button id="exam-sim-btn" type="button" class="oq-btn" onclick="examSimStart()">Симулятор: вытянуть билет</button>
+
                     <div id="exam-missing-wrap" class="hidden flex flex-col gap-2">
                         <h4 class="exam-section">Нет в книге</h4>
+                        <p class="exam-note">Загрузи ещё один материал, где это есть, — недостающие билеты я найду заново сам. Или проверь после загрузки вручную.</p>
+                        <button type="button" class="oq-btn" onclick="examRematch()">Проверить заново</button>
                         <div id="exam-missing" class="flex flex-col gap-2"></div>
                     </div>
 
@@ -1812,6 +1864,14 @@
                         <h4 class="exam-section">Все билеты</h4>
                         <ol id="exam-list" class="exam-list"></ol>
                     </div>
+                </div>
+
+                <!-- 3. Симулятор: случайный билет, таймер, проверка по тезисам -->
+                <div id="exam-sim" class="hidden flex flex-col gap-3 select-text">
+                    <div id="exam-sim-timer" class="exam-sim-timer">15:00</div>
+                    <p id="exam-sim-question" class="text-sm font-semibold leading-snug"></p>
+                    <textarea id="exam-sim-answer" class="oq-modal-field" rows="10" maxlength="6000" placeholder="Напиши ответ так, как сказал бы на экзамене"></textarea>
+                    <div id="exam-sim-result" class="hidden flex flex-col gap-2"></div>
                 </div>
             </div>
 
@@ -1869,6 +1929,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=130"></script>
+    <script src="/js/app.js?v=134"></script>
 </body>
 </html>

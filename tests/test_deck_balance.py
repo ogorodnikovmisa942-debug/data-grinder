@@ -115,7 +115,7 @@ def test_facts_cost_money_and_shrink_the_card_cap():
 
 def test_facts_per_card_follow_the_source_type():
     from app.services.ai_gateway import source_profile as sp
-    assert sp.facts_per_card("textbook") == 2.6 and sp.facts_per_card("notes") < sp.facts_per_card("article") < sp.facts_per_card("textbook")
+    assert sp.facts_per_card("textbook") == 3.2 and sp.facts_per_card("notes") < sp.facts_per_card("article") < sp.facts_per_card("textbook")
     assert sp.facts_per_card(None) == sp.facts_per_card("textbook")
 
 

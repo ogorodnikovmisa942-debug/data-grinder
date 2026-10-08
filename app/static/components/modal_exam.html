@@ -29,6 +29,12 @@
                     <label class="exam-field">Билеты — по одному на строку
                         <textarea id="exam-text" class="oq-modal-field" rows="9" placeholder="1. Понятие и признаки государства&#10;2. Функции государства&#10;3. Форма правления"></textarea>
                     </label>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="document.getElementById('exam-file').click()" class="oq-btn flex-1">Файл со списком</button>
+                        <button type="button" onclick="document.getElementById('exam-photo').click()" class="oq-btn flex-1">Фото списка</button>
+                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.txt,.md" onchange="examLoadFile(event)">
+                        <input type="file" id="exam-photo" class="hidden" accept="image/*" multiple onchange="examLoadPhoto(event)">
+                    </div>
                     <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>
                     <p id="exam-error" class="exam-error hidden" role="alert"></p>
                 </div>
@@ -42,8 +48,29 @@
                     </div>
                     <div class="exam-progress" aria-hidden="true"><div id="exam-progress-fill" class="exam-progress-fill"></div></div>
 
+                    <div id="exam-readiness" class="exam-card hidden">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="exam-section">Готовность</span>
+                            <span id="exam-readiness-num" class="exam-stat-num">0%</span>
+                        </div>
+                        <p id="exam-forecast" class="exam-note"></p>
+                    </div>
+
+                    <div id="exam-emergency" class="exam-card exam-card-warn hidden">
+                        <h4 class="exam-section">Не успеваем всё</h4>
+                        <p id="exam-emergency-text" class="exam-note"></p>
+                        <div class="flex gap-2">
+                            <button id="exam-emergency-apply" type="button" class="oq-btn oq-btn-primary flex-1" onclick="examEmergency('apply')">Отложить лишние</button>
+                            <button id="exam-emergency-undo" type="button" class="oq-btn flex-1 hidden" onclick="examEmergency('undo')">Вернуть отложенные</button>
+                        </div>
+                    </div>
+
+                    <button id="exam-sim-btn" type="button" class="oq-btn" onclick="examSimStart()">Симулятор: вытянуть билет</button>
+
                     <div id="exam-missing-wrap" class="hidden flex flex-col gap-2">
                         <h4 class="exam-section">Нет в книге</h4>
+                        <p class="exam-note">Загрузи ещё один материал, где это есть, — недостающие билеты я найду заново сам. Или проверь после загрузки вручную.</p>
+                        <button type="button" class="oq-btn" onclick="examRematch()">Проверить заново</button>
                         <div id="exam-missing" class="flex flex-col gap-2"></div>
                     </div>
 
@@ -51,6 +78,14 @@
                         <h4 class="exam-section">Все билеты</h4>
                         <ol id="exam-list" class="exam-list"></ol>
                     </div>
+                </div>
+
+                <!-- 3. Симулятор: случайный билет, таймер, проверка по тезисам -->
+                <div id="exam-sim" class="hidden flex flex-col gap-3 select-text">
+                    <div id="exam-sim-timer" class="exam-sim-timer">15:00</div>
+                    <p id="exam-sim-question" class="text-sm font-semibold leading-snug"></p>
+                    <textarea id="exam-sim-answer" class="oq-modal-field" rows="10" maxlength="6000" placeholder="Напиши ответ так, как сказал бы на экзамене"></textarea>
+                    <div id="exam-sim-result" class="hidden flex flex-col gap-2"></div>
                 </div>
             </div>
 
