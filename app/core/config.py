@@ -83,6 +83,13 @@ class Settings:
     PAID_MONTHLY_AI_USD: float = float(os.getenv("PAID_MONTHLY_AI_USD", "1.20"))
     PAID_AI_CHECKS_PER_MONTH: int = int(os.getenv("PAID_AI_CHECKS_PER_MONTH", "30"))   # ИИ-оценка смысла ответа на билет
 
+    # Жёсткие потолки на платный ИИ вне нарезки. Действуют ВСЕГДА, независимо от QUOTAS_ENABLED (админ и dev без лимитов):
+    # у каждой функции цена действия известна заранее, а сумма за период ограничена кодом, а не тарифом.
+    AI_CHECK_ENABLED: bool = os.getenv("AI_CHECK_ENABLED", "0").lower() in ("1", "true", "yes")   # ИИ-оценка смысла ответа: выключена; проверка по тезисам (без ИИ) работает
+    MNEMONIC_PER_DAY: int = int(os.getenv("MNEMONIC_PER_DAY", "10"))             # «Мнемоника» ≈ 0.01¢ за нажатие, не больше стольких в сутки на пользователя
+    EXAM_PLAN_BUDGET_USD: float = float(os.getenv("EXAM_PLAN_BUDGET_USD", "0.08"))     # разбор билетов одного плана вместе с повторами и автопоиском (в ценах вне пика; в пик вдвое выше)
+    EXAM_DAILY_BUDGET_USD: float = float(os.getenv("EXAM_DAILY_BUDGET_USD", "0.16"))   # разбор билетов на пользователя в сутки (в ценах вне пика)
+
     # Максимальный возраст подписанного initData (Telegram кэширует WebView, поэтому с запасом)
     INIT_DATA_MAX_AGE_SECONDS: int = int(os.getenv("INIT_DATA_MAX_AGE_SECONDS", str(7 * 24 * 3600)))
 

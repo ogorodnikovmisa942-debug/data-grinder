@@ -492,6 +492,28 @@ def dedupe_cards(cards_by_node: dict[str, list[dict]], order: list[str] | None =
     return removed
 
 
+def dedupe_against(cards_by_node: dict[str, list[dict]], existing_qa: list[tuple[str, str]]) -> int:
+    """Убирает карточки нового материала, которые повторяют уже имеющиеся в курсе (вопрос и ответ почти те же слова, как в dedupe_cards).
+    existing_qa — [(вопрос, ответ)] карточек других материалов. Порог тот же, что внутри материала: перефразированный повтор он не ловит.
+    Возвращает число удалённых."""
+    have = [(set(stems(q)), set(stems(a))) for q, a in existing_qa]
+    have = [(q, a) for q, a in have if q]
+    removed = 0
+    for key, lst in cards_by_node.items():
+        survivors = []
+        for c in lst:
+            q, a = set(stems(c["text"])), set(stems(c["translation"]))
+            if q and any(_jaccard(q, hq) >= 0.7 and _jaccard(a, ha) >= 0.7 for hq, ha in have):
+                removed += 1
+                continue
+            survivors.append(c)
+        if lst and not survivors:                     # узел, все карточки которого уже есть в курсе, остаётся с одной: пустая тема без урока хуже повтора
+            survivors = lst[:1]
+            removed -= 1
+        cards_by_node[key] = survivors
+    return removed
+
+
 def process_facts(verifier: "CardVerifier", raw_facts: list[dict], blocks: list[tuple[int, int]], matcher,
                   cards_by_node: dict[str, list[dict]], order: list[str]) -> tuple[dict[str, list[str]], dict]:
     """Факты «Конспекта темы» перед сохранением. raw_facts: [{"t": факт, "blk": номер блока книги, "seq": номер в ответе}].
@@ -632,4 +654,4 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-__all__ = ["CardVerifier", "process_facts", "card_priority", "drop_unsupported", "trim_to_goal", "quality_report", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]
+__all__ = ["CardVerifier", "process_facts", "card_priority", "drop_unsupported", "trim_to_goal", "quality_report", "COVER_RADIUS", "SourceLocator", "dedupe_cards", "dedupe_against", "FILL_SPAN_CHARS", "PASSAGE_CHARS"]

@@ -38,6 +38,7 @@ from .path_prompts import (
 )
 from . import coverage
 from . import card_quality
+from . import glossary
 from . import source_profile
 from .budget import Budget
 
@@ -111,7 +112,7 @@ FACT_MAX_WORDS = 30
 # Факты запрашиваются отдельной задачей по блокам книги (по ~3000 знаков, подряд): так модель обязана пройти весь текст, а не пересказать
 # узел в общих чертах (замер 2026-10-07 на 148 страницах: по узлам — 24% эталона в конспекте, длинные разделы получали мало фактов)
 FACT_BATCH_BLOCKS = 60                 # блоков в одном запросе: ответ ~60 × 4 факта × 42 токена = 10 тыс. токенов; запрос заново читает книгу из кэша
-FACTS_MAX_TOKENS = 16000
+FACTS_MAX_TOKENS = 32000               # платим за фактический вывод; при 16000 два из трёх замеренных прогонов получили обрезанный ответ, и батч делился заново
 FACT_TOKENS_BASE, FACT_TOKENS_PER_ASKED = 800, 130      # потолок ответа: с запасом ×3 на запрошенное число фактов (если модель не слушается K, платим не больше)
 FACT_OVER_K = 1.6                                       # лишнее сверх K отрезается при разборе: блок отвечает не больше чем K×1,6+1 фактами
 MIN_FACT_SOURCE_CHARS = 3000           # короче этого факты не просим: весь текст и так укладывается в карточки
@@ -119,6 +120,8 @@ FACT_ANCHOR_WORDS = (10, 6)            # сколько слов начала и
 MAX_TOTAL_CARDS = int(os.getenv("PATH_MAX_TOTAL_CARDS", "700"))
 # Паки идут одновременно: книга к этому моменту уже в кэше после карты. Замер при 4: 17 запросов = 5 «волн» по ~75 с
 PACK_CONCURRENCY = int(os.getenv("PATH_PACK_CONCURRENCY", "8"))
+# Уроки не несут книги (≈11 тыс. токенов на запрос, ≈13 с): параллелизм у них масштабируется почти линейно, в отличие от запросов с книгой
+LESSON_CONCURRENCY = int(os.getenv("PATH_LESSON_CONCURRENCY", "16"))
 LLM_TIMEOUT_S = 600.0
 # Карта строится до двух раз (вторая читает книгу из кэша, но её ответ — ещё ~$0.008 на книгу) — берём лучшую по программной оценке.
 # Вторая нужна, только если первая получила оценку ниже MAP_GOOD_SCORE (из 8 возможных баллов score_map)
@@ -276,7 +279,7 @@ def normalize_map(raw: dict) -> dict:
     return {
         "title": str(raw.get("title") or "").strip()[:160],
         "domain": domain,
-        "source_type": source_type if source_type in ("textbook", "article", "notes", "lecture") else None,
+        "source_type": source_type if source_type in ("textbook", "article", "notes", "lecture", "guide") else None,
         "nodes": nodes,
         "edges": edges,
     }
@@ -544,15 +547,16 @@ def _log_call(calls_log: list, label: str, started: float, meta: dict, error: st
 
 async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, temperature: float = 0.1,
                 thinking: bool = False) -> dict:
-    from .client import LLMCallError, MODEL_FALLBACK
+    from .client import LLMCallError, LLMTransientError, MODEL_FALLBACK
     last_err: Exception | None = None
     for attempt in range(HANG_RETRIES + 1):
         started = time.time()
         extra: dict = {}
         if thinking:
             extra["thinking"] = True
-        if attempt == HANG_RETRIES and HANG_RETRIES > 0:
-            extra["model"] = MODEL_FALLBACK   # две попытки основной моделью не прошли — страхуемся
+        if attempt == HANG_RETRIES and HANG_RETRIES > 0 and not isinstance(last_err, LLMTransientError):
+            extra["model"] = MODEL_FALLBACK   # две попытки основной моделью не прошли (зависание) — страхуемся
+            # При 429/5xx переходить на pro не нужно: он в 3–7 раз дороже, а перегружен поставщик, не модель
         try:
             res, meta = await _get_call_deepseek()(
                 user_prompt,
@@ -566,7 +570,7 @@ async def _call(user_prompt: str, max_tokens: int, label: str, calls_log: list, 
             # Ответ оплачен, даже если он непригоден — учитываем расход
             _log_call(calls_log, label, started, e.meta, error=str(e)[:200])
             raise
-        except (asyncio.TimeoutError, TimeoutError, httpx.TransportError) as e:
+        except (asyncio.TimeoutError, TimeoutError, httpx.TransportError, LLMTransientError) as e:
             _log_call(calls_log, label, started, {}, error=f"{type(e).__name__}: зависание/сеть")
             last_err = e
             print(f"[Path Builder WARN] {label}: нет ответа ({type(e).__name__}), попытка {attempt + 1}/{HANG_RETRIES + 1}", flush=True)
@@ -633,10 +637,11 @@ def score_map(path_map: dict, source_chars: int | None = None, budget: dict | No
     return round(score, 3)
 
 
-async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts: int = 3, candidates: int = 1) -> dict:
+async def build_knowledge_map(text: str, subject: str, calls_log: list, attempts: int = 3, candidates: int = 1,
+                              source_kind: str | None = None) -> dict:
     from .client import LLMOutputTruncated
-    # Бюджет узлов: из цели по карточкам (тип по тексту — до того, как модель назовёт свой): ≈ цель / 4 узлов
-    budget = source_profile.node_budget(source_profile.target_cards(source_profile.heuristic_kind(text), text))
+    # Бюджет узлов: из цели по карточкам (тип, названный пользователем, иначе по тексту — до того, как модель назовёт свой): ≈ цель / 4 узлов
+    budget = source_profile.node_budget(source_profile.target_cards(source_profile.resolve_kind(source_kind, text), text))
     base_prompt = build_source_block(text) + build_map_task(subject, len(text), CHARS_PER_CARD, budget)
     prompt = base_prompt
     last_err = None
@@ -1219,7 +1224,7 @@ async def build_lessons(verifier: "card_quality.CardVerifier", path_map: dict, c
     order = [n["key"] for n in path_map["nodes"] if (keys is None or n["key"] in keys) and cards_by_node.get(n["key"])]
     fronts = {k: {_norm_text(c["text"]) for c in cards_by_node[k]} for k in order}
     chunks = [order[i:i + LESSON_BATCH_NODES] for i in range(0, len(order), LESSON_BATCH_NODES)]
-    sem = asyncio.Semaphore(PACK_CONCURRENCY)
+    sem = asyncio.Semaphore(LESSON_CONCURRENCY)
 
     def make_prompt(missing: list[str]) -> str:
         blocks = [_lesson_block(by_key[k], cards_by_node[k], path_map, by_key, verifier, (omitted or {}).get(k), k in (supplements or set()))
@@ -1387,6 +1392,38 @@ def normalize_align(raw: dict, candidates: dict[str, list[str]], new_by_key: dic
     return mapping
 
 
+def orphan_foundations(path_map: dict, merge: dict[str, str], existing_nodes: list[dict]) -> dict[str, str]:
+    """Основы (ярус 0) нового материала, у которых не осталось собственных тем: все темы, опирающиеся на основу, слиты с имеющимися.
+    Такая основа повисла бы в графе одиночной точкой. Возвращает {ключ новой основы: ключ основы курса}: карточки основы лягут в основу
+    курса, на которую опираются те самые имеющиеся темы (программа, без вызовов ИИ). Нет такой основы — основа остаётся как есть."""
+    existing = {n["key"]: n for n in existing_nodes}
+
+    def foundations_of(key: str, depth: int = 0) -> list[str]:
+        """Основы курса над узлом: поднимаемся по пререквизитам и родителю (не выше трёх шагов)."""
+        node = existing.get(key)
+        if not node or depth > 3:
+            return []
+        if node.get("tier", 0) == 0:
+            return [key]
+        out: list[str] = []
+        for up in [*(node.get("prereqs") or []), node.get("parent")]:
+            if up:
+                out += foundations_of(up, depth + 1)
+        return out
+
+    result: dict[str, str] = {}
+    for base in path_map["nodes"]:
+        if base["tier"] != 0 or base["key"] in merge:
+            continue
+        kids = [n for n in path_map["nodes"] if n["tier"] > 0 and (base["key"] in (n.get("prereqs") or []) or n.get("parent") == base["key"])]
+        if not kids or not all(k["key"] in merge for k in kids):
+            continue
+        votes = Counter(f for k in kids for f in set(foundations_of(merge[k["key"]])))
+        if votes:
+            result[base["key"]] = votes.most_common(1)[0][0]
+    return result
+
+
 async def build_align(path_map: dict, course: dict, calls_log: list) -> tuple[dict[str, str], dict]:
     """Какие темы нового материала — те же, что уже есть в курсе. Сбой не фатален: без слияния новые темы просто станут отдельными."""
     new_nodes = [n for n in path_map["nodes"] if n["tier"] < 3]
@@ -1436,10 +1473,17 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     if len(text) > MAX_SOURCE_CHARS:
         raise PathBuildError(f"Источник слишком большой ({len(text)} знаков, максимум {MAX_SOURCE_CHARS})")
 
+    # Словарь (явный выбор пользователя или очевидный словарь без выбора): статьи разбирает программа, ИИ не вызывается, расход нулевой
+    if source_kind == "glossary" or (not source_kind and glossary.looks_like_glossary(text)):
+        try:
+            return await asyncio.to_thread(glossary.build_glossary_path, text, subject, course, depth, card_total)
+        except glossary.GlossaryError as e:
+            raise PathBuildError(str(e)) from e
+
     # Список вызовов передаётся снаружи, чтобы расходы учитывались и при сбое
     calls = calls if calls is not None else []
     budget = Budget(calls)
-    path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES)
+    path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES, source_kind=source_kind)
     path_map, size_hints, gap_report = await fill_map_gaps(text, path_map, calls)
 
     kind = source_profile.resolve_kind(source_kind or path_map.get("source_type"), text)
@@ -1457,6 +1501,11 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     if saturation:
         weights = [s_ * (coverage.COVERED_FLOOR + (1 - coverage.COVERED_FLOOR) * (novelty[i] if novelty else 1.0)) for i, s_ in enumerate(saturation)]
     merge, align_report = (await build_align(path_map, course, calls)) if course.get("nodes") else ({}, {})
+    # Основа нового материала, все темы которой влились в имеющиеся, иначе осталась бы одинокой точкой без ветки: сливаем её с основой курса
+    orphans = orphan_foundations(path_map, merge, course.get("nodes") or [])
+    merge.update(orphans)
+    if orphans:
+        align_report = {**align_report, "orphan_foundations_merged": len(orphans)}
 
     node_sizes = coverage.node_source_sizes(index, path_map["nodes"], weights) if index.usable else None
     if node_sizes:
@@ -1503,18 +1552,27 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
                                      quotas=quotas, rejected=rejected,
                                      source_type=kind, already_asked=asked_by_new)
 
+    # Карточки идут первыми в очереди семафора, конспект — следом и дожидается позже (перед process_facts): проверка и добор карточек
+    # не ждут хвоста конспекта. Вводный урок у курса один: у курса, где он уже есть, повторно (и зря) его не пишем.
+    card_tasks = [asyncio.create_task(run(b)) for b in batches]
+    facts_task = asyncio.create_task(build_facts(text, fact_blocks, calls, semaphore))
     results = await asyncio.gather(
         build_cross_links(text, path_map, calls),
-        build_intro_lesson(path_map, calls),
-        build_facts(text, fact_blocks, calls, semaphore),
-        *(run(b) for b in batches),
+        asyncio.sleep(0) if course.get("has_intro") else build_intro_lesson(path_map, calls),
+        *card_tasks,
     )
     path_map["edges"].extend(results[0])
     intro = results[1]
-    raw_facts = results[2]
     cards_by_node: dict[str, list[dict]] = {}
-    for part in results[3:]:
+    for part in results[2:]:
         cards_by_node.update(part)
+
+    # Узлы, по которым ответа так и не пришло (сеть, битый JSON три раза подряд), иначе остались бы пустыми в готовом курсе
+    absent = [n["key"] for n in path_map["nodes"] if n["key"] not in cards_by_node and n["key"] not in merge]
+    if absent:
+        print(f"[Path Builder WARN] без карточек остались {len(absent)} узлов, повторный запрос", flush=True)
+        for part in await asyncio.gather(*(run(absent[i:i + 10]) for i in range(0, len(absent), 10))):
+            cards_by_node.update(part)
 
     # Совпавшая тема: не повторяем то, что в курсе уже спрошено дословно
     dropped_existing = 0
@@ -1528,6 +1586,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     # Качество карточек: повторы, проверка по книге, добор — до уроков, потому что урок строится из окончательного набора
     order = [n["key"] for n in path_map["nodes"]]
     dedupe_removed = card_quality.dedupe_cards(cards_by_node, order)
+    # Повторы того, что другой материал курса уже спрашивает (иначе словарь и учебник дают две карточки на один факт)
+    dedupe_removed += card_quality.dedupe_against(cards_by_node, [(c["q"], c["a"]) for qs in existing_cards.values() for c in qs])
     all_cards = [c for k in order for c in cards_by_node.get(k, [])]
     support, flagged = verifier.verify(all_cards)
 
@@ -1548,6 +1608,7 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     trimmed = card_quality.trim_to_goal(cards_by_node, target, weights) if (QUALITY_GATE and target) else 0    # лишнее сверх цели — наименее важное
 
     # Конспект темы: проверка по книге и порядок книги (до уроков: сами уроки факты не пересказывают)
+    raw_facts = await facts_task
     matcher = coverage.NodeMatcher(index, path_map["nodes"], cards_by_node) if raw_facts else None
     facts_by_node, facts_report = card_quality.process_facts(verifier, raw_facts, coverage.fact_blocks(text),
                                                              matcher, cards_by_node, order)

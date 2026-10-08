@@ -18,6 +18,7 @@ from math import ceil
 
 from sqlalchemy import select, func, or_, delete
 
+from app.core.config import settings
 from app.core.timeutil import user_day_start, get_user_timezone, local_now
 from app.database.models import (
     Card, Phrase, ReviewLog, KnowledgeNode, NodeProgress, ExamPlan, ExamTicket, PracticeSessionLog, utc_now,
@@ -189,7 +190,8 @@ async def run_plan_matching(plan_id: int, only_missing: bool = False) -> int:
     only_missing — повторный разбор только билетов «нет в книге» после добавления нового материала (план остаётся готовым;
     сбой ничего не портит). Возвращает, сколько билетов нашлось в курсе."""
     from app.database.session import AsyncSessionLocal
-    from app.services.ai_gateway.exam_matcher import match_tickets
+    from app.services.ai_gateway.exam_matcher import match_tickets, ExamBudgetExceeded
+    from app.services import quota
 
     async with AsyncSessionLocal() as db:
         plan = (await db.execute(select(ExamPlan).where(ExamPlan.id == plan_id))).scalar_one_or_none()
@@ -199,22 +201,35 @@ async def run_plan_matching(plan_id: int, only_missing: bool = False) -> int:
         tickets = (await db.execute(
             select(ExamTicket).where(ExamTicket.plan_id == plan_id).order_by(ExamTicket.order_idx)
         )).scalars().all()
-        if only_missing:
-            tickets = [t for t in tickets if t.status == "missing"]
-            if not tickets:
-                return 0
+        # Разбор идёт только по ещё не разобранным билетам: оплаченное прежней попыткой не оплачивается заново
+        tickets = [t for t in tickets if t.status == ("missing" if only_missing else "pending")]
+        if not tickets:
+            if not only_missing and plan.status != "ready":
+                plan.status, plan.error = "ready", None
+                await db.commit()
+            return 0
         ticket_ids = [t.id for t in tickets]
         questions = [t.question for t in tickets]
         nodes, cards_by_node = await _course_for_matching(db, user_id, subject)
+        # Сколько ещё можно потратить: остаток плана и остаток суток пользователя (админ и dev без потолка)
+        budget_left: float | None = None
+        if not quota._is_free_of_caps(user_id):
+            factor = quota.peak_factor()
+            budget_left = min(quota.exam_plan_cap() - (plan.cost_usd or 0.0),
+                              settings.EXAM_DAILY_BUDGET_USD * factor - await quota.ai_spend_today(db, user_id, quota.EXAM_PREFIX))
 
     calls: list[dict] = []
     error = None
-    results: list[dict] = []
+    results: list[dict | None] = []
     if not nodes:
         error = "У предмета нет графа тем: сначала загрузите книгу."
+    elif budget_left is not None and budget_left <= 0:
+        error = "Лимит расходов на разбор билетов исчерпан (на этот план или на сегодня). Уже разобранные билеты сохранены."
     else:
         try:
-            results = await match_tickets(nodes, cards_by_node, questions, calls)
+            results = await match_tickets(nodes, cards_by_node, questions, calls, max_cost_usd=budget_left)
+        except ExamBudgetExceeded:
+            error = "Лимит расходов на разбор билетов исчерпан (на этот план или на сегодня). Уже разобранные билеты сохранены."
         except Exception as e:  # noqa: BLE001
             print(f"[Exam WARN] план {plan_id}: {e}", flush=True)
             error = "DeepSeek сейчас не ответил — похоже, перегружен. Попробуй ещё раз через пару минут."
@@ -235,7 +250,11 @@ async def run_plan_matching(plan_id: int, only_missing: bool = False) -> int:
                 select(ExamTicket).where(ExamTicket.id.in_(ticket_ids)).order_by(ExamTicket.order_idx)
             )).scalars().all()
             phrase_id = await _plan_phrase_id(db, plan)
+            unresolved = 0
             for t, res in zip(tickets, results):
+                if res is None:                  # пачку не удалось разобрать: билет остаётся как был, повторять нужно только такие
+                    unresolved += 1
+                    continue
                 t.node_ids = [id_by_key[k] for k in res["nodes"] if k in id_by_key]
                 if t.user_answer:
                     t.status = "ok"
@@ -246,7 +265,12 @@ async def run_plan_matching(plan_id: int, only_missing: bool = False) -> int:
                     await _upsert_ticket_card(db, plan, t, ticket_fields_from_points(res["points"]), phrase_id)
                 else:
                     t.status = "missing"
-            plan.status, plan.error = "ready", None
+            if unresolved and not only_missing:
+                plan.status = "failed"
+                plan.error = (f"Разобрано {len(tickets) - unresolved} из {len(tickets)} билетов, остальные не удалось. "
+                              "Повтор оплачивает только неразобранные.")
+            elif not only_missing:
+                plan.status, plan.error = "ready", None
             await db.commit()
 
     if calls:
@@ -271,6 +295,15 @@ async def rematch_after_new_source(user_id: str, subject: str) -> dict | None:
             select(func.count(ExamTicket.id)).where(ExamTicket.plan_id == plan.id, ExamTicket.status == "missing")
         )).scalar() or 0
         plan_id = plan.id
+        # Автопоиск тратит деньги: при исчерпанном потолке плана или суток молча пропускаем (сообщение «найдено 0» ввело бы в заблуждение)
+        from app.services import quota
+        if not quota._is_free_of_caps(user_id):
+            if (plan.cost_usd or 0.0) >= quota.exam_plan_cap():
+                return None
+            try:
+                await quota.enforce_exam_budget(db, user_id)
+            except Exception:  # noqa: BLE001 — HTTPException 429
+                return None
     if not missing:
         return None
     closed = await run_plan_matching(plan_id, only_missing=True)
@@ -591,7 +624,8 @@ async def simulator_draw(db, user_id: str, subject: str, exclude: list[int] | No
     t = random.choice(fresh)
     card = ctx["cards"][t.card_id]
     return {"ticket_id": t.id, "n": t.order_idx, "question": t.question, "seconds": SIMULATOR_SECONDS,
-            "points": len(card.key_points or []), "pool": len(pool), "left": max(0, len(fresh) - 1)}
+            "points": len(card.key_points or []), "pool": len(pool), "left": max(0, len(fresh) - 1),
+            "ai_check": bool(settings.AI_CHECK_ENABLED)}
 
 
 async def simulator_check(db, user_id: str, ticket_id: int, answer: str) -> dict:
@@ -613,7 +647,10 @@ async def simulator_check(db, user_id: str, ticket_id: int, answer: str) -> dict
 
 
 async def ai_check_ticket(db, user_id: str, ticket_id: int, answer: str) -> dict:
-    """ИИ-оценка смысла ответа на билет (платно, месячная квота): тезисы эталона берутся из карточки билета, расход пишется в телеметрию."""
+    """ИИ-оценка смысла ответа на билет (платно, месячная квота): тезисы эталона берутся из карточки билета, расход пишется в телеметрию.
+    Выключена (AI_CHECK_ENABLED): проверка по тезисам без ИИ — simulator_check — работает всегда и бесплатна."""
+    if not settings.AI_CHECK_ENABLED:
+        raise PermissionError("ИИ-оценка по смыслу сейчас отключена. Проверка по тезисам («Сдать ответ») работает и бесплатна.")
     from app.services.ai_gateway.answer_judge import judge_answer
     from app.services.open_answer import derive_key_points, normalize_key_points
     from app.services.quota import AI_CHECK_PREFIX, enforce_ai_check

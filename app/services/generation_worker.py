@@ -150,6 +150,13 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         # Качество колоды в журнале: охват по оглавлению и однотипность вопросов (полный отчёт: scripts/coverage_report.py)
         print(f"[Generation Worker] Охват: {result.get('gap_report')}; вопросы: {result.get('stats')}", flush=True)
         print(f"[Generation Worker] Расход по этапам: {cost_breakdown(calls)}", flush=True)
+        # Что ученик получил не полностью: темы без карточек и без урока, потолок карточек предмета (иначе «готово» скрывает потери)
+        holes = len(result.get("missing_nodes") or [])
+        capped = ((result.get("stats") or {}).get("deck_policy") or {}).get("limited_by") == "course"
+        notes = ([f"{holes} тем остались без карточек (сбой ИИ), загрузите материал ещё раз"] if holes else []) + \
+                (["достигнут потолок карточек предмета: часть материала в колоду не вошла"] if capped else [])
+        if notes:
+            print(f"[Generation Worker WARN] Задача #{job_id}: " + "; ".join(notes), flush=True)
 
         if job_data.get("telegram_id"):
             webapp_url = getattr(settings, "WEBAPP_URL", "https://datagrinder.site")
@@ -160,7 +167,8 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             await send_worker_telegram_push(
                 job_data["telegram_id"],
                 f"Путь знаний «<b>{html.escape(stats['title'])}</b>» готов: "
-                f"{stats['nodes']} тем, {stats['cards']} карточек.\nНачни с основ.",
+                f"{stats['nodes']} тем, {stats['cards']} карточек.\nНачни с основ."
+                + "".join(f"\n⚠️ {html.escape(n)}." for n in notes),
                 reply_markup=markup,
             )
         await _rematch_exam_after_source(job_data)

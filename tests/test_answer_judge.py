@@ -43,6 +43,7 @@ async def _fake_call(user_prompt, system_instruction, **kwargs):
 
 def _scenario(plan: str, quotas_on: bool, monkeypatch, runs: int = 1):
     monkeypatch.setattr(settings, "QUOTAS_ENABLED", quotas_on)
+    monkeypatch.setattr(settings, "AI_CHECK_ENABLED", True)          # по умолчанию ИИ-оценка выключена (см. test_ai_spend_caps)
 
     async def run():
         nodes, plan_id = await _make_plan()
@@ -104,6 +105,7 @@ def test_with_quotas_off_everyone_can_check_without_a_counter(monkeypatch):
 
 def test_an_empty_answer_or_unknown_ticket_is_refused(monkeypatch):
     monkeypatch.setattr(settings, "QUOTAS_ENABLED", False)
+    monkeypatch.setattr(settings, "AI_CHECK_ENABLED", True)
 
     async def run():
         nodes, plan_id = await _make_plan()

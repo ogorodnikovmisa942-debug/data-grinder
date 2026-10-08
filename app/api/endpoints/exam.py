@@ -20,7 +20,7 @@ from app.services.exam_prep import (
 from app.services.text_extract import ExtractError, MAX_EXTRACT_BYTES, extract_text
 from app.services.graph_service import resolve_subject_alias
 from app.services.knowledge_path import normalize_subject
-from app.services.quota import allows_rematch, enforce_exam_plan
+from app.services.quota import allows_rematch, enforce_exam_budget, enforce_exam_plan
 
 router = APIRouter()
 
@@ -104,6 +104,7 @@ async def create_exam(
     if len(items) < MIN_TICKETS:
         raise HTTPException(status_code=400, detail="Не нашёл ни одного билета. Пишите по билету на строку.")
     await enforce_exam_plan(db, current_user, subject)
+    await enforce_exam_budget(db, current_user)
     plan = await create_plan(db, current_user, subject, payload.title, payload.exam_date, items[:MAX_TICKETS])
     start_matching(plan.id)
     return {"id": plan.id, "status": plan.status, "tickets": len(items)}
@@ -116,6 +117,7 @@ async def retry_exam(request: Request, subject: str, current_user: str = Depends
     plan = await get_active_plan(db, current_user, _subject(subject))
     if not plan or plan.status != "failed":
         raise HTTPException(status_code=409, detail="Повторять нечего.")
+    await enforce_exam_budget(db, current_user)
     plan.status, plan.error = "matching", None
     plan.created_at = utc_now()
     await db.commit()
@@ -139,6 +141,7 @@ async def rematch_exam(request: Request, subject: str, current_user: str = Depen
     )).scalar() or 0
     if not missing:
         raise HTTPException(status_code=409, detail="Все билеты уже найдены или пропущены.")
+    await enforce_exam_budget(db, current_user)
     start_matching(plan.id, only_missing=True)
     return {"id": plan.id, "searching": missing}
 
@@ -198,6 +201,8 @@ async def ai_check_answer(request: Request, ticket_id: int, payload: SimulatorAn
     from app.services.exam_prep import ai_check_ticket
     try:
         return await ai_check_ticket(db, current_user, ticket_id, payload.answer)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:

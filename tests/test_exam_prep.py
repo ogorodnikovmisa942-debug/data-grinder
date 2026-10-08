@@ -136,7 +136,7 @@ async def _learn(db, node_id):
     await db.commit()
 
 
-async def _fake_match(nodes, cards_by_node, questions, calls):
+async def _fake_match(nodes, cards_by_node, questions, calls, **kwargs):
     calls.append({"label": "exam#1.1", "cost_usd": 0.004, "prompt_tokens": 10, "cache_hit_tokens": 0,
                   "completion_tokens": 5, "duration_ms": 1, "finish_reason": "stop", "model": "deepseek-flash"})
     return [

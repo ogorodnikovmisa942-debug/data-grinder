@@ -22,6 +22,10 @@ class ExamMatchError(Exception):
     pass
 
 
+class ExamBudgetExceeded(ExamMatchError):
+    """Потолок расхода на разбор исчерпан: ни одна пачка не запущена (или запуск прекращён)."""
+
+
 def _get_call_deepseek():
     from .client import call_deepseek
     return call_deepseek
@@ -65,8 +69,12 @@ def normalize_ticket_results(raw: dict, numbers: list[int], valid_keys: set[str]
     return out
 
 
-async def match_tickets(nodes: list[dict], cards_by_node: dict, questions: list[str], calls_log: list) -> list[dict]:
-    """Возвращает по элементу на вопрос (в том же порядке). Пачка, которую не удалось разобрать дважды, — ошибка."""
+async def match_tickets(nodes: list[dict], cards_by_node: dict, questions: list[str], calls_log: list,
+                        max_cost_usd: float | None = None) -> list[dict | None]:
+    """Возвращает по элементу на вопрос (в том же порядке). None — билет не разобран: его пачка не удалась дважды или упёрлась в потолок
+    расхода max_cost_usd (проверяется перед каждой попыткой, перерасход не больше вызовов, уже бывших в полёте). Остальные билеты
+    возвращаются как есть, чтобы оплаченное не пропадало, а повторять пришлось только неразобранные. Не разобрана ни одна пачка — ошибка.
+    Первая пачка идёт одна: она прогревает кэш курса, иначе первые параллельные пачки платили бы за весь курс по цене промаха."""
     from .client import LLMCallError
 
     prefix = build_course_block(nodes, cards_by_node)
@@ -75,12 +83,17 @@ async def match_tickets(nodes: list[dict], cards_by_node: dict, questions: list[
     batches = [numbered[i:i + TICKET_BATCH] for i in range(0, len(numbered), TICKET_BATCH)]
     semaphore = asyncio.Semaphore(MATCH_CONCURRENCY)
 
+    def over_budget() -> bool:
+        return max_cost_usd is not None and sum(c.get("cost_usd", 0.0) for c in calls_log) >= max_cost_usd
+
     async def run(batch_idx: int, batch: list[tuple[int, str]]) -> dict[int, dict]:
         numbers = [i for i, _ in batch]
         last_err = None
         for attempt in (1, 2):
             started = time.time()
             async with semaphore:
+                if over_budget():
+                    raise ExamBudgetExceeded(f"Билеты {numbers[0]}–{numbers[-1]}: исчерпан лимит расходов на разбор")
                 try:
                     res, meta = await asyncio.wait_for(_get_call_deepseek()(
                         prefix + build_tickets_task(batch),
@@ -104,11 +117,21 @@ async def match_tickets(nodes: list[dict], cards_by_node: dict, questions: list[
             last_err = ExamMatchError(f"в ответе {len(parsed)} из {len(numbers)} билетов")
         raise ExamMatchError(f"Не удалось разобрать билеты {numbers[0]}–{numbers[-1]}: {last_err}")
 
-    parts = await asyncio.gather(*(run(k, b) for k, b in enumerate(batches, start=1)))
+    outcomes = list(await asyncio.gather(run(1, batches[0]), return_exceptions=True)) if batches else []
+    if len(batches) > 1:
+        outcomes += await asyncio.gather(*(run(k, b) for k, b in enumerate(batches[1:], start=2)), return_exceptions=True)
     merged: dict[int, dict] = {}
-    for p in parts:
-        merged.update(p)
-    return [merged.get(i, {"nodes": [], "found": False, "points": []}) for i, _ in numbered]
+    failed: set[int] = set()
+    last_err: Exception | None = None
+    for batch, out in zip(batches, outcomes):
+        if isinstance(out, Exception):
+            last_err = out
+            failed.update(i for i, _ in batch)
+        else:
+            merged.update(out)
+    if batches and not merged:
+        raise last_err if isinstance(last_err, ExamMatchError) else ExamMatchError(str(last_err))
+    return [None if i in failed else merged.get(i, {"nodes": [], "found": False, "points": []}) for i, _ in numbered]
 
 
 def _log(calls_log: list, label: str, started: float, meta: dict, error: str | None = None) -> None:
@@ -125,4 +148,4 @@ def _log(calls_log: list, label: str, started: float, meta: dict, error: str | N
     })
 
 
-__all__ = ["ExamMatchError", "TICKET_BATCH", "normalize_ticket_results", "match_tickets"]
+__all__ = ["ExamMatchError", "ExamBudgetExceeded", "TICKET_BATCH", "normalize_ticket_results", "match_tickets"]

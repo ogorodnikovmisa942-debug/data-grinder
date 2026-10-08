@@ -2,6 +2,7 @@
 DeepSeek-клиент: вызов модели (JSON Mode + Context Caching), учёт стоимости, окно скидок, телеметрия.
 """
 import asyncio
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -20,6 +21,10 @@ class LLMCallError(RuntimeError):
 
 class LLMOutputTruncated(LLMCallError):
     """Модель упёрлась в max_tokens: нужен меньший объём задачи или больший лимит, а не повтор."""
+
+
+class LLMTransientError(RuntimeError):
+    """429 или 5xx: поставщик перегружен, ответа нет и платить не за что. Повторять нужно с паузой, а не сразу."""
 
 
 def is_deepseek_offpeak_now(now_utc: datetime | None = None) -> bool:
@@ -260,11 +265,18 @@ async def call_deepseek(
             return raw_payload, meta
         else:
             print(f"[AI Gateway / DeepSeek ERROR] Код {response.status_code}: {response.text}")
+            if response.status_code == 429 or response.status_code >= 500:
+                raise LLMTransientError(f"DeepSeek API error ({response.status_code}): {response.text}")
             raise RuntimeError(f"DeepSeek API error ({response.status_code}): {response.text}")
 
 
 
-async def regenerate_card_mnemonic(text: str, translation: str, subject: str, preference: str = "visual") -> dict:
+MNEMONIC_MAX_TOKENS = 300      # потолок вывода: цена одного вызова ограничена сверху (≈ 0.04¢), без «обдумывания»
+
+
+async def regenerate_card_mnemonic(text: str, translation: str, subject: str, preference: str = "visual",
+                                   calls: list | None = None) -> dict:
+    """calls — список для учёта расхода: вызывающий записывает его в телеметрию (по ней считается суточный лимит)."""
     pref_style = "визуальные и структурные ассоциации (графемы, форма, код)" if preference == "visual" else "акустические и сюжетные созвучия"
     prompt = f"""Сгенерируй яркую русскую мнемонику для запоминания:
 Термин: {text}
@@ -295,15 +307,30 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.3
+        "temperature": 0.3,
+        "max_tokens": MNEMONIC_MAX_TOKENS,
+        "thinking": {"type": "disabled"},
     }
+    started = time.time()
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(url, headers=headers, json=payload)
         if res.status_code in (400, 404) and payload["model"] != fallback_model:
             payload["model"] = fallback_model
             res = await client.post(url, headers=headers, json=payload)
         if res.status_code == 200:
-            choices = res.json().get("choices") or []
+            body = res.json()
+            if calls is not None:
+                usage = body.get("usage") or {}
+                hit = usage.get("prompt_cache_hit_tokens", 0)
+                miss = usage.get("prompt_cache_miss_tokens")
+                if miss is None:
+                    miss = max(0, usage.get("prompt_tokens", 0) - hit)
+                out = usage.get("completion_tokens", 0)
+                calls.append({"label": "mnemonic#1", "duration_ms": int((time.time() - started) * 1000),
+                              "prompt_tokens": usage.get("prompt_tokens", hit + miss), "cache_hit_tokens": hit, "completion_tokens": out,
+                              "cost_usd": estimate_call_cost_usd(hit, miss, out, model=payload["model"]),
+                              "finish_reason": (body.get("choices") or [{}])[0].get("finish_reason"), "model": payload["model"], "error": None})
+            choices = body.get("choices") or []
             if not choices:
                 raise ValueError("Ответ от модели не содержит choices.")
             content = choices[0]["message"]["content"]

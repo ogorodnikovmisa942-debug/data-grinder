@@ -1,4 +1,5 @@
 # app/api/endpoints/imports.py
+import asyncio
 import io
 import csv
 import re
@@ -27,6 +28,24 @@ from app.core.limiter import limiter
 import logging
 logger = logging.getLogger("grinder.imports")
 router = APIRouter()
+
+
+MAX_PDF_PAGES = 800     # больше — отказ с понятным сообщением: раньше хвост после 500-й страницы терялся молча
+
+
+def _extract_pdf_text(contents: bytes, filename: str) -> tuple[str, int]:
+    """Текст PDF по страницам. Синхронная и медленная (481 страница ≈ 6 с): вызывать через asyncio.to_thread."""
+    import pypdf
+    reader = pypdf.PdfReader(io.BytesIO(contents))
+    total_pages = len(reader.pages)
+    if total_pages > MAX_PDF_PAGES:
+        raise HTTPException(status_code=413, detail=f"В файле «{filename}» {total_pages} страниц, максимум {MAX_PDF_PAGES}. Разбейте его на части.")
+    pages_text = []
+    for idx in range(total_pages):
+        txt = reader.pages[idx].extract_text() or ""
+        if txt.strip():
+            pages_text.append(f"--- {filename}: Стр. {idx+1} ---\n{txt.strip()}")
+    return "\n\n".join(pages_text), total_pages
 
 
 def get_is_offpeak() -> bool:
@@ -129,7 +148,7 @@ class ImportIn(BaseModel):
     confirm_replace: bool = False       # согласие заменить уже изучаемый путь предмета
     is_deferred: bool = False           # True = отправить в очередь Ночного Грайндера (-50% стоимости)
     depth: str = ""                     # compact | standard | detailed; пусто — по пресету
-    source_kind: str = ""               # textbook | article | notes | lecture; пусто — определить самому
+    source_kind: str = ""               # textbook | article | notes | guide | lecture | glossary; пусто — определить самому
 
 
 class PresetImportIn(BaseModel):
@@ -329,19 +348,10 @@ async def import_file_at_code_level(
         # 1. Формат PDF: извлечение через pypdf
         if filename.endswith(".pdf"):
             try:
-                import pypdf
-                reader = pypdf.PdfReader(io.BytesIO(contents))
-                pages_text = []
-                total_pages = len(reader.pages)
-                max_pages = min(total_pages, 500)
-                for idx in range(max_pages):
-                    txt = reader.pages[idx].extract_text() or ""
-                    if txt.strip():
-                        pages_text.append(f"--- {up_file.filename}: Стр. {idx+1} ---\n{txt.strip()}")
-                
-                extracted_text = "\n\n".join(pages_text)
-                print(f"[PDF Import] {up_file.filename}: извлечено {len(pages_text)} из {total_pages} страниц ({len(extracted_text)} знаков).")
-
+                extracted_text, total_pages = await asyncio.to_thread(_extract_pdf_text, contents, up_file.filename)
+                print(f"[PDF Import] {up_file.filename}: {total_pages} страниц ({len(extracted_text)} знаков).")
+            except HTTPException:
+                raise
             except Exception as e:
                 print(f"[WARN] Ошибка чтения PDF {up_file.filename}: {e}")
 

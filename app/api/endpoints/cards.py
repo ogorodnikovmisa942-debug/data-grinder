@@ -398,14 +398,26 @@ async def regenerate_mnemonic(
     card = card_res.scalar_one_or_none()
     if not card: 
         raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
-        
-    new_mnemonic = await regenerate_card_mnemonic(
-        text=card.text, 
-        translation=card.translation, 
-        subject=card.subject, 
-        preference=payload.preference
-    )
-    
+
+    # Платный вызов: жёсткий суточный лимит и учёт расхода в телеметрии (по ней лимит и считается)
+    from app.services.quota import enforce_mnemonic, MNEMONIC_PREFIX
+    await enforce_mnemonic(db, current_user)
+    calls: list[dict] = []
+    try:
+        new_mnemonic = await regenerate_card_mnemonic(
+            text=card.text,
+            translation=card.translation,
+            subject=card.subject,
+            preference=payload.preference,
+            calls=calls,
+        )
+    except Exception:  # noqa: BLE001 — сеть, ответ без JSON
+        raise HTTPException(status_code=502, detail="Не получилось придумать мнемонику. Попробуйте ещё раз позже.")
+    finally:
+        if calls:
+            from app.services.generation_worker import _record_path_calls
+            await _record_path_calls(f"{MNEMONIC_PREFIX}{card_id}", current_user, calls)
+
     if "error" in new_mnemonic:
         raise HTTPException(status_code=500, detail=new_mnemonic["error"])
         

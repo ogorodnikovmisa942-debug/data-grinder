@@ -45,8 +45,9 @@ MAP RULES:
 - EDGES (15-60): meaningful relations between nodes that a learner must understand, not decoration. Each edge has a short Russian label that reads as "A <label> B" (e.g. "является видом", "включает", "зависит от", "противопоставляется", "приводит к", "применяется в"). relation ∈ part_of | depends_on | kind_of | demarcated_from | leads_to | applies_to | example_of. Do not duplicate parent links as edges unless the label adds meaning.
 - The graph must be acyclic in prereqs.
 
-- "source_type": what kind of material this is. textbook = long explanatory text with chapters; article = a short report, paper or chapter of explanation;
-  notes = cheat sheet, theses, a list of facts or slides (nearly every line is a fact on its own); lecture = a spoken or lecture-style text full of repetition and digressions.
+- "source_type": what kind of material this is. textbook = explanatory teaching text in chapters and sections, INCLUDING a single chapter or part of a textbook however short; article = a short self-contained report or paper;
+  notes = cheat sheet, theses, a list of facts or slides (nearly every line is a fact on its own);
+  guide = a condensed study guide, short course or detailed lecture notes in continuous text (already shortened: most sentences are exam facts); lecture = a spoken or lecture-style text full of repetition and digressions.
   The app plans the number of cards from it, so choose by the text itself, not by its size.
 
 MAP JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
@@ -487,7 +488,8 @@ def build_fill_task(nodes_text: str, passages_text: str) -> str:
 def build_lessons_task(blocks_text: str, source_type: str | None = None) -> str:
     lesson_hint = {"notes": ("SOURCE TYPE: notes. The source gives bare facts without explanations: group the facts, explain why they belong together "
                              "and how to remember them; do not just read the list back."),
-                   "lecture": "SOURCE TYPE: lecture. Keep the substance, drop the digressions."}.get(source_type or "", "")
+                   "lecture": "SOURCE TYPE: lecture. Keep the substance, drop the digressions.",
+                   "guide": "SOURCE TYPE: study guide. The text is already condensed: teach the structure and the links between the facts, do not retell it."}.get(source_type or "", "")
     return (
         "[TASK]\n"
         "TYPE: LESSON\n"

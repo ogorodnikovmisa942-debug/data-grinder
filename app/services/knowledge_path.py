@@ -242,7 +242,11 @@ async def build_course_context(db, user_id: str, subject: str, exclude_source_id
     cards: dict[str, list[dict]] = {}
     for node_id, q, a in (await db.execute(card_q)).all():
         cards.setdefault(by_id[node_id], []).append({"q": q, "a": a})
-    return {"nodes": [{"key": n.node_key, "name": n.name, "tier": n.tier, "summary": n.summary} for n in nodes], "cards": cards}
+    has_intro = bool((await db.execute(select(func.count(KnowledgeNode.id)).where(
+        KnowledgeNode.user_id == user_id, KnowledgeNode.subject == subject, KnowledgeNode.node_key == INTRO_KEY))).scalar())
+    return {"nodes": [{"key": n.node_key, "name": n.name, "tier": n.tier, "summary": n.summary,
+                       "parent": n.parent_key, "prereqs": list(n.prereq_keys or [])} for n in nodes], "cards": cards,
+            "has_intro": has_intro}
 
 
 async def save_learning_path(db, user_id: str, subject: str, result: dict, *, source_name: str | None = None,

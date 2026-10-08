@@ -381,6 +381,7 @@ window.examSimStart = async function() {
     examUi.view = 'sim';
     showExamSection('sim');
     examSim.ticketId = draw.ticket_id;
+    examSim.aiCheck = !!draw.ai_check;       // ИИ-оценка по смыслу включается на сервере (AI_CHECK_ENABLED); по умолчанию выключена
     examSim.submitted = false;
     examSim.seen.push(draw.ticket_id);
     if (examSim.seen.length >= draw.pool) examSim.seen = [draw.ticket_id];
@@ -437,13 +438,15 @@ function renderExamSimResult(r) {
     block('Названо:', r.hit, 'exam-sim-hit');
     block('Названо не до конца:', r.partial, '');
     block('Упущено:', r.missed, 'exam-sim-miss');
-    const ai = document.createElement('button');
-    ai.type = 'button';
-    ai.className = 'oq-btn';
-    ai.textContent = 'Оценить по смыслу (ИИ)';
-    ai.title = 'Платная возможность: ИИ сверит ответ с тезисами по смыслу, а не по словам';
-    ai.onclick = () => examSimAiCheck(ai);
-    box.appendChild(ai);
+    if (examSim.aiCheck) {
+        const ai = document.createElement('button');
+        ai.type = 'button';
+        ai.className = 'oq-btn';
+        ai.textContent = 'Оценить по смыслу (ИИ)';
+        ai.title = 'Платная возможность: ИИ сверит ответ с тезисами по смыслу, а не по словам';
+        ai.onclick = () => examSimAiCheck(ai);
+        box.appendChild(ai);
+    }
     box.classList.remove('hidden');
 }
 

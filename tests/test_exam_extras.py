@@ -107,7 +107,7 @@ async def _make_plan(days: int = 10):
 def test_rematch_looks_only_at_missing_tickets_and_keeps_the_rest():
     seen = {}
 
-    async def second_match(nodes, cards_by_node, questions, calls):
+    async def second_match(nodes, cards_by_node, questions, calls, **kwargs):
         seen["questions"] = list(questions)
         calls.append({"label": "exam#2.1", "cost_usd": 0.002, "prompt_tokens": 1, "cache_hit_tokens": 0, "completion_tokens": 1,
                       "duration_ms": 1, "finish_reason": "stop", "model": "deepseek-flash"})
@@ -132,7 +132,7 @@ def test_rematch_looks_only_at_missing_tickets_and_keeps_the_rest():
 
 
 def test_rematch_failure_leaves_the_plan_ready():
-    async def broken(nodes, cards_by_node, questions, calls):
+    async def broken(nodes, cards_by_node, questions, calls, **kwargs):
         raise RuntimeError("DeepSeek недоступен")
 
     async def scenario():

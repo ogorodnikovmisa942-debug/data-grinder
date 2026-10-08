@@ -8,17 +8,18 @@
 import os
 import re
 
-KINDS = ("textbook", "article", "notes", "lecture")
+KINDS = ("textbook", "article", "notes", "lecture", "guide", "glossary")
 
 # Знаков источника на одну карточку по типу. Учебник — ≈ страница (решение пользователя 2026-10-06); короткая статья или доклад
 # плотнее: там почти нет «воды»; лекция реже: много повторов и отступлений. Для конспекта считаем по пунктам (см. target_cards).
 # Для учебника: ≈ карточка на страницу. Цена целой книги при такой плотности ≈ 17¢ (замер на «Судоустройстве», 1 млн знаков), при 2000 знаках — уже ≈ 18,6¢.
-CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600}
+# guide (пособие, подробный конспект лекций, краткий курс): связный текст, уже сжатый, поэтому гуще учебника, но не «строка = факт», как в шпаргалке.
+CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600, "guide": 1200}
 # Фактов «Конспекта темы» на одну карточку: остаток текста, которого карточки не спрашивают, идёт готовым списком. Учебник: 3,2 факта на
 # карточку = ~1 факт на 700 знаков. Замеры 2026-10-07/08: при 1 факте на 880 знаков эталон «Судоустройства» покрыт на 56%, на 550 — около 65%
 # (+7 пунктов покрытия за каждые +40% фактов); ~6–13% фактов повторяют карточку и отбрасываются, поэтому просим с запасом.
 # В конспекте почти каждый пункт уже карточка — фактов там немного. PATH_FACTS_SCALE меняет всё сразу (0 — без фактов).
-FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5}
+FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5, "guide": 1.6}
 FACTS_SCALE = float(os.getenv("PATH_FACTS_SCALE", "1.0"))
 NOTES_CARDS_PER_ITEM = 0.85          # конспект: почти по карточке на пункт (часть пунктов — пояснения и повторы)
 ARTICLE_MAX_CHARS = 40_000           # короче этого экспозиционный текст считаем статьёй/докладом, а не учебником
@@ -90,6 +91,8 @@ KIND_HINTS = {
     "article": "SOURCE TYPE: short article or report. It has little filler: most paragraphs carry a fact worth a card.",
     "lecture": ("SOURCE TYPE: lecture. It repeats itself and digresses: take the substance once; the lecturer's stress phrases "
                 "(\"write this down\", \"this is important\", \"this will be on the exam\") mark the most important facts."),
+    "guide": ("SOURCE TYPE: study guide or detailed lecture notes. The text is already condensed: most sentences carry a fact an exam may ask, "
+              "so write more cards per page than for a textbook, but still merge restatements and skip transitions and examples that only illustrate."),
 }
 
 

@@ -30,6 +30,61 @@ def month_start(now: datetime | None = None) -> datetime:
     return datetime(now.year, now.month, 1)
 
 
+# --- Жёсткие потолки на платный ИИ вне нарезки (не зависят от QUOTAS_ENABLED; админ и dev без лимитов) ---------------------------------
+MNEMONIC_PREFIX = "mnemonic:"
+EXAM_PREFIX = "exam:"
+
+
+def _is_free_of_caps(user_id: str) -> bool:
+    from app.services.card_db_sync import is_admin_or_dev
+    return is_admin_or_dev(user_id)
+
+
+def peak_factor() -> float:
+    """Потолки заданы в ценах вне пика; в пик DeepSeek та же работа вдвое дороже, потолок тоже (как Budget в нарезке)."""
+    from app.services.ai_gateway.client import is_deepseek_offpeak_now
+    return 1.0 if is_deepseek_offpeak_now() else 2.0
+
+
+async def ai_events_today(db, user_id: str, prefix: str) -> int:
+    """Сколько раз сегодня (сутки пользователя) пользователь запускал функцию с этим префиксом задачи в телеметрии."""
+    from app.core.timeutil import user_day_start
+    since = await user_day_start(db, user_id)
+    return int((await db.execute(
+        select(func.count(AiTelemetryLog.id)).where(
+            AiTelemetryLog.user_id == user_id, AiTelemetryLog.job_id.like(prefix + "%"), AiTelemetryLog.created_at >= since)
+    )).scalar() or 0)
+
+
+async def ai_spend_today(db, user_id: str, prefix: str) -> float:
+    from app.core.timeutil import user_day_start
+    since = await user_day_start(db, user_id)
+    return float((await db.execute(
+        select(func.coalesce(func.sum(AiTelemetryLog.cost_usd), 0.0)).where(
+            AiTelemetryLog.user_id == user_id, AiTelemetryLog.job_id.like(prefix + "%"), AiTelemetryLog.created_at >= since)
+    )).scalar() or 0.0)
+
+
+async def enforce_mnemonic(db, user_id: str) -> None:
+    """«Мнемоника» — не больше MNEMONIC_PER_DAY нажатий в сутки на пользователя."""
+    if _is_free_of_caps(user_id):
+        return
+    if await ai_events_today(db, user_id, MNEMONIC_PREFIX) >= settings.MNEMONIC_PER_DAY:
+        raise HTTPException(status_code=429, detail=f"Мнемоника: не больше {settings.MNEMONIC_PER_DAY} в сутки. Завтра лимит обновится.")
+
+
+def exam_plan_cap() -> float:
+    return settings.EXAM_PLAN_BUDGET_USD * peak_factor()
+
+
+async def enforce_exam_budget(db, user_id: str) -> None:
+    """Разбор билетов (создание плана, «повторить», автопоиск): сумма за сутки на пользователя не выше EXAM_DAILY_BUDGET_USD."""
+    if _is_free_of_caps(user_id):
+        return
+    if await ai_spend_today(db, user_id, EXAM_PREFIX) >= settings.EXAM_DAILY_BUDGET_USD * peak_factor():
+        raise HTTPException(status_code=429, detail="Сегодня лимит разбора билетов исчерпан. Попробуйте завтра: уже разобранные билеты сохранены.")
+
+
 async def get_plan(db, user_id: str) -> str:
     row = (await db.execute(select(UserSetting.plan, UserSetting.plan_until).where(UserSetting.user_id == user_id))).first()
     if row and row[0] == "paid" and (row[1] is None or row[1] > utc_now()):
