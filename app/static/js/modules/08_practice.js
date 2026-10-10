@@ -370,6 +370,7 @@ function showPracticeFinish() {
             msgEl.textContent = "Ошибки разобраны — теперь эти различия твои.";
         } else if (percent >= 80) {
             msgEl.textContent = "Отлично различаешь похожее. Мур!";
+            finishEmo = 'proud';
         } else if (percent >= 50) {
             msgEl.textContent = "Неплохо! Ошибки — это как раз то, что стоит разобрать ещё раз.";
             finishEmo = 'think';
@@ -381,7 +382,7 @@ function showPracticeFinish() {
     const finishCat = document.getElementById('practice-finish-cat');
     if (finishCat && typeof LESSON_CAT !== 'undefined') {
         finishCat.textContent = (LESSON_CAT[finishEmo] || LESSON_CAT.happy).frames[0].join('\n');
-        if (!prefersReducedMotion() && finishEmo === 'happy') {
+        if (!prefersReducedMotion() && (finishEmo === 'happy' || finishEmo === 'proud')) {
             finishCat.classList.remove('cat-react-bounce');
             void finishCat.offsetWidth;
             finishCat.classList.add('cat-react-bounce');

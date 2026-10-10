@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=36">
+    <link rel="stylesheet" href="/css/main.css?v=37">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -1783,7 +1783,7 @@
         </div>
         <h2 id="day-title" class="font-mono font-bold text-base uppercase tracking-widest text-primary mt-4 text-center">День закрыт</h2>
         <div id="day-stats" class="day-stats font-mono text-xs text-neutral-600 dark:text-neutral-300 mt-3 text-center"></div>
-        <button id="day-close" onclick="event.stopPropagation(); closeDayCelebration()" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer opacity-0">Мур. До завтра</button>
+        <button id="day-close" onclick="dayCloseTap(event)" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">До завтра</button>
     </div>
 
         <!-- Подготовка к экзамену по билетам: список билетов + дата → разбор по книге → план по дням -->
@@ -1931,6 +1931,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=135"></script>
+    <script src="/js/app.js?v=136"></script>
 </body>
 </html>

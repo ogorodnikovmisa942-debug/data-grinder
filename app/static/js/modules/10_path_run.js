@@ -48,7 +48,7 @@ function drawPathRunCat(emotion) {
     el.textContent = cat.frames[0].join('\n');
     el.className = `lesson-cat font-mono text-primary cat-emo-${emotion}`;
     if (prefersReducedMotion()) return;
-    if (emotion === 'happy') {
+    if (emotion === 'happy' || emotion === 'proud') {
         void el.offsetWidth;
         el.classList.add('cat-react-bounce');
     }
@@ -400,7 +400,7 @@ pathRun.finish = function(result) {
         } else {
             say = 'Новых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.';
         }
-        setPathRunView({ say, emo: 'happy', goLabel, secondaryLabel });
+        setPathRunView({ say, emo: result.reason === 'topic_done' ? 'proud' : 'sleepy', goLabel, secondaryLabel });
         return;
     }
 
@@ -427,7 +427,7 @@ pathRun.finish = function(result) {
     if (canExtra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
     setPathRunView({
         say: `${didSomething ? 'На сегодня всё!' : 'Сегодня всё уже сделано.'} ${reasonText}${nextUp}`,
-        emo: 'happy',
+        emo: didSomething ? 'proud' : 'sleepy',
         goLabel: canExtra ? 'Ещё тема' : 'Отлично',
         secondaryLabel: canExtra ? 'Хватит на сегодня' : null
     });
@@ -595,7 +595,7 @@ window.refreshPathRunButton = async function(attempt = 0) {
             }[step.reason] || 'Сегодня всё сделано. Новые темы откроются, когда пройденные закрепятся в повторениях.';
             const goLabel = step.reason === 'limit' && step.next_up ? 'Ещё тема'
                 : (step.reason === 'reviews_left' ? 'Ещё подход' : 'Посмотреть путь');
-            renderStarter({ say, emo: 'happy', goLabel });
+            renderStarter({ say, emo: step.reason === 'reviews_left' ? 'happy' : 'sleepy', goLabel });
             return;
         }
         const d = describePathStep(step, true);
@@ -665,8 +665,9 @@ function dayFaceGrid(eyes) {
     const grid = dayBlankGrid();
     dayStamp(grid, DAY_FACE_X, DAY_FACE_Y, DAY_FACE_HALF.map(dayMirror));
     const e = DAY_EYES[eyes] || DAY_EYES.happy;
-    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 5, e);
-    dayStamp(grid, DAY_FACE_X + 28 - 4 - 6, DAY_FACE_Y + 5, e);
+    // Подмигивание: левый глаз открыт, правый закрыт
+    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.happy : e);
+    dayStamp(grid, DAY_FACE_X + 28 - 4 - 6, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.blink : e);
     // Усы за контуром морды
     dayStamp(grid, DAY_FACE_X - 3, DAY_FACE_Y + 7, ['---', ' --']);
     dayStamp(grid, DAY_FACE_X + 28, DAY_FACE_Y + 7, ['---', '-- ']);
@@ -768,9 +769,12 @@ function showDayCelebration(result) {
         st.confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.09; p.vx *= 0.985; });
         st.confetti = st.confetti.filter(p => p.y < DAY_H && p.x > -2 && p.x < DAY_W + 2);
         confettiEl.textContent = dayRenderConfetti(st);
-        // Изредка моргает, иногда удивлённо распахивает глаза
+        // Изредка моргает, иногда удивлённо распахивает глаза, раз в ~8 с подмигивает
         const phase = st.tick % 60;
-        const eyes = phase === 20 || phase === 21 ? 'blink' : (phase >= 44 && phase < 50 ? 'open' : 'happy');
+        const winkPhase = st.tick % 120;
+        const eyes = phase === 20 || phase === 21 ? 'blink'
+            : (phase >= 44 && phase < 50 ? 'open'
+            : (winkPhase >= 90 && winkPhase < 100 ? 'wink' : 'happy'));
         if (eyes !== st.eyes) {
             st.eyes = eyes;
             faceEl.textContent = dayFaceGrid(eyes).map(r => r.join('')).join('\n');
@@ -783,6 +787,13 @@ window.dayCelebrationSkip = function() {
     document.querySelectorAll('#day-stats .day-stat-line').forEach(p => { p.style.animationDelay = '0s'; });
     const closeBtn = document.getElementById('day-close');
     if (closeBtn) closeBtn.style.animationDelay = '0s';
+};
+
+// Пока кнопка ещё прозрачна, тап по ней — это «пропустить», а не «закрыть»: итоги не должны пропасть непрочитанными
+window.dayCloseTap = function(e) {
+    e.stopPropagation();
+    if (getComputedStyle(e.currentTarget).opacity === '0') dayCelebrationSkip();
+    else closeDayCelebration();
 };
 
 window.closeDayCelebration = function() {

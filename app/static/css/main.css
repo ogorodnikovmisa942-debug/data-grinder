@@ -595,6 +595,12 @@ html, body {
 }
 .cat-emo-think { transform: rotate(-4deg); }
 .cat-emo-surprised { animation: cat-pop 0.35s ease-out; }
+.cat-emo-proud { animation: cat-pop 0.35s ease-out; }
+.cat-emo-sleepy { animation: cat-breathe 3.2s ease-in-out infinite; }
+@keyframes cat-breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+}
 .cat-react-bounce { animation: cat-bounce 0.6s ease-out; }
 .cat-react-shake { animation: cat-shake 0.45s ease-in-out; }
 @keyframes cat-bounce {
@@ -673,7 +679,8 @@ html, body {
 /* tailwind.min.css собран заранее: z-[120]/z-[140] в нём нет */
 #path-run-overlay { z-index: 120; }
 #day-celebration { z-index: 140; }
-#day-close { padding: 10px 24px; white-space: nowrap; }
+/* Прозрачность — не через .opacity-0: у того pointer-events: none, и кнопка после появления оставалась «мёртвой» */
+#day-close { padding: 10px 24px; white-space: nowrap; opacity: 0; }
 
 /* ==========================================================================
    Карточка «Учить новое»: кот ведёт по вспоминанию (в стиле урока)

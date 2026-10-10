@@ -2097,7 +2097,7 @@ window.fastTrackIntroduction = function() {
     const card = cardsQueue[currentIndex];
     if (!card) return;
     triggerHaptic('success');
-    trainCatPending = { emo: 'happy', text: 'Лёгкая!', reaction: 'bounce' };
+    trainCatPending = { emo: 'wink', text: 'Лёгкая!', reaction: 'bounce' };
     card.has_seen_intro = true;
     card.state = 2; // Сразу в Review
     
@@ -9163,6 +9163,7 @@ function showPracticeFinish() {
             msgEl.textContent = "Ошибки разобраны — теперь эти различия твои.";
         } else if (percent >= 80) {
             msgEl.textContent = "Отлично различаешь похожее. Мур!";
+            finishEmo = 'proud';
         } else if (percent >= 50) {
             msgEl.textContent = "Неплохо! Ошибки — это как раз то, что стоит разобрать ещё раз.";
             finishEmo = 'think';
@@ -9174,7 +9175,7 @@ function showPracticeFinish() {
     const finishCat = document.getElementById('practice-finish-cat');
     if (finishCat && typeof LESSON_CAT !== 'undefined') {
         finishCat.textContent = (LESSON_CAT[finishEmo] || LESSON_CAT.happy).frames[0].join('\n');
-        if (!prefersReducedMotion() && finishEmo === 'happy') {
+        if (!prefersReducedMotion() && (finishEmo === 'happy' || finishEmo === 'proud')) {
             finishCat.classList.remove('cat-react-bounce');
             void finishCat.offsetWidth;
             finishCat.classList.add('cat-react-bounce');
@@ -9279,14 +9280,18 @@ window.checkTodayPracticeStats = async function(sub) {
 // Озвучки нет: кот «говорит» только текстом (TTS работает лишь в тренировке языков).
 // ============================================================================
 
-// Кадры кота: 3 строки по 9 символов. Эмоции приходят из урока (поле emo).
+// Кадры кота: 3 строки по 9 символов (усы по бокам морды). Первые шесть эмоций приходят из урока (поле emo);
+// sleepy, wink и proud выбирает только клиент — в промпт урока и VALID_EMOTIONS их добавлять не нужно.
 const LESSON_CAT = {
-    idle:      { frames: [[' /\\_/\\   ', '( o.o )  ', ' > ^ <   ']], blink: [' /\\_/\\   ', '( -.- )  ', ' > ^ <   '] },
-    talk:      { frames: [[' /\\_/\\   ', '( o.o )  ', ' > o <   '], [' /\\_/\\   ', '( o.o )  ', ' > - <   ']] },
-    happy:     { frames: [[' /\\_/\\   ', '( ^.^ )  ', ' > w <   ']] },
-    think:     { frames: [[' /\\_/\\  ?', '( -.- )  ', ' > ~ <   '], [' /\\_/\\ ? ', '( -.- )  ', ' > ~ <   ']] },
-    surprised: { frames: [[' /\\_/\\  !', '( O.O )  ', ' > o <   ']] },
-    confused:  { frames: [[' /\\_/\\  ?', '( o.O )  ', ' > ~ <   ']] }
+    idle:      { frames: [['  /\\_/\\  ', '=( o.o )=', '  > ^ <  ']], blink: ['  /\\_/\\  ', '=( -.- )=', '  > ^ <  '] },
+    talk:      { frames: [['  /\\_/\\  ', '=( o.o )=', '  > o <  '], ['  /\\_/\\  ', '=( o.o )=', '  > - <  ']] },
+    happy:     { frames: [['  /\\_/\\  ', '=( ^.^ )=', '  > w <  ']] },
+    think:     { frames: [['  /\\_/\\ ?', '=( -.- )=', '  > ~ <  '], ['  /\\_/\\? ', '=( -.- )=', '  > ~ <  ']] },
+    surprised: { frames: [['  /\\_/\\ !', '=( O.O )=', '  > o <  ']] },
+    confused:  { frames: [['  /\\_/\\ ?', '=( o.O )=', '  > ~ <  ']] },
+    sleepy:    { frames: [['  /\\_/\\ z', '=( u.u )=', '  > ~ <  '], ['  /\\_/\\zZ', '=( u.u )=', '  > o <  ']] },
+    wink:      { frames: [['  /\\_/\\  ', '=( o.- )=', '  > w <  ']] },
+    proud:     { frames: [['  /\\_/\\ *', '=( *.* )=', '  > w <  '], ['  /\\_/\\* ', '=( *.* )=', '  > w <  ']] }
 };
 const LESSON_TIER_NAMES = ['Основы', 'Тема', 'Подтема', 'Кейс на различение'];
 const LESSON_TYPE_MS = 18;
@@ -9804,7 +9809,7 @@ function drawPathRunCat(emotion) {
     el.textContent = cat.frames[0].join('\n');
     el.className = `lesson-cat font-mono text-primary cat-emo-${emotion}`;
     if (prefersReducedMotion()) return;
-    if (emotion === 'happy') {
+    if (emotion === 'happy' || emotion === 'proud') {
         void el.offsetWidth;
         el.classList.add('cat-react-bounce');
     }
@@ -10156,7 +10161,7 @@ pathRun.finish = function(result) {
         } else {
             say = 'Новых тем пока нет: следующие откроются, когда освоишь пройденные в повторениях.';
         }
-        setPathRunView({ say, emo: 'happy', goLabel, secondaryLabel });
+        setPathRunView({ say, emo: result.reason === 'topic_done' ? 'proud' : 'sleepy', goLabel, secondaryLabel });
         return;
     }
 
@@ -10183,7 +10188,7 @@ pathRun.finish = function(result) {
     if (canExtra) pathRun.onDoneGo = () => pathRun.start(subject, { scope: 'topic', extra: true });
     setPathRunView({
         say: `${didSomething ? 'На сегодня всё!' : 'Сегодня всё уже сделано.'} ${reasonText}${nextUp}`,
-        emo: 'happy',
+        emo: didSomething ? 'proud' : 'sleepy',
         goLabel: canExtra ? 'Ещё тема' : 'Отлично',
         secondaryLabel: canExtra ? 'Хватит на сегодня' : null
     });
@@ -10351,7 +10356,7 @@ window.refreshPathRunButton = async function(attempt = 0) {
             }[step.reason] || 'Сегодня всё сделано. Новые темы откроются, когда пройденные закрепятся в повторениях.';
             const goLabel = step.reason === 'limit' && step.next_up ? 'Ещё тема'
                 : (step.reason === 'reviews_left' ? 'Ещё подход' : 'Посмотреть путь');
-            renderStarter({ say, emo: 'happy', goLabel });
+            renderStarter({ say, emo: step.reason === 'reviews_left' ? 'happy' : 'sleepy', goLabel });
             return;
         }
         const d = describePathStep(step, true);
@@ -10421,8 +10426,9 @@ function dayFaceGrid(eyes) {
     const grid = dayBlankGrid();
     dayStamp(grid, DAY_FACE_X, DAY_FACE_Y, DAY_FACE_HALF.map(dayMirror));
     const e = DAY_EYES[eyes] || DAY_EYES.happy;
-    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 5, e);
-    dayStamp(grid, DAY_FACE_X + 28 - 4 - 6, DAY_FACE_Y + 5, e);
+    // Подмигивание: левый глаз открыт, правый закрыт
+    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.happy : e);
+    dayStamp(grid, DAY_FACE_X + 28 - 4 - 6, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.blink : e);
     // Усы за контуром морды
     dayStamp(grid, DAY_FACE_X - 3, DAY_FACE_Y + 7, ['---', ' --']);
     dayStamp(grid, DAY_FACE_X + 28, DAY_FACE_Y + 7, ['---', '-- ']);
@@ -10524,9 +10530,12 @@ function showDayCelebration(result) {
         st.confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.09; p.vx *= 0.985; });
         st.confetti = st.confetti.filter(p => p.y < DAY_H && p.x > -2 && p.x < DAY_W + 2);
         confettiEl.textContent = dayRenderConfetti(st);
-        // Изредка моргает, иногда удивлённо распахивает глаза
+        // Изредка моргает, иногда удивлённо распахивает глаза, раз в ~8 с подмигивает
         const phase = st.tick % 60;
-        const eyes = phase === 20 || phase === 21 ? 'blink' : (phase >= 44 && phase < 50 ? 'open' : 'happy');
+        const winkPhase = st.tick % 120;
+        const eyes = phase === 20 || phase === 21 ? 'blink'
+            : (phase >= 44 && phase < 50 ? 'open'
+            : (winkPhase >= 90 && winkPhase < 100 ? 'wink' : 'happy'));
         if (eyes !== st.eyes) {
             st.eyes = eyes;
             faceEl.textContent = dayFaceGrid(eyes).map(r => r.join('')).join('\n');
@@ -10539,6 +10548,13 @@ window.dayCelebrationSkip = function() {
     document.querySelectorAll('#day-stats .day-stat-line').forEach(p => { p.style.animationDelay = '0s'; });
     const closeBtn = document.getElementById('day-close');
     if (closeBtn) closeBtn.style.animationDelay = '0s';
+};
+
+// Пока кнопка ещё прозрачна, тап по ней — это «пропустить», а не «закрыть»: итоги не должны пропасть непрочитанными
+window.dayCloseTap = function(e) {
+    e.stopPropagation();
+    if (getComputedStyle(e.currentTarget).opacity === '0') dayCelebrationSkip();
+    else closeDayCelebration();
 };
 
 window.closeDayCelebration = function() {

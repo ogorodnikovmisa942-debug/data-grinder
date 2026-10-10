@@ -1515,7 +1515,7 @@ window.fastTrackIntroduction = function() {
     const card = cardsQueue[currentIndex];
     if (!card) return;
     triggerHaptic('success');
-    trainCatPending = { emo: 'happy', text: 'Лёгкая!', reaction: 'bounce' };
+    trainCatPending = { emo: 'wink', text: 'Лёгкая!', reaction: 'bounce' };
     card.has_seen_intro = true;
     card.state = 2; // Сразу в Review
     
