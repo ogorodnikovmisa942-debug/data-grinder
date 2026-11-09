@@ -16,11 +16,11 @@
             display: inline-block !important;
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
+            from { opacity: 0; transform: translateY(6px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-            animation: fadeIn 0.4s ease-out forwards;
+            animation: fadeIn 0.28s cubic-bezier(.22, 1, .36, 1) forwards;
         }
         /* Стабильная типографика карточек (17px) без скачков масштаба */
         .dynamic-card-text {
@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=37">
+    <link rel="stylesheet" href="/css/main.css?v=38">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -64,11 +64,11 @@
     <!-- @include bottom_nav.html -->
 
     <!-- Оверлей отдыха Pomodoro (Break Screen) -->
-    <div id="rest-overlay" class="hidden fixed inset-0 bg-background/95 z-50 flex-col items-center justify-center p-lg text-center font-mono select-none">
+    <div id="rest-overlay" class="rest-overlay-in hidden fixed inset-0 bg-background/95 z-50 flex-col items-center justify-center p-lg text-center font-mono select-none">
         <h2 class="text-base font-bold uppercase tracking-widest text-primary mb-2">Время отдыха</h2>
         <div id="rest-timer-display" class="text-4xl font-bold text-primary font-mono mb-4">17:00</div>
         
-        <pre id="rest-ascii-art" class="font-mono text-[10px] sm:text-xs text-center whitespace-pre leading-none my-4 text-outline"></pre>
+        <pre id="rest-ascii-art" class="rest-ascii-art font-mono text-[10px] sm:text-xs text-center whitespace-pre leading-none my-4 text-outline"></pre>
         
         <p class="text-xs text-outline mb-lg max-w-[280px] leading-relaxed">
             Дайте глазам отдохнуть. Фокус восстанавливается...
@@ -90,6 +90,6 @@
     <!-- @include modal_exam.html -->
     <!-- @include modal_filters.html -->
 
-    <script src="/js/app.js?v=136"></script>
+    <script src="/js/app.js?v=137"></script>
 </body>
 </html>

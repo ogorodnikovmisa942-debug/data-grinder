@@ -81,9 +81,11 @@ def test_card_gets_its_context_line_and_difficulty_from_the_app():
 
 def test_lean_schema_in_prompt_has_no_context_or_difficulty_fields():
     sp = pp.PATH_BUILDER_SYSTEM_PROMPT
-    assert "Do NOT write a context line ('s') or a difficulty ('l')" in sp
+    assert "Do NOT write difficulty ('l')" in sp
+    assert "Zero-Spoiler Law" in sp
     schema = sp.split("CARDS JSON SCHEMA")[1].split("PART C")[0]
-    assert '"s":' not in schema and '"l":' not in schema and '"ev":' in schema and '"x":' in schema
+    assert '"l":' not in schema and '"ev":' in schema and '"x":' in schema
+    assert '"s":' in schema and '"e":' in schema and '"m":' in schema
 
 
 # --- STRICT: «берём самое важное» только когда не хватает денег ---

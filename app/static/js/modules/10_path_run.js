@@ -31,8 +31,6 @@ const pathRun = {
 };
 window.pathRun = pathRun;
 
-let pathRunCatTimer = null;
-
 function pathRunPlural(n, one, few, many) {
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return one;
@@ -40,23 +38,21 @@ function pathRunPlural(n, one, few, many) {
     return many;
 }
 
+// Кот в «Продолжить путь» рисуется общим движком маскота (09_lesson.js): кадры,
+// моргание, реакции и prefers-reduced-motion уже внутри. Здесь — эмоция и реакция.
 function drawPathRunCat(emotion) {
     const el = document.getElementById('path-run-cat');
-    if (!el) return;
-    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
-    clearInterval(pathRunCatTimer);
-    el.textContent = cat.frames[0].join('\n');
-    el.className = `lesson-cat font-mono text-primary cat-emo-${emotion}`;
-    if (prefersReducedMotion()) return;
-    if (emotion === 'happy' || emotion === 'proud') {
-        void el.offsetWidth;
-        el.classList.add('cat-react-bounce');
+    if (!el || typeof LESSON_CAT === 'undefined') return;
+    const emo = LESSON_CAT[emotion] ? emotion : 'idle';
+    if (typeof window.startMascot !== 'function') {
+        el.textContent = LESSON_CAT[emo].frames[0].join('\n');
+        el.className = `lesson-cat font-mono text-primary cat-emo-${emo}`;
+        return;
     }
-    const idle = LESSON_CAT.idle;
-    pathRunCatTimer = setInterval(() => {
-        el.textContent = idle.blink.join('\n');
-        setTimeout(() => { el.textContent = cat.frames[0].join('\n'); }, 160);
-    }, 3200);
+    window.startMascot(el, emo, {
+        baseClass: 'lesson-cat font-mono text-primary',
+        reaction: emo === 'happy' || emo === 'proud' ? 'bounce' : null
+    });
 }
 
 function describePathStep(step, isFirst) {
@@ -162,8 +158,10 @@ function setPathRunView({ say, emo, card, goLabel, goEnabled = true, secondaryLa
 function showPathRunOverlay(visible) {
     const el = document.getElementById('path-run-overlay');
     if (el) el.classList.toggle('hidden', !visible);
-    if (!visible) clearInterval(pathRunCatTimer);
-    else setRunMode(false);
+    if (!visible) {
+        // Оверлей скрыт — у кота не должно остаться таймеров кадров
+        if (typeof window.stopMascot === 'function') window.stopMascot(document.getElementById('path-run-cat'));
+    } else setRunMode(false);
 }
 
 // Режим занятия на экране карточек: шапка, нижнее меню и счётчики уходят,
@@ -435,6 +433,8 @@ pathRun.finish = function(result) {
 
 // Что кот показал на стартовом экране: по нажатию «Начать» запускаем именно это, без второго экрана
 let starterPreview = null;
+// Ключ показанной карточки шага: анимация появления нужна только при её смене
+let starterStepKey = '';
 
 function activeRunSubject() {
     return typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : currentSubject;
@@ -554,6 +554,14 @@ function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
             document.getElementById('starter-step-icon').textContent = step.icon;
             document.getElementById('starter-step-kind').textContent = step.kind;
             document.getElementById('starter-step-name').textContent = step.name;
+            // Новая карточка шага появляется мягко; повторный рендер того же шага не мигает
+            const key = `${step.kind}|${step.name}`;
+            if (key !== starterStepKey) {
+                starterStepKey = key;
+                if (!prefersReducedMotion() && typeof window.restartCssAnimation === 'function') {
+                    window.restartCssAnimation(card, 'starter-step-in');
+                }
+            }
         }
     }
     const btn = document.getElementById('btn-path-run');
@@ -618,33 +626,58 @@ window.refreshPathRunButton = async function(attempt = 0) {
 const DAY_W = 44;
 const DAY_H = 22;
 const DAY_SWAP = { '/': '\\', '\\': '/', '(': ')', ')': '(', '[': ']', ']': '[', '<': '>', '>': '<' };
-// Левая половина морды (14 знаков); правая получается зеркалом — морда всегда симметрична
+// Левая половина морды (14 знаков); правая получается зеркалом — морда всегда
+// симметрична: острые уши, круглый лоб, стены-щёки, подбородок.
 const DAY_FACE_HALF = [
-    '    /\\',
-    '   /  \\',
-    "  /    '-.____",
-    ' /',
-    '|',
-    '|',
-    '|',
-    '|   ~~       \\',
-    '|          \\_/',
-    ' \\',
-    "  '.",
-    "    '-._______"
+    '      /\\      ',
+    '     /  \\     ',
+    '    /    \\____',
+    '   /          ',
+    '  |           ',
+    '  |           ',
+    '  |           ',
+    '  |           ',
+    '   \\          ',
+    '    \\         ',
+    '     \\        ',
+    '      \\_______'
 ];
+// Глаза: три строки «глазной зоны», правый глаз — зеркало левого (кроме подмигивания).
+// Алфавит как у маскота в уроках: o — открыты, - — моргает, ^ — прищур, * — звёздочки.
 const DAY_EYES = {
-    happy: ['  /\\  ', ' /  \\ '],
-    blink: ['      ', ' ---- '],
-    open:  [' (  ) ', '  ()  ']
+    open:    { rows: [' .-. ', '( o )', " '-' "], y: 0 },
+    blink:   { rows: ['-----'], y: 1 },
+    happy:   { rows: [' ^^^ '], y: 1 },
+    sparkle: { rows: [' .-. ', '( * )', " '-' "], y: 0 }
 };
+// Улыбка — отдельная накладка на силуэт: меняется, не пересобирая всю морду
+const DAY_MOUTH = { calm: '\\____/', wide: '\\______/' };
 const DAY_FACE_X = 8;
 const DAY_FACE_Y = DAY_H - DAY_FACE_HALF.length - 1;
-const DAY_CONFETTI = ['*', '+', 'o', '.', "'", '`', '^', '~'];
+const DAY_EYE_LEFT_X = DAY_FACE_X + 6;
+const DAY_EYE_RIGHT_X = DAY_FACE_X + 17;
+const DAY_EYE_Y = DAY_FACE_Y + 4;
+// Версия арта: правишь силуэт/глаза/улыбку — увеличь, чтобы сбросить кэш морды и маски
+const DAY_ART_VERSION = 2;
 
+const DAY_CONFETTI_YOUNG = ['*', '+', 'x', '^', '~', 'o'];
+const DAY_CONFETTI_FADE = ['.', ',', "'", '`'];
+const DAY_CONFETTI_MAX = 64;
+// Три ритма волн (тики по 70 мс): дуга из-за морды, редкая пыль сверху, искры с боков
+const DAY_CONFETTI_RHYTHMS = [
+    { every: 20, count: 5, kind: 'arc' },
+    { every: 30, count: 4, kind: 'sprinkle' },
+    { every: 24, count: 4, kind: 'puff' }
+];
+
+function dayMirrorText(text) {
+    return [...text].reverse().map(ch => DAY_SWAP[ch] || ch).join('');
+}
+
+// Полная строка морды из левой половины: 14 знаков + их зеркало = 28
 function dayMirror(half) {
     const left = half.padEnd(14, ' ');
-    return left + [...left].reverse().map(ch => DAY_SWAP[ch] || ch).join('');
+    return left + dayMirrorText(left);
 }
 
 function dayBlankGrid() {
@@ -661,57 +694,157 @@ function dayStamp(grid, x, y, lines) {
     });
 }
 
-function dayFaceGrid(eyes) {
+// Пара глаз: обычно левый + его зеркало; подмигивание — открытый глаз и прищур
+function dayEyePair(eyes) {
+    if (eyes === 'wink') return [DAY_EYES.open, DAY_EYES.happy];
+    const e = DAY_EYES[eyes] || DAY_EYES.open;
+    return [e, e];
+}
+
+function dayFaceGrid(eyes, mouth) {
     const grid = dayBlankGrid();
-    dayStamp(grid, DAY_FACE_X, DAY_FACE_Y, DAY_FACE_HALF.map(dayMirror));
-    const e = DAY_EYES[eyes] || DAY_EYES.happy;
-    // Подмигивание: левый глаз открыт, правый закрыт
-    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.happy : e);
-    dayStamp(grid, DAY_FACE_X + 28 - 4 - 6, DAY_FACE_Y + 5, eyes === 'wink' ? DAY_EYES.blink : e);
-    // Усы за контуром морды
-    dayStamp(grid, DAY_FACE_X - 3, DAY_FACE_Y + 7, ['---', ' --']);
-    dayStamp(grid, DAY_FACE_X + 28, DAY_FACE_Y + 7, ['---', '-- ']);
+    DAY_FACE_HALF.forEach((half, i) => dayStamp(grid, DAY_FACE_X, DAY_FACE_Y + i, [dayMirror(half)]));
+    const pair = dayEyePair(eyes);
+    dayStamp(grid, DAY_EYE_LEFT_X, DAY_EYE_Y + pair[0].y, pair[0].rows);
+    dayStamp(grid, DAY_EYE_RIGHT_X, DAY_EYE_Y + pair[1].y, pair[1].rows.map(dayMirrorText));
+    dayStamp(grid, DAY_FACE_X + 13, DAY_FACE_Y + 7, ['<>']);                  // нос
+    const smile = DAY_MOUTH[mouth] || DAY_MOUTH.calm;
+    dayStamp(grid, DAY_FACE_X + 14 - smile.length / 2, DAY_FACE_Y + 8, [smile]);
+    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 6, [',']);                    // румянец
+    dayStamp(grid, DAY_FACE_X + 23, DAY_FACE_Y + 6, [',']);
     return grid;
 }
 
-// Маска «за мордой»: в каждой строке всё от первого до последнего знака морды (+1 на покачивание)
+// Усы живут вне 28-символьной морды: по две короткие линии слева и справа
+function dayStampWhiskers(grid) {
+    dayStamp(grid, 5, DAY_FACE_Y + 5, ['----', ' ---']);
+    dayStamp(grid, DAY_W - 9, DAY_FACE_Y + 5, ['----', '--- ']);
+}
+
+// Кадр морды собирается один раз на пару «глаза + улыбка»: смена состояния — это
+// один textContent вместо пересборки 22 строк
+const dayFaceCache = new Map();
+
+function dayFaceText(eyes, mouth) {
+    const key = `${eyes}|${mouth}`;
+    let text = dayFaceCache.get(key);
+    if (!text) {
+        const grid = dayFaceGrid(eyes, mouth);
+        dayStampWhiskers(grid);
+        text = grid.map(row => row.join('')).join('\n');
+        dayFaceCache.set(key, text);
+    }
+    return text;
+}
+
+// Маска «за мордой»: в каждой строке всё от первого до последнего знака морды (+1 запас
+// на покачивание CSS). Собирается по всем кадрам — смена глаз и улыбки маску не расширяет,
+// а после правки арта (DAY_ART_VERSION) кэш пересобирается.
+let dayMaskCache = null;
+let dayMaskVersion = -1;
+
 function dayFaceMask() {
-    const grid = dayFaceGrid('happy');
-    return grid.map(row => {
-        const first = row.findIndex(ch => ch !== ' ');
-        if (first < 0) return null;
-        let last = row.length - 1;
-        while (row[last] === ' ') last--;
-        return [first - 1, last + 1];
+    if (dayMaskCache && dayMaskVersion === DAY_ART_VERSION) return dayMaskCache;
+    const spans = new Array(DAY_H).fill(null);
+    Object.keys(DAY_EYES).concat(['wink']).forEach(eyes => {
+        Object.keys(DAY_MOUTH).forEach(mouth => {
+            dayFaceGrid(eyes, mouth).forEach((row, y) => {
+                const first = row.findIndex(ch => ch !== ' ');
+                if (first < 0) return;
+                let last = row.length - 1;
+                while (row[last] === ' ') last--;
+                const span = spans[y];
+                spans[y] = span
+                    ? [Math.min(span[0], first - 1), Math.max(span[1], last + 1)]
+                    : [first - 1, last + 1];
+            });
+        });
     });
+    dayMaskCache = spans;
+    dayMaskVersion = DAY_ART_VERSION;
+    return dayMaskCache;
 }
 
 let dayCelebration = null;
 
-function dayConfettiWave(st) {
+// Кадр цикла: сначала звёздочки в глазах, потом открытые глаза; изредка моргает,
+// прищуривается и подмигивает. Улыбка широкая, пока глаза «сияют», и спокойная иначе.
+function dayEyeState(tick) {
+    const eyes = tick < 14 ? 'sparkle'
+        : (tick % 30 < 2 ? 'blink'
+        : (tick % 104 >= 88 ? 'wink'
+        : (tick % 152 >= 132 ? 'happy' : 'open')));
+    const mouth = eyes === 'blink' || eyes === 'happy' ? 'calm' : 'wide';
+    return { eyes, mouth };
+}
+
+function dayConfettiParticle(kind) {
+    const seed = Math.floor(Math.random() * 997);
+    const p = {
+        x: 0, y: 0, vx: 0, vy: 0, g: 0.05, drag: 0.995,
+        age: 0, life: 80, seed,
+        chA: DAY_CONFETTI_YOUNG[seed % DAY_CONFETTI_YOUNG.length],
+        chB: DAY_CONFETTI_YOUNG[(seed + 3) % DAY_CONFETTI_YOUNG.length]
+    };
     const cx = DAY_FACE_X + 14;
-    for (let k = 0; k < 28; k++) {
-        const x = DAY_FACE_X + 3 + Math.random() * 22;
-        st.confetti.push({
-            x,
-            y: DAY_FACE_Y + 3 + Math.random() * 5,
-            vx: (x - cx) / 14 * 1.1 + (Math.random() - 0.5) * 0.6,
-            vy: -(1.0 + Math.random() * 0.9),
-            ch: DAY_CONFETTI[k % DAY_CONFETTI.length]
-        });
+    if (kind === 'arc') {
+        // дуга из-за морды: всплывает над головой, расходится в стороны и опадает
+        p.x = cx + (Math.random() - 0.5) * 10;
+        p.y = DAY_FACE_Y + 5 + Math.random() * 4;
+        p.vx = (p.x - cx) / 12 + (Math.random() - 0.5) * 0.5;
+        p.vy = -(0.65 + Math.random() * 0.5);
+        p.g = 0.05;
+        p.life = 72 + Math.floor(Math.random() * 30);
+    } else if (kind === 'sprinkle') {
+        // редкая пыль сверху: медленно осыпается и прячется за мордой
+        p.x = Math.random() * DAY_W;
+        p.y = -1 - Math.random() * 1.5;
+        p.vx = (Math.random() - 0.5) * 0.22;
+        p.vy = 0.28 + Math.random() * 0.28;
+        p.g = 0.004;
+        p.drag = 1;
+        p.life = 110 + Math.floor(Math.random() * 40);
+    } else {
+        // тихие искры по бокам морды: поднимаются вдоль щёк и тают
+        const fromRight = Math.random() < 0.5;
+        p.x = fromRight ? DAY_FACE_X + 28 + Math.random() * 5 : DAY_FACE_X - 5 + Math.random() * 5;
+        p.y = DAY_FACE_Y + 1 + Math.random() * 6;
+        p.vx = (fromRight ? 1 : -1) * (0.08 + Math.random() * 0.25);
+        p.vy = -(0.28 + Math.random() * 0.35);
+        p.g = -0.004;
+        p.drag = 0.998;
+        p.life = 58 + Math.floor(Math.random() * 24);
     }
+    return p;
+}
+
+// Волна не спамит: добираем частицы только до потолка DAY_CONFETTI_MAX
+function dayConfettiWave(st, rhythm) {
+    if (!rhythm) return;
+    const room = DAY_CONFETTI_MAX - st.confetti.length;
+    const count = Math.min(rhythm.count, room);
+    for (let i = 0; i < count; i++) st.confetti.push(dayConfettiParticle(rhythm.kind));
 }
 
 function dayRenderConfetti(st) {
     const grid = dayBlankGrid();
-    st.confetti.forEach(p => {
+    const mask = dayFaceMask();
+    // Старые частицы рисуем первыми: молодые перекрывают их в той же клетке
+    st.confetti.slice().sort((a, b) => b.age - a.age).forEach(p => {
+        const ratio = p.age / p.life;
+        if (ratio > 0.9) return; // почти растаяла — глиф уже не нужен
         const x = Math.round(p.x), y = Math.round(p.y);
         if (y < 0 || y >= DAY_H || x < 0 || x >= DAY_W) return;
-        const span = st.mask[y];
+        const span = mask[y];
         if (span && x >= span[0] && x <= span[1]) return; // за мордочкой
-        grid[y][x] = p.ch;
+        // Молодые — яркий глиф (и лёгкое мерцание), зрелые — спокойнее, старые — точка
+        const twinkle = (st.tick + p.seed) % 9 < 4;
+        const ch = ratio < 0.4 ? (twinkle ? p.chA : p.chB)
+            : ratio < 0.68 ? p.chB
+            : DAY_CONFETTI_FADE[p.seed % DAY_CONFETTI_FADE.length];
+        grid[y][x] = ch;
     });
-    return grid.map(r => r.join('')).join('\n');
+    return grid.map(row => row.join('')).join('\n');
 }
 
 function showDayCelebration(result) {
@@ -751,33 +884,50 @@ function showDayCelebration(result) {
 
     overlay.classList.remove('hidden');
     triggerHaptic('success');
-    faceEl.textContent = dayFaceGrid('happy').map(r => r.join('')).join('\n');
+    // Заголовок появляется мягко уже на видимом оверлее (CSS); под reduced-motion — сразу
+    if (title && !prefersReducedMotion() && typeof window.restartCssAnimation === 'function') {
+        window.restartCssAnimation(title, 'day-title-in');
+    }
+    // Повторный показ (например, после смены дня) не должен оставить старый таймер
+    if (dayCelebration) { clearInterval(dayCelebration.timer); dayCelebration = null; }
 
     if (prefersReducedMotion()) {
+        // Без движения: статичная добрая морда, конфетти нет, итоги уже читаются
+        faceEl.textContent = dayFaceText('sparkle', 'wide');
         confettiEl.textContent = '';
         return;
     }
 
-    const st = { confetti: [], mask: dayFaceMask(), tick: 0, timer: null };
+    const st = {
+        confetti: [],
+        tick: 0,
+        timer: null,
+        eyes: 'sparkle',
+        mouth: 'wide',
+        // У каждого ритма свой отсчёт: волны идут вразнобой, а не залпом
+        rhythms: DAY_CONFETTI_RHYTHMS.map((r, i) => ({ ...r, next: i === 0 ? 0 : 6 + i * 9 }))
+    };
     dayCelebration = st;
-    dayConfettiWave(st);
+    faceEl.textContent = dayFaceText(st.eyes, st.mouth);
+    confettiEl.textContent = '';
 
     st.timer = setInterval(() => {
         st.tick++;
-        // Волна конфетти каждые ~2.5 с
-        if (st.tick % 36 === 0) dayConfettiWave(st);
-        st.confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.09; p.vx *= 0.985; });
-        st.confetti = st.confetti.filter(p => p.y < DAY_H && p.x > -2 && p.x < DAY_W + 2);
+        st.rhythms.forEach(r => {
+            if (st.tick >= r.next) {
+                dayConfettiWave(st, r);
+                r.next = st.tick + r.every;
+            }
+        });
+        st.confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += p.g; p.vx *= p.drag; p.age++; });
+        st.confetti = st.confetti.filter(p => p.age < p.life && p.y < DAY_H + 3 && p.y > -5 && p.x > -5 && p.x < DAY_W + 5);
         confettiEl.textContent = dayRenderConfetti(st);
-        // Изредка моргает, иногда удивлённо распахивает глаза, раз в ~8 с подмигивает
-        const phase = st.tick % 60;
-        const winkPhase = st.tick % 120;
-        const eyes = phase === 20 || phase === 21 ? 'blink'
-            : (phase >= 44 && phase < 50 ? 'open'
-            : (winkPhase >= 90 && winkPhase < 100 ? 'wink' : 'happy'));
-        if (eyes !== st.eyes) {
-            st.eyes = eyes;
-            faceEl.textContent = dayFaceGrid(eyes).map(r => r.join('')).join('\n');
+        // Морда: звёздочки → открытые глаза, редкие моргания, прищур и подмигивание
+        const state = dayEyeState(st.tick);
+        if (state.eyes !== st.eyes || state.mouth !== st.mouth) {
+            st.eyes = state.eyes;
+            st.mouth = state.mouth;
+            faceEl.textContent = dayFaceText(st.eyes, st.mouth);
         }
     }, 70);
 }

@@ -579,4 +579,357 @@ if (typeof window.exitBulkMode !== 'function') {
     };
 }
 
+// ============================================================================
+// ASCII-ЛОАДЕР: маленький кот над полосой прогресса вместо крутящейся иконки.
+// Один общий таймер на все [data-ascii-spinner]; скрытые лоадеры кадры не отнимают.
+// ============================================================================
+const ASCII_SPINNER_BAR_WIDTH = 11;
+let asciiSpinnerTimer = null;
+
+function asciiSpinnerText(step) {
+    const cat = (typeof LESSON_CAT !== 'undefined' && LESSON_CAT.idle) ? LESSON_CAT.idle : null;
+    const phase = step % 20;
+    const catLines = cat ? ((phase === 5 || phase === 16) ? cat.blink : cat.frames[0]) : null;
+    const pos = step % ASCII_SPINNER_BAR_WIDTH;
+    const bar = `[${'='.repeat(pos)}>${' '.repeat(ASCII_SPINNER_BAR_WIDTH - pos)}]`;
+    return catLines ? `${catLines.join('\n')}\n${bar}` : bar;
+}
+
+function asciiSpinnerTick() {
+    const reduced = typeof prefersReducedMotion === 'function' && prefersReducedMotion();
+    let visible = 0;
+    document.querySelectorAll('[data-ascii-spinner]').forEach(el => {
+        if (!el.getClientRects().length) return; // скрыт — не тратим кадры
+        visible += 1;
+        const step = reduced ? 0 : (el._dgAsciiStep || 0);
+        el.textContent = asciiSpinnerText(step);
+        if (!reduced) el._dgAsciiStep = (step + 1) % 40;
+    });
+    asciiSpinnerTimer = setTimeout(asciiSpinnerTick, visible ? 150 : 500);
+}
+
+function startAsciiSpinners() {
+    if (asciiSpinnerTimer) return;
+    asciiSpinnerTick();
+}
+window.startAsciiSpinners = startAsciiSpinners;
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startAsciiSpinners);
+} else {
+    setTimeout(startAsciiSpinners, 0);
+}
+
+// ============================================================================
+// АДАПТИВНАЯ ОЦЕНКА ДОМЕНА КАРТОЧКИ, PARTIAL BLUR И УНИВЕРСАЛЬНЫЙ TTS
+// ============================================================================
+window.detectCardDomain = function(card) {
+    const c = card || {};
+    const subRaw = String(c.subject || c.subject_title || (typeof currentSubject !== 'undefined' ? currentSubject : '') || '').trim();
+    const sub = subRaw.toLowerCase();
+    const q = String(c.text || '');
+    const trans = String(c.translation || '');
+    const sec = String(c.secondary_text || '');
+    const ex = String(c.example || '');
+    const joinedLang = q + ' ' + ex;
+
+    const hasHanzi = /[\u4e00-\u9fa5]/.test(joinedLang);
+    const hasKana = /[\u3040-\u30ff]/.test(joinedLang);
+    const hasHangul = /[\uac00-\ud7af]/.test(joinedLang);
+    const langSubMatch = /(chinese|hsk|mandarin|pinyin|english|eng_|german|de_|spanish|es_|french|fr_|italian|it_|japanese|jp_|korean|ko_|vocab|lang|язык|китай|англ|немец|испан|франц|япон|корей|иероглиф)/i.test(sub);
+    const hasPinyinCue = /(пиньин|pinyin|тон|tone|hsk)/i.test(sec);
+    const isLanguage = hasHanzi || hasKana || hasHangul || langSubMatch || hasPinyinCue;
+
+    const isLaw = !isLanguage && (
+        /(law|право|гк\b|ук\b|апк\b|гпк\b|упк\b|коап|конст|суд|юрис|арбитраж|кодекс)/i.test(sub)
+        || /(?:^|[\s(])(ст\.|ч\.\s*\d+|п\.\s*\d+|гк\s*рф|ук\s*рф|апк\s*рф|гпк\s*рф|фз\s*№|конституц|правовая\s+норма|законодатель)/i.test(q + ' ' + sec + ' ' + trans)
+    );
+    const isStem = !isLanguage && !isLaw && (
+        /(phys|math|chem|bio|info|code|alg|calc|geom|mech|физ|хим|мат|инф|програм|алг|геом|механ)/i.test(sub)
+        || /[=≈≤≥∑∫÷±→↔]/.test(sec)
+        || /(формула|единица|СИ:|Дж|Вт|кг\/м|м\/с|моль|Ом)/i.test(sec + ' ' + trans)
+    );
+
+    const key = isLanguage ? 'language' : (isLaw ? 'law' : (isStem ? 'stem' : 'general'));
+    const langCode = window.detectSpeechLang(q || ex, c);
+    const isChinese = key === 'language' && (langCode === 'zh-CN' || hasHanzi || /chinese|hsk|mandarin|китай/.test(sub));
+
+    const labels = key === 'language'
+        ? { main: 'ПЕРЕВОД И ЗНАЧЕНИЕ', sec: isChinese ? 'ЧТЕНИЕ (ПИНЬИНЬ)' : 'ЧТЕНИЕ / ФОРМА', ex: 'ПРИМЕР В КОНТЕКСТЕ', frontAction: 'Озвучить' }
+        : key === 'law'
+            ? { main: 'ПРАВОВОЕ ПРАВИЛО', sec: 'НОРМА И УСЛОВИЕ', ex: 'ПРИМЕР ИЗ ПРАКТИКИ', frontAction: null }
+            : key === 'stem'
+                ? { main: 'СУТЬ И ЗАКОН', sec: 'ФОРМУЛА / СИ', ex: 'ПРИМЕР ПРИМЕНЕНИЯ', frontAction: null }
+                : { main: 'ОТВЕТ / СУТЬ', sec: 'КОНТЕКСТ И ДЕТАЛИ', ex: 'ПРИМЕР', frontAction: null };
+
+    return { key, isLanguage, isChinese, langCode, labels };
+};
+
+window.detectSpeechLang = function(text, cardOrSub) {
+    const t = String(text || '');
+    if (/[\u4e00-\u9fa5]/.test(t)) return 'zh-CN';
+    if (/[\u3040-\u30ff]/.test(t)) return 'ja-JP';
+    if (/[\uac00-\ud7af]/.test(t)) return 'ko-KR';
+
+    let sub = '';
+    if (typeof cardOrSub === 'string') sub = cardOrSub;
+    else if (cardOrSub && typeof cardOrSub === 'object') sub = cardOrSub.subject || cardOrSub.subject_title || '';
+    if (!sub && typeof currentSubject !== 'undefined' && currentSubject !== 'all') sub = currentSubject;
+    const s = String(sub || '').toLowerCase();
+
+    if (/chinese|hsk|mandarin|китай/.test(s)) return 'zh-CN';
+    if (/japanese|jp_|япон/.test(s)) return 'ja-JP';
+    if (/korean|ko_|корей/.test(s)) return 'ko-KR';
+    if (/english|eng_|англ/.test(s)) return 'en-US';
+    if (/german|de_|немец/.test(s)) return 'de-DE';
+    if (/spanish|es_|испан/.test(s)) return 'es-ES';
+    if (/french|fr_|франц/.test(s)) return 'fr-FR';
+    if (/italian|it_|итал/.test(s)) return 'it-IT';
+    if (/vocab|lang|язык/.test(s) && /[A-Za-zÀ-ÿ]{2,}/.test(t)) return 'en-US';
+    return null;
+};
+
+function _extractSpeakableSegment(text, lang) {
+    if (!text || text === '---' || !lang) return '';
+    let clean = typeof formatClozePlain === 'function' ? formatClozePlain(String(text)) : String(text);
+    clean = clean.replace(/\s*\([А-Яа-яЁё][^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!clean) return '';
+
+    if (lang === 'zh-CN' || lang === 'ja-JP' || lang === 'ko-KR') {
+        const scriptRe = lang === 'zh-CN' ? /[\u4e00-\u9fa5]/ : (lang === 'ja-JP' ? /[\u3040-\u30ff\u4e00-\u9fa5]/ : /[\uac00-\ud7af]/);
+        if (!scriptRe.test(clean)) return '';
+        const parts = clean.split(/\s*(?:—|–|\|)\s*|\s+\/\s+/);
+        let target = parts.find(p => scriptRe.test(p) && !/[А-Яа-яЁё]{3,}/.test(p));
+        if (!target) {
+            const lead = clean.replace(/[\s—–|/:-]*[А-Яа-яЁё].*$/, '').trim();
+            if (scriptRe.test(lead)) target = lead;
+        }
+        return (target && scriptRe.test(target)) ? target.replace(/[\s—–|/:]+$/, '').trim() : '';
+    }
+
+    if (/[A-Za-zÀ-ÿ]/.test(clean)) {
+        const parts = clean.split(/\s*(?:—|–|\|)\s*|\s+\/\s+/);
+        let target = parts.find(p => /[A-Za-zÀ-ÿ]/.test(p) && !/[А-Яа-яЁё]{3,}/.test(p));
+        if (!target) {
+            const lead = clean.replace(/[\s—–|/:-]*[А-Яа-яЁё].*$/, '').trim();
+            if (/[A-Za-zÀ-ÿ]{2,}/.test(lead)) target = lead;
+        }
+        return (target && /[A-Za-zÀ-ÿ]{2,}/.test(target)) ? target.replace(/[\s—–|/:]+$/, '').trim() : '';
+    }
+    return '';
+}
+
+window.isSpeakable = function(text, cardOrSub) {
+    if (!text || text === '---') return false;
+    const lang = window.detectSpeechLang(text, cardOrSub);
+    return Boolean(lang && _extractSpeakableSegment(text, lang));
+};
+
+window.isLanguageCard = function(card) {
+    if (!card) return false;
+    const d = window.detectCardDomain(card);
+    if (!d.isLanguage) return false;
+    return window.isSpeakable(card.text, card) || window.isSpeakable(card.example, card);
+};
+
+window.executeVoiceSynthesis = function(textToSpeak, cardOrSub) {
+    if (!window.speechSynthesis || !textToSpeak) return false;
+    const lang = window.detectSpeechLang(textToSpeak, cardOrSub);
+    const speakable = _extractSpeakableSegment(textToSpeak, lang);
+    if (!lang || !speakable) return false;
+
+    try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(speakable);
+        utterance.rate = 0.85;
+        utterance.lang = lang;
+        window.currentUtterance = utterance;
+        window.speechSynthesis.speak(utterance);
+        return true;
+    } catch (e) {
+        console.error("Сбой аудио-канала:", e);
+        return false;
+    }
+};
+
+window.replayAudioForText = function(text, cardOrSub) {
+    return window.executeVoiceSynthesis(text, cardOrSub);
+};
+
+window.makeScaffoldHint = function(val, domainKey) {
+    const raw = String(val || '').trim();
+    if (!raw) return '';
+    if (raw.includes('=') && domainKey === 'stem') {
+        const idx = raw.indexOf('=');
+        const lhs = raw.slice(0, idx).trim();
+        const rhs = raw.slice(idx + 1).trim();
+        const maskedRhs = rhs.replace(/[A-Za-zА-Яа-яЁё0-9]+/g, m => '_'.repeat(Math.min(2, m.length)));
+        return `${lhs} = ${maskedRhs}`;
+    }
+    const legalKeepRe = /^(п\.|ч\.|ст\.|гл\.|разд\.|ГК|УК|АПК|ГПК|УПК|РФ|НК|КоАП|ФЗ|и|в|на|от|по)$/i;
+    return raw.split(/\s+/).map(tok => {
+        if (domainKey === 'law' && legalKeepRe.test(tok)) return tok;
+        if (/^\d+[а-яa-z0-9.,-]*$/i.test(tok)) return '_'.repeat(Math.min(3, tok.replace(/[.,]/g, '').length || 1));
+        if (tok.length <= 1) return tok;
+        const first = tok[0];
+        const tailLen = tok.replace(/[.,;:!?()\[\]]+$/, '').length - 1;
+        if (tailLen <= 0) return tok;
+        return first + '_'.repeat(Math.min(2, tailLen));
+    }).join(' ');
+};
+
+window.splitSecondaryParts = function(secondary, domainInfo) {
+    const raw = String(secondary || '').trim();
+    if (!raw || raw === '---') return [];
+    const d = domainInfo || { key: 'general', isChinese: false };
+    const chunks = raw.split(/\s*(?:\||;|\n)\s*/).map(s => s.trim()).filter(Boolean).slice(0, 4);
+    return chunks.map((chunk, idx) => {
+        const colonIdx = chunk.indexOf(':');
+        let label = '';
+        let value = chunk;
+        if (colonIdx > 0 && colonIdx <= 22) {
+            label = chunk.slice(0, colonIdx).trim();
+            value = chunk.slice(colonIdx + 1).trim() || chunk;
+        } else if (idx === 0) {
+            label = d.key === 'language'
+                ? (d.isChinese ? 'Пиньинь' : 'Чтение')
+                : (d.key === 'law' ? 'Норма' : (d.key === 'stem' ? 'Формула' : ''));
+        }
+        return {
+            label,
+            value,
+            scaffold: window.makeScaffoldHint(value, d.key)
+        };
+    });
+};
+
+window.renderPartialBlurChipsHTML = function(secondary, domainInfo, opts = {}) {
+    const parts = window.splitSecondaryParts(secondary, domainInfo);
+    if (!parts.length) return '';
+    const masked = opts.masked !== false;
+    const searchTerms = Array.isArray(opts.searchTerms) && opts.searchTerms.length > 0 ? opts.searchTerms : null;
+    return parts.map(p => {
+        const valHtml = (searchTerms && typeof highlightMatches === 'function')
+            ? highlightMatches(p.value, searchTerms)
+            : escapeHTML(p.value);
+        const cls = masked ? 'blur-chip blur-chip-masked' : 'blur-chip blur-chip-open';
+        return `
+            <button type="button" data-no-swipe class="${cls}" onclick="event.stopPropagation(); window.toggleBlurChip(this);" aria-label="Показать или скрыть подсказку">
+                ${p.label ? `<span class="blur-chip-key">${escapeHTML(p.label)}</span>` : ''}
+                <span class="blur-chip-scaffold" aria-hidden="true">${escapeHTML(p.scaffold)}</span>
+                <span class="blur-chip-val">${valHtml}</span>
+            </button>`;
+    }).join('');
+};
+
+window.renderExampleTokensHTML = function(example, card, opts = {}) {
+    const rawEx = String(example || '').trim();
+    if (!rawEx || rawEx === '---') return '';
+    const wrapped = /^[«"'].*[»"']$/.test(rawEx) ? rawEx : `«${rawEx}»`;
+    const searchTerms = Array.isArray(opts.searchTerms) && opts.searchTerms.length > 0 ? opts.searchTerms : null;
+    if (searchTerms && typeof highlightMatches === 'function') {
+        return highlightMatches(wrapped, searchTerms);
+    }
+
+    const rawTerm = (typeof formatClozePlain === 'function' ? formatClozePlain(String(card?.text || '')) : String(card?.text || '')).trim();
+    const masked = opts.masked !== false;
+    if (!rawTerm || rawTerm.includes('?')) return escapeHTML(wrapped);
+
+    const hasCjk = /[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/.test(rawTerm);
+    const wordCount = rawTerm.split(/\s+/).filter(Boolean).length;
+    const eligible = (hasCjk && rawTerm.length >= 1 && rawTerm.length <= 12)
+        || (!hasCjk && rawTerm.length >= 3 && rawTerm.length <= 28 && wordCount <= 3);
+    if (!eligible) return escapeHTML(wrapped);
+
+    const tokenCls = `blur-token ${masked ? 'is-masked' : 'is-revealed'}`;
+    const makeBtn = (matched) => `<button type="button" data-no-swipe class="${tokenCls}" onclick="event.stopPropagation(); window.toggleBlurToken(this);" aria-label="Показать слово в примере"><span class="blur-token-txt">${escapeHTML(matched)}</span></button>`;
+
+    if (hasCjk) {
+        const idx = wrapped.indexOf(rawTerm);
+        if (idx === -1) return escapeHTML(wrapped);
+        return escapeHTML(wrapped.slice(0, idx)) + makeBtn(wrapped.slice(idx, idx + rawTerm.length)) + escapeHTML(wrapped.slice(idx + rawTerm.length));
+    }
+
+    const letterRe = /[A-Za-zА-Яа-яЁё0-9]/;
+    const lowerWrapped = wrapped.toLowerCase();
+    const lowerTerm = rawTerm.toLowerCase();
+    let searchPos = 0;
+    while (searchPos < lowerWrapped.length) {
+        const idx = lowerWrapped.indexOf(lowerTerm, searchPos);
+        if (idx === -1) break;
+        const prevCh = idx > 0 ? wrapped[idx - 1] : '';
+        const nextCh = idx + rawTerm.length < wrapped.length ? wrapped[idx + rawTerm.length] : '';
+        if (!letterRe.test(prevCh) && !letterRe.test(nextCh)) {
+            return escapeHTML(wrapped.slice(0, idx))
+                + makeBtn(wrapped.slice(idx, idx + rawTerm.length))
+                + escapeHTML(wrapped.slice(idx + rawTerm.length));
+        }
+        searchPos = idx + lowerTerm.length;
+    }
+    return escapeHTML(wrapped);
+};
+
+window.toggleBlurChip = function(btn) {
+    if (!btn) return;
+    const nowMasked = btn.classList.contains('blur-chip-masked');
+    btn.classList.toggle('blur-chip-masked', !nowMasked);
+    btn.classList.toggle('blur-chip-open', nowMasked);
+    if (typeof triggerHaptic === 'function') triggerHaptic('light');
+};
+
+window.toggleBlurToken = function(btn) {
+    if (!btn) return;
+    const nowMasked = btn.classList.contains('is-masked');
+    btn.classList.toggle('is-masked', !nowMasked);
+    btn.classList.toggle('is-revealed', nowMasked);
+    if (typeof triggerHaptic === 'function') triggerHaptic('light');
+};
+
+window.toggleCardScaffold = function(containerOrId, triggerBtn) {
+    const container = typeof containerOrId === 'string'
+        ? document.getElementById(containerOrId)
+        : (triggerBtn ? triggerBtn.closest('[data-blur-sec]') : null);
+    if (!container) return;
+    const chips = container.querySelectorAll('.blur-chip');
+    const anyMasked = Array.from(chips).some(c => c.classList.contains('blur-chip-masked'));
+    if (!anyMasked) {
+        chips.forEach(c => {
+            c.classList.add('blur-chip-masked');
+            c.classList.remove('blur-chip-open');
+        });
+        container.classList.add('blur-container-scaffold');
+    } else {
+        container.classList.toggle('blur-container-scaffold');
+    }
+    if (triggerBtn) {
+        triggerBtn.classList.toggle('is-active', container.classList.contains('blur-container-scaffold'));
+    }
+    if (typeof triggerHaptic === 'function') triggerHaptic('light');
+};
+
+window.toggleCardBlurScope = function(scopeOrId, triggerBtn) {
+    const scope = typeof scopeOrId === 'string'
+        ? document.getElementById(scopeOrId)
+        : scopeOrId;
+    if (!scope) return;
+    const chips = scope.querySelectorAll('.blur-chip');
+    const tokens = scope.querySelectorAll('.blur-token');
+    const hasMasked = Array.from(chips).some(c => c.classList.contains('blur-chip-masked'))
+        || Array.from(tokens).some(t => t.classList.contains('is-masked'));
+
+    chips.forEach(c => {
+        c.classList.toggle('blur-chip-masked', !hasMasked);
+        c.classList.toggle('blur-chip-open', hasMasked);
+    });
+    tokens.forEach(t => {
+        t.classList.toggle('is-masked', !hasMasked);
+        t.classList.toggle('is-revealed', hasMasked);
+    });
+    if (triggerBtn) {
+        triggerBtn.textContent = hasMasked ? 'Скрыть' : 'Открыть';
+        triggerBtn.classList.toggle('is-active', hasMasked);
+    }
+    if (typeof triggerHaptic === 'function') triggerHaptic('light');
+};
+
 

@@ -214,6 +214,7 @@ class GenerationJob(Base):
     # Параметры загрузки: насколько подробно (compact | standard | detailed) и тип материала, если его назвал пользователь
     depth = Column(String(12), nullable=True)
     source_kind = Column(String(16), nullable=True)
+    assoc_preference = Column(String(16), nullable=True)
 
 
 class AiTelemetryLog(Base):

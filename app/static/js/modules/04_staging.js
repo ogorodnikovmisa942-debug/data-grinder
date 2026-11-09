@@ -195,6 +195,19 @@ function renderCurrentStagingCard() {
         }
     }
     const cardText = card.text || card.front || card.question || '---';
+    const answerText = (card.translation || card.back || card.answer || card.definition || '').trim();
+    const secRaw = (card.secondary_text || card.secondary || card.hint || '').trim();
+    const secText = secRaw === '---' ? '' : secRaw;
+    const cardWithSub = { ...card, text: cardText, translation: answerText, secondary_text: secText, subject: card.subject || stagingSubject };
+    const domain = window.detectCardDomain(cardWithSub);
+
+    const ansLabelEl = document.getElementById('staging-card-answer-label');
+    const secLabelEl = document.getElementById('staging-card-sec-label');
+    const exLabelEl = document.getElementById('staging-card-example-label');
+    if (ansLabelEl) ansLabelEl.textContent = domain.labels.main;
+    if (secLabelEl) secLabelEl.textContent = domain.labels.sec;
+    if (exLabelEl) exLabelEl.textContent = domain.labels.ex;
+
     if (textEl) {
         if (card.content_type === 'cloze' || /\{\{c\d+::/.test(cardText)) {
             textEl.innerHTML = formatClozeHTML(cardText, false);
@@ -203,26 +216,45 @@ function renderCurrentStagingCard() {
         }
         applyDynamicCardTypography(textEl, cardText);
     }
-    const secText = (card.secondary_text || card.secondary || card.hint || '').trim();
+    const speakBtn = document.getElementById('staging-card-speak-btn');
+    if (speakBtn) {
+        const canSpeakTerm = window.isSpeakable(cardText, cardWithSub);
+        speakBtn.classList.toggle('hidden', !canSpeakTerm);
+        speakBtn.onclick = canSpeakTerm ? (ev) => { ev.stopPropagation(); window.executeVoiceSynthesis(cardText, cardWithSub); } : null;
+    }
+
+    const secWrap = document.getElementById('staging-card-secondary-wrap');
+    const blurBtn = document.getElementById('staging-card-blur-btn');
+    if (blurBtn) {
+        blurBtn.textContent = 'Скрыть';
+        blurBtn.classList.remove('is-active');
+    }
     if (secEl) {
-        secEl.textContent = secText;
         if (secText) {
-            secEl.classList.remove('hidden');
+            secEl.innerHTML = window.renderPartialBlurChipsHTML(secText, domain, { masked: false });
+            if (secWrap) secWrap.classList.remove('hidden');
         } else {
-            secEl.classList.add('hidden');
+            secEl.innerHTML = '';
+            if (secWrap) secWrap.classList.add('hidden');
         }
     }
-    const answerText = (card.translation || card.back || card.answer || card.definition || '').trim();
     if (transEl) {
         transEl.textContent = answerText || '---';
     }
+    const exSpeakBtn = document.getElementById('staging-card-example-speak-btn');
     if (exEl) {
         if (card.example && card.example.trim() && card.example !== '---') {
-            exEl.textContent = `«${card.example.trim()}»`;
+            exEl.innerHTML = window.renderExampleTokensHTML(card.example, cardWithSub, { masked: false });
             if (exBox) exBox.classList.remove('hidden');
+            if (exSpeakBtn) {
+                const canSpeakEx = window.isSpeakable(card.example, cardWithSub);
+                exSpeakBtn.classList.toggle('hidden', !canSpeakEx);
+                exSpeakBtn.onclick = canSpeakEx ? (ev) => { ev.stopPropagation(); window.replayAudioForText(card.example, cardWithSub); } : null;
+            }
         } else {
-            exEl.textContent = '';
+            exEl.innerHTML = '';
             if (exBox) exBox.classList.add('hidden');
+            if (exSpeakBtn) exSpeakBtn.classList.add('hidden');
         }
     }
 
@@ -598,7 +630,7 @@ function initStagingGestures() {
 
         // На тач-экранах: не блокируем интерактивные элементы, разделяем скролл/свайп
         card.addEventListener('touchstart', (e) => {
-            if (e.target.closest('button, a, select, input, textarea')) return;
+            if (e.target.closest('button, a, select, input, textarea, [data-no-swipe]')) return;
             const t = e.touches[0];
             onStart(t.clientX, t.clientY);
         }, { passive: true });
@@ -606,7 +638,7 @@ function initStagingGestures() {
         // На мыши: не блокируем скролл и выделение текста внутри карточки
         card.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
-            if (e.target.closest('button, a, select, input, textarea, .card-scroll-clean')) return;
+            if (e.target.closest('button, a, select, input, textarea, .card-scroll-clean, [data-no-swipe]')) return;
             onStart(e.clientX, e.clientY);
         });
     }

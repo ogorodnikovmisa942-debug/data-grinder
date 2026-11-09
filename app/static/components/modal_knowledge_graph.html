@@ -32,8 +32,8 @@
             <!-- Контентная область -->
             <div class="flex-1 relative overflow-hidden flex flex-col min-h-0 bg-background">
                 <!-- Состояние загрузки -->
-                <div id="kg-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-xs gap-3">
-                    <span class="material-symbols-outlined text-3xl text-primary animate-spin">progress_activity</span>
+                <div id="kg-loading" class="hidden absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-xs gap-3 loading-veil">
+                    <pre class="ascii-spinner text-primary" data-ascii-spinner aria-hidden="true"></pre>
                     <span class="text-xs font-mono text-neutral-500 uppercase tracking-wider">Загрузка структуры знаний...</span>
                 </div>
 
@@ -150,7 +150,7 @@
                     <!-- Разворачиваемое тело шторки (скрывается в режиме Peek) -->
                     <div id="kg-drawer-body" class="px-4 pb-4 flex flex-col gap-2.5 overflow-y-auto overscroll-contain transition-all duration-300" style="touch-action: pan-y; -webkit-overflow-scrolling: touch; max-height: 44vh;">
                         <div class="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed font-sans" id="kg-drawer-summary">
-                            Описание и правовая норма...
+                            Описание понятия...
                         </div>
                         <div id="kg-drawer-path-hint" class="hidden text-[11px] font-mono text-neutral-500"></div>
                         <div id="kg-drawer-actions" class="flex items-center gap-2 pt-1 border-t border-neutral-200 dark:border-neutral-800">

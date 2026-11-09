@@ -371,6 +371,7 @@ async def save_learning_path(db, user_id: str, subject: str, result: dict, *, so
                 secondary_text=c.get("secondary_text") or None,
                 translation=c["translation"],
                 example=c.get("example") or None,
+                mnemonic=c.get("mnemonic") or None,
                 difficulty=DIFFICULTY_BY_TIER.get(c.get("initial_difficulty_tier"), 5.5),
                 stability=1.0,
                 state=0,

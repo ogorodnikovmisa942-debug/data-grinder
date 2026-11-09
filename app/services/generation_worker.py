@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timezone
 from sqlalchemy import select, update, text
 from app.database.session import AsyncSessionLocal
-from app.database.models import GenerationJob, utc_now
+from app.database.models import GenerationJob, UserSetting, utc_now
 from app.services.ai_gateway.client import is_deepseek_offpeak_now, record_ai_telemetry
 from app.services.ai_gateway.path_builder import build_learning_path
 from app.services.knowledge_path import save_learning_path, normalize_subject, build_course_context
@@ -82,6 +82,11 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         job = (await db.execute(select(GenerationJob).filter(GenerationJob.id == job_id))).scalar_one_or_none()
         if not job:
             return
+        effective_assoc = job.assoc_preference if job.assoc_preference in ("visual", "acoustic") else None
+        if not effective_assoc:
+            user_setting = (await db.execute(select(UserSetting).filter(UserSetting.user_id == job.user_id))).scalar_one_or_none()
+            if user_setting and user_setting.assoc_preference in ("visual", "acoustic"):
+                effective_assoc = user_setting.assoc_preference
         job_data = {
             "id": job.id,
             "user_id": job.user_id,
@@ -94,6 +99,7 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
             "replace_source_id": job.replace_source_id,
             "depth": job.depth,
             "source_kind": job.source_kind,
+            "assoc_preference": effective_assoc,
         }
 
     char_count = len(job_data["raw_text"] or "")
@@ -117,8 +123,10 @@ async def process_generation_job(job_id: int, is_offpeak: bool):
         async with AsyncSessionLocal() as db:
             course = await build_course_context(db, job_data["user_id"], job_data["subject"], exclude_source_id=job_data["replace_source_id"])
         try:
-            result = await build_learning_path(job_data["raw_text"], job_data["subject"], calls=calls, course=course,
-                                               depth=job_data["depth"], source_kind=job_data["source_kind"])
+            build_kwargs = {"calls": calls, "course": course, "depth": job_data["depth"], "source_kind": job_data["source_kind"]}
+            if job_data.get("assoc_preference"):
+                build_kwargs["assoc_preference"] = job_data["assoc_preference"]
+            result = await build_learning_path(job_data["raw_text"], job_data["subject"], **build_kwargs)
         finally:
             await _record_path_calls(job_id, job_data["user_id"], calls)
 

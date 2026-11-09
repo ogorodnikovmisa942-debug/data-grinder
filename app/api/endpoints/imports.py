@@ -135,20 +135,25 @@ def job_options(depth: str | None, source_kind: str | None, granularity_mode: st
     return d, (k if k in KINDS else None)
 
 
+def _normalize_assoc_preference(value: str | None) -> str | None:
+    v = (value or "").strip().lower()
+    return v if v in ("visual", "acoustic") else None
+
+
 class ImportIn(BaseModel):
     text: str
     subject: str = ""                    # Целевой предмет, выбранный человеком
     density: str = "medium"
     volume: str = "medium"
     priority: str = "balanced"
-    assoc_preference: str = "acoustic"
+    assoc_preference: Optional[str] = None
     granularity_mode: str = "atomic"     # "atomic" | "single_deep" | "cheatsheet"
     custom_instruction: str = ""        # Свободные пожелания пользователя
     commit_now: bool = False            # False = вернуть в Песочницу (Staging)
     confirm_replace: bool = False       # согласие заменить уже изучаемый путь предмета
     is_deferred: bool = False           # True = отправить в очередь Ночного Грайндера (-50% стоимости)
     depth: str = ""                     # compact | standard | detailed; пусто — по пресету
-    source_kind: str = ""               # textbook | article | notes | guide | lecture | glossary; пусто — определить самому
+    source_kind: str = ""               # textbook | article | notes | guide | lecture | glossary | language; пусто — определить самому
 
 
 class PresetImportIn(BaseModel):
@@ -233,6 +238,7 @@ async def import_raw_text(
         replace_source_id=target["replace_source_id"],
         depth=job_options(payload.depth, payload.source_kind, payload.granularity_mode)[0],
         source_kind=job_options(payload.depth, payload.source_kind, payload.granularity_mode)[1],
+        assoc_preference=_normalize_assoc_preference(payload.assoc_preference),
         status="pending"
     )
     db.add(job)
@@ -324,7 +330,7 @@ async def import_file_at_code_level(
     density = str(form.get("density", "medium"))
     volume = str(form.get("volume", "auto"))
     priority = str(form.get("priority", "balanced"))
-    assoc_preference = str(form.get("assoc_preference", "acoustic"))
+    assoc_preference = _normalize_assoc_preference(str(form.get("assoc_preference", "")))
     granularity_mode = str(form.get("granularity_mode", "atomic"))
     custom_instruction = str(form.get("custom_instruction", "")).strip()
     commit_now = str(form.get("commit_now", "")).lower() == "true"
@@ -457,6 +463,7 @@ async def import_file_at_code_level(
             replace_source_id=target["replace_source_id"],
             depth=job_options(str(form.get("depth", "")), str(form.get("source_kind", "")), granularity_mode)[0],
             source_kind=job_options(str(form.get("depth", "")), str(form.get("source_kind", "")), granularity_mode)[1],
+            assoc_preference=assoc_preference,
             status="pending"
         )
         db.add(job)

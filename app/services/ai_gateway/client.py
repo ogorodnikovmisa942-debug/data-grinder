@@ -309,7 +309,7 @@ async def regenerate_card_mnemonic(text: str, translation: str, subject: str, pr
         "response_format": {"type": "json_object"},
         "temperature": 0.3,
         "max_tokens": MNEMONIC_MAX_TOKENS,
-        "thinking": {"type": "disabled"},
+        
     }
     started = time.time()
     async with httpx.AsyncClient(timeout=30.0) as client:

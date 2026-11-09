@@ -64,6 +64,9 @@ class BulkCardDeleteIn(BaseModel):
 
 class RegenerateMnemonicIn(BaseModel):
     preference: str = "visual"
+    text: str | None = None
+    translation: str | None = None
+    subject: str | None = None
 
 
 class SubjectRenameIn(BaseModel):
@@ -394,10 +397,21 @@ async def regenerate_mnemonic(
     current_user: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    card_res = await db.execute(select(Card).filter(Card.id == card_id, Card.user_id == current_user))
-    card = card_res.scalar_one_or_none()
-    if not card: 
-        raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
+    card = None
+    if card_id == 0:
+        c_text = (payload.text or "").strip()
+        c_trans = (payload.translation or "").strip()
+        c_sub = (payload.subject or "general").strip()
+        if not c_text or not c_trans:
+            raise HTTPException(status_code=400, detail="Для генерации мнемоники укажите термин и значение")
+    else:
+        card_res = await db.execute(select(Card).filter(Card.id == card_id, Card.user_id == current_user))
+        card = card_res.scalar_one_or_none()
+        if not card: 
+            raise HTTPException(status_code=404, detail="Карточка не найдена или нет прав доступа")
+        c_text = card.text
+        c_trans = card.translation
+        c_sub = card.subject
 
     # Платный вызов: жёсткий суточный лимит и учёт расхода в телеметрии (по ней лимит и считается)
     from app.services.quota import enforce_mnemonic, MNEMONIC_PREFIX
@@ -405,9 +419,9 @@ async def regenerate_mnemonic(
     calls: list[dict] = []
     try:
         new_mnemonic = await regenerate_card_mnemonic(
-            text=card.text,
-            translation=card.translation,
-            subject=card.subject,
+            text=c_text,
+            translation=c_trans,
+            subject=c_sub,
             preference=payload.preference,
             calls=calls,
         )
@@ -421,8 +435,9 @@ async def regenerate_mnemonic(
     if "error" in new_mnemonic:
         raise HTTPException(status_code=500, detail=new_mnemonic["error"])
         
-    card.mnemonic = new_mnemonic
-    await db.commit()
+    if card is not None:
+        card.mnemonic = new_mnemonic
+        await db.commit()
     return {"status": "success", "mnemonic": new_mnemonic}
 
 

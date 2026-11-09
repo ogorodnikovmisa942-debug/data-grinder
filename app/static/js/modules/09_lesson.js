@@ -4,83 +4,204 @@
 // Озвучки нет: кот «говорит» только текстом (TTS работает лишь в тренировке языков).
 // ============================================================================
 
-// Кадры кота: 3 строки по 9 символов (усы по бокам морды). Первые шесть эмоций приходят из урока (поле emo);
-// sleepy, wink и proud выбирает только клиент — в промпт урока и VALID_EMOTIONS их добавлять не нужно.
+// Кадры кота: 3 строки ровно по 9 знаков — уши / морда с усами / рот.
+// Ширина строк строго одинаковая, иначе <pre> «прыгает» при смене эмоции.
+// Первые шесть эмоций приходят из урока (поле emo); sleepy, wink, proud, cheer и sad
+// выбирает только клиент — в промпт урока и VALID_EMOTIONS их добавлять не нужно.
 const LESSON_CAT = {
-    idle:      { frames: [['  /\\_/\\  ', '=( o.o )=', '  > ^ <  ']], blink: ['  /\\_/\\  ', '=( -.- )=', '  > ^ <  '] },
-    talk:      { frames: [['  /\\_/\\  ', '=( o.o )=', '  > o <  '], ['  /\\_/\\  ', '=( o.o )=', '  > - <  ']] },
-    happy:     { frames: [['  /\\_/\\  ', '=( ^.^ )=', '  > w <  ']] },
-    think:     { frames: [['  /\\_/\\ ?', '=( -.- )=', '  > ~ <  '], ['  /\\_/\\? ', '=( -.- )=', '  > ~ <  ']] },
-    surprised: { frames: [['  /\\_/\\ !', '=( O.O )=', '  > o <  ']] },
-    confused:  { frames: [['  /\\_/\\ ?', '=( o.O )=', '  > ~ <  ']] },
-    sleepy:    { frames: [['  /\\_/\\ z', '=( u.u )=', '  > ~ <  '], ['  /\\_/\\zZ', '=( u.u )=', '  > o <  ']] },
-    wink:      { frames: [['  /\\_/\\  ', '=( o.- )=', '  > w <  ']] },
-    proud:     { frames: [['  /\\_/\\ *', '=( *.* )=', '  > w <  '], ['  /\\_/\\* ', '=( *.* )=', '  > w <  ']] }
+    idle: {
+        frames: [['  /\_/\  ', ' ( \'w\' ) ', ' (") (") ']],
+        blink: ['  /\_/\  ', ' ( -w- ) ', ' (") (") '],
+        // редкие «вздохи» между морганиями: тихое мяу и прищур
+        idleFrames: [
+            ['  /\_/\  ', ' ( \'o\' ) ', ' (") (") '],
+            ['  /\_/\  ', ' ( -w- ) ', ' (") (") ']
+        ]
+    },
+    talk: {
+        frames: [
+            ['  /\_/\  ', ' ( \'o\' ) ', ' (") (") '],
+            ['  /\_/\  ', ' ( \'w\' ) ', ' (") (") '],
+            ['  /\_/\  ', ' ( \'v\' ) ', ' (") (") ']
+        ]
+    },
+    happy:     { frames: [['  /\_/\  ', ' ( ^w^ ) ', ' (") (") ']], blink: ['  /\_/\  ', ' ( ^-^ ) ', ' (") (") '] },
+    think:     { frames: [['  /\_/\ ?', ' ( -.- ) ', ' (") (") '], ['  /\_/\? ', ' ( -.- ) ', ' (") (") ']] },
+    surprised: { frames: [['  /\_/\ !', ' ( O.O ) ', ' (") (") ']] },
+    confused:  { frames: [['  /\_/\ ?', ' ( o.O ) ', ' (") (") ']] },
+    sleepy:    { frames: [['  /\_/\ z', ' ( u.u ) ', ' (") (") '], ['  /\_/\zZ', ' ( u.u ) ', ' (") (") ']] },
+    wink:      { frames: [['  /\_/\  ', ' ( ^.~ ) ', ' (") (") ']] },
+    proud:     { frames: [['* /\_/\ *', ' ( *.* ) ', ' (") (") '], [' */\_/\* ', ' ( *.* ) ', ' (") (") ']] },
+    // Только клиент: радость за правильный ответ и сочувствие при ошибке
+    cheer:     { frames: [['* /\_/\ *', ' ( ^o^ ) ', ' (") (") ']], blink: ['* /\_/\ *', ' ( ^-^ ) ', ' (") (") '] },
+    sad:       { frames: [['  /\_/\  ', ' ( T.T )\'', ' (") (") ']] }
 };
 const LESSON_TIER_NAMES = ['Основы', 'Тема', 'Подтема', 'Кейс на различение'];
 const LESSON_TYPE_MS = 18;
 
 let lessonState = null;
-let lessonCatTimer = null;
 let lessonTypeTimer = null;
 
 function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-function setLessonCat(emotion, reaction) {
-    const el = document.getElementById('lesson-cat');
-    if (!el) return;
-    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
-    clearInterval(lessonCatTimer);
+// ============================================================================
+// ОБЩИЙ ДВИЖОК ASCII-МАСКОТА
+// Кадры, моргание, редкие «вздохи» и одноразовые реакции. Таймеры живут на самом
+// <pre>, поэтому экраны и карточки не наследуют чужие интервалы.
+// ============================================================================
+const CAT_MASCOT_TIMERS = new WeakMap();
 
-    const draw = (frame) => { el.textContent = frame.join('\n'); };
-    draw(cat.frames[0]);
+// Медленный цикл спокойного кота: дыхание → моргание → тихое мяу → моргание.
+// Паузы подобраны так, чтобы кот казался живым, но не отвлекал от текста.
+const CAT_IDLE_PLAN = [
+    { frame: 'base', hold: 2500 },
+    { frame: 'blink', hold: 140 },
+    { frame: 'base', hold: 850 },
+    { frame: 'alt1', hold: 900 },
+    { frame: 'base', hold: 2200 },
+    { frame: 'blink', hold: 130 },
+    { frame: 'base', hold: 1700 },
+    { frame: 'alt2', hold: 700 }
+];
 
-    // Микроанимации: рот/знак вопроса сменяют кадры, спокойный кот иногда моргает
-    if (!prefersReducedMotion()) {
-        if (cat.frames.length > 1) {
-            let i = 0;
-            lessonCatTimer = setInterval(() => { i = (i + 1) % cat.frames.length; draw(cat.frames[i]); }, emotion === 'talk' ? 170 : 600);
-        } else if (cat.blink) {
-            lessonCatTimer = setInterval(() => {
-                draw(cat.blink);
-                setTimeout(() => draw(cat.frames[0]), 160);
-            }, 3200);
-        }
-    }
-
-    el.className = `lesson-cat font-mono text-primary cat-emo-${emotion}`;
-    if (reaction && !prefersReducedMotion()) {
-        void el.offsetWidth; // перезапуск CSS-анимации реакции
-        el.classList.add(`cat-react-${reaction}`);
-    }
+function catFrameFor(cat, kind) {
+    if (kind === 'blink' && cat.blink) return cat.blink;
+    if (kind === 'alt1' && cat.idleFrames && cat.idleFrames[0]) return cat.idleFrames[0];
+    if (kind === 'alt2' && cat.idleFrames && cat.idleFrames[1]) return cat.idleFrames[1];
+    return cat.frames[0];
 }
 
-// Печать реплики по буквам; кот «говорит», пока идёт текст, потом принимает эмоцию реплики
+// Перезапуск одноразовой CSS-анимации: снять класс, форсировать reflow, повесить снова
+function restartCssAnimation(el, cls) {
+    if (!el || !cls) return;
+    el._dgAnimTimers = el._dgAnimTimers || {};
+    clearTimeout(el._dgAnimTimers[cls]);
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    const clear = () => el.classList.remove(cls);
+    el.addEventListener('animationend', clear, { once: true });
+    // страховка: у скрытого элемента animationend может не прийти
+    el._dgAnimTimers[cls] = setTimeout(clear, 1000);
+}
+
+function stopMascot(el) {
+    if (!el) return;
+    const token = CAT_MASCOT_TIMERS.get(el);
+    if (!token) return;
+    token.stopped = true;
+    clearTimeout(token.timer);
+    CAT_MASCOT_TIMERS.delete(el);
+}
+
+function startMascot(el, emotion, options = {}) {
+    if (!el || typeof LESSON_CAT === 'undefined') return;
+    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
+    stopMascot(el);
+    el.textContent = cat.frames[0].join('\n');
+    el.className = `${options.baseClass || 'lesson-cat font-mono text-primary'} cat-emo-${emotion}`;
+    if (!prefersReducedMotion()) {
+        if (options.enter) restartCssAnimation(el, 'cat-enter');
+        if (options.reaction) restartCssAnimation(el, `cat-react-${options.reaction}`);
+    }
+    if (prefersReducedMotion()) return;
+
+    const token = { stopped: false, timer: null };
+    CAT_MASCOT_TIMERS.set(el, token);
+    const draw = frame => { if (!token.stopped) el.textContent = frame.join('\n'); };
+
+    // Несколько кадров — кот говорит, сопит или сияет; один кадр — живёт медленным циклом.
+    // Во время печати урока рот меняется быстро (170мс), на статичных репликах — мягко (620мс).
+    if (cat.frames.length > 1) {
+        const talkDelay = options.talkDelay || 620;
+        const delay = emotion === 'talk' ? talkDelay : (emotion === 'sleepy' ? 900 : 680);
+        let i = 0;
+        const tick = () => {
+            i = (i + 1) % cat.frames.length;
+            draw(cat.frames[i]);
+            token.timer = setTimeout(tick, delay);
+        };
+        token.timer = setTimeout(tick, delay);
+        return;
+    }
+
+    let step = 0;
+    const tick = () => {
+        const item = CAT_IDLE_PLAN[step % CAT_IDLE_PLAN.length];
+        draw(catFrameFor(cat, item.frame));
+        step += 1;
+        token.timer = setTimeout(tick, item.hold);
+    };
+    tick();
+}
+
+// Общая точка входа для любого <pre>-кота: урок, карточка, практика, старт, экзамен
+function setMascotFor(elementId, emotion, options = {}) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const enter = options.enter === undefined ? !el.textContent.trim() : !!options.enter;
+    startMascot(el, emotion, { ...options, enter });
+}
+
+function setLessonCat(emotion, reaction) {
+    // В уроке кот «говорит» синхронно с печатью текста, поэтому рот меняется чаще
+    setMascotFor('lesson-cat', emotion, { reaction, baseClass: 'lesson-cat font-mono text-primary', talkDelay: 170 });
+}
+
+window.startMascot = startMascot;
+window.stopMascot = stopMascot;
+window.setMascotFor = setMascotFor;
+window.restartCssAnimation = restartCssAnimation;
+
+// Печать реплики по буквам с паузами на знаках препинания; кот «говорит», пока идёт
+// текст, потом принимает эмоцию реплики. Курсор-«▍» рисует CSS-класс is-typing.
+function lessonTypeDelay(ch) {
+    if (!ch) return LESSON_TYPE_MS;
+    if ('.!?…:;'.includes(ch)) return LESSON_TYPE_MS + 95;
+    if (',—–-'.includes(ch)) return LESSON_TYPE_MS + 45;
+    if (ch === ' ') return LESSON_TYPE_MS + 6;
+    return LESSON_TYPE_MS;
+}
+
 function sayLesson(text, emotionAfter, reaction) {
     const textEl = document.getElementById('lesson-text');
-    clearInterval(lessonTypeTimer);
+    clearTimeout(lessonTypeTimer);
+    lessonTypeTimer = null;
     if (!textEl) return;
-    if (prefersReducedMotion()) {
+
+    if (!prefersReducedMotion()) {
+        restartCssAnimation(document.getElementById('lesson-bubble') || textEl, 'bubble-swap');
+    }
+    if (prefersReducedMotion() || !lessonState) {
         textEl.textContent = text;
+        textEl.classList.remove('is-typing');
         setLessonCat(emotionAfter, reaction);
         return;
     }
+
     setLessonCat('talk');
     let pos = 0;
     textEl.textContent = '';
-    lessonState.typingDone = () => {
-        clearInterval(lessonTypeTimer);
+    textEl.classList.add('is-typing');
+    const finish = () => {
+        clearTimeout(lessonTypeTimer);
+        lessonTypeTimer = null;
         textEl.textContent = text;
-        lessonState.typingDone = null;
+        textEl.classList.remove('is-typing');
+        if (lessonState) lessonState.typingDone = null;
         setLessonCat(emotionAfter, reaction);
     };
-    lessonTypeTimer = setInterval(() => {
+    lessonState.typingDone = finish;
+    const typeNext = () => {
+        if (!lessonState) { clearTimeout(lessonTypeTimer); return; }
         pos += 1;
         textEl.textContent = text.slice(0, pos);
-        if (pos >= text.length && lessonState.typingDone) lessonState.typingDone();
-    }, LESSON_TYPE_MS);
+        if (pos >= text.length) { finish(); return; }
+        lessonTypeTimer = setTimeout(typeNext, lessonTypeDelay(text[pos]));
+    };
+    lessonTypeTimer = setTimeout(typeNext, lessonTypeDelay(text[0]));
 }
 
 window.skipLessonTyping = function() {
@@ -118,14 +239,134 @@ function setLessonButtons(nextLabel, nextEnabled, secondaryLabel) {
 }
 
 function clearLessonExtras() {
-    ['lesson-focus', 'lesson-options', 'lesson-facts'].forEach(id => {
+    ['lesson-visual-slot', 'lesson-focus', 'lesson-options', 'lesson-facts'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });
+    const visualEl = document.getElementById('lesson-visual-slot');
+    if (visualEl) visualEl.classList.add('hidden');
     const factsEl = document.getElementById('lesson-facts');
     if (factsEl) factsEl.classList.add('hidden');
     const fb = document.getElementById('lesson-feedback');
     if (fb) fb.classList.add('hidden');
+}
+
+function renderLessonVisualSlot(s, nodesByKey) {
+    const slot = document.getElementById('lesson-visual-slot');
+    if (!slot || !s) return;
+    const kgSub = (typeof currentKgSubject !== 'undefined' && currentKgSubject)
+        ? currentKgSubject
+        : (typeof currentSubject !== 'undefined' ? currentSubject : '');
+    const focusNodes = (s.focus || []).map(k => nodesByKey.get(k)).filter(Boolean);
+    const primaryNode = (lessonState && nodesByKey.get(lessonState.nodeId)) || focusNodes[0] || null;
+    const shortNote = (txt, maxLen = 110) => {
+        const t = String(txt || '').trim();
+        if (!t) return '';
+        return t.length > maxLen ? `${t.slice(0, maxLen - 1).trim()}…` : t;
+    };
+
+    // 1) Явная визуальная схема экрана от сервера (если есть)
+    if (s.visual && typeof s.visual === 'object') {
+        const v = s.visual;
+        if (v.kind === 'contrast' && v.left && v.right) {
+            slot.innerHTML = `
+                <div class="lesson-visual-card">
+                    <div class="lesson-contrast-grid">
+                        <div class="lesson-contrast-col is-primary">
+                            <span class="lesson-contrast-kicker">${escapeHTML(v.left.kicker || 'Разбираем')}</span>
+                            <span class="lesson-contrast-name">${escapeHTML(v.left.name || '')}</span>
+                            ${v.left.note ? `<span class="lesson-contrast-note">${escapeHTML(v.left.note)}</span>` : ''}
+                        </div>
+                        <div class="lesson-contrast-col is-vs">
+                            <span class="lesson-contrast-kicker">${escapeHTML(v.right.kicker || 'Не путать с')}</span>
+                            <span class="lesson-contrast-name">${escapeHTML(v.right.name || '')}</span>
+                            ${v.right.note ? `<span class="lesson-contrast-note">${escapeHTML(v.right.note)}</span>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            slot.classList.remove('hidden');
+            return;
+        }
+        if (v.term) {
+            const canSpeakV = window.isSpeakable(v.term, kgSub);
+            const isCompact = !/[\u4e00-\u9fa5]/.test(v.term) || v.term.length > 8;
+            slot.innerHTML = `
+                <div class="lesson-visual-card">
+                    <div class="lesson-hanzi-row">
+                        <div class="lesson-hanzi-glyph"${isCompact ? ' style="font-size:1.35rem;"' : ''}>${escapeHTML(v.term)}</div>
+                        ${canSpeakV ? '<button type="button" data-no-swipe class="dg-speak-pill"><span class="material-symbols-outlined">volume_up</span><span>Слушать</span></button>' : ''}
+                    </div>
+                    ${v.note ? `<p class="lesson-visual-note">${escapeHTML(v.note)}</p>` : ''}
+                </div>`;
+            if (canSpeakV) {
+                const btn = slot.querySelector('.dg-speak-pill');
+                if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); window.replayAudioForText(v.term, kgSub); });
+            }
+            slot.classList.remove('hidden');
+            return;
+        }
+    }
+
+    // 2) Авто-карточка разграничения («не путать с») на основании графа связей
+    const graphEdges = (typeof currentKgGraphData !== 'undefined' && currentKgGraphData)
+        ? (currentKgGraphData.edges || currentKgGraphData.links || [])
+        : [];
+    if (focusNodes.length >= 2 && graphEdges.length > 0) {
+        const focusIds = new Set(focusNodes.map(n => String(n.id)));
+        const demEdge = graphEdges.find(e => {
+            if (e.relation !== 'demarcated_from') return false;
+            const sid = String(typeof e.source === 'object' && e.source ? e.source.id : e.source);
+            const tid = String(typeof e.target === 'object' && e.target ? e.target.id : e.target);
+            return focusIds.has(sid) && focusIds.has(tid) && sid !== tid;
+        });
+        if (demEdge) {
+            const sid = String(typeof demEdge.source === 'object' && demEdge.source ? demEdge.source.id : demEdge.source);
+            const tid = String(typeof demEdge.target === 'object' && demEdge.target ? demEdge.target.id : demEdge.target);
+            const nA = nodesByKey.get(sid);
+            const nB = nodesByKey.get(tid);
+            if (nA && nB) {
+                const noteA = shortNote(nA.summary, 90);
+                const noteB = shortNote(nB.summary, 90);
+                slot.innerHTML = `
+                    <div class="lesson-visual-card">
+                        <div class="lesson-contrast-grid">
+                            <div class="lesson-contrast-col is-primary">
+                                <span class="lesson-contrast-kicker">Разбираем</span>
+                                <span class="lesson-contrast-name">${escapeHTML(nA.name)}</span>
+                                ${noteA ? `<span class="lesson-contrast-note">${escapeHTML(noteA)}</span>` : ''}
+                            </div>
+                            <div class="lesson-contrast-col is-vs">
+                                <span class="lesson-contrast-kicker">Не путать с</span>
+                                <span class="lesson-contrast-name">${escapeHTML(nB.name)}</span>
+                                ${noteB ? `<span class="lesson-contrast-note">${escapeHTML(noteB)}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>`;
+                slot.classList.remove('hidden');
+                return;
+            }
+        }
+    }
+
+    // 3) Крупный иероглиф / языковая единица + кнопка озвучки для языковых узлов
+    const langCandidate = focusNodes.find(n => window.isSpeakable(n.name, kgSub))
+        || (lessonState && lessonState.idx === 0 && primaryNode && window.isSpeakable(primaryNode.name, kgSub) ? primaryNode : null);
+    if (langCandidate) {
+        const term = String(langCandidate.name || '').trim();
+        const isCjkShort = /[\u4e00-\u9fa5]/.test(term) && term.length <= 8;
+        const noteTxt = (langCandidate.summary && langCandidate.summary !== s.say) ? shortNote(langCandidate.summary, 140) : '';
+        slot.innerHTML = `
+            <div class="lesson-visual-card">
+                <div class="lesson-hanzi-row">
+                    <div class="lesson-hanzi-glyph"${isCjkShort ? '' : ' style="font-size:1.35rem;"'}>${escapeHTML(term)}</div>
+                    <button type="button" data-no-swipe class="dg-speak-pill"><span class="material-symbols-outlined">volume_up</span><span>Слушать</span></button>
+                </div>
+                ${noteTxt ? `<p class="lesson-visual-note">${escapeHTML(noteTxt)}</p>` : ''}
+            </div>`;
+        const btn = slot.querySelector('.dg-speak-pill');
+        if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); window.replayAudioForText(term, kgSub); });
+        slot.classList.remove('hidden');
+    }
 }
 
 function renderLessonScreen() {
@@ -137,11 +378,13 @@ function renderLessonScreen() {
     // Понятия, о которых говорит кот, — чипы с названиями узлов графа
     const focusEl = document.getElementById('lesson-focus');
     const nodesByKey = new Map(((typeof currentKgGraphData !== 'undefined' && currentKgGraphData && currentKgGraphData.nodes) || []).map(n => [n.id, n]));
-    (s.focus || []).forEach(key => {
+    renderLessonVisualSlot(s, nodesByKey);
+    (s.focus || []).forEach((key, i) => {
         const n = nodesByKey.get(key);
         if (!n || !focusEl) return;
         const chip = document.createElement('span');
-        chip.className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase badge-${n.status || 'open'}`;
+        chip.className = `lesson-focus-chip px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase badge-${n.status || 'open'}`;
+        chip.style.animationDelay = prefersReducedMotion() ? '' : `${i * 45}ms`;
         chip.textContent = n.name;
         focusEl.appendChild(chip);
     });
@@ -164,6 +407,7 @@ function renderLessonPretest() {
     c.options.forEach((opt, i) => {
         const btn = document.createElement('button');
         btn.className = 'lesson-option w-full text-left rounded-xl text-sm transition-all cursor-pointer';
+        btn.style.animationDelay = prefersReducedMotion() ? '' : `${i * 45}ms`;
         btn.textContent = opt;
         btn.onclick = () => answerLessonPretest(i);
         optionsEl.appendChild(btn);
@@ -195,6 +439,7 @@ function renderLessonCheck() {
     c.options.forEach((opt, i) => {
         const btn = document.createElement('button');
         btn.className = 'lesson-option w-full text-left rounded-xl text-sm transition-all cursor-pointer';
+        btn.style.animationDelay = prefersReducedMotion() ? '' : `${i * 45}ms`;
         btn.textContent = opt;
         btn.onclick = () => answerLessonCheck(i);
         optionsEl.appendChild(btn);
@@ -277,8 +522,9 @@ function showLessonFacts(facts, say, nextLabel, onNext, secondaryLabel, onSecond
     sayLesson(say, 'talk');
     const list = document.getElementById('lesson-facts');
     if (list) {
-        facts.forEach(text => {
+        facts.forEach((text, i) => {
             const li = document.createElement('li');
+            li.style.animationDelay = prefersReducedMotion() ? '' : `${i * 55}ms`;
             li.textContent = text;
             list.appendChild(li);
         });
@@ -472,13 +718,21 @@ window.openLesson = async function(nodeId) {
     if (tierEl) tierEl.textContent = data.intro ? 'Вводный урок' : (LESSON_TIER_NAMES[data.node.tier] || '');
 
     modal.classList.remove('hidden');
+    // Кот появляется вместе с уроком — один раз, а не на каждой реплике
+    if (!prefersReducedMotion()) restartCssAnimation(document.getElementById('lesson-cat'), 'cat-enter');
     if (lessonState.phase === 'pretest') renderLessonPretest();
     else renderLessonScreen();
 };
 
 window.closeLesson = function() {
-    clearInterval(lessonCatTimer);
-    clearInterval(lessonTypeTimer);
+    clearTimeout(lessonTypeTimer);
+    lessonTypeTimer = null;
+    stopMascot(document.getElementById('lesson-cat'));
+    const textEl = document.getElementById('lesson-text');
+    if (textEl) {
+        textEl.textContent = '';
+        textEl.classList.remove('is-typing');
+    }
     lessonState = null;
     const modal = document.getElementById('lesson-modal');
     if (modal) modal.classList.add('hidden');

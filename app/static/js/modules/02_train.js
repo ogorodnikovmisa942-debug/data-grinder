@@ -83,6 +83,14 @@ function applyDynamicCardTypography(element, text) {
     if (scrollContainer) {
         scrollContainer.scrollTop = 0;
     }
+
+    const clean = (text || '').trim();
+    if (/[\u4e00-\u9fa5]/.test(clean) && clean.length <= 6) {
+        element.style.fontSize = clean.length <= 2 ? '2.85rem' : '2.15rem';
+        element.style.lineHeight = '1.25';
+        element.style.fontWeight = '600';
+        element.style.letterSpacing = '0.05em';
+    }
 }
 
 const STAGING_CARD_TEMPLATE = `
@@ -108,38 +116,55 @@ const STAGING_CARD_TEMPLATE = `
         <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container shrink-0">medium</span>
     </div>
 
-    <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
+    <!-- Скроллируемое тело карточки: адаптивные структурированные блоки -->
     <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean overflow-y-auto py-1 px-1 select-text" style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
-        <!-- Блок Вопроса / Кейса (чистый, крупный, без подсказок) -->
+        <!-- Блок Вопроса / Термина -->
         <div class="flex flex-col gap-1 text-left select-text">
-            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
-                <span class="material-symbols-outlined text-[12px]">help</span>
-                <span>ВОПРОС</span>
-            </span>
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[12px]">help</span>
+                    <span>ВОПРОС</span>
+                </span>
+                <button type="button" id="staging-card-speak-btn" data-no-swipe class="dg-speak-pill hidden" style="padding:3px 9px;font-size:10px;" aria-label="Озвучить">
+                    <span class="material-symbols-outlined" style="font-size:13px;">volume_up</span>
+                    <span>Озвучить</span>
+                </button>
+            </div>
             <div id="staging-card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">...</div>
         </div>
 
         <!-- Разделитель -->
         <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
 
-        <!-- Блок Ответа / Дефиниции с бейджем источника нормы -->
+        <!-- Блок Ответа с домен-адаптивным заголовком и интерактивными чипами контекста -->
         <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left select-text">
-            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
-                    <span class="material-symbols-outlined text-[12px]">task_alt</span>
-                    <span>ОТВЕТ</span>
-                </span>
-                <span id="staging-card-secondary" class="text-[9px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
-            </div>
+            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1 mb-1">
+                <span class="material-symbols-outlined text-[12px]">task_alt</span>
+                <span id="staging-card-answer-label">ОТВЕТ</span>
+            </span>
             <div id="staging-card-translation" class="text-xs sm:text-sm text-on-surface leading-relaxed break-words font-medium">...</div>
+            <div id="staging-card-secondary-wrap" data-blur-sec class="hidden mt-2 pt-2 border-t border-outline-variant/30">
+                <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                    <span id="staging-card-sec-label" class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline">КОНТЕКСТ</span>
+                    <button type="button" id="staging-card-blur-btn" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('staging-card', this);" class="blur-action-btn" title="Проверить с размытием">Скрыть</button>
+                </div>
+                <div id="staging-card-secondary" class="blur-chips-row" data-no-swipe></div>
+            </div>
         </div>
 
         <!-- Пример (если есть) -->
-        <div id="staging-card-example-box" class="border-l-2 border-primary/40 pl-2.5 py-0.5 text-left empty:hidden">
-            <div id="staging-card-example" class="text-[11px] text-outline italic break-words">...</div>
+        <div id="staging-card-example-box" class="hidden dg-example-box text-left">
+            <div class="flex items-center justify-between gap-2 mb-1">
+                <span id="staging-card-example-label" class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline">ПРИМЕР</span>
+                <button type="button" id="staging-card-example-speak-btn" data-no-swipe class="blur-action-btn hidden" aria-label="Озвучить пример">
+                    <span class="material-symbols-outlined" style="font-size:12px;">volume_up</span>
+                    <span>Пример</span>
+                </button>
+            </div>
+            <div id="staging-card-example" class="text-[11px] text-neutral-700 dark:text-neutral-300 italic leading-relaxed break-words">...</div>
         </div>
-        
-        <!-- Мнемоника / Ассоциация (если есть) -->
+
+        <!-- Мнемоника / Ассоциация (единая фиолетовая палитра) -->
         <div id="staging-card-mnemonic-box" class="mnemonic-box w-full p-2.5 rounded-xl text-[10px] text-left hidden shadow-xs">
             <span class="mnemonic-label font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
                 <span class="material-symbols-outlined text-[12px]">psychology</span>
@@ -320,7 +345,7 @@ function initTrainGestures() {
 
     card.addEventListener('touchstart', (e) => {
         tapStart = null;
-        if (e.target.closest('button, select, input, textarea, a')) return;
+        if (e.target.closest('button, select, input, textarea, a, [data-no-swipe]')) return;
         const touch = e.touches[0];
         tapStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
         onStart(touch.clientX, touch.clientY);
@@ -343,7 +368,7 @@ function initTrainGestures() {
         onEnd();
         // Тап обрабатываем сами и гасим синтетический click: так переворот не зависит от того,
         // дошёл ли до карточки «родной» click (на iOS он пропадал после лёгкого сдвига пальца)
-        if (tap && e.cancelable && !e.target.closest('button, select, input, textarea, a')) {
+        if (tap && e.cancelable && !e.target.closest('button, select, input, textarea, a, [data-no-swipe]')) {
             e.preventDefault();
             if (!cardsQueue[currentIndex]) return;
             if (typeof window.flipCard === 'function') window.flipCard();
@@ -352,7 +377,7 @@ function initTrainGestures() {
     card.addEventListener('touchcancel', () => onEnd());
 
     card.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button, select, input, textarea, a')) return;
+        if (e.target.closest('button, select, input, textarea, a, [data-no-swipe]')) return;
         onStart(e.clientX, e.clientY);
     });
 
@@ -398,7 +423,7 @@ function bindDOMPointers() {
 
     if (cardFront) {
         cardFront.onclick = (e) => {
-            if (e && e.target && e.target.closest('button, select, input, textarea, a')) return;
+            if (e && e.target && e.target.closest('button, select, input, textarea, a, [data-no-swipe]')) return;
             if (trainDrag && trainDrag.hasMoved) return;
             const card = cardsQueue[currentIndex];
             if (!card) return;
@@ -410,7 +435,7 @@ function bindDOMPointers() {
 
     if (cardBack) {
         cardBack.onclick = (e) => {
-            if (e.target.closest('button, select, input, textarea, a')) return; 
+            if (e.target.closest('button, select, input, textarea, a, [data-no-swipe]')) return; 
             if (trainDrag && trainDrag.hasMoved) return;
             if (cardsQueue.length === 0 || !isFlipped) return;
             window.flipCard();
@@ -637,114 +662,25 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-function isLanguageCard(card) {
-    if (!card) return false;
-    const sub = ((card.subject || currentSubject || '') + '').toLowerCase();
-    const textToSpeak = card.text || '';
-    const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
-    if (containsChinese) return true;
-
-    const isLangSubject = sub.includes('chinese') || sub.includes('hsk') || 
-                          sub.includes('english') || sub.includes('eng_') || 
-                          sub.includes('german') || sub.includes('de_') ||
-                          sub.includes('spanish') || sub.includes('es_') ||
-                          sub.includes('french') || sub.includes('fr_') ||
-                          sub.includes('vocab') || sub.includes('lang');
-    return isLangSubject;
-}
-
-function isSpeakable(text) {
-    if (!text || text === '---') return false;
-    const sub = (currentSubject || '').toLowerCase();
-    const containsChinese = /[\u4e00-\u9fa5]/.test(text);
-    if (containsChinese) return true;
-
-    const isLangSubject = sub.includes('chinese') || sub.includes('hsk') || 
-                          sub.includes('english') || sub.includes('eng_') || 
-                          sub.includes('german') || sub.includes('de_') ||
-                          sub.includes('spanish') || sub.includes('es_') ||
-                          sub.includes('french') || sub.includes('fr_') ||
-                          sub.includes('vocab') || sub.includes('lang');
-    return isLangSubject;
-}
-
-function executeVoiceSynthesis(textToSpeak) {
-    if (!window.speechSynthesis || !textToSpeak) return;
-    if (!isSpeakable(textToSpeak)) return;
-    
-    let lang = null;
-    const containsChinese = /[\u4e00-\u9fa5]/.test(textToSpeak);
-    const sub = (currentSubject || '').toLowerCase();
-    
-    if (containsChinese || sub.includes('chinese') || sub === 'chinese_hsk3') {
-        lang = 'zh-CN';
-    } else if (sub.includes('english') || sub.includes('eng_')) {
-        lang = 'en-US';
-    } else if (sub.includes('german') || sub.includes('de_')) {
-        lang = 'de-DE';
-    } else if (sub.includes('spanish') || sub.includes('es_')) {
-        lang = 'es-ES';
-    } else if (sub.includes('french') || sub.includes('fr_')) {
-        lang = 'fr-FR';
-    }
-    
-    if (!lang) return;
-    
-    try {
-        window.speechSynthesis.cancel(); 
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.rate = 0.85; 
-        utterance.lang = lang;
-        window.currentUtterance = utterance;
-        window.speechSynthesis.speak(utterance);
-    } catch (e) { console.error("Сбой аудио-канала:", e); }
-}
-
-window.replayAudioForText = function(text) {
-    if (!window.speechSynthesis || !text) return;
-    if (!isSpeakable(text)) return;
-    
-    let lang = null;
-    const containsChinese = /[\u4e00-\u9fa5]/.test(text);
-    const sub = (currentSubject || '').toLowerCase();
-    
-    if (containsChinese || sub.includes('chinese')) {
-        lang = 'zh-CN';
-    } else if (sub.includes('english') || sub.includes('eng_')) {
-        lang = 'en-US';
-    } else if (sub.includes('german') || sub.includes('de_')) {
-        lang = 'de-DE';
-    } else if (sub.includes('spanish') || sub.includes('es_')) {
-        lang = 'es-ES';
-    } else if (sub.includes('french') || sub.includes('fr_')) {
-        lang = 'fr-FR';
-    }
-    
-    if (!lang) return;
-    
-    try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.85;
-        utterance.lang = lang;
-        window.speechSynthesis.speak(utterance);
-    } catch (e) {
-        console.error("Сбой аудио-канала:", e);
-    }
-};
-
 window.replayAudio = function() {
     if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
     const currentCard = cardsQueue[currentIndex];
-    if (currentCard && isLanguageCard(currentCard)) {
-        executeVoiceSynthesis(currentCard.text);
+    if (currentCard && typeof window.executeVoiceSynthesis === 'function') {
+        window.executeVoiceSynthesis(currentCard.text, currentCard);
+    }
+};
+
+window.replayCurrentExampleAudio = function() {
+    if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
+    const currentCard = cardsQueue[currentIndex];
+    if (currentCard && currentCard.example && typeof window.executeVoiceSynthesis === 'function') {
+        window.executeVoiceSynthesis(currentCard.example, currentCard);
     }
 };
 
 function renderTopCounters() {
     const dueCount = cardsQueue.length - currentIndex;
     document.querySelectorAll('.data-cnt-queue').forEach(el => el.innerText = Math.max(0, dueCount));
-    document.querySelectorAll('.data-cnt-evening').forEach(el => el.innerText = window.eveningDueCount || 0);
 }
 
 function shuffleArray(array) {
@@ -865,6 +801,10 @@ function resetCardDOM() {
         hintEl.innerHTML = '';
         hintEl.className = 'card-context hidden';
     }
+    ['card-front-speak-pill', 'voice-btn-front', 'voice-btn-back'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
 }
 
 window.showSessionDebrief = async function() {
@@ -903,17 +843,14 @@ window.showSessionDebrief = async function() {
     const reviewed = currentSessionStats.totalAnswered || cardsQueue.length || 0;
     const correct = currentSessionStats.correctCount || Math.max(0, reviewed - (currentSessionStats.lapsedCount || 0));
     const accuracy = reviewed > 0 ? Math.max(0, Math.min(100, Math.round((correct / reviewed) * 100))) : 100;
-    const evening = window.eveningDueCount || 0;
 
     const elReviewed = document.getElementById('debrief-stat-reviewed');
     const elAcc = document.getElementById('debrief-stat-accuracy');
-    const elEvening = document.getElementById('debrief-stat-evening');
     const elSub = document.getElementById('debrief-subject-text');
     const elBtnNextText = document.getElementById('debrief-btn-next-text');
 
     if (elReviewed) elReviewed.textContent = reviewed;
     if (elAcc) elAcc.textContent = `${accuracy}%`;
-    if (elEvening) elEvening.textContent = evening;
     
     let subDisplay = (currentSubject && currentSubject !== 'all') ? currentSubject.toUpperCase() : 'ВСЕ ПРЕДМЕТЫ';
     if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
@@ -1269,32 +1206,19 @@ const TRAIN_CAT_LINES = {
     revealed: 'Честно: вспомнил или нет? Ошибка тоже помогает запомнить.'
 };
 let trainCatPending = null;
-const catWidgetTimers = {};
 
-// Маленький кот с репликой (карточки, практика): эмоция, моргание, реакция на ответ
+// Маленький кот с репликой (карточки, практика): эмоция, моргание, реакция на ответ.
+// Кадры и таймеры — в общем движке маскота (09_lesson.js), чтобы все коты жили одинаково.
 function setCatWidget(catId, sayId, emotion, text, reaction) {
     const el = document.getElementById(catId);
     const say = document.getElementById(sayId);
-    if (say) say.textContent = text;
+    if (say && say.textContent !== text) {
+        say.textContent = text;
+        if (!prefersReducedMotion()) restartCssAnimation(say, 'bubble-swap');
+    }
     if (!el || typeof LESSON_CAT === 'undefined') return;
-    const cat = LESSON_CAT[emotion] || LESSON_CAT.idle;
-    clearInterval(catWidgetTimers[catId]);
-    el.textContent = cat.frames[0].join('\n');
-    el.className = `lesson-cat intro-cat font-mono text-primary cat-emo-${emotion}`;
-    if (prefersReducedMotion()) return;
-    if (reaction) {
-        void el.offsetWidth;
-        el.classList.add(`cat-react-${reaction}`);
-    }
-    if (cat.frames.length > 1) {
-        let i = 0;
-        catWidgetTimers[catId] = setInterval(() => { i = (i + 1) % cat.frames.length; el.textContent = cat.frames[i].join('\n'); }, 600);
-    } else {
-        catWidgetTimers[catId] = setInterval(() => {
-            el.textContent = LESSON_CAT.idle.blink.join('\n');
-            setTimeout(() => { el.textContent = cat.frames[0].join('\n'); }, 160);
-        }, 3400);
-    }
+    const enter = !el.textContent.trim();
+    startMascot(el, emotion, { baseClass: 'lesson-cat intro-cat font-mono text-primary', reaction, enter });
 }
 window.setCatWidget = setCatWidget;
 
@@ -1302,14 +1226,40 @@ function setTrainCat(emotion, text, reaction) {
     setCatWidget('train-cat', 'train-cat-say', emotion, text, reaction);
 }
 
-function introAnswerHTML(card, mnemonicFormatted) {
-    const example = card.example && card.example !== '---' ? card.example : '';
+function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
+    const domain = window.detectCardDomain(card);
+    const maskSecondary = opts.masked === true;
+    const secRaw = (card.secondary_text && card.secondary_text !== '---') ? card.secondary_text.trim() : '';
+    const chipsHTML = secRaw ? window.renderPartialBlurChipsHTML(secRaw, domain, { masked: maskSecondary }) : '';
+    const example = (card.example && card.example !== '---') ? card.example.trim() : '';
+    const canSpeakEx = example && window.isSpeakable(example, card);
+    const scopeId = 'card-intro-body';
     return `
         <div class="intro-answer animate-fade-in">
-            <span class="intro-answer-label">Ответ</span>
-            <div class="intro-answer-text">${escapeHTML(card.translation)}</div>
-            ${example ? `<div class="intro-answer-example">«${escapeHTML(example)}»</div>` : ''}
+            <span class="intro-answer-label">${escapeHTML(domain.labels.main)}</span>
+            <div class="intro-answer-text">${escapeHTML(card.translation || '')}</div>
+            ${chipsHTML ? `
+                <div id="intro-sec-box" data-blur-sec class="mt-2.5 pt-2 border-t border-neutral-200/70 dark:border-neutral-800">
+                    <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                        <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.sec)}</span>
+                        <div class="flex items-center gap-1" data-no-swipe>
+                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardScaffold('intro-sec-box', this);" class="blur-action-btn" title="Подсказка: показать каркас">Каркас</button>
+                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">${maskSecondary ? 'Открыть' : 'Скрыть'}</button>
+                        </div>
+                    </div>
+                    <div class="blur-chips-row" data-no-swipe>${chipsHTML}</div>
+                </div>
+            ` : ''}
         </div>
+        ${example ? `
+            <div class="dg-example-box animate-fade-in">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.ex)}</span>
+                    ${canSpeakEx ? `<button type="button" data-no-swipe onclick="event.stopPropagation(); window.replayCurrentExampleAudio();" class="blur-action-btn" aria-label="Озвучить пример"><span class="material-symbols-outlined" style="font-size:12px;">volume_up</span><span>Пример</span></button>` : ''}
+                </div>
+                <div class="text-xs text-neutral-700 dark:text-neutral-300 italic leading-relaxed break-words">${window.renderExampleTokensHTML(example, card, { masked: maskSecondary })}</div>
+            </div>
+        ` : ''}
         ${mnemonicFormatted ? `
             <div class="intro-mnemonic animate-fade-in">
                 <span class="intro-answer-label"><span class="material-symbols-outlined">psychology</span> Ассоциация</span>
@@ -1367,11 +1317,15 @@ function renderIntroductionCard(card) {
         else termEl.textContent = card.text;
         applyDynamicCardTypography(termEl, card.text);
     }
+    const canSpeakTerm = window.isLanguageCard(card) && window.isSpeakable(card.text, card);
     if (secEl) {
-        // Контекст (источник | раздел) без подсказки ответа; в старых колодах он мог спойлерить — там только в обзоре
-        const showSec = card.secondary_text && card.secondary_text !== '---' && (phase === 0 || card.node_id);
-        secEl.textContent = showSec ? card.secondary_text : '';
-        secEl.classList.toggle('hidden', !showSec);
+        if (canSpeakTerm) {
+            secEl.innerHTML = `<button type="button" data-no-swipe onclick="event.stopPropagation(); window.replayAudio();" class="dg-speak-pill" aria-label="Озвучить"><span class="material-symbols-outlined">volume_up</span><span>Озвучить</span></button>`;
+            secEl.classList.remove('hidden');
+        } else {
+            secEl.innerHTML = '';
+            secEl.classList.add('hidden');
+        }
     }
 
     let mnemonicFormatted = '';
@@ -1389,7 +1343,7 @@ function renderIntroductionCard(card) {
 
     let catEmo = 'idle', catText = '';
     if (phase === 0) {
-        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted);
+        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted, { masked: false });
         if (footerEl) footerEl.innerHTML = `
             <button onclick="event.stopPropagation(); advanceIntroduction()" class="intro-btn intro-btn-primary">
                 <span class="material-symbols-outlined">quiz</span><span>Проверить себя</span>
@@ -1409,7 +1363,7 @@ function renderIntroductionCard(card) {
         catEmo = 'think';
         catText = card._retry ? TRAIN_CAT_LINES.retry : (card.node_id ? TRAIN_CAT_LINES.askPath : TRAIN_CAT_LINES.ask);
     } else {
-        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted);
+        if (bodyEl) bodyEl.innerHTML = introAnswerHTML(card, mnemonicFormatted, { masked: true });
         if (footerEl) footerEl.innerHTML = `
             <div class="intro-grade">
                 <button onclick="event.stopPropagation(); window.failIntroduction()" class="intro-btn intro-btn-again">
@@ -1504,7 +1458,7 @@ window.failIntroduction = function() {
         cardsQueue.push({ ...card, intro_phase: 1, _recall_checked: false, _retry: retry });
         trainCatPending = { emo: 'confused', text: 'Ничего, покажу её ещё раз в конце.', reaction: 'shake' };
     } else {
-        trainCatPending = { emo: 'confused', text: 'Эту вернём в повторениях.', reaction: 'shake' };
+        trainCatPending = { emo: 'confused', text: 'Хорошо, закрепим её позже.', reaction: 'shake' };
     }
     currentIndex++;
     recalculateQueueCounters();
@@ -1666,75 +1620,26 @@ function renderReviewCard(card) {
     
     const hintEl = document.getElementById('card-front-hint');
     if (hintEl) {
-        const isLang = isLanguageCard(card);
-        let secText = (card.secondary_text || '').trim();
-        if (secText === '---') secText = '';
-        
-        if (secText) {
-            // Защита от спойлеров: на лицевой стороне оставляем только нейтральный нормативный контекст (до '|')
-            if (secText.includes('|')) {
-                const parts = secText.split('|').map(p => p.trim()).filter(Boolean);
-                const subLower = (card.subject_title || subTitle || card.subject || '').toLowerCase();
-                if (parts[0] && parts[0].toLowerCase() === subLower && parts.length > 1) {
-                    secText = parts[1];
-                } else {
-                    secText = parts[0] || '';
-                }
-            }
-
-            // Убираем дублирование названия колоды или главы на лицевой стороне карточки
-            const secLower = secText.toLowerCase();
-            const subTitleLower = (subTitle || '').toLowerCase();
-            const cardSubLower = (card.subject || '').toLowerCase();
-            const cardSubTitleLower = (card.subject_title || '').toLowerCase();
-            const chLower = (card.chapter || '').toLowerCase();
-
-            if (secLower === subTitleLower || secLower === cardSubLower || secLower === cardSubTitleLower || (chLower && secLower === chLower)) {
-                secText = '';
-            } else if (subTitleLower && secLower.length > 4 && subTitleLower.includes(secLower)) {
-                secText = '';
-            } else if (cardSubTitleLower && secLower.length > 4 && cardSubTitleLower.includes(secLower)) {
-                secText = '';
-            }
-
-            if (secText && ansLower) {
-                const secWords = secText.toLowerCase().match(/[a-zа-яё0-9]{4,}/g) || [];
-                const ansWords = ansLower.match(/[a-zа-яё0-9]{4,}/g) || [];
-                const stopWords = new Set(["суда", "суду", "суде", "дело", "дела", "орган", "закон", "право", "кодекс", "понятие", "термин"]);
-                for (const w of secWords) {
-                    if (stopWords.has(w)) continue;
-                    const stem = w.slice(0, 5);
-                    if (ansWords.some(aw => aw.startsWith(stem) || stem.startsWith(aw.slice(0, 5)))) {
-                        secText = '';
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (secText && (isLang || !isDefQuery)) {
-            hintEl.textContent = secText;
-            hintEl.classList.remove('hidden');
-        } else {
-            hintEl.classList.add('hidden');
-        }
+        hintEl.classList.add('hidden');
+        hintEl.innerHTML = '';
+        hintEl.className = 'card-context hidden';
     }
-    
-    // Показываем/скрываем кнопки повторного озвучивания только для языковых карточек
-    const showVoice = isLanguageCard(card);
+
+    const cardDomain = window.detectCardDomain(card);
+    const showTermVoice = cardDomain.isLanguage && window.isSpeakable(card.text, card);
     const btnFront = document.getElementById('voice-btn-front');
+    const pillFront = document.getElementById('card-front-speak-pill');
     const btnBack = document.getElementById('voice-btn-back');
-    if (btnFront) {
-        if (showVoice) btnFront.classList.remove('hidden');
-        else btnFront.classList.add('hidden');
-    }
-    if (btnBack) {
-        if (showVoice) btnBack.classList.remove('hidden');
-        else btnBack.classList.add('hidden');
-    }
+    if (btnFront) btnFront.classList.add('hidden');
+    if (pillFront) pillFront.classList.toggle('hidden', !showTermVoice);
+    if (btnBack) btnBack.classList.toggle('hidden', !showTermVoice);
 
     // Обновляем подсказки FSRS под текущий предмет
     renderFSRSButtons(card.subject);
+
+    if (flashcard) {
+        flashcard.classList.remove('template-chinese', 'template-law');
+    }
 
     setTimeout(() => {
         // Заполняем оборотную сторону
@@ -1784,46 +1689,64 @@ function renderReviewCard(card) {
             } else {
                 backTerm.textContent = card.text;
                 backTerm.classList.remove('text-base', 'sm:text-lg', 'text-left', 'leading-relaxed');
+                if (/[\u4e00-\u9fa5]/.test(card.text || '') && (card.text || '').trim().length <= 6) {
+                    backTerm.style.fontSize = (card.text || '').trim().length <= 2 ? '2.3rem' : '1.8rem';
+                    backTerm.style.fontWeight = '600';
+                } else {
+                    backTerm.style.fontSize = '';
+                    backTerm.style.fontWeight = '';
+                }
             }
         }
 
+        const mainLabel = document.getElementById('card-main-label');
+        const secLabel = document.getElementById('card-sec-label');
+        const exampleLabel = document.getElementById('card-example-label');
+        if (mainLabel) mainLabel.textContent = cardDomain.labels.main;
+        if (secLabel) secLabel.textContent = cardDomain.labels.sec;
+        if (exampleLabel) exampleLabel.textContent = cardDomain.labels.ex;
+
         const secContainer = document.getElementById('card-secondary-container');
+        const scaffoldBtn = document.getElementById('card-sec-scaffold-btn');
+        const revealBtn = document.getElementById('card-sec-reveal-btn');
         const hasSec = Boolean(card.secondary_text && card.secondary_text !== '---' && card.secondary_text.trim());
         if (secContainer && cardSecondaryText) {
+            secContainer.classList.remove('blur-container-scaffold');
+            if (scaffoldBtn) scaffoldBtn.classList.remove('is-active');
+            if (revealBtn) {
+                revealBtn.textContent = 'Открыть';
+                revealBtn.classList.remove('is-active');
+            }
             if (hasSec) {
-                cardSecondaryText.textContent = card.secondary_text;
+                cardSecondaryText.innerHTML = window.renderPartialBlurChipsHTML(card.secondary_text, cardDomain, { masked: true });
                 secContainer.classList.remove('hidden');
             } else {
+                cardSecondaryText.innerHTML = '';
                 secContainer.classList.add('hidden');
             }
         }
-        
-        if (cardMainText) cardMainText.textContent = card.translation; 
-        
+
+        if (cardMainText) cardMainText.textContent = card.translation;
+
         const exampleContainer = document.getElementById('card-example-container');
         const exampleText = document.getElementById('card-example-text');
+        const exampleSpeakBtn = document.getElementById('card-example-speak-btn');
         const hasEx = Boolean(card.example && card.example.trim() && card.example !== '---');
         if (exampleContainer && exampleText) {
             if (hasEx) {
-                exampleText.textContent = `«${card.example.trim()}»`;
+                exampleText.innerHTML = window.renderExampleTokensHTML(card.example, card, { masked: true });
                 exampleContainer.classList.remove('hidden');
+                if (exampleSpeakBtn) {
+                    const canSpeakEx = window.isSpeakable(card.example, card);
+                    exampleSpeakBtn.classList.toggle('hidden', !canSpeakEx);
+                    exampleSpeakBtn.onclick = canSpeakEx
+                        ? (ev) => { ev.stopPropagation(); window.replayAudioForText(card.example, card); }
+                        : null;
+                }
             } else {
+                exampleText.innerHTML = '';
                 exampleContainer.classList.add('hidden');
-            }
-        }
-
-        // Управление аккордеоном деталей (Progressive Disclosure)
-        const detailsAccordion = document.getElementById('card-details-accordion');
-        const detailsBody = document.getElementById('card-details-body');
-        const detailsIcon = document.getElementById('card-details-icon');
-        if (detailsAccordion) {
-            if (hasSec || hasEx) {
-                detailsAccordion.classList.remove('hidden');
-                // При каждой новой карте оставляем свернутым
-                if (detailsBody) detailsBody.classList.add('hidden');
-                if (detailsIcon) detailsIcon.textContent = 'expand_more';
-            } else {
-                detailsAccordion.classList.add('hidden');
+                if (exampleSpeakBtn) exampleSpeakBtn.classList.add('hidden');
             }
         }
 
@@ -1901,21 +1824,7 @@ window.regenerateMnemonic = async function(e) {
     }
 };
 
-window.toggleCardDetailsAccordion = function() {
-    const body = document.getElementById('card-details-body');
-    const icon = document.getElementById('card-details-icon');
-    if (!body) return;
-    const isHidden = body.classList.contains('hidden');
-    if (isHidden) {
-        body.classList.remove('hidden');
-        if (icon) icon.textContent = 'expand_less';
-        triggerHaptic('light');
-    } else {
-        body.classList.add('hidden');
-        if (icon) icon.textContent = 'expand_more';
-        triggerHaptic('light');
-    }
-};
+
 
 window.submitCardRating = function(rating) {
     if (cardsQueue.length === 0 || currentIndex >= cardsQueue.length) return;
@@ -2007,7 +1916,6 @@ async function updateGlobalBadges() {
         const data = await res.json();
         if (!data || typeof data !== 'object') return;
         window.surveyCompletedToday = data.survey_completed || false;
-        window.eveningDueCount = data.due_evening || 0;
         
         const totalCards = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
         const dueCount = (Array.isArray(cardsQueue) ? cardsQueue.length : 0) - currentIndex;

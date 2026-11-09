@@ -1,8 +1,14 @@
-    <!-- Просмотр карточки из архива DATA: вопрос, ответ, пример, состояние повторения и действия -->
+    <!-- Просмотр карточки из архива DATA: вопрос, ответ, пример, ассоциация и действия -->
     <div id="card-view-modal" role="dialog" aria-modal="true" aria-labelledby="card-view-question" class="hidden fixed inset-0 z-[118] flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-xs font-sans" onclick="if (event.target === this) closeCardView()" style="touch-action: manipulation; isolation: isolate;">
         <div class="card-view-sheet">
             <div class="flex items-center justify-between gap-2 mb-3">
-                <span id="card-view-state" class="card-view-state">NEW</span>
+                <div class="flex items-center gap-2 min-w-0">
+                    <span id="card-view-state" class="card-view-state">NEW</span>
+                    <button type="button" id="card-view-speak-btn" class="dg-speak-pill hidden" aria-label="Озвучить">
+                        <span class="material-symbols-outlined">volume_up</span>
+                        <span>Озвучить</span>
+                    </button>
+                </div>
                 <button type="button" onclick="closeCardView()" aria-label="Закрыть" class="card-view-close">
                     <span class="material-symbols-outlined">close</span>
                 </button>
@@ -10,15 +16,21 @@
             <div class="card-view-scroll">
                 <p class="card-view-label">Вопрос</p>
                 <p id="card-view-question" class="card-view-question select-text"></p>
-                <p class="card-view-label">Ответ</p>
+                <p id="card-view-answer-label" class="card-view-label">Ответ</p>
                 <p id="card-view-answer" class="card-view-answer select-text"></p>
-                <div id="card-view-example-box" class="hidden">
-                    <p class="card-view-label">Пример</p>
-                    <p id="card-view-example" class="card-view-example select-text"></p>
+                <div id="card-view-context-box" class="hidden mt-2">
+                    <p id="card-view-context-label" class="card-view-label">Контекст</p>
+                    <div id="card-view-context" class="card-view-context select-text mt-1"></div>
                 </div>
-                <div id="card-view-context-box" class="hidden">
-                    <p class="card-view-label">Контекст</p>
-                    <p id="card-view-context" class="card-view-context select-text"></p>
+                <div id="card-view-example-box" class="hidden dg-example-box mt-2.5">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <p id="card-view-example-label" class="card-view-label" style="margin-top:0;">Пример</p>
+                        <button type="button" id="card-view-example-speak-btn" class="blur-action-btn hidden" aria-label="Озвучить пример">
+                            <span class="material-symbols-outlined" style="font-size:12px;">volume_up</span>
+                            <span>Пример</span>
+                        </button>
+                    </div>
+                    <p id="card-view-example" class="card-view-example select-text"></p>
                 </div>
                 <div id="card-view-mnemonic-box" class="hidden mnemonic-box card-view-mnemonic">
                     <p class="card-view-label mnemonic-label">Ассоциация</p>

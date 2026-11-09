@@ -279,7 +279,7 @@ def normalize_map(raw: dict) -> dict:
     return {
         "title": str(raw.get("title") or "").strip()[:160],
         "domain": domain,
-        "source_type": source_type if source_type in ("textbook", "article", "notes", "lecture", "guide") else None,
+        "source_type": source_type if source_type in ("textbook", "article", "notes", "lecture", "guide", "language", "glossary") else None,
         "nodes": nodes,
         "edges": edges,
     }
@@ -436,6 +436,16 @@ def _normalize_card(raw, node: dict, domain: str, rejected: list | None = None, 
             rejected.append((reason, card["text"][:90]))
         return None
     card["distractors"] = _clean_distractors(card["translation"], raw.get("x"))
+    mnemonic_raw = raw.get("m") or raw.get("mnemonic")
+    if isinstance(mnemonic_raw, dict) and (mnemonic_raw.get("keyword") or mnemonic_raw.get("k")):
+        card["mnemonic"] = {
+            "keyword": str(mnemonic_raw.get("keyword") or mnemonic_raw.get("k") or "").strip(),
+            "verbal_cue": str(mnemonic_raw.get("verbal_cue") or mnemonic_raw.get("c") or mnemonic_raw.get("cue") or "").strip()
+        }
+    elif isinstance(mnemonic_raw, str) and mnemonic_raw.strip():
+        card["mnemonic"] = mnemonic_raw.strip()
+    else:
+        card["mnemonic"] = None
     return card
 
 
@@ -746,6 +756,7 @@ def apply_gap_answer(path_map: dict, raw: dict, sections: list[dict]) -> tuple[d
         return path_map, {}, report
     merged = normalize_map({
         "title": path_map.get("title"), "domain": path_map.get("domain"),
+        "source_type": path_map.get("source_type"),
         "nodes": path_map["nodes"] + new_nodes, "edges": path_map["edges"],
     })
     return merged, size_hints, report
@@ -871,16 +882,40 @@ async def _run_batched(keys: list[str], make_prompt, normalize, max_tokens: int,
 # CARDS
 # ---------------------------------------------------------------------------
 
+def _compact_map_for_cards(path_map: dict) -> str:
+    """Компактная карта для задач CARDS: без рёбер, порядка, kind и длинных описаний — экономит токены в каждом батче."""
+    compact = {
+        "title": path_map.get("title") or "",
+        "domain": path_map.get("domain") or "generic",
+        "source_type": path_map.get("source_type"),
+        "nodes": [
+            {
+                "key": n["key"],
+                "name": n["name"],
+                "tier": n["tier"],
+                **({"parent": n["parent"]} if n.get("parent") else {}),
+                **({"src": n["src"]} if n.get("src") else {}),
+                **({"summary": (n.get("summary") or "")[:90]} if n.get("summary") else {}),
+            }
+            for n in (path_map.get("nodes") or [])
+        ],
+    }
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+
+
 async def build_cards(text: str, path_map: dict, node_keys: list[str], calls_log: list, attempts: int = 3,
                       thinking: bool = False, quotas: dict[str, int] | None = None,
                       rejected: list | None = None, source_type: str | None = None,
-                      already_asked: dict[str, list[str]] | None = None) -> dict[str, list[dict]]:
+                      already_asked: dict[str, list[str]] | None = None,
+                      assoc_preference: str | None = None) -> dict[str, list[dict]]:
     """Карточки узлов с цитатами из книги. Книга идёт префиксом запроса (кэш DeepSeek). Узел без единой годной карточки
     считается не полученным и запрашивается повторно."""
-    map_json = json.dumps(path_map, ensure_ascii=False, separators=(",", ":"))
+    map_json = _compact_map_for_cards(path_map)
 
     def make_prompt(missing: list[str]) -> str:
-        return build_source_block(text) + build_cards_task(map_json, missing, quotas, source_type, already_asked)
+        return build_source_block(text) + build_cards_task(
+            map_json, missing, quotas, source_type, already_asked, assoc_preference=assoc_preference
+        )
 
     def normalize(raw, missing):
         return {k: v for k, v in normalize_cards(raw, path_map, missing, quotas, rejected).items() if v}
@@ -1089,7 +1124,8 @@ def spread_pick(items: list, n: int) -> list:
 
 async def fill_cards(verifier: "card_quality.CardVerifier", path_map: dict, cards_by_node: dict[str, list[dict]],
                      calls_log: list, budget: Budget, must_keep: float, rejected: list | None = None,
-                     max_cards: int | None = None) -> dict:
+                     max_cards: int | None = None, source_type: str | None = None,
+                     assoc_preference: str | None = None) -> dict:
     """Добор карточек на абзацах книги, которых не коснулась ни одна карточка (по точным местам цитат). Передаётся только сам
     кусок (не вся книга). Новые карточки проходят ту же проверку по книге; не прошедшие отбрасываются. Сбой не фатален.
     max_cards — сколько карточек не хватает до цели: участков берём не больше, чем нужно, и сверх цели не добавляем."""
@@ -1124,7 +1160,10 @@ async def fill_cards(verifier: "card_quality.CardVerifier", path_map: dict, card
     async def one(batch: list[dict], idx: int):
         nodes_text, passages_text = _fill_job_blocks(batch, path_map, cards_by_node)
         try:
-            raw = await _call(build_fill_task(nodes_text, passages_text), FILL_MAX_TOKENS, f"fill#{idx}", calls_log)
+            raw = await _call(
+                build_fill_task(nodes_text, passages_text, source_type=source_type, assoc_preference=assoc_preference),
+                FILL_MAX_TOKENS, f"fill#{idx}", calls_log,
+            )
         except Exception as e:  # noqa: BLE001
             print(f"[Path Builder WARN] FILL#{idx}: {e}", flush=True)
             return
@@ -1257,7 +1296,8 @@ def lessons_needing_repair(cards_by_node: dict[str, list[dict]], lessons: dict[s
 
 
 async def repair_lessons(verifier: "card_quality.CardVerifier", path_map: dict, cards_by_node: dict[str, list[dict]],
-                         lessons: dict[str, dict], calls_log: list, budget: Budget) -> dict:
+                         lessons: dict[str, dict], calls_log: list, budget: Budget,
+                         source_type: str | None = None) -> dict:
     """Один повторный запрос для уроков, в которых не хватает ответов карточек; берём новый урок, только если он лучше."""
     todo = lessons_needing_repair(cards_by_node, lessons)
     if not todo:
@@ -1268,7 +1308,7 @@ async def repair_lessons(verifier: "card_quality.CardVerifier", path_map: dict, 
         return {"nodes": 0, "skipped": len(todo)}
     keys = sorted(todo, key=lambda k: -len(todo[k]))[:n]
     new = await build_lessons(verifier, path_map, cards_by_node, calls_log, keys=keys,
-                              omitted={k: todo[k] for k in keys}, attempts=1)
+                              omitted={k: todo[k] for k in keys}, attempts=1, source_type=source_type)
     better = 0
     for key, lesson in new.items():
         before = len(todo[key])
@@ -1284,12 +1324,24 @@ async def repair_lessons(verifier: "card_quality.CardVerifier", path_map: dict, 
 # ---------------------------------------------------------------------------
 
 async def build_cross_links(text: str, path_map: dict, calls_log: list) -> list[dict]:
-    """Связи между основами и темами разных веток. Сбой не фатален: путь остаётся без дополнительных связей."""
+    """Связи между основами и темами разных веток (только ядро карты ярусов 0–1, без повторного чтения всей книги).
+    Сбой не фатален: путь остаётся без дополнительных связей."""
     core = {n["key"]: n for n in path_map["nodes"] if n["tier"] <= 1}
     if len(core) < 3:
         return []
-    map_json = json.dumps(path_map, ensure_ascii=False, separators=(",", ":"))
-    prompt = build_source_block(text) + build_links_task(map_json)
+    core_edges = [e for e in (path_map.get("edges") or []) if e.get("from") in core and e.get("to") in core]
+    compact_core = {
+        "title": path_map.get("title") or "",
+        "domain": path_map.get("domain") or "generic",
+        "nodes": [
+            {"key": n["key"], "name": n["name"], "tier": n["tier"], "prereqs": n.get("prereqs") or [],
+             "summary": (n.get("summary") or "")[:140]}
+            for n in path_map["nodes"] if n["tier"] <= 1
+        ],
+        "edges": core_edges,
+    }
+    map_json = json.dumps(compact_core, ensure_ascii=False, separators=(",", ":"))
+    prompt = build_links_task(map_json)
     try:
         raw = await _call(prompt, LINKS_MAX_TOKENS, "links#1", calls_log)
     except Exception as e:  # noqa: BLE001
@@ -1456,7 +1508,8 @@ async def build_align(path_map: dict, course: dict, calls_log: list) -> tuple[di
 # ---------------------------------------------------------------------------
 
 async def build_learning_path(text: str, subject: str, calls: list | None = None, card_total: int | None = None,
-                              course: dict | None = None, depth: str | None = None, source_kind: str | None = None) -> dict:
+                              course: dict | None = None, depth: str | None = None, source_kind: str | None = None,
+                              assoc_preference: str | None = None) -> dict:
     """Полный прогон: MAP → тип материала и цель → (ALIGN с имеющимся курсом) → CARDS → проверка по книге (AUDIT) → добор до цели (FILL)
     → LESSON из карточек. Возвращает карту, пакеты узлов {урок, карточки} и телеметрию.
     Цель по карточкам зависит от типа материала (source_profile): учебник ≈ одна на страницу, конспект ≈ по карточке на пункт.
@@ -1480,13 +1533,27 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         except glossary.GlossaryError as e:
             raise PathBuildError(str(e)) from e
 
+    # Чистый двуязычный список слов/иероглифов: $0-разбор без вызовов ИИ; полноценный учебник языка пойдёт в ИИ-конвейер ниже
+    if glossary.looks_like_vocab(
+        text,
+        min_entries=5 if source_kind == "language" else glossary.AUTO_MIN_VOCAB_ENTRIES,
+        min_share=0.6 if source_kind == "language" else 0.55,
+    ):
+        try:
+            return await asyncio.to_thread(glossary.build_vocab_path, text, subject, course, depth, card_total)
+        except glossary.GlossaryError:
+            pass
+
     # Список вызовов передаётся снаружи, чтобы расходы учитывались и при сбое
     calls = calls if calls is not None else []
     budget = Budget(calls)
     path_map = await build_knowledge_map(text, subject, calls, candidates=MAP_CANDIDATES, source_kind=source_kind)
     path_map, size_hints, gap_report = await fill_map_gaps(text, path_map, calls)
 
-    kind = source_profile.resolve_kind(source_kind or path_map.get("source_type"), text)
+    declared_kind = source_kind or path_map.get("source_type")
+    if not declared_kind and (path_map.get("domain") or "").strip().lower() == "language":
+        declared_kind = "language"
+    kind = source_profile.resolve_kind(declared_kind, text)
     depth = source_profile.normalize_depth(depth)
     index = coverage.SourceIndex(text)
     verifier = card_quality.CardVerifier(text, index)
@@ -1550,7 +1617,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         async with semaphore:
             return await build_cards(text, path_map, batch, calls, thinking=THINK_CORE and all(k in core_keys for k in batch),
                                      quotas=quotas, rejected=rejected,
-                                     source_type=kind, already_asked=asked_by_new)
+                                     source_type=kind, already_asked=asked_by_new,
+                                     assoc_preference=assoc_preference)
 
     # Карточки идут первыми в очереди семафора, конспект — следом и дожидается позже (перед process_facts): проверка и добор карточек
     # не ждут хвоста конспекта. Вводный урок у курса один: у курса, где он уже есть, повторно (и зря) его не пишем.
@@ -1603,7 +1671,8 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     have = sum(len(v) for v in cards_by_node.values())
     deficit = (target - have) if target else None
     fill_report = ({"spans": 0, "added": 0, "skipped": "цель достигнута"} if deficit is not None and deficit < FILL_MIN_CARDS
-                   else await fill_cards(verifier, path_map, cards_by_node, calls, budget, reserve(), rejected, max_cards=deficit))
+                   else await fill_cards(verifier, path_map, cards_by_node, calls, budget, reserve(), rejected, max_cards=deficit,
+                                         source_type=kind, assoc_preference=assoc_preference))
     dedupe_removed += card_quality.dedupe_cards(cards_by_node, order)       # добранные карточки могут повторять уже имеющиеся
     trimmed = card_quality.trim_to_goal(cards_by_node, target, weights) if (QUALITY_GATE and target) else 0    # лишнее сверх цели — наименее важное
 
@@ -1617,7 +1686,7 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
     supplements = {k for k in merge if len(cards_by_node.get(k) or []) >= source_profile.SUPPLEMENT_MIN_CARDS}
     lesson_keys = [k for k in order if cards_by_node.get(k) and (k not in merge or k in supplements)]
     lessons = await build_lessons(verifier, path_map, cards_by_node, calls, keys=lesson_keys, source_type=kind, supplements=supplements)
-    repair_report = await repair_lessons(verifier, path_map, cards_by_node, lessons, calls, budget)
+    repair_report = await repair_lessons(verifier, path_map, cards_by_node, lessons, calls, budget, source_type=kind)
 
     packs = {k: {"lesson": lessons.get(k), "cards": cards_by_node[k]} for k in order if cards_by_node.get(k)}
     final_cards = [c for p in packs.values() for c in p["cards"]]

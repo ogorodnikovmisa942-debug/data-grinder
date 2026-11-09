@@ -151,6 +151,18 @@ async def run_sqlite_pragma_migrations(engine: AsyncEngine) -> None:
             await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN execution_time_ms INTEGER"))
         if "error_trace" not in columns_jobs:
             await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN error_trace TEXT"))
+        if "source_name" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN source_name VARCHAR"))
+        if "text_hash" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN text_hash VARCHAR(64)"))
+        if "replace_source_id" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN replace_source_id INTEGER"))
+        if "depth" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN depth VARCHAR(12)"))
+        if "source_kind" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN source_kind VARCHAR(16)"))
+        if "assoc_preference" not in columns_jobs:
+            await db.execute(text("ALTER TABLE generation_jobs ADD COLUMN assoc_preference VARCHAR(16)"))
 
         res_tel = await db.execute(text("PRAGMA table_info(ai_telemetry_logs)"))
         columns_tel = [row[1] for row in res_tel.fetchall()]

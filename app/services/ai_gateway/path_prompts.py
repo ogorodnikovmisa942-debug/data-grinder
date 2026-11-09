@@ -18,7 +18,7 @@ You never judge which topics of the source are "worth" teaching: whatever the so
 
 Order of work on one course: MAP (the tiered knowledge map) -> CARDS (flashcards of every node, each with a quote from the source) -> AUDIT and FILL (the app checks the cards against the source) -> LESSON (the lesson of every node, written FROM its cards).
 Tasks: MAP, CARDS, LINKS, INTRO, GAPS, ALIGN, AUDIT, FILL and LESSON. Read the [TASK] block and return ONLY the JSON for that task.
-MAP, CARDS, LINKS and GAPS come with the FULL source first. AUDIT, FILL, LESSON and INTRO come without it: they carry only the passages the app has found.
+MAP, CARDS, FACTS and GAPS come with the FULL source first. LINKS, AUDIT, FILL, LESSON and INTRO come without it: they carry only the map or the passages the app has found.
 
 ==================================================
 PART A. TASK "MAP" — the knowledge map of the whole source
@@ -47,14 +47,14 @@ MAP RULES:
 
 - "source_type": what kind of material this is. textbook = explanatory teaching text in chapters and sections, INCLUDING a single chapter or part of a textbook however short; article = a short self-contained report or paper;
   notes = cheat sheet, theses, a list of facts or slides (nearly every line is a fact on its own);
-  guide = a condensed study guide, short course or detailed lecture notes in continuous text (already shortened: most sentences are exam facts); lecture = a spoken or lecture-style text full of repetition and digressions.
+  guide = a condensed study guide, short course or detailed lecture notes in continuous text (already shortened: most sentences are exam facts); lecture = a spoken or lecture-style text full of repetition and digressions; language = a foreign language course, textbook or dialogue collection teaching vocabulary, characters, phonetics or grammar.
   The app plans the number of cards from it, so choose by the text itself, not by its size.
 
 MAP JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {
   "title": "Clean course title",
   "domain": "one lowercase word naming the discipline, e.g. physics, medicine, programming, history, law, chemistry, language",
-  "source_type": "textbook | article | notes | lecture",
+  "source_type": "textbook | article | notes | lecture | guide | language",
   "nodes": [
     {"key": "zakony_nyutona", "name": "Законы Ньютона", "tier": 1, "parent": null, "prereqs": ["sila"], "order": 6, "summary": "...", "src": "Гл. 2, §2.1"}
   ],
@@ -106,20 +106,21 @@ CARD LAWS (non-negotiable):
 - No binary Yes/No cards. The answer is never "Да." or "Нет.".
 - Core concepts ARE allowed and required, but through hallmarks, not dictionary wording: describe the decisive features -> ask for the concept ("Как называется ...", "Какой метод ..."). Never "Что такое X?" / "Дайте определение X".
 - Anti-giveaway: the question 't' must not contain the root, stem or obvious synonym of the answer.
-- Zero-Spoiler Law for the front: the front shows only the question (the app adds the context line "Course | Topic" itself, so never write one). The question never carries the answer or a hint of it.
+- Zero-Spoiler Law for the front: the question 't' never carries the answer or its root clue. Put phonetic reading (pinyin/transcription) + part of speech in 's' for language cards (NEVER write the translation or its root in 's'); otherwise 's' is a brief non-spoiler context cue or empty (the app adds a default header and strips spoilers).
 - One correct answer: according to the source the question has exactly one correct answer. If the source gives alternatives, ask about one defined aspect.
 - Self-contained: the question names its subject and never refers to the text, the chapter, the author of the book or the lesson ("согласно тексту", "по определению из главы", "отмечает источник", "как сказано выше", "в этой теме").
   Attribute a view to the person or school the source names ("по мнению Г. Кельзена", "по учению Аристотеля"), never to "the text". The app deletes such phrases and may discard the card.
+- 's' (optional, 1-6 words): non-spoiler reading (pinyin/IPA + POS for languages) or branch/statute cue; leave empty if redundant.
 - 'd' (back): 1-12 words, one grammatically complete phrase ending with a period; up to 15 words for formulas, code or doses.
-- 'e' (optional): one concrete example sentence, at most 15 words. Write it ONLY when a concrete case or number makes the fact clearer; leave it out otherwise (most cards need none).
+- 'e' (optional, <= 15 words): for foreign languages, ALWAYS write one short realistic sentence/micro-dialogue using the target item; for formulas, code, doses or subtle rules, write one concrete example; omit otherwise to save tokens.
 - Vary question openers; no robotic repeated stems. No tautologies (answer must not echo the question).
-- Do NOT write a context line ('s') or a difficulty ('l'): the app adds them.
+- Do NOT write difficulty ('l'): the app derives it from layer 'y'.
 
 B2b. SPECIFICS — what an exam asks, in any discipline
 When you choose among candidates (B1), prefer the kinds below, one atomic fact per card. A card about a concrete number, term, condition or step is worth more than a fourth card that only asks the name of a concept.
 Names and terms; definitions through hallmarks; numbers, quantities, thresholds, formulas with the conditions under which they hold, dates and periods; who proposed, created, decided or caused what;
 conditions and exceptions; steps of a procedure in order (one step per card); classifications (one card per member); what separates two look-alike things; causes, purposes, consequences, advantages and limits.
-Use the vocabulary of THIS source: a dose and route in a medicine text, a signature and complexity in a programming text, a formula and its unit in a physics text, a date and a cause in a history text, a rule and its exception in a language text, a term of office and who appoints in a law text.
+Use the vocabulary of THIS source: a dose and route in a medicine text, a signature and complexity in a programming text, a formula and its unit in a physics text, a date and a cause in a history text, a rule and its exception in a language text, a term of office and who appoints in a law text. For language courses (Chinese/CJK/grammar), teach radicals/components, tone contrasts, measure words, and patterns with short examples.
 QUESTION VARIETY: at most one third of the cards of a node may begin with the same two words (for example «Как называется», «Какой метод»). Choose the opener that fits what is asked: Кто / Сколько / Когда / На какой срок / При каком условии / В каком порядке / Что произойдёт, если / Чем отличается A от B / Какова последовательность. The Anti-giveaway law still applies.
 UNDERSTANDING SHARE: at least one card in four must test understanding rather than naming: Почему / Для чего / К чему приводит / Чем отличается A от B / При каком условии / В чём недостаток / Что следует из ...
 The task block may carry a line "UNDERSTANDING CARDS: key=U": U is the MINIMUM number of cards of that node that begin with one of these openers. Meet it: where the passage states no cause, take a purpose, a condition, a consequence or a contrast; a node with a definition and a classification always has a contrast («Чем отличается A от B»).
@@ -139,6 +140,7 @@ For every card give:
   * are plausible to a beginner — ideally real neighbouring concepts from the same source/branch (a sibling theory, the contrasted item, a nearby value);
   * are unambiguously wrong according to the source; never a synonym or a partial version of the correct answer;
   * never "все перечисленное", "ни один из вариантов", jokes or obviously absurd options.
+- "m" (selective mnemonic — include ONLY for foreign words/characters, unfamiliar terms, confusing pairs or exact thresholds/doses; omit on self-explanatory humanities facts): {"k": "ключевое слово", "c": "короткая образная связка (<=18 слов)"}. Respect ASSOC PREFERENCE when given: visual = pictograph/radical shape or vivid mental scene; acoustic = sound-alike rhyme/pun matching pronunciation and tone.
 
 CARDS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 {
@@ -146,7 +148,7 @@ CARDS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
     {
       "key": "impuls",
       "cards": [
-        {"t": "Как называется величина, равная произведению массы тела на его скорость?", "d": "Импульс тела.", "ev": "импульс тела равен произведению его массы на скорость", "y": 0, "at": "term", "x": ["Кинетическая энергия.", "Сила тяжести.", "Работа силы."], "e": "Шайба массой 0,2 кг со скоростью 5 м/с имеет импульс 1 кг·м/с."}
+        {"t": "Как называется величина, равная произведению массы тела на его скорость?", "s": "Механика | Динамика", "d": "Импульс тела.", "ev": "импульс тела равен произведению его массы на скорость", "y": 0, "at": "term", "x": ["Кинетическая энергия.", "Сила тяжести.", "Работа силы."], "e": "Шайба массой 0,2 кг со скоростью 5 м/с имеет импульс 1 кг·м/с.", "m": {"k": "Пульс-толчок", "c": "Пульс толкает массу вперед со скоростью v."}}
       ]
     }
   ]
@@ -155,7 +157,7 @@ CARDS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
 ==================================================
 PART C. TASK "LINKS" — how the foundations and topics relate across branches
 ==================================================
-The task block contains the full MAP. Inside a branch the structure is already shown by parent links.
+The task block contains the core MAP (tier 0 foundations and tier 1 topics). Inside a branch the structure is already shown by parent links.
 Your job is the missing layer: meaningful relations BETWEEN foundations (tier 0) and topics (tier 1) of DIFFERENT branches,
 so the learner sees the discipline as one connected whole.
 - Only nodes of tier 0 and tier 1. Never link a node to its own parent or child.
@@ -264,6 +266,7 @@ H3. THE LESSON
 - "check": exactly 1 comprehension question asked right after the lesson. It tests UNDERSTANDING of the lesson (apply the idea to a new situation, tell two things apart), not memory of a wording, and it must not repeat a card's question.
   3 options, exactly one correct ("answer" is its 0-based index), all options the same kind and similar length, wrong options plausible for a beginner. "why": 1 sentence explaining the right answer.
 - Tier-3 (case) nodes: the lesson is a worked example — a short situation, the mascot reasons through which rule applies and why the look-alike rule does not.
+- Foreign language nodes: briefly unpack character radicals/components or grammar structure and contrast look-alike tones or words in plain words.
 - REPAIR: the task block may say "THE PREVIOUS LESSON OMITTED THESE ANSWERS". Then rewrite the whole lesson so that these answers are stated too.
 - SUPPLEMENT: a node block with a line "SUPPLEMENT:" belongs to a topic whose lesson the learner has ALREADY finished from another material. Write a SHORT supplement: 3 to 5 screens, no hook about why the topic matters and no re-explanation of the basics.
   Screen 1 says in one line what this material adds or where its author differs; the next screens state the facts of the cards (the ALIGNMENT LAW still applies); the last screen is a one-sentence takeaway. One check question as usual.
@@ -413,7 +416,8 @@ def build_gaps_task(map_json: str, gaps_text: str) -> str:
 
 
 def build_cards_task(map_json: str, node_keys: list[str], quotas: dict[str, int] | None = None,
-                     source_type: str | None = None, already_asked: dict[str, list[str]] | None = None) -> str:
+                     source_type: str | None = None, already_asked: dict[str, list[str]] | None = None,
+                     assoc_preference: str | None = None) -> str:
     """quotas — сколько карточек писать на узел (цель по смыслу, не по деньгам)."""
     keys = ", ".join(node_keys)
     target = ""
@@ -425,6 +429,8 @@ def build_cards_task(map_json: str, node_keys: list[str], quotas: dict[str, int]
     hint = kind_hint(source_type)
     if hint:
         target += hint + "\n"
+    if assoc_preference in ("visual", "acoustic"):
+        target += f"ASSOC PREFERENCE: {assoc_preference}\n"
     for k in node_keys:
         qs = (already_asked or {}).get(k)
         if qs:
@@ -473,10 +479,18 @@ def build_audit_task(items_text: str) -> str:
     )
 
 
-def build_fill_task(nodes_text: str, passages_text: str) -> str:
+def build_fill_task(nodes_text: str, passages_text: str, source_type: str | None = None,
+                    assoc_preference: str | None = None) -> str:
+    extra = ""
+    hint = kind_hint(source_type)
+    if hint:
+        extra += hint + "\n"
+    if assoc_preference in ("visual", "acoustic"):
+        extra += f"ASSOC PREFERENCE: {assoc_preference}\n"
     return (
         "[TASK]\n"
         "TYPE: FILL\n"
+        f"{extra}"
         "NODES (key | name | summary):\n"
         f"{nodes_text}\n\n"
         "PASSAGES WITHOUT CARDS:\n"
@@ -489,7 +503,8 @@ def build_lessons_task(blocks_text: str, source_type: str | None = None) -> str:
     lesson_hint = {"notes": ("SOURCE TYPE: notes. The source gives bare facts without explanations: group the facts, explain why they belong together "
                              "and how to remember them; do not just read the list back."),
                    "lecture": "SOURCE TYPE: lecture. Keep the substance, drop the digressions.",
-                   "guide": "SOURCE TYPE: study guide. The text is already condensed: teach the structure and the links between the facts, do not retell it."}.get(source_type or "", "")
+                   "guide": "SOURCE TYPE: study guide. The text is already condensed: teach the structure and the links between the facts, do not retell it.",
+                   "language": "SOURCE TYPE: language. Unpack character components/radicals or grammar structure simply, contrast tones or look-alike words, and keep dialogues natural."}.get(source_type or "", "")
     return (
         "[TASK]\n"
         "TYPE: LESSON\n"

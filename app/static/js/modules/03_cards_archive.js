@@ -682,10 +682,57 @@ async function loadDynamicSubjects() {
     }
 }
 
+// --- Экран отдыха: ротация ASCII-арта. Маскотные арты — спящий кот, 4–7 строк, ≤30 знаков ---
+const REST_MASCOT_ARTS = [
+    `   /\\_/\\     zZ
+  ( -.- )   zZ
+  (  ^  )
+ /|     |\\
+  '-...-'`,
+    `    /\\_/\\
+   / - - \\   zZ
+  |   ^   | zZ
+   \\_____/`,
+    `      *        .
+   /\\_/\\    zZ
+  ( -.- )  zZ
+   > ^ <
+  '-----'`
+];
+const REST_ASCII_ARTS = [...REST_MASCOT_ARTS, ...COGNITIVE_ASCII_ARTS];
+const REST_ART_ROTATE_MS = 25000;
+
 function initPomodoroEngine() {
     const sessionTimer = document.getElementById('session-timer'); const restOverlay = document.getElementById('rest-overlay');
     const restTimerDisplay = document.getElementById('rest-timer-display'); const skipRest = document.getElementById('skip-rest');
     const asciiContainer = document.getElementById('rest-ascii-art');
+
+    // Арт меняется раз в ~25 с и никогда не повторяется подряд; под reduced-motion —
+    // просто новый текст, без fade-класса
+    let restArtTimer = null;
+    let restArtIndex = -1;
+
+    function showRestArt() {
+        if (!REST_ASCII_ARTS.length) return;
+        let idx = Math.floor(Math.random() * REST_ASCII_ARTS.length);
+        if (idx === restArtIndex && REST_ASCII_ARTS.length > 1) idx = (idx + 1) % REST_ASCII_ARTS.length;
+        restArtIndex = idx;
+        if (!asciiContainer) return;
+        asciiContainer.textContent = REST_ASCII_ARTS[idx];
+        if (!prefersReducedMotion() && typeof window.restartCssAnimation === 'function') {
+            window.restartCssAnimation(asciiContainer, 'rest-art-swap');
+        }
+    }
+
+    function startRestArtRotation() {
+        stopRestArtRotation();
+        if (REST_ASCII_ARTS.length > 1) restArtTimer = setInterval(showRestArt, REST_ART_ROTATE_MS);
+    }
+
+    function stopRestArtRotation() {
+        if (restArtTimer) { clearInterval(restArtTimer); restArtTimer = null; }
+    }
+
     function formatTime(seconds) { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`; }
     function runTimerLoop() {
         if (pomodoroInterval) clearInterval(pomodoroInterval);
@@ -697,12 +744,13 @@ function initPomodoroEngine() {
             } else {
                 if (!isRestPhase) {
                     isRestPhase = true; timeRemaining = 17 * 60; if (restTimerDisplay) restTimerDisplay.textContent = formatTime(timeRemaining);
-                    const randomIdx = Math.floor(Math.random() * COGNITIVE_ASCII_ARTS.length);
-                    if (asciiContainer) asciiContainer.textContent = COGNITIVE_ASCII_ARTS[randomIdx];
+                    showRestArt();
+                    startRestArtRotation();
                     if (restOverlay) { restOverlay.classList.remove('hidden'); restOverlay.classList.add('flex'); }
                     try { await apiFetch(`/api/timer/rest?tg_id=${tgId}`, { method: 'POST' }); } catch (e) { console.error("Ошибка перерыва:", e); }
                 } else {
                     isRestPhase = false; timeRemaining = 52 * 60; if (sessionTimer) sessionTimer.textContent = formatTime(timeRemaining);
+                    stopRestArtRotation();
                     if (restOverlay) { restOverlay.classList.add('hidden'); restOverlay.classList.remove('flex'); }
                 }
             }
@@ -714,8 +762,8 @@ function initPomodoroEngine() {
             const res = await apiFetch(`/api/timer/status?tg_id=${tgId}`); const data = await res.json();
             if (data.is_resting) {
                 isRestPhase = true; timeRemaining = data.seconds_left; isTimerRunning = true;
-                const randomIdx = Math.floor(Math.random() * COGNITIVE_ASCII_ARTS.length);
-                if (asciiContainer) asciiContainer.textContent = COGNITIVE_ASCII_ARTS[randomIdx];
+                showRestArt();
+                startRestArtRotation();
                 if (restTimerDisplay) restTimerDisplay.textContent = formatTime(timeRemaining); 
                 if (restOverlay) { restOverlay.classList.remove('hidden'); restOverlay.classList.add('flex'); }
                 runTimerLoop();
@@ -725,6 +773,7 @@ function initPomodoroEngine() {
     if (skipRest) {
         skipRest.addEventListener('click', () => {
             isRestPhase = false; timeRemaining = 52 * 60; if (sessionTimer) sessionTimer.textContent = formatTime(timeRemaining);
+            stopRestArtRotation();
             if (restOverlay) { restOverlay.classList.add('hidden'); restOverlay.classList.remove('flex'); }
         });
     }
@@ -1628,45 +1677,74 @@ window.ocrImagesToText = async function(files, onStatus) {
 // ---- Просмотр карточки из архива (по нажатию на строку; долгое нажатие по-прежнему включает выбор)
 const CARD_STATE_LABELS = ['Новая', 'Заучивание', 'Повторение', 'Переобучение'];
 
-function describeNextReview(iso) {
-    if (!iso) return '';
-    const t = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
-    if (isNaN(t)) return '';
-    const mins = Math.round((t.getTime() - Date.now()) / 60000);
-    if (mins <= 0) return 'пора повторить';
-    if (mins < 60) return `через ${mins} мин`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `через ${hours} ч`;
-    const days = Math.round(hours / 24);
-    return `через ${days} дн.`;
-}
-
 window.openCardView = function(cardId) {
     const c = (localCardsArchive || []).find(x => x.id === cardId);
     const modal = document.getElementById('card-view-modal');
     if (!c || !modal) return;
+    const domain = window.detectCardDomain(c);
     const terms = parseSearchQuery(currentDataQuery);
     const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    const setText = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
     const show = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
 
-    set('card-view-question', highlightMatches(formatClozePlain(c.text), terms));
+    setText('card-view-answer-label', domain.labels.main);
+    setText('card-view-context-label', domain.labels.sec);
+    setText('card-view-example-label', domain.labels.ex);
+
+    const qEl = document.getElementById('card-view-question');
+    if (qEl) {
+        qEl.innerHTML = highlightMatches(formatClozePlain(c.text), terms);
+        const cleanQ = String(c.text || '').trim();
+        if (/[\u4e00-\u9fa5]/.test(cleanQ) && cleanQ.length <= 6) {
+            qEl.style.fontSize = cleanQ.length <= 2 ? '2.2rem' : '1.75rem';
+            qEl.style.letterSpacing = '0.04em';
+        } else {
+            qEl.style.fontSize = '';
+            qEl.style.letterSpacing = '';
+        }
+    }
     set('card-view-answer', highlightMatches(c.translation, terms));
-    set('card-view-example', c.example ? highlightMatches(c.example, terms) : '');
-    show('card-view-example-box', !!c.example);
-    set('card-view-context', c.secondary_text ? highlightMatches(c.secondary_text, terms) : '');
-    show('card-view-context-box', !!c.secondary_text);
+
+    const secClean = (c.secondary_text && c.secondary_text !== '---') ? c.secondary_text.trim() : '';
+    if (secClean) {
+        set('card-view-context', `<div class="blur-chips-row">${window.renderPartialBlurChipsHTML(secClean, domain, { masked: false, searchTerms: terms })}</div>`);
+        show('card-view-context-box', true);
+    } else {
+        set('card-view-context', '');
+        show('card-view-context-box', false);
+    }
+
+    const exClean = (c.example && c.example !== '---') ? c.example.trim() : '';
+    if (exClean) {
+        set('card-view-example', window.renderExampleTokensHTML(exClean, c, { masked: false, searchTerms: terms }));
+        show('card-view-example-box', true);
+    } else {
+        set('card-view-example', '');
+        show('card-view-example-box', false);
+    }
+
+    const speakBtn = document.getElementById('card-view-speak-btn');
+    if (speakBtn) {
+        const canSpeakTerm = window.isSpeakable(c.text, c);
+        speakBtn.classList.toggle('hidden', !canSpeakTerm);
+        speakBtn.onclick = canSpeakTerm ? (ev) => { ev.stopPropagation(); window.executeVoiceSynthesis(c.text, c); } : null;
+    }
+    const exSpeakBtn = document.getElementById('card-view-example-speak-btn');
+    if (exSpeakBtn) {
+        const canSpeakEx = exClean && window.isSpeakable(exClean, c);
+        exSpeakBtn.classList.toggle('hidden', !canSpeakEx);
+        exSpeakBtn.onclick = canSpeakEx ? (ev) => { ev.stopPropagation(); window.replayAudioForText(exClean, c); } : null;
+    }
+
     const m = c.mnemonic && typeof c.mnemonic === 'object' ? `${c.mnemonic.keyword || ''}: ${c.mnemonic.verbal_cue || ''}` : (c.mnemonic || '');
     set('card-view-mnemonic', escapeHTML(m));
     show('card-view-mnemonic-box', !!String(m).replace(/[:\s]/g, ''));
 
     const state = document.getElementById('card-view-state');
     if (state) state.textContent = CARD_STATE_LABELS[c.state] || 'Новая';
-    const bits = [c.subject];
-    if (c.state > 0) {
-        const nr = describeNextReview(c.next_review);
-        if (nr) bits.push(`следующее повторение: ${nr}`);
-        if (c.lapses) bits.push(`ошибок: ${c.lapses}`);
-        if (c.stability) bits.push(`прочность ≈ ${c.stability} дн.`);
+    const bits = [c.subject_title || c.subject];
+    if (c.state > 0 && c.lapses) {
+        bits.push(`ошибок: ${c.lapses}`);
     }
     set('card-view-meta', bits.filter(Boolean).map(escapeHTML).join(' · '));
 

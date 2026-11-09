@@ -24,7 +24,12 @@ def is_structurally_invalid_card(card: dict) -> tuple[bool, str]:
     if not front or not back:
         return True, "empty_front_or_back"
 
-    if len(front) < 5 or len(back) < 2:
+    cjk_re = r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]"
+    has_cjk_front = bool(re.search(cjk_re, front))
+    has_cjk_back = bool(re.search(cjk_re, back))
+    min_front = 1 if has_cjk_front else (2 if ("?" not in front and re.fullmatch(r"[A-Za-z\u00c0-\u024f\s\-']{2,}", front)) else 5)
+    min_back = 1 if has_cjk_back else 2
+    if len(front) < min_front or len(back) < min_back:
         return True, "too_short"
 
     # Cloze-карточки намеренно содержат целевой термин в разметке {{c1::термин}}

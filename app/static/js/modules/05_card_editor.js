@@ -218,9 +218,82 @@ window.regenerateStagingMnemonic = async function() {
         const res = await apiFetch('/api/management/cards/0/regenerate_mnemonic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ preference: pref })
+            body: JSON.stringify({
+                preference: pref,
+                text: card.text || '',
+                translation: card.translation || '',
+                subject: card.subject || currentSubject || ''
+            })
         });
-    } catch (e) {}
+        if (res.ok) {
+            const data = await res.json();
+            if (data.mnemonic) {
+                card.mnemonic = data.mnemonic;
+                const kw = typeof data.mnemonic === 'object' ? data.mnemonic.keyword : data.mnemonic;
+                const cue = typeof data.mnemonic === 'object' ? data.mnemonic.verbal_cue : '';
+                const mnemEl = document.getElementById('staging-card-mnemonic');
+                const mnemBox = document.getElementById('staging-card-mnemonic-box');
+                if (mnemEl && mnemBox) {
+                    mnemEl.textContent = cue ? `${kw}: ${cue}` : kw;
+                    mnemBox.classList.remove('hidden');
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Сбой генерации мнемоники в Staging:", e);
+    }
+};
+
+window.generateEditorMnemonic = async function() {
+    const textEl = document.getElementById('edit-card-text');
+    const transEl = document.getElementById('edit-card-translation');
+    const subEl = document.getElementById('edit-card-subject');
+    const btn = document.getElementById('btn-gen-editor-mnem');
+    const text = textEl ? textEl.value.trim() : '';
+    const trans = transEl ? transEl.value.trim() : '';
+    const sub = subEl ? subEl.value.trim() : (currentSubject || '');
+
+    if (!text || !trans) {
+        alert("Сначала укажите термин на лицевой стороне и значение на обороте.");
+        return;
+    }
+
+    const oldBtnText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-xs animate-spin">refresh</span>Генерация...';
+    }
+
+    try {
+        const pref = localStorage.getItem('assoc_preference') || 'visual';
+        const res = await apiFetch('/api/management/cards/0/regenerate_mnemonic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preference: pref, text, translation: trans, subject: sub })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.mnemonic) {
+                const kwInput = document.getElementById('edit-card-mnem-keyword');
+                const cueInput = document.getElementById('edit-card-mnem-cue');
+                if (kwInput && cueInput) {
+                    kwInput.value = data.mnemonic.keyword || '';
+                    cueInput.value = data.mnemonic.verbal_cue || '';
+                }
+            }
+        } else {
+            const err = await res.json();
+            alert(err.detail || "Не удалось сгенерировать мнемонику.");
+        }
+    } catch (e) {
+        console.error("Ошибка генерации мнемоники:", e);
+        alert("Сетевая ошибка при генерации мнемоники.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = oldBtnText;
+        }
+    }
 };
 
 // --- ДОПОЛНИТЕЛЬНЫЙ ФУНКЦИОНАЛ: МАССОВЫЕ ДЕЙСТВИЯ И КОГНИТИВНЫЙ ОПРОС ---

@@ -16,7 +16,8 @@ MIN_MATCH_SCORE = 0.04          # окно, не похожее ни на оди
 MIN_TOKENS_FOR_INDEX = 400      # меньше — считать нечего
 MAX_CARDS_PER_NODE = 12         # потолок квоты на один узел
 
-_WORD_RE = re.compile(r"[^\W\d_]{%d,}" % MIN_WORD_LEN)
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+")
+_WORD_RE = re.compile(r"[^\W\d_\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]{%d,}" % MIN_WORD_LEN)
 _STOP = set(
     "это как что для при или так его ее их был была были быть есть может могут также если когда только который которые "
     "которая которого которой которых этом этой этих тех той тот такой такие вправе должен должны более менее между "
@@ -34,7 +35,13 @@ def join_wrapped(text: str) -> str:
 
 
 def stems(text: str) -> list[str]:
-    return [w[:STEM_LEN] for w in _WORD_RE.findall(join_wrapped(text).lower().replace("ё", "е")) if w not in _STOP]
+    cleaned = join_wrapped(text).lower().replace("ё", "е")
+    out = [w[:STEM_LEN] for w in _WORD_RE.findall(cleaned) if w not in _STOP]
+    for run in _CJK_RUN_RE.findall(cleaned):
+        out.extend(run)
+        if len(run) > 1:
+            out.extend(run[i:i + 2] for i in range(len(run) - 1))
+    return out
 
 
 def split_windows(text: str, size: int = WINDOW_CHARS) -> list[tuple[int, int]]:
@@ -65,7 +72,7 @@ class SourceIndex:
 
     @property
     def usable(self) -> bool:
-        return self.tokens >= MIN_TOKENS_FOR_INDEX and len(self.spans) >= 3
+        return self.tokens >= MIN_TOKENS_FOR_INDEX and len(self.spans) >= 3 and len(self.idf) >= 8
 
     def _vec(self, counter: Counter) -> dict[str, float]:
         v = {w: (1 + math.log(k)) * self.idf.get(w, 1.0) for w, k in counter.items()}

@@ -90,7 +90,6 @@
                 </button>
                 <div class="flex gap-2">
                     <span class="px-2 py-0.5 border border-neutral-200 dark:border-neutral-700 text-primary font-mono text-[10px] font-bold bg-neutral-100 dark:bg-primary-container rounded-lg">ОЧЕРЕДЬ: <span class="data-cnt-queue ml-0.5">0</span></span>
-                    <span class="px-2 py-0.5 border border-neutral-200 dark:border-neutral-700 text-primary font-mono text-[10px] font-bold bg-neutral-200 dark:bg-surface-container-high rounded-lg">К ВЕЧЕРУ: <span class="data-cnt-evening ml-0.5">0</span></span>
                 </div>
             </div>
 
@@ -141,6 +140,10 @@
                             <div class="w-full flex-1 min-h-0 flex flex-col justify-center items-center px-3 py-2 card-scroll-clean card-scroll-masked my-auto">
                                 <h2 id="card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">Загрузка...</h2>
                                 <div id="card-front-hint" class="card-context hidden"></div>
+                                <button type="button" id="card-front-speak-pill" data-no-swipe onclick="event.stopPropagation(); window.replayAudio();" class="dg-speak-pill hidden mt-3" aria-label="Озвучить">
+                                    <span class="material-symbols-outlined">volume_up</span>
+                                    <span>Озвучить</span>
+                                </button>
                             </div>
                             
                             <div class="shrink-0 pt-1 pb-1 flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500 tracking-tight">
@@ -248,7 +251,7 @@
 
                             <!-- Средний блок: Метрики усвоения и прогресс -->
                             <div class="w-full flex flex-col gap-2.5 my-auto py-2">
-                                <div class="grid grid-cols-3 gap-2 text-center">
+                                <div class="grid grid-cols-2 gap-2 text-center">
                                     <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
                                         <span id="debrief-stat-reviewed" class="block font-bold text-lg text-primary font-mono">0</span>
                                         <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">В блоке</span>
@@ -256,10 +259,6 @@
                                     <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
                                         <span id="debrief-stat-accuracy" class="block font-bold text-lg text-emerald-600 dark:text-emerald-400 font-mono">100%</span>
                                         <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">Точность</span>
-                                    </div>
-                                    <div class="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800">
-                                        <span id="debrief-stat-evening" class="block font-bold text-lg text-neutral-700 dark:text-neutral-300 font-mono">0</span>
-                                        <span class="text-[9px] uppercase font-mono text-neutral-400 dark:text-neutral-500">К вечеру</span>
                                     </div>
                                 </div>
 
@@ -344,12 +343,34 @@
                             </div>
                         </div>
 
-                        <!-- Центральная зона: Скроллируемое содержимое (Определение + Мнемоника + Аккордеон деталей) -->
+                        <!-- Центральная зона: Скроллируемое содержимое (Ответ + Partial Blur + Пример + Ассоциация) -->
                         <div class="card-center-scroll w-full flex-1 min-h-0 flex flex-col items-stretch justify-start py-2 card-scroll-clean card-scroll-masked px-1 overscroll-contain gap-2.5" style="-webkit-overflow-scrolling: touch; touch-action: pan-y;">
-                            <!-- Определение (структурированный блок, идентичный режиму знакомства) -->
+                            <!-- Ответ (структурированный блок, идентичный режиму знакомства) -->
                             <div class="bg-neutral-50 dark:bg-neutral-900/40 p-3 sm:p-3.5 rounded-xl border border-neutral-200/80 dark:border-neutral-800 text-left">
-                                <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОПРЕДЕЛЕНИЕ</span>
+                                <span id="card-main-label" class="block text-[10px] font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider font-mono mb-1">ОТВЕТ / СУТЬ</span>
                                 <div id="card-main-text" class="text-sm sm:text-base font-medium text-neutral-900 dark:text-neutral-100 leading-relaxed break-words whitespace-pre-line">---</div>
+                                <div id="card-secondary-container" data-blur-sec class="hidden mt-2.5 pt-2.5 border-t border-neutral-200/70 dark:border-neutral-800">
+                                    <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                        <span id="card-sec-label" class="text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold tracking-wider">КОНТЕКСТ И ДЕТАЛИ</span>
+                                        <div class="flex items-center gap-1" data-no-swipe>
+                                            <button type="button" id="card-sec-scaffold-btn" data-no-swipe onclick="event.stopPropagation(); window.toggleCardScaffold('card-secondary-container', this);" class="blur-action-btn" title="Подсказка: показать каркас">Каркас</button>
+                                            <button type="button" id="card-sec-reveal-btn" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('card-back', this);" class="blur-action-btn" title="Открыть или скрыть все подсказки">Открыть</button>
+                                        </div>
+                                    </div>
+                                    <div id="card-secondary-text" class="blur-chips-row" data-no-swipe></div>
+                                </div>
+                            </div>
+
+                            <!-- Пример в контексте (открытый блок с фиолетовым акцентом) -->
+                            <div id="card-example-container" class="hidden dg-example-box w-full">
+                                <div class="flex items-center justify-between gap-2 mb-1">
+                                    <span id="card-example-label" class="block text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold tracking-wider">ПРИМЕР</span>
+                                    <button type="button" id="card-example-speak-btn" data-no-swipe class="blur-action-btn hidden" aria-label="Озвучить пример">
+                                        <span class="material-symbols-outlined" style="font-size:12px;">volume_up</span>
+                                        <span>Пример</span>
+                                    </button>
+                                </div>
+                                <p id="card-example-text" class="text-xs text-neutral-700 dark:text-neutral-300 italic leading-relaxed break-words"></p>
                             </div>
 
                             <!-- Нижняя зона: Стильный Memory Hook (Мнемоника / Ассоциация) -->
@@ -365,27 +386,6 @@
                                 </div>
                                 <div id="mnemonic-content" class="transition-opacity duration-300">
                                     <p id="card-mnemonic" class="text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-snug break-words"></p>
-                                </div>
-                            </div>
-
-                            <!-- Progressive Disclosure: Вторичные нормативные данные и пример -->
-                            <div id="card-details-accordion" class="w-full hidden text-left mt-0.5">
-                                <button type="button" onclick="event.stopPropagation(); window.toggleCardDetailsAccordion();" class="w-full flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-neutral-100/80 dark:bg-neutral-800/80 hover:bg-neutral-200/80 dark:hover:bg-neutral-700/80 text-neutral-600 dark:text-neutral-300 transition-colors text-[11px] font-mono cursor-pointer border border-neutral-200/60 dark:border-neutral-700/50">
-                                    <span class="flex items-center gap-1 font-medium">
-                                        <span id="card-details-icon" class="material-symbols-outlined text-[14px]">expand_more</span>
-                                        <span>Норма закона и пример</span>
-                                    </span>
-                                    <span class="text-[9px] text-neutral-400 dark:text-neutral-500 uppercase font-mono">Детали</span>
-                                </button>
-                                <div id="card-details-body" class="hidden mt-1.5 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-900/40 border border-neutral-200/80 dark:border-neutral-800 flex flex-col gap-2 text-left text-xs">
-                                    <div id="card-secondary-container" class="hidden">
-                                        <span class="block text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold mb-0.5">СТАТЬЯ ЗАКОНА / НОРМА</span>
-                                        <span id="card-secondary-text" class="inline-block text-xs font-semibold font-mono text-primary dark:text-primary-fixed bg-primary/10 px-2 py-0.5 rounded border border-primary/20 break-words">---</span>
-                                    </div>
-                                    <div id="card-example-container" class="hidden border-l-2 border-primary/50 pl-2.5 py-0.5">
-                                        <span class="block text-[9px] font-mono uppercase text-neutral-400 dark:text-neutral-500 font-bold mb-0.5">ПРИМЕР ИЗ ПРАКТИКИ</span>
-                                        <p id="card-example-text" class="text-xs text-neutral-600 dark:text-neutral-400 italic leading-relaxed break-words"></p>
-                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -38,7 +38,7 @@ HOLE_PASSAGE_CHARS = 3500     # на один запрос добора идёт
 _FOOTNOTE_LINE = re.compile(r"^\s*\d{1,3}\s+[А-ЯЁA-Z][^\n]{0,160}(?:\bС\.\s?\d|//|Режим доступа|\bМ\.,|\bСПб\.|\bМинск,)[^\n]*$", re.M)
 
 _NUM = re.compile(r"\d+")
-_SENT_END = re.compile(r"(?<=[.!?…])\s+")
+_SENT_END = re.compile(r"(?:(?<=[.!?…])\s+|(?<=[。！？]))")
 
 
 def _fold(text: str) -> str:
@@ -63,7 +63,8 @@ class SourceLocator:
 
     def find(self, quote: str) -> tuple[int, int] | None:
         q = _fold(quote)
-        if len(q) < MIN_QUOTE_ALNUM:
+        cjk = sum(1 for ch in q if "\u4e00" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff" or "\uac00" <= ch <= "\ud7af")
+        if len(q) + 2 * cjk < MIN_QUOTE_ALNUM:
             return None
         i = self._s.find(q)
         if i < 0:
@@ -389,14 +390,21 @@ class CardVerifier:
     def _split_by_sentences(self, a: int, b: int, max_chars: int) -> list[tuple[int, int]]:
         """Режет [a, b) на части не длиннее max_chars по концам предложений (без обрыва слов)."""
         parts, start = [], a
-        if a > 0 and self.text[a - 1] not in ".!?\n":                 # начало с середины предложения: сдвигаем к началу следующего
-            m = re.search(r"[.!?…][\"»)]?\s+(?=[А-ЯЁA-Z«\"(\d])", self.text[a:min(b, a + 400)])
+        if a > 0 and self.text[a - 1] not in ".!?。！？\n":                 # начало с середины предложения: сдвигаем к началу следующего
+            m = re.search(r"(?:[.!?…][\"»)]?\s+(?=[А-ЯЁA-Z«\"(\d])|[。！？]\s*)", self.text[a:min(b, a + 400)])
             if m:
                 start = a + m.end()
         while start < b:
             end = min(b, start + max_chars)
             if end < b:
-                cut = max(self.text.rfind(". ", start + max_chars // 2, end), self.text.rfind(".\n", start + max_chars // 2, end))
+                hi = start + max_chars // 2
+                cut = max(
+                    self.text.rfind(". ", hi, end),
+                    self.text.rfind(".\n", hi, end),
+                    self.text.rfind("。", hi, end),
+                    self.text.rfind("！", hi, end),
+                    self.text.rfind("？", hi, end),
+                )
                 if cut != -1:
                     end = cut + 1
             parts.append((start, end))

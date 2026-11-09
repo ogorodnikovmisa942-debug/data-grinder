@@ -172,41 +172,23 @@ html, body {
     -webkit-overflow-scrolling: touch;
 }
 
-/* --- Интерактивные шаблоны для предметов --- */
-
-/* Китайский: Размытие Pinyin на обратной стороне до наведения */
-.template-chinese #card-secondary-text {
-    filter: blur(5px);
-    transition: filter 0.3s ease;
-    cursor: pointer;
-}
-.template-chinese #card-secondary-text:hover,
-.template-chinese #card-secondary-text:active {
-    filter: blur(0);
-}
-
-/* Право: Строгий акцентный стиль для кодексов */
-.template-law #card-main-text {
-    border-left: 3px solid #2563eb;
-    padding-left: 14px;
-    text-align: left;
-}
+/* --- Адаптивные карточки: tap-размытие и универсальная палитра без синей/янтарной пестроты --- */
 
 /* Карточка в режиме знакомства — убираем cursor-pointer, т.к. клик не переворачивает */
 #card-front.introduction-mode {
     cursor: default;
 }
 
-/* Плавное появление блоков */
+/* Плавное появление блоков: 6px вместо 8px — движение читается, но не «прыгает» */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
 .introduction-block,
 .animate-fade-in {
     opacity: 0;
-    animation: fadeIn 0.25s ease-out forwards;
+    animation: fadeIn 0.28s cubic-bezier(.22, 1, .36, 1) forwards;
 }
 
 /* Cloze Deletion Styling */
@@ -568,7 +550,10 @@ html, body {
 .lesson-btn-secondary { background: #f5f5f5; }
 .lesson-btn-secondary:hover { background: #e5e5e5; }
 .dark .lesson-btn-secondary { background: #262626; }
-.lesson-dot { width: 6px; height: 6px; border-radius: 9999px; background: #d4d4d4; }
+.lesson-dot {
+    width: 6px; height: 6px; border-radius: 9999px; background: #d4d4d4;
+    transition: transform 0.28s cubic-bezier(.22, 1, .36, 1), background-color 0.28s ease;
+}
 .dark .lesson-dot { background: #404040; }
 .lesson-dot-done, .dark .lesson-dot-done { background: #1c1b1b; }
 .dark .lesson-dot-done { background: #e5e5e5; }
@@ -579,7 +564,20 @@ html, body {
     line-height: 1.15;
     white-space: pre;
     margin: 0;
+    width: 9ch;
+    display: inline-block;
+    text-align: left;
     transform-origin: 50% 100%;
+    /* Слот «вход в кадр»: JS добавляет .cat-enter — кот появляется один раз и продолжает
+       жить своей эмоцией: вход и цикл эмоции стоят в одном списке анимаций и не вытесняют друг друга. */
+    --cat-in: none;
+    animation: var(--cat-in);
+}
+.lesson-cat.cat-enter { --cat-in: catEnter 0.32s cubic-bezier(.22, 1, .36, 1) backwards; }
+/* translate/scale — отдельные свойства: не перебивают transform статических поз (think/confused) */
+@keyframes catEnter {
+    from { opacity: 0; translate: 0 3px; scale: 0.97; }
+    to { opacity: 1; translate: 0 0; scale: 1; }
 }
 .lesson-bubble::before {
     content: "";
@@ -593,39 +591,72 @@ html, body {
     border-left: inherit;
     border-bottom: inherit;
 }
-.cat-emo-think { transform: rotate(-4deg); }
-.cat-emo-surprised { animation: cat-pop 0.35s ease-out; }
-.cat-emo-proud { animation: cat-pop 0.35s ease-out; }
-.cat-emo-sleepy { animation: cat-breathe 3.2s ease-in-out infinite; }
+/* ---- Эмоции кота: одна эмоция за раз, движения еле заметные ----
+   Статические позы — без анимации: кот наклоняет голову и остаётся услышанным. */
+.cat-emo-think { transform: rotate(-3deg); }
+.cat-emo-confused { transform: rotate(2deg); }
+/* Одноразовые эмоции — один мягкий импульс, дальше кот спокоен */
+.cat-emo-surprised { animation: var(--cat-in), cat-pop 0.4s cubic-bezier(.22, 1, .36, 1); }
+.cat-emo-wink { animation: var(--cat-in), cat-pop 0.36s cubic-bezier(.22, 1, .36, 1); }
+/* Медленные циклы: «оживший» кот дышит и покачивается, а не трясётся */
+.cat-emo-talk { animation: var(--cat-in), cat-breathe 2.8s ease-in-out infinite; }
+.cat-emo-happy { animation: var(--cat-in), cat-happy 2.8s ease-in-out infinite; }
+.cat-emo-sleepy { animation: var(--cat-in), cat-breathe 4s ease-in-out infinite; }
+.cat-emo-proud { animation: var(--cat-in), cat-proud 4.2s ease-in-out infinite; }
 @keyframes cat-breathe {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.04); }
+    50% { transform: scale(1.025); }
 }
-.cat-react-bounce { animation: cat-bounce 0.6s ease-out; }
-.cat-react-shake { animation: cat-shake 0.45s ease-in-out; }
+@keyframes cat-happy {
+    0%, 82%, 100% { transform: translateY(0); }
+    88% { transform: translateY(-2px); }
+    94% { transform: translateY(0); }
+}
+@keyframes cat-proud {
+    0%, 100% { transform: rotate(-2deg) scale(1); }
+    50% { transform: rotate(2deg) scale(1.015); }
+}
+/* Реакции: короткий одноразовый отклик на ответ (JS добавляет класс после сброса className) */
+.cat-react-bounce { animation: cat-bounce 0.52s cubic-bezier(.22, 1, .36, 1); }
+.cat-react-shake { animation: cat-shake 0.42s ease-in-out; }
+.cat-react-nod { animation: cat-nod 0.34s cubic-bezier(.22, 1, .36, 1); }
+.cat-react-purr { animation: cat-purr 0.4s linear; }
 @keyframes cat-bounce {
     0%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-8px); }
-    55% { transform: translateY(0); }
-    75% { transform: translateY(-3px); }
+    35% { transform: translateY(-4px); }
+    62% { transform: translateY(0); }
+    80% { transform: translateY(-2px); }
 }
 @keyframes cat-shake {
     0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-4px); }
-    40% { transform: translateX(4px); }
-    60% { transform: translateX(-3px); }
-    80% { transform: translateX(2px); }
+    22% { transform: translateX(-2px); }
+    44% { transform: translateX(2px); }
+    66% { transform: translateX(-1px); }
+    84% { transform: translateX(1px); }
+}
+@keyframes cat-nod {
+    0%, 100% { transform: translateY(0); }
+    40% { transform: translateY(2px); }
+}
+@keyframes cat-purr {
+    0%, 100% { transform: translateX(0); }
+    12%, 44%, 76% { transform: translateX(1px); }
+    28%, 60%, 92% { transform: translateX(-1px); }
 }
 @keyframes cat-pop {
-    0% { transform: scale(0.9); }
-    60% { transform: scale(1.08); }
+    0% { transform: scale(0.96); }
+    55% { transform: scale(1.04); }
     100% { transform: scale(1); }
 }
 .lesson-option-correct { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.12) !important; }
 .lesson-option-wrong { border-color: #f43f5e !important; background: rgba(244, 63, 94, 0.10) !important; }
 .lesson-option-picked { border-color: #6366f1 !important; background: rgba(99, 102, 241, 0.10) !important; }
 @media (prefers-reduced-motion: reduce) {
-    .lesson-cat { animation: none !important; transform: none !important; }
+    /* Кот: ни эмоций, ни реакций, ни появления — только статичная картинка */
+    .lesson-cat, .cat-enter { animation: none !important; }
+    .lesson-cat { transform: none !important; }
+    /* Курсор печати остаётся виден, но не мигает */
+    .lesson-text.is-typing::after { animation: none !important; opacity: 0.5; }
 }
 
 /* ==========================================================================
@@ -636,14 +667,15 @@ html, body {
     width: 28px; height: 28px; border-radius: 9999px;
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid #e5e5e5; background: #f5f5f5; color: #525252;
-    animation: pathStepIn 0.35s ease-out both;
+    animation: pathStepIn 0.32s cubic-bezier(.22, 1, .36, 1) both;
 }
 .path-run-step .material-symbols-outlined { font-size: 16px; }
 .dark .path-run-step { border-color: #404040; background: #262626; color: #d4d4d4; }
 .path-run-step-done { background: rgba(16, 185, 129, 0.12); border-color: #10b981; color: #059669; }
 .dark .path-run-step-done { color: #34d399; }
 .path-run-step-current { border-color: currentColor; transform: scale(1.1); }
-@keyframes pathStepIn { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+/* Конец — «как в покое»: без transform в 100%, чтобы не перебивать scale(1.1) текущего шага */
+@keyframes pathStepIn { from { opacity: 0; transform: scale(0.82); } to { opacity: 1; } }
 .path-run-card {
     display: flex; align-items: center; gap: 12px; padding: 14px 16px;
     border-radius: 16px; border: 1px solid #e5e5e5; background: #ffffff;
@@ -658,27 +690,48 @@ html, body {
     line-height: 1.12;
     white-space: pre;
     margin: 0;
+    animation: dayLayerIn 0.4s ease-out both;
 }
 .day-confetti { position: absolute; inset: 0; color: #f59e0b; }
 .dark .day-confetti { color: #fbbf24; }
-.day-face { position: relative; transform-origin: 50% 88%; animation: daySway 2.8s ease-in-out infinite; }
-@keyframes daySway {
-    0%, 100% { transform: rotate(-4deg) translateY(0); }
-    25% { transform: rotate(0deg) translateY(-2px); }
-    50% { transform: rotate(4deg) translateY(0); }
-    75% { transform: rotate(0deg) translateY(-2px); }
+/* Морда: медленное «дыхание» вместо резкого маятника; появление — в том же списке */
+.day-face {
+    position: relative; transform-origin: 50% 88%;
+    animation: dayLayerIn 0.4s ease-out both, dayBreathe 3.6s ease-in-out infinite;
+}
+@keyframes dayLayerIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes dayBreathe {
+    0%, 100% { transform: rotate(-3deg) scale(1); }
+    50% { transform: rotate(3deg) scale(1.015); }
 }
 .day-stats { display: flex; flex-direction: column; gap: 4px; min-height: 5em; }
-.day-stat-line { opacity: 0; animation: fadeIn 0.4s ease-out forwards; }
-.day-close-in { animation: fadeIn 0.4s ease-out 2.6s forwards; }
+.day-stat-line { opacity: 0; animation: dayStatIn 0.34s cubic-bezier(.22, 1, .36, 1) forwards; }
+@keyframes dayStatIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.day-title-in { animation: dayTitleIn 0.36s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes dayTitleIn {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.day-close-in { animation: fadeIn 0.4s cubic-bezier(.22, 1, .36, 1) 2.6s forwards; }
 @media (prefers-reduced-motion: reduce) {
     .day-stat-line, .day-close-in { animation: none !important; opacity: 1 !important; }
-    .day-face { animation: none !important; }
+    .day-face, .day-layer, .day-title-in, #day-celebration { animation: none !important; }
     .path-run-step, .path-run-card { animation: none !important; }
 }
 /* tailwind.min.css собран заранее: z-[120]/z-[140] в нём нет */
 #path-run-overlay { z-index: 120; }
-#day-celebration { z-index: 140; }
+/* Подложка «День закрыт» проявляется, когда JS снимает hidden */
+#day-celebration { z-index: 140; animation: dayOverlayIn 0.4s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes dayOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
 /* Прозрачность — не через .opacity-0: у того pointer-events: none, и кнопка после появления оставалась «мёртвой» */
 #day-close { padding: 10px 24px; white-space: nowrap; opacity: 0; }
 
@@ -801,7 +854,7 @@ html, body {
 .oq-btn-primary { background: #6366f1; border-color: #6366f1; color: #fff; }
 .oq-meter { height: 8px; border-radius: 999px; background: #e5e5e5; overflow: hidden; }
 .dark .oq-meter { background: #262626; }
-.oq-meter > span { display: block; height: 100%; background: #6366f1; transition: width .4s ease; }
+.oq-meter > span { display: block; height: 100%; background: #6366f1; transition: width 0.42s cubic-bezier(.22, 1, .36, 1); }
 .oq-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .oq-point { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.35; padding: 8px 10px; border-radius: 10px; border: 1px solid #e5e5e5; }
 .dark .oq-point { border-color: #262626; }
@@ -904,7 +957,7 @@ html, body {
 /* Вход в занятие — мягкое появление, а не скачок экрана (только прозрачность: transform размывает 3D-карточку) */
 .path-run-mode #card-zone,
 .path-run-mode #action-buttons,
-.path-run-mode .run-bar { animation: runEnter 0.28s ease-out; }
+.path-run-mode .run-bar { animation: runEnter 0.3s cubic-bezier(.22, 1, .36, 1); }
 @keyframes runEnter { from { opacity: 0; } to { opacity: 1; } }
 
 /* ===== Оценка карточки: Забыл · Трудно · Помню · Легко ===== */
@@ -1119,3 +1172,364 @@ html, body {
     touch-action: pan-y; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
 }
 #subjects-manager-list { touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+
+/* ==========================================================================
+   ЖИВЫЕ МИКРОДВИЖЕНИЯ: появление, смена реплик, лоадер, отдых
+   Только transform/opacity; 180–420ms; cubic-bezier(.22, 1, .36, 1);
+   бесконечные циклы медленные (2.6–4.5s, float отдыха — 6s).
+   Все новые анимации гасятся в @media (prefers-reduced-motion: reduce).
+   ========================================================================== */
+
+/* 1. Появление кота (.cat-enter) — в блоке «кот-рассказчик» выше: вход живёт в том же
+   списке анимаций, что и эмоция, поэтому дыхание не вытесняется. */
+
+/* 2. Смена реплики: короткий fade + подъём 2px (#lesson-text и .intro-cat-bubble p).
+   Класс вешает JS на элемент, чей текст поменялся. */
+.bubble-swap { animation: bubbleSwap 0.22s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes bubbleSwap {
+    from { opacity: 0.35; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 3. Печать реплики: ASCII-курсор ▍, мягкое мигание; в reduced-motion — статичный */
+.lesson-text.is-typing::after {
+    content: '▍';
+    display: inline-block;
+    margin-left: 1px;
+    opacity: 0.5;
+    animation: caretBlink 0.9s steps(2, start) infinite;
+}
+@keyframes caretBlink {
+    0%, 50% { opacity: 0.5; }
+    50.01%, 100% { opacity: 0; }
+}
+
+/* 4. Чип понятия: fade + scale .96 (JS ставит inline animation-delay) */
+.lesson-focus-chip { animation: chipIn 0.22s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes chipIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* 5. Варианты ответа: fade + подъём 4px (JS ставит inline animation-delay).
+   fill-mode backwards, а не both: fade не должен «залипать» поверх .lesson-option-dim (opacity .5). */
+.lesson-option { animation: optionIn 0.3s cubic-bezier(.22, 1, .36, 1) backwards; }
+@keyframes optionIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 6. Конспект: факты выезжают слева (JS ставит inline animation-delay) */
+.lesson-facts li { animation: factIn 0.3s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes factIn {
+    from { opacity: 0; transform: translateX(-3px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* 7. Смена карточки шага на стартовом экране — fade + 2px */
+.starter-step-in { animation: starterStepIn 0.28s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes starterStepIn {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 8. ASCII-лоадер: 3 строки кота + строка прогресса (её обновляет JS, поэтому без анимации) */
+.ascii-spinner {
+    font: 600 12px/1.1 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: 0.12em;
+    text-align: center;
+    min-height: 4.6em;
+    margin: 0;
+    white-space: pre;
+}
+/* Подложка загрузки: только проявление. Позицию, фон и выравнивание задаёт разметка (Tailwind),
+   поэтому здесь нет ни position, ни display — не перебиваем .hidden и layout модалки. */
+.loading-veil { animation: veilIn 0.18s ease-out both; }
+@keyframes veilIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 9. Экран отдыха: арт плавает, смена арта — fade 280ms, оверлей — fade 320ms */
+.rest-ascii-art { animation: restFloat 6s ease-in-out infinite; }
+.rest-art-swap { animation: restArtSwap 0.28s ease-out both, restFloat 6s ease-in-out infinite; }
+.rest-overlay-in { animation: restOverlayIn 0.32s cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes restFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-2px); }
+}
+@keyframes restArtSwap { from { opacity: 0; } to { opacity: 1; } }
+@keyframes restOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ==========================================================================
+   УНИВЕРСАЛЬНЫЕ АДАПТИВНЫЕ КАРТОЧКИ: PARTIAL BLUR, КАРКАС, ПРИМЕРЫ И УРОКИ
+   ========================================================================== */
+[data-no-swipe], .blur-chip, .blur-token, .blur-action-btn, .dg-speak-pill {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+.blur-chips-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.blur-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    min-height: 28px;
+    border-radius: 9px;
+    border: 1px solid #e5e5e5;
+    background: #ffffff;
+    color: #262626;
+    font: 500 12px/1.3 "JetBrains Mono", ui-monospace, monospace;
+    text-align: left;
+    max-width: 100%;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.dark .blur-chip {
+    border-color: #2a2a2a;
+    background: #141414;
+    color: #e5e5e5;
+}
+.blur-chip:active { transform: scale(0.97); }
+.blur-chip-key {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8a8a8a;
+    flex-shrink: 0;
+}
+.blur-chip-val {
+    word-break: break-word;
+    transition: filter 0.2s ease, opacity 0.2s ease;
+}
+.blur-chip-scaffold {
+    display: none;
+    color: var(--dg-violet);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    word-break: break-word;
+}
+.blur-chip.blur-chip-masked {
+    border-style: dashed;
+    border-color: var(--dg-violet-line);
+    background: var(--dg-violet-soft);
+}
+.blur-chip.blur-chip-masked .blur-chip-val {
+    filter: blur(5.5px);
+    opacity: 0.55;
+    user-select: none;
+}
+.blur-container-scaffold .blur-chip.blur-chip-masked .blur-chip-val {
+    display: none;
+}
+.blur-container-scaffold .blur-chip.blur-chip-masked .blur-chip-scaffold {
+    display: inline;
+}
+.blur-chip.blur-chip-open {
+    border-color: #d4d4d4;
+}
+.dark .blur-chip.blur-chip-open {
+    border-color: #3a3a3a;
+}
+.blur-chip.blur-chip-open .blur-chip-val {
+    filter: blur(0);
+    opacity: 1;
+}
+.blur-chip.blur-chip-open .blur-chip-scaffold {
+    display: none;
+}
+
+.blur-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    min-height: 24px;
+    border-radius: 7px;
+    border: 1px solid #e5e5e5;
+    background: #ffffff;
+    color: #737373;
+    font: 700 9px/1 "JetBrains Mono", ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.dark .blur-action-btn {
+    border-color: #2a2a2a;
+    background: #141414;
+    color: #a3a3a3;
+}
+.blur-action-btn.is-active {
+    border-color: var(--dg-violet-line);
+    background: var(--dg-violet-soft);
+    color: var(--dg-violet);
+}
+
+.blur-token {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+    margin: 0 1px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-style: normal;
+    cursor: pointer;
+    vertical-align: baseline;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.blur-token-txt {
+    transition: filter 0.2s ease, opacity 0.2s ease;
+}
+.blur-token.is-masked {
+    background: var(--dg-violet-soft);
+    border: 1px dashed var(--dg-violet-line);
+    color: var(--dg-violet);
+}
+.blur-token.is-masked .blur-token-txt {
+    filter: blur(4.5px);
+    opacity: 0.72;
+    user-select: none;
+}
+.blur-token.is-revealed {
+    background: rgba(16, 185, 129, 0.10);
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    color: var(--dg-green-ink);
+}
+.blur-token.is-revealed .blur-token-txt {
+    filter: blur(0);
+    opacity: 1;
+}
+
+.dg-example-box {
+    border-left: 2.5px solid var(--dg-violet);
+    background: #fafafa;
+    border-top: 1px solid #ececec;
+    border-right: 1px solid #ececec;
+    border-bottom: 1px solid #ececec;
+    border-radius: 0 12px 12px 0;
+    padding: 9px 12px;
+    text-align: left;
+}
+.dark .dg-example-box {
+    background: rgba(255, 255, 255, 0.03);
+    border-top-color: #242424;
+    border-right-color: #242424;
+    border-bottom-color: #242424;
+}
+
+.dg-speak-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    border: 1px solid var(--dg-violet-line);
+    background: var(--dg-violet-soft);
+    color: var(--dg-violet);
+    font: 700 11px/1 "JetBrains Mono", ui-monospace, monospace;
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.15s ease;
+}
+.dg-speak-pill:active { transform: scale(0.96); }
+.dg-speak-pill.hidden { display: none; }
+.dg-speak-pill .material-symbols-outlined { font-size: 15px; }
+
+.lesson-visual-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.lesson-visual-slot.hidden { display: none; }
+.lesson-visual-card {
+    padding: 11px 13px;
+    border-radius: 14px;
+    border: 1px solid #e5e5e5;
+    background: #ffffff;
+}
+.dark .lesson-visual-card {
+    border-color: #2a2a2a;
+    background: #141414;
+}
+.lesson-hanzi-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.lesson-hanzi-glyph {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.04em;
+    color: #171717;
+}
+.dark .lesson-hanzi-glyph { color: #f5f5f5; }
+.lesson-visual-note {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #525252;
+    word-break: break-word;
+}
+.dark .lesson-visual-note { color: #a3a3a3; }
+.lesson-contrast-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+.lesson-contrast-col {
+    padding: 9px 10px;
+    border-radius: 11px;
+    border: 1px solid #e5e5e5;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.dark .lesson-contrast-col {
+    border-color: #2a2a2a;
+    background: #1a1a1a;
+}
+.lesson-contrast-col.is-primary {
+    border-color: var(--dg-violet-line);
+    background: var(--dg-violet-soft);
+}
+.lesson-contrast-col.is-vs {
+    border-color: var(--dg-red-line);
+    background: var(--dg-red-soft);
+}
+.lesson-contrast-kicker {
+    font: 700 9px/1 "JetBrains Mono", ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8a8a8a;
+}
+.lesson-contrast-col.is-primary .lesson-contrast-kicker { color: var(--dg-violet); }
+.lesson-contrast-col.is-vs .lesson-contrast-kicker { color: var(--dg-red); }
+.lesson-contrast-name {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+    word-break: break-word;
+}
+.lesson-contrast-note {
+    font-size: 11px;
+    line-height: 1.35;
+    color: #737373;
+    word-break: break-word;
+}
+.dark .lesson-contrast-note { color: #a3a3a3; }
+
+@media (prefers-reduced-motion: reduce) {
+    .bubble-swap, .lesson-focus-chip, .lesson-option, .lesson-facts li,
+    .starter-step-in, .loading-veil,
+    .rest-ascii-art, .rest-art-swap, .rest-overlay-in {
+        animation: none !important;
+    }
+    .lesson-dot, .oq-meter > span,
+    .blur-chip-val, .blur-token-txt, .dg-speak-pill { transition: none !important; }
+}

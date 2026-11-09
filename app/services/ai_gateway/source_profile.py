@@ -8,18 +8,18 @@
 import os
 import re
 
-KINDS = ("textbook", "article", "notes", "lecture", "guide", "glossary")
+KINDS = ("textbook", "article", "notes", "lecture", "guide", "glossary", "language")
 
 # Знаков источника на одну карточку по типу. Учебник — ≈ страница (решение пользователя 2026-10-06); короткая статья или доклад
 # плотнее: там почти нет «воды»; лекция реже: много повторов и отступлений. Для конспекта считаем по пунктам (см. target_cards).
 # Для учебника: ≈ карточка на страницу. Цена целой книги при такой плотности ≈ 17¢ (замер на «Судоустройстве», 1 млн знаков), при 2000 знаках — уже ≈ 18,6¢.
 # guide (пособие, подробный конспект лекций, краткий курс): связный текст, уже сжатый, поэтому гуще учебника, но не «строка = факт», как в шпаргалке.
-CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600, "guide": 1200}
+CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600, "guide": 1200, "language": 750}
 # Фактов «Конспекта темы» на одну карточку: остаток текста, которого карточки не спрашивают, идёт готовым списком. Учебник: 3,2 факта на
 # карточку = ~1 факт на 700 знаков. Замеры 2026-10-07/08: при 1 факте на 880 знаков эталон «Судоустройства» покрыт на 56%, на 550 — около 65%
 # (+7 пунктов покрытия за каждые +40% фактов); ~6–13% фактов повторяют карточку и отбрасываются, поэтому просим с запасом.
 # В конспекте почти каждый пункт уже карточка — фактов там немного. PATH_FACTS_SCALE меняет всё сразу (0 — без фактов).
-FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5, "guide": 1.6}
+FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5, "guide": 1.6, "language": 0.5}
 FACTS_SCALE = float(os.getenv("PATH_FACTS_SCALE", "1.0"))
 NOTES_CARDS_PER_ITEM = 0.85          # конспект: почти по карточке на пункт (часть пунктов — пояснения и повторы)
 ARTICLE_MAX_CHARS = 40_000           # короче этого экспозиционный текст считаем статьёй/докладом, а не учебником
@@ -30,6 +30,9 @@ _ITEM_SPLIT = re.compile(
 _YEAR_DASH = re.compile(r"\b\d{3,4}(?:,\s*\d{3,4})*\s*[—–-]\s")
 _TERM_DASH = re.compile(r"(?:^|[.;)\n])\s*[А-ЯЁA-Z][^—–\n.]{1,45}\s[—–]\s")
 _SPOKEN = re.compile(r"\b(давайте|итак|как вы видите|как вы понимаете|значит|в общем|смотрите|запишите|обратите внимание|скажем так|ну вот)\b", re.I)
+_CJK_CHAR = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+_PINYIN_TONE = re.compile(r"[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]")
+_NON_CJK_LETTER = re.compile(r"[А-ЯЁа-яёA-Za-z]")
 
 
 def count_items(text: str) -> int:
@@ -54,6 +57,10 @@ def metrics(text: str) -> dict:
 
 def heuristic_kind(text: str) -> str:
     """Запасная оценка типа по тексту, когда модель тип не назвала. Осторожная: сомнение — «учебник»/«статья»."""
+    cjk_chars = _CJK_CHAR.findall(text or "")
+    if len(cjk_chars) >= 20 and len(set(cjk_chars)) >= 8:
+        if len(_PINYIN_TONE.findall(text or "")) >= 4 or len(_NON_CJK_LETTER.findall(text or "")) >= 40:
+            return "language"
     m = metrics(text)
     if m["spoken_per_1k"] >= 1.5:
         return "lecture"
@@ -93,6 +100,10 @@ KIND_HINTS = {
                 "(\"write this down\", \"this is important\", \"this will be on the exam\") mark the most important facts."),
     "guide": ("SOURCE TYPE: study guide or detailed lecture notes. The text is already condensed: most sentences carry a fact an exam may ask, "
               "so write more cards per page than for a textbook, but still merge restatements and skip transitions and examples that only illustrate."),
+    "language": ("SOURCE TYPE: foreign language / linguistics (vocabulary, characters, grammar, dialogues, readings). "
+                 "Put the target word/character/pattern in 't', phonetic reading (pinyin/transcription) + part of speech in 's' "
+                 "(never spoil the translation), exact meaning/rule in 'd', a concise realistic example sentence in 'e', "
+                 "and a visual or acoustic mnemonic in 'm' according to ASSOC PREFERENCE."),
 }
 
 

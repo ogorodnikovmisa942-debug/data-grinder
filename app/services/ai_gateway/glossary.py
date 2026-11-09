@@ -510,4 +510,274 @@ def build_glossary_path(text: str, subject: str, course: dict | None = None, dep
     }
 
 
-__all__ = ["GlossaryError", "parse_entries", "looks_like_glossary", "build_glossary_path", "mask_term", "term_key", "select_entries"]
+
+
+# ---------------------------------------------------------------------------
+# Быстрый $0-разбор двуязычных списков слов (HSK, инояз. лексика, Excel/TSV/списки «слово [транскрипция] — перевод»)
+# Не трогает русские глоссарии/шпаргалки: требует чёткого межъязыкового сигнала (CJK↔RU/EN, Latin↔Cyrillic и т.д.).
+# Полноценные учебники языка с диалогами, грамматикой и правилами идут в полный ИИ-конвейер (там строятся граф и мнемоники).
+# ---------------------------------------------------------------------------
+
+AUTO_MIN_VOCAB_ENTRIES = 12
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+_CYR_RE = re.compile(r"[а-яА-ЯёЁ]")
+_LAT_RE = re.compile(r"[A-Za-zÀ-ÿāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]")
+_PINYIN_OR_IPA_RE = re.compile(r"[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜˈˌŋθðʃʒəɛɔʊʌɑː]")
+_ETYMOLOGY_PREFIX = re.compile(r"^(?:лат|греч|нем|фр|исп|итал|англ|др\.-?греч|ст\.-?слав)\.\s", re.I)
+_LIST_PREFIX = re.compile(r"^\s*(?:\d{1,4}[.)]\s+|[-*•·▪●]\s+)")
+_TRAILING_BRACKET = re.compile(r"^(.*?)\s*[\[(]([^\]()]{1,60})[\])]\s*$")
+_VOCAB_SEP = re.compile(r"\s*[—–‒―]\s*|\s+-\s+|\s+=\s+|:\s+")
+
+
+def _split_top_level_vocab(line: str) -> tuple[str, str] | None:
+    pos = 0
+    while True:
+        m = _VOCAB_SEP.search(line, pos)
+        if not m:
+            return None
+        prefix = line[:m.start()]
+        if prefix.count("[") == prefix.count("]") and prefix.count("(") == prefix.count(")"):
+            return prefix.strip(), line[m.end():].strip()
+        pos = m.end()
+
+
+def _is_bilingual_vocab(word: str, reading: str, meaning: str) -> bool:
+    if not any(ch.isalpha() for ch in word) or not any(ch.isalpha() for ch in meaning):
+        return False
+    w_cjk = bool(_CJK_RE.search(word))
+    m_cjk = bool(_CJK_RE.search(meaning))
+    w_lat = len(_LAT_RE.findall(word))
+    w_cyr = len(_CYR_RE.findall(word))
+    m_lat = len(_LAT_RE.findall(meaning))
+    m_cyr = len(_CYR_RE.findall(meaning))
+    if w_cjk and not m_cjk and (m_cyr >= 1 or m_lat >= 2):
+        return True
+    if m_cjk and not w_cjk and (w_cyr >= 1 or w_lat >= 2):
+        return True
+    if w_lat >= 2 and w_cyr == 0 and m_cyr >= 2 and not (word.isupper() and len(word) <= 5 and not reading):
+        return True
+    if w_cyr >= 2 and w_lat == 0 and m_lat >= 2 and m_cyr == 0:
+        return True
+    w_other = sum(1 for c in word if c.isalpha() and not _CYR_RE.match(c) and not _LAT_RE.match(c) and not _CJK_RE.match(c))
+    if w_other >= 1 and (m_cyr >= 2 or m_lat >= 2):
+        return True
+    if reading and not _ETYMOLOGY_PREFIX.match(reading) and _PINYIN_OR_IPA_RE.search(reading):
+        return (w_lat >= 2 or w_cjk) and (m_cyr >= 1 or m_lat >= 2)
+    return False
+
+
+def parse_vocab_entries(text: str) -> list[dict]:
+    """Разбирает строки вида «你好 [nǐ hǎo] — привет» или табличные 2–3 колонки (Tab / |).
+    Возвращает [{word, reading, meaning, raw_chars, is_bilingual}] без вызова ИИ."""
+    clean = (text or "").replace("\xa0", " ").replace("\u00ad", "")
+    entries: list[dict] = []
+    for raw_line in clean.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if _MARKER.match(stripped) or _PAGE_NUMBER.match(stripped) or stripped.startswith(("===", "#")):
+            continue
+        if len(stripped) <= 2 and stripped.isalpha():
+            continue
+        line = _LIST_PREFIX.sub("", stripped).strip()
+        if not line:
+            continue
+
+        word_raw, reading, meaning = "", "", ""
+        if "\t" in line:
+            cols = [c.strip() for c in line.split("\t") if c.strip()]
+            if len(cols) >= 3 and len(cols[0]) <= 60 and len(cols[1]) <= 60:
+                word_raw, reading, meaning = cols[0], cols[1].strip("[]() "), " ".join(cols[2:])
+            elif len(cols) == 2 and len(cols[0]) <= 70:
+                word_raw, meaning = cols[0], cols[1]
+            else:
+                continue
+        elif "|" in line:
+            cols = [c.strip() for c in line.split("|") if c.strip()]
+            if len(cols) >= 3 and len(cols[0]) <= 60 and len(cols[1]) <= 60:
+                word_raw, reading, meaning = cols[0], cols[1].strip("[]() "), " ".join(cols[2:])
+            elif len(cols) == 2 and len(cols[0]) <= 70:
+                word_raw, meaning = cols[0], cols[1]
+            else:
+                continue
+        else:
+            split = _split_top_level_vocab(line)
+            if not split:
+                continue
+            word_raw, meaning = split
+
+        if not reading:
+            bm = _TRAILING_BRACKET.match(word_raw)
+            if bm and bm.group(1).strip():
+                cand_word, cand_read = bm.group(1).strip(), bm.group(2).strip()
+                if cand_read and not _ETYMOLOGY_PREFIX.match(cand_read):
+                    word_raw, reading = cand_word, cand_read
+
+        word = re.sub(r"\s+", " ", word_raw.strip(" \t\"«»*_•·"))
+        meaning = re.sub(r"\s+", " ", meaning.strip())
+        if not word or not meaning:
+            continue
+        if len(word) > 60 or len(word.split()) > 6 or word.endswith((".", "?", "!", "。", "？", "！")):
+            continue
+        if re.search(r"[.!?;。！？]\s", word) or re.fullmatch(r"[\d\s.,/-]+", word):
+            continue
+        has_cjk = bool(_CJK_RE.search(word))
+        if not has_cjk and len(word) < 2 and not reading:
+            continue
+        if not (1 <= len(meaning) <= 180) or len(meaning.split()) > 25:
+            continue
+
+        is_bi = _is_bilingual_vocab(word, reading, meaning)
+        entries.append({
+            "word": word,
+            "reading": reading,
+            "meaning": meaning,
+            "raw_chars": len(stripped),
+            "is_bilingual": is_bi,
+        })
+
+    best: dict[str, dict] = {}
+    for e in entries:
+        key = _fold(e["word"])
+        cur = best.get(key)
+        if not cur or (e["is_bilingual"], bool(e["reading"]), len(e["meaning"])) > (
+            cur["is_bilingual"], bool(cur["reading"]), len(cur["meaning"])
+        ):
+            best[key] = e
+    kept = {id(e) for e in best.values()}
+    return [e for e in entries if id(e) in kept]
+
+
+def looks_like_vocab(text: str, min_entries: int = AUTO_MIN_VOCAB_ENTRIES, min_share: float = 0.55) -> bool:
+    """True для явных двуязычных списков слов ($0), False для учебников языка с диалогами/правилами и русских текстов."""
+    clean = (text or "").strip()
+    if len(clean) < 40:
+        return False
+    entries = parse_vocab_entries(clean)
+    bilingual = [e for e in entries if e["is_bilingual"]]
+    if len(bilingual) < min_entries:
+        return False
+    bilingual_ratio = len(bilingual) / max(1, len(entries))
+    share = sum(e["raw_chars"] for e in bilingual) / max(1, len(clean))
+    return bilingual_ratio >= 0.7 and share >= min_share
+
+
+def _make_vocab_lesson(title: str, entries: list[dict]) -> dict:
+    screens = [{"say": f"Разберём слова темы «{title}» ({len(entries)}). Читай вслух и отмечай звучание.", "emo": "talk", "focus": []}]
+    for i in range(0, len(entries), 4):
+        lines = []
+        for e in entries[i:i + 4]:
+            r = f" [{e['reading']}]" if e.get("reading") else ""
+            lines.append(f"{e['word']}{r} — {e['meaning']}")
+        screens.append({"say": "\n".join(lines), "emo": "talk", "focus": []})
+    screens.append({"say": "Отлично! Теперь закрепим эти слова в карточках.", "emo": "happy", "focus": []})
+    return {"screens": screens, "check": []}
+
+
+def build_vocab_path(text: str, subject: str, course: dict | None = None, depth: str | None = None,
+                     goal_override: int | None = None) -> dict:
+    """Собирает путь знаний по списку слов без единого вызова ИИ ($0)."""
+    entries = [e for e in parse_vocab_entries(text) if e["is_bilingual"]]
+    if len(entries) < MIN_ENTRIES:
+        raise GlossaryError(f"Похоже, это не список слов: нашлось только {len(entries)} двуязычных пар «слово — перевод».")
+    course = course or {}
+    existing_cards = course.get("cards") or {}
+    existing_total = sum(len(v) for v in existing_cards.values())
+    existing_words = {_fold(c.get("q") or "") for qs in existing_cards.values() for c in qs}
+    existing_words.update(_fold((c.get("a") or "").rstrip(".")) for qs in existing_cards.values() for c in qs)
+
+    skipped = 0
+    candidates: list[dict] = []
+    for e in entries:
+        if _fold(e["word"]) in existing_words:
+            skipped += 1
+            continue
+        candidates.append(e)
+
+    depth = source_profile.normalize_depth(depth)
+    policy = (source_profile.deck_goal(len(candidates), depth, existing_total, 1.0) if goal_override is None
+              else {"goal": goal_override, "planned": len(candidates), "mult": 1.0, "source_cap": None, "room": None, "limited_by": "explicit"})
+    chosen = spread_pick(candidates, max(1, policy["goal"])) if (candidates and len(candidates) > policy["goal"]) else candidates
+    if not chosen:
+        raise GlossaryError("Все слова этого списка уже есть в курсе.")
+
+    rng = random.Random(len(entries))
+    pool_meanings = [e["meaning"] for e in entries]
+    groups = [chosen[i:i + GROUP_SIZE] for i in range(0, len(chosen), GROUP_SIZE)]
+    nodes: list[dict] = []
+    packs: dict[str, dict] = {}
+
+    def add(key: str, name: str, tier: int, prereqs: tuple | list = (), summary: str = ""):
+        nodes.append({"key": key, "name": name[:120], "tier": tier, "parent": None, "prereqs": list(prereqs),
+                      "order": len(nodes) + 1, "summary": summary, "src": "Лексика", "kind": "core"})
+
+    root_key = None
+    if len(groups) > GROUPS_PER_ROOT:
+        root_key = "voc_root"
+        add(root_key, "Базовая лексика", 0, summary=f"{len(chosen)} слов и выражений")
+        packs[root_key] = {"lesson": {"screens": [
+            {"say": f"В этом наборе {len(chosen)} слов, разбитых на блоки по {GROUP_SIZE}.", "emo": "talk", "focus": []},
+            {"say": "Сначала прочитай блок и произнеси каждое слово вслух, затем закрепи карточками.", "emo": "talk", "focus": []},
+            {"say": "Если видишь транскрипцию или пиньинь под словом — обращай внимание на тон и ударение.", "emo": "happy", "focus": []}],
+            "check": []}, "cards": []}
+
+    for gi, group in enumerate(groups, 1):
+        name = f"{group[0]['word']} … {group[-1]['word']}" if len(group) > 1 else group[0]["word"]
+        key = f"voc_g{gi}"
+        if root_key:
+            add(key, name, 1, prereqs=[root_key], summary="Группа слов")
+        else:
+            add(key, name, 0, summary="Словарь модуля")
+        cards = []
+        for e in group:
+            answer = _dot(e["meaning"])
+            opts: list[str] = []
+            for _ in range(30):
+                if len(opts) >= DISTRACTORS:
+                    break
+                cand = rng.choice(pool_meanings)
+                if _fold(cand) != _fold(e["meaning"]) and cand not in opts:
+                    opts.append(cand)
+            sec = e["reading"] if e.get("reading") else f"Лексика | {name}"
+            cards.append({
+                "text": e["word"],
+                "secondary_text": sec,
+                "translation": answer,
+                "example": "",
+                "mnemonic": None,
+                "initial_difficulty_tier": "easy",
+                "layer": 0,
+                "answer_type": "term",
+                "distractors": _clean_distractors(answer, [_dot(d) for d in opts]),
+                "evidence": f"{e['word']} — {e['meaning']}"[:240],
+                "support": "grounded",
+                "theme": name,
+                "node_key": key,
+            })
+        packs[key] = {"lesson": _make_vocab_lesson(name, group), "cards": cards}
+
+    final_cards = [c for p in packs.values() for c in p["cards"]]
+    return {
+        "map": {"title": "Словарь лексики", "domain": "language", "source_type": "language", "nodes": nodes, "edges": []},
+        "packs": packs,
+        "intro": None,
+        "merge": {},
+        "supplements": [],
+        "facts": {},
+        "source_type": "language",
+        "quotas": {},
+        "gap_report": None,
+        "stats": {
+            "source": {"kind": "language", "entries": len(entries), "skipped_already_asked": skipped,
+                       "candidates": len(candidates), "chosen": len(chosen)},
+            "deck_policy": {**policy, "depth": depth, "existing_cards": existing_total, "new_share": 1.0},
+            "density": {"cards": len(final_cards)},
+        },
+        "missing_nodes": [],
+        "calls": [],
+        "cost_usd": 0.0,
+    }
+
+
+__all__ = ["GlossaryError", "parse_entries", "looks_like_glossary", "build_glossary_path", "parse_vocab_entries", "looks_like_vocab", "build_vocab_path", "mask_term", "term_key", "select_entries"]

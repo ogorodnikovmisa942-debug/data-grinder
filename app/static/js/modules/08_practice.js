@@ -269,7 +269,7 @@ async function selectPracticeOption(itemId, selectedText, clickedBtn) {
             const rightAnswer = String(data.correct_answer || '').replace(/[.!]+$/, '');
             if (selectedText === '') {
                 // «Не знаю» — не ошибка, а повод повторить: кот не ругается, карточка придёт пораньше
-                practiceCat('think', `Ничего страшного. Ответ: «${rightAnswer}». Эту карточку повторим пораньше.${why}`);
+                practiceCat('think', `Ничего страшного. Ответ: «${rightAnswer}». Закрепим эту тему позже.${why}`);
             } else {
                 practiceCat('confused', `Не совсем. Правильно: «${rightAnswer}».${why}`, 'shake');
             }
@@ -381,12 +381,12 @@ function showPracticeFinish() {
     }
     const finishCat = document.getElementById('practice-finish-cat');
     if (finishCat && typeof LESSON_CAT !== 'undefined') {
-        finishCat.textContent = (LESSON_CAT[finishEmo] || LESSON_CAT.happy).frames[0].join('\n');
-        if (!prefersReducedMotion() && (finishEmo === 'happy' || finishEmo === 'proud')) {
-            finishCat.classList.remove('cat-react-bounce');
-            void finishCat.offsetWidth;
-            finishCat.classList.add('cat-react-bounce');
-        }
+        // Финальный кот тоже дышит и моргает, а не застывает картинкой
+        startMascot(finishCat, finishEmo, {
+            baseClass: 'lesson-cat intro-cat practice-finish-cat font-mono text-primary',
+            reaction: (finishEmo === 'happy' || finishEmo === 'proud') ? 'bounce' : null,
+            enter: true
+        });
     }
 
     // Сохраняем результат в базу данных и обновляем бейдж на стартовом экране (только для основных сессий)

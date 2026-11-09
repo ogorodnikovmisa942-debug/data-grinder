@@ -53,40 +53,57 @@
                         <span id="staging-card-tier" class="uppercase font-bold text-primary font-mono px-2 py-0.5 rounded-md bg-surface-container shrink-0">medium</span>
                     </div>
 
-                    <!-- Скроллируемое тело карточки: структурированные блоки с защитой от обрезки -->
+                    <!-- Скроллируемое тело карточки: адаптивные структурированные блоки -->
                     <div class="flex-1 min-h-0 flex flex-col items-stretch gap-2.5 card-scroll-clean overflow-y-auto py-1 px-1 select-text" style="touch-action: pan-y; -webkit-overflow-scrolling: touch;">
-                        <!-- Блок Вопроса / Кейса (чистый, крупный, без подсказок) -->
+                        <!-- Блок Вопроса / Термина -->
                         <div class="flex flex-col gap-1 text-left select-text">
-                            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
-                                <span class="material-symbols-outlined text-[12px]">help</span>
-                                <span>ВОПРОС</span>
-                            </span>
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[12px]">help</span>
+                                    <span>ВОПРОС</span>
+                                </span>
+                                <button type="button" id="staging-card-speak-btn" data-no-swipe class="dg-speak-pill hidden" style="padding:3px 9px;font-size:10px;" aria-label="Озвучить">
+                                    <span class="material-symbols-outlined" style="font-size:13px;">volume_up</span>
+                                    <span>Озвучить</span>
+                                </button>
+                            </div>
                             <div id="staging-card-text" class="dynamic-card-text font-bold text-neutral-900 dark:text-neutral-100 leading-snug break-words">...</div>
                         </div>
 
                         <!-- Разделитель -->
                         <div class="w-full h-px bg-outline-variant/30 my-0.5 shrink-0"></div>
 
-                        <!-- Блок Ответа / Дефиниции с бейджем источника нормы -->
+                        <!-- Блок Ответа с домен-адаптивным заголовком и интерактивными чипами контекста -->
                         <div class="bg-surface-container/40 dark:bg-neutral-900/50 p-3 rounded-xl border border-outline-variant/30 text-left select-text">
-                            <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                                <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-[12px]">task_alt</span>
-                                    <span>ОТВЕТ</span>
-                                </span>
-                                <span id="staging-card-secondary" class="text-[9px] text-primary font-mono font-bold bg-primary/10 px-2 py-0.5 rounded-md border border-primary/20 empty:hidden"></span>
-                            </div>
+                            <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline flex items-center gap-1 mb-1">
+                                <span class="material-symbols-outlined text-[12px]">task_alt</span>
+                                <span id="staging-card-answer-label">ОТВЕТ</span>
+                            </span>
                             <div id="staging-card-translation" class="text-xs sm:text-sm text-on-surface leading-relaxed break-words font-medium">...</div>
+                            <div id="staging-card-secondary-wrap" data-blur-sec class="hidden mt-2 pt-2 border-t border-outline-variant/30">
+                                <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                    <span id="staging-card-sec-label" class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline">КОНТЕКСТ</span>
+                                    <button type="button" id="staging-card-blur-btn" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('staging-card', this);" class="blur-action-btn" title="Проверить с размытием">Скрыть</button>
+                                </div>
+                                <div id="staging-card-secondary" class="blur-chips-row" data-no-swipe></div>
+                            </div>
                         </div>
 
                         <!-- Пример (если есть) -->
-                        <div id="staging-card-example-box" class="border-l-2 border-primary/40 pl-2.5 py-0.5 text-left empty:hidden">
-                            <div id="staging-card-example" class="text-[11px] text-outline italic break-words">...</div>
+                        <div id="staging-card-example-box" class="hidden dg-example-box text-left">
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                <span id="staging-card-example-label" class="text-[9px] font-mono font-bold uppercase tracking-wider text-outline">ПРИМЕР</span>
+                                <button type="button" id="staging-card-example-speak-btn" data-no-swipe class="blur-action-btn hidden" aria-label="Озвучить пример">
+                                    <span class="material-symbols-outlined" style="font-size:12px;">volume_up</span>
+                                    <span>Пример</span>
+                                </button>
+                            </div>
+                            <div id="staging-card-example" class="text-[11px] text-neutral-700 dark:text-neutral-300 italic leading-relaxed break-words">...</div>
                         </div>
-                        
-                        <!-- Мнемоника / Ассоциация (если есть) -->
-                        <div id="staging-card-mnemonic-box" class="w-full bg-amber-500/5 dark:bg-amber-500/10 p-2.5 border border-amber-500/20 rounded-xl text-[10px] text-left hidden shadow-xs">
-                            <span class="text-amber-700 dark:text-amber-400 font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
+
+                        <!-- Мнемоника / Ассоциация (единая фиолетовая палитра) -->
+                        <div id="staging-card-mnemonic-box" class="mnemonic-box w-full p-2.5 rounded-xl text-[10px] text-left hidden shadow-xs">
+                            <span class="mnemonic-label font-bold uppercase flex items-center gap-1 mb-0.5 font-mono">
                                 <span class="material-symbols-outlined text-[12px]">psychology</span>
                                 <span>АССОЦИАЦИЯ:</span>
                             </span>

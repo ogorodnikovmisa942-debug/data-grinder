@@ -39,7 +39,12 @@
             </div>
 
             <div class="border-t border-dashed border-outline-variant/50 pt-xs flex flex-col gap-1 text-[11px] font-mono">
-                <span class="text-outline font-bold uppercase">Мнемоника:</span>
+                <div class="flex justify-between items-center">
+                    <span class="text-outline font-bold uppercase">Мнемоника:</span>
+                    <button type="button" onclick="generateEditorMnemonic()" id="btn-gen-editor-mnem" class="text-[10px] text-primary hover:underline flex items-center gap-1 font-bold">
+                        <span class="material-symbols-outlined text-xs">auto_awesome</span>Сгенерировать ИИ
+                    </button>
+                </div>
                 <input type="text" id="edit-card-mnem-keyword" placeholder="Ключевое слово (ассоциация)" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
                 <textarea id="edit-card-mnem-cue" rows="2" placeholder="Сюжетная связка" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0 min-h-[44px] resize-y"></textarea>
             </div>

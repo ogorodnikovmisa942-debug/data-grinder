@@ -2154,7 +2154,7 @@ window.showKgNodeDrawer = function(node, startCollapsed = false) {
     }
 
     if (title) title.textContent = node.name || node.id;
-    if (summary) summary.textContent = node.summary || 'Детальное описание и законодательное основание отсутствуют.';
+    if (summary) summary.textContent = node.summary || 'Детальное описание пока отсутствует.';
 
     // Рендер связей и разграничений
     if (linksContainer && currentKgGraphData) {
