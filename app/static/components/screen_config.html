@@ -149,10 +149,10 @@
                     
                     <!-- Быстрый импорт файлов прямо под полем ввода -->
                     <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.epub,.fb2,.docx,.odt,.html,.htm,.txt,.md,.pptx,.csv,.tsv,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
                             <span class="material-symbols-outlined text-[14px]">attach_file</span>
-                            <span>Документ (PDF/Word/PPTX)</span>
+                            <span>Документ (PDF/Word/EPUB)</span>
                         </button>
 
                         <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">

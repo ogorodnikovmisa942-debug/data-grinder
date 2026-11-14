@@ -692,22 +692,49 @@ html, body {
     margin: 0;
     animation: dayLayerIn 0.4s ease-out both;
 }
-.day-confetti { position: absolute; inset: 0; color: #f59e0b; }
+/* Сетка конфетти задаёт размер сцены; кот стоит поверх неё по центру внизу */
+.day-confetti { position: relative; color: #f59e0b; }
 .dark .day-confetti { color: #fbbf24; }
-/* Морда: медленное «дыхание» вместо резкого маятника; появление — в том же списке */
-.day-face {
-    position: relative; transform-origin: 50% 88%;
+/* Крупный кот из уроков: 9 знаков ≈ 57% ширины сцены; дышит, на отличный день подпрыгивает */
+.day-mascot {
+    position: absolute; left: 50%; bottom: 4%; margin: 0;
+    font-size: clamp(26px, calc((100vw - 40px) / 9.6), 56px); line-height: 1.04; white-space: pre;
+    transform: translateX(-50%); transform-origin: 50% 100%;
+    transition: transform .18s cubic-bezier(.3, 1.6, .5, 1);
     animation: dayLayerIn 0.4s ease-out both, dayBreathe 3.6s ease-in-out infinite;
 }
+.day-mascot.day-cat-up { transform: translateX(-50%) translateY(-0.45em) scale(1.04); }
 @keyframes dayLayerIn {
     from { opacity: 0; }
     to { opacity: 1; }
 }
 @keyframes dayBreathe {
-    0%, 100% { transform: rotate(-3deg) scale(1); }
-    50% { transform: rotate(3deg) scale(1.015); }
+    0%, 100% { scale: 1; }
+    50% { scale: 1.025 0.985; }
 }
-.day-stats { display: flex; flex-direction: column; gap: 4px; min-height: 5em; }
+/* Реплика кота: облачко под мордой, хвостик смотрит вверх на кота */
+.day-say {
+    position: relative; max-width: 300px; margin-top: 14px; padding: 9px 14px; border-radius: 14px;
+    background: #f3f3f3; border: 1px solid #e5e5e5; color: #404040; line-height: 1.4;
+    min-height: 2.6em; animation: dayStatIn 0.34s cubic-bezier(.22, 1, .36, 1) 0.6s both;
+}
+.day-say:empty { visibility: hidden; }
+.day-say::before {
+    content: ''; position: absolute; top: -6px; left: 50%; width: 10px; height: 10px; margin-left: -5px;
+    background: inherit; border-left: 1px solid; border-top: 1px solid; border-color: inherit; transform: rotate(45deg);
+}
+.dark .day-say { background: rgba(38, 38, 38, 0.85); border-color: #404040; color: #d4d4d4; }
+.day-stats { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 5em; }
+.day-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.day-chip {
+    padding: 4px 10px; border-radius: 999px; border: 1px solid #e5e5e5; background: #fff;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dark .day-chip { border-color: #404040; background: #171717; }
+.day-next { opacity: 0.85; }
+/* «До завтра»: кот засыпает, экран гаснет */
+#day-celebration.day-out { animation: dayOverlayOut 0.4s ease-in forwards; }
+@keyframes dayOverlayOut { to { opacity: 0; } }
 .day-stat-line { opacity: 0; animation: dayStatIn 0.34s cubic-bezier(.22, 1, .36, 1) forwards; }
 @keyframes dayStatIn {
     from { opacity: 0; transform: translateY(4px); }
@@ -720,8 +747,8 @@ html, body {
 }
 .day-close-in { animation: fadeIn 0.4s cubic-bezier(.22, 1, .36, 1) 2.6s forwards; }
 @media (prefers-reduced-motion: reduce) {
-    .day-stat-line, .day-close-in { animation: none !important; opacity: 1 !important; }
-    .day-face, .day-layer, .day-title-in, #day-celebration { animation: none !important; }
+    .day-stat-line, .day-close-in, .day-say { animation: none !important; opacity: 1 !important; }
+    .day-mascot, .day-layer, .day-title-in, #day-celebration { animation: none !important; }
     .path-run-step, .path-run-card { animation: none !important; }
 }
 /* tailwind.min.css собран заранее: z-[120]/z-[140] в нём нет */
@@ -1532,4 +1559,105 @@ html, body {
     }
     .lesson-dot, .oq-meter > span,
     .blur-chip-val, .blur-token-txt, .dg-speak-pill { transition: none !important; }
+}
+
+/* ==========================================================================
+   Карта знаний: виды «Тропа / Фокус / Круги / Созвездие» (07b_graph_views.js)
+   ========================================================================== */
+.kg-view-switch {
+    display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid #e5e5e5; overflow-x: auto; scrollbar-width: none;
+}
+.dark .kg-view-switch { border-color: #262626; }
+.kg-view-switch::-webkit-scrollbar { display: none; }
+.kg-view-switch button {
+    flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    padding: 7px 10px; border-radius: 10px; border: 1px solid #e5e5e5; background: transparent; color: #525252;
+    font: 700 11px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .03em; cursor: pointer; white-space: nowrap;
+    transition: background .15s, color .15s, border-color .15s;
+}
+.kg-view-switch button .material-symbols-outlined { font-size: 16px; }
+.kg-view-switch button.is-active { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
+.dark .kg-view-switch button { border-color: #333; color: #a3a3a3; }
+.dark .kg-view-switch button.is-active { background: #e5e5e5; border-color: #e5e5e5; color: #171717; }
+.kg-view-switch button:focus-visible, .kgp-node:focus-visible, .kgf-node:focus-visible, .kgs-seg:focus-visible { outline: 2px solid var(--dg-violet); outline-offset: 2px; }
+
+.kg-alt-view {
+    position: absolute; inset: 0; overflow: hidden; background: #fbfbfb;
+    --kg-done: var(--dg-green); --kg-cur: var(--dg-violet); --kg-cur-soft: rgba(79, 70, 229, 0.14);
+    --kg-ink: #1a1a1a; --kg-ink2: #525252; --kg-ink3: #a3a3a3; --kg-line: #e5e5e5; --kg-lock: #ededeb; --kg-panel: #fff;
+}
+.dark .kg-alt-view {
+    background: #0e0e0e; --kg-cur-soft: rgba(165, 180, 252, 0.18);
+    --kg-ink: #ececea; --kg-ink2: #b3b3ad; --kg-ink3: #77776f; --kg-line: #2e2e2b; --kg-lock: #222220; --kg-panel: #171717;
+}
+
+/* Тропа */
+.kgp-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 120px; }
+.kgp-sect { margin: 16px 14px 4px; padding: 11px 14px; border-radius: 14px; background: var(--kg-panel); border: 1px solid var(--kg-line); }
+.kgp-sect-here { border-color: var(--kg-cur); }
+.kgp-sect b { display: block; font-size: 14px; color: var(--kg-ink); }
+.kgp-sect small { font: 11px "JetBrains Mono", monospace; color: var(--kg-ink3); }
+.kgp-bar { height: 5px; border-radius: 5px; background: var(--kg-lock); margin-top: 8px; overflow: hidden; }
+.kgp-bar i { display: block; height: 100%; background: var(--kg-done); border-radius: 5px; }
+.kgp-trail { position: relative; padding: 4px 0; }
+.kgp-stop { position: relative; height: 94px; }
+.kgp-node {
+    position: absolute; top: 8px; width: 56px; height: 56px; margin-left: -28px; border-radius: 50%; border: 0; cursor: pointer;
+    display: grid; place-items: center; font: 700 13px "JetBrains Mono", monospace; transition: transform .12s;
+}
+.kgp-node:active { transform: scale(0.94); }
+.kgp-node .material-symbols-outlined { font-size: 24px; }
+.kgp-topic { width: 66px; height: 66px; margin-left: -33px; top: 3px; border-radius: 20px; }
+.kgp-done { background: var(--kg-done); color: #fff; }
+.kgp-part { background: var(--kg-panel); color: var(--kg-done); border: 3px solid var(--kg-done); }
+.kgp-cur { background: var(--kg-cur); color: #fff; box-shadow: 0 0 0 6px var(--kg-cur-soft); }
+.kgp-open { background: var(--kg-panel); color: var(--kg-ink); border: 2px solid var(--kg-ink); }
+.kgp-lock { background: var(--kg-lock); color: var(--kg-ink3); }
+.kgp-cap {
+    position: absolute; top: 69px; width: 160px; margin-left: -80px; text-align: center; font-size: 11.5px; line-height: 1.25; color: var(--kg-ink2);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.kgp-cat { position: absolute; top: 6px; margin: 0; font: 12px/1.12 "JetBrains Mono", monospace; color: var(--kg-cur); white-space: pre; pointer-events: none; }
+.kgp-here { position: absolute; top: 50px; width: 84px; text-align: center; font: 700 10px "JetBrains Mono", monospace; letter-spacing: .05em; text-transform: uppercase; color: var(--kg-cur); pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+    .kgp-cur { animation: kgpPulse 2s ease-in-out infinite; }
+    @keyframes kgpPulse { 50% { box-shadow: 0 0 0 11px var(--kg-cur-soft); } }
+}
+
+/* Фокус */
+.kgf-crumbs { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; font-size: 11.5px; color: var(--kg-ink3); }
+.kgf-crumbs button { background: none; border: 0; padding: 0; color: var(--kg-ink2); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.kgf-lines { position: absolute; inset: 0; pointer-events: none; }
+.kgf-lines line { stroke: var(--kg-line); stroke-width: 1.5; }
+.kgf-rel { position: absolute; transform: translate(-50%, -50%); font: 10px "JetBrains Mono", monospace; color: var(--kg-ink3); background: #fbfbfb; padding: 0 3px; white-space: nowrap; pointer-events: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.dark .kgf-rel { background: #0e0e0e; }
+.kgf-node {
+    position: absolute; transform: translate(-50%, -50%); width: 42%; max-width: 160px; padding: 7px 10px; border-radius: 12px;
+    border: 1px solid var(--kg-line); background: var(--kg-panel); color: var(--kg-ink); font-size: 12px; line-height: 1.25; text-align: center; cursor: pointer;
+}
+.kgf-node small { display: block; margin-top: 3px; font: 10px "JetBrains Mono", monospace; color: var(--kg-ink3); }
+.kgf-center { width: auto; max-width: 200px; padding: 12px 14px; font-size: 15px; font-weight: 700; border-width: 2px; z-index: 1; }
+.kgf-done { border-color: var(--kg-done); } .kgf-part { border-color: var(--kg-done); border-style: dashed; }
+.kgf-cur { border-color: var(--kg-cur); background: var(--kg-cur-soft); } .kgf-open { border-color: var(--kg-ink); }
+.kgf-lock { color: var(--kg-ink3); border-style: dashed; }
+.kgf-foot { position: absolute; left: 14px; right: 14px; bottom: 12px; text-align: center; font-size: 11.5px; color: var(--kg-ink3); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.kgf-home { border: 1px solid var(--kg-line); border-radius: 999px; background: var(--kg-panel); color: var(--kg-ink); padding: 5px 12px; font: 600 12px inherit; cursor: pointer; }
+
+/* Круги */
+.kgs-svg { position: absolute; inset: 0; }
+.kgs-seg { cursor: pointer; stroke: #fbfbfb; stroke-width: 1; }
+.dark .kgs-seg { stroke: #0e0e0e; }
+.kgs-done { fill: var(--kg-done); } .kgs-part { fill: var(--kg-done); fill-opacity: .45; }
+.kgs-cur { fill: var(--kg-cur); } .kgs-open { fill: var(--kg-panel); stroke: var(--kg-ink); } .kgs-lock { fill: var(--kg-lock); }
+.kgs-label { font: 10.5px "Inter", system-ui, sans-serif; fill: var(--kg-ink2); pointer-events: none; }
+.kgs-on-fill { fill: #fff; }
+.kgs-hub { fill: var(--kg-panel); stroke: var(--kg-line); }
+.kgs-back { cursor: pointer; }
+.kgs-hub-title { font: 700 12.5px "Inter", system-ui, sans-serif; fill: var(--kg-ink); pointer-events: none; }
+.kgs-hub-sub { font: 10.5px "JetBrains Mono", monospace; fill: var(--kg-ink3); pointer-events: none; }
+/* Узкий телефон: четыре вида влезают в строку без прокрутки — иконки прячем, подписи остаются */
+@media (max-width: 420px) {
+    .kg-view-switch { padding: 8px; gap: 4px; }
+    .kg-view-switch button { flex: 1 1 0; padding: 8px 4px; font-size: 10.5px; }
+    .kg-view-switch button .material-symbols-outlined { display: none; }
 }

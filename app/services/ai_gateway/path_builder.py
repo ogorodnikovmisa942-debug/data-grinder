@@ -20,6 +20,7 @@ from collections import Counter
 import httpx
 
 from app.core.config import settings
+from app.services.text_extract import clean_source_text
 from .blacklist import is_structurally_invalid_card, strip_secondary_spoilers
 from .path_prompts import (
     PATH_BUILDER_SYSTEM_PROMPT,
@@ -351,6 +352,8 @@ def _normalize_lesson(raw, valid_keys: set[str], max_screens: int = 10) -> dict 
         return None
     screens = []
     for s in raw.get("screens") or []:
+        if isinstance(s, (list, tuple)) and s:          # краткая форма ответа: ["реплика", "эмоция"]
+            s = {"say": s[0], "emo": s[1] if len(s) > 1 else "talk"}
         if not isinstance(s, dict):
             continue
         say = str(s.get("say") or "").strip()
@@ -504,6 +507,7 @@ def normalize_lessons(raw: dict, path_map: dict, requested_keys: list[str],
     if not isinstance(raw, dict):
         raise PathBuildError("LESSON: ответ не является объектом")
     valid_keys = {n["key"] for n in path_map["nodes"]}
+    by_key = {n["key"]: n for n in path_map["nodes"]}
     requested = set(requested_keys)
     result: dict[str, dict] = {}
     for item in raw.get("nodes") or []:
@@ -515,8 +519,19 @@ def normalize_lessons(raw: dict, path_map: dict, requested_keys: list[str],
         lesson = _normalize_lesson(item.get("lesson"), valid_keys)
         if lesson:
             lesson["check"] = _finalize_checks(lesson["check"], (card_fronts or {}).get(key, set()), key)
+            _fill_focus(lesson, _lesson_keys(by_key[key], path_map, by_key) if key in by_key else [], by_key)
             result[key] = lesson
     return result
+
+
+def _fill_focus(lesson: dict, keys: list[str], by_key: dict) -> None:
+    """Подсветка графа на экране урока: узлы, чьё название звучит в реплике (модель их больше не перечисляет — экономия вывода)."""
+    # Без последней буквы основы: «массу тела» называет узел «Масса тела»
+    names = {k: [w[:max(3, len(w) - 1)] for w in coverage.stems(by_key[k]["name"])] for k in keys}
+    for s in lesson["screens"]:
+        if not s["focus"]:
+            words = coverage.stems(s["say"])
+            s["focus"] = [k for k, pre in names.items() if pre and all(any(w.startswith(p) for w in words) for p in pre)][:3]
 
 
 def _finalize_checks(checks: list[dict], card_fronts: set[str], node_key: str) -> list[dict]:
@@ -1225,8 +1240,8 @@ def _related_lines(key: str, by_key: dict, edges: list[dict]) -> str:
     return "; ".join(out)
 
 
-def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, verifier: "card_quality.CardVerifier",
-                  omitted: list[str] | None = None, supplement: bool = False) -> str:
+def _lesson_keys(node: dict, path_map: dict, by_key: dict) -> list[str]:
+    """Узлы, которые урок может назвать: сам узел, предпосылки, родитель, соседи и связанные (строка NAMES и подсветка графа)."""
     keys = [node["key"]] + list(node.get("prereqs") or [])
     if node.get("parent"):
         keys.append(node["parent"])
@@ -1234,7 +1249,12 @@ def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, v
     for e in path_map["edges"]:
         if node["key"] in (e["from"], e["to"]):
             keys += [e["from"], e["to"]]
-    keys = [k for k in dict.fromkeys(keys) if k in by_key][:12]
+    return [k for k in dict.fromkeys(keys) if k in by_key][:12]
+
+
+def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, verifier: "card_quality.CardVerifier",
+                  omitted: list[str] | None = None, supplement: bool = False) -> str:
+    keys = _lesson_keys(node, path_map, by_key)
     prereqs = "; ".join(by_key[p]["name"] for p in node.get("prereqs") or [] if p in by_key) or "-"
     size = max(LESSON_EXCERPT_MIN, min(LESSON_EXCERPT_MAX, LESSON_EXCERPT_PER_CARD * len(cards)))
     excerpt = verifier.excerpt(cards, size) or "(none)"
@@ -1243,7 +1263,7 @@ def _lesson_block(node: dict, cards: list[dict], path_map: dict, by_key: dict, v
         f"SUMMARY: {node.get('summary') or '-'}",
         f"PREREQS: {prereqs}",
         f"RELATED: {_related_lines(node['key'], by_key, path_map['edges']) or '-'}",
-        "KEYS: " + "; ".join(f"{k}={by_key[k]['name']}" for k in keys),
+        "NAMES: " + "; ".join(by_key[k]["name"] for k in keys),
         "CARDS:",
     ]
     lines += [f"{i}. Q: {c['text']} | A: {c['translation']}" for i, c in enumerate(cards, 1)]
@@ -1544,6 +1564,9 @@ async def build_learning_path(text: str, subject: str, calls: list | None = None
         except glossary.GlossaryError:
             pass
 
+    # Вёрстка PDF (переносы, строки абзацев) склеивается до ИИ: книга короче на ≈5% токенов, цитаты карточек находятся целиком.
+    # После проверок словаря: там строка = статья
+    text = clean_source_text(text)
     # Список вызовов передаётся снаружи, чтобы расходы учитывались и при сбое
     calls = calls if calls is not None else []
     budget = Budget(calls)

@@ -125,4 +125,19 @@ Object.entries(sets).forEach(([name, set]) => {
     report[name] = {};
     ['radial', 'tree', 'horizontal'].forEach(t => { report[name][t] = analyse(set, t); });
 });
+
+// «Созвездие»: каждый узел на месте, облака тем не налезают друг на друга (на телефоне и на широком экране)
+const constellation = {};
+Object.entries(sets).forEach(([name, set]) => {
+    [0.8, 1.8].forEach(aspect => {
+        const res = layout.computePathLayout(set.nodes, set.edges, 'constellation', aspect);
+        const missing = set.nodes.filter(n => !res.positions[n.id] || !Number.isFinite(res.positions[n.id].x)).map(n => n.id);
+        let overlaps = 0;
+        res.clusters.forEach((a, i) => res.clusters.slice(i + 1).forEach(b => {
+            if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) overlaps++;
+        }));
+        constellation[`${name}@${aspect}`] = { missing, overlaps, clusters: res.clusters.length };
+    });
+});
+report.__constellation__ = constellation;
 process.stdout.write(JSON.stringify(report, null, 1));

@@ -32,7 +32,7 @@
                     <div class="flex gap-2">
                         <button type="button" onclick="document.getElementById('exam-file').click()" class="oq-btn flex-1">Файл со списком</button>
                         <button type="button" onclick="document.getElementById('exam-photo').click()" class="oq-btn flex-1">Фото списка</button>
-                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.txt,.md" onchange="examLoadFile(event)">
+                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.epub,.fb2,.odt,.html,.htm,.txt,.md" onchange="examLoadFile(event)">
                         <input type="file" id="exam-photo" class="hidden" accept="image/*" multiple onchange="examLoadPhoto(event)">
                     </div>
                     <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>

@@ -21,7 +21,18 @@ def report():
         pytest.skip("node не установлен — проверка JS-раскладки пропущена")
     out = subprocess.run([node, str(CHECK_SCRIPT)], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
+    data = json.loads(out.stdout)
+    data_constellation.update(data.pop("__constellation__"))
+    return data
+
+
+data_constellation: dict = {}
+
+
+def test_constellation_places_every_node_and_clusters_do_not_overlap(report):
+    assert data_constellation
+    for name, m in data_constellation.items():
+        assert m["missing"] == [] and m["overlaps"] == 0, (name, m)
 
 
 def test_every_node_is_placed(report):

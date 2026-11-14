@@ -48,7 +48,7 @@
             border-radius: 9999px;
         }
     </style>
-    <link rel="stylesheet" href="/css/main.css?v=38">
+    <link rel="stylesheet" href="/css/main.css?v=41">
 </head>
 <body class="bg-background text-on-background h-screen flex flex-col overflow-hidden">
 
@@ -814,10 +814,10 @@
                     
                     <!-- Быстрый импорт файлов прямо под полем ввода -->
                     <div class="grid grid-cols-2 gap-2 mt-1 font-mono text-[10px]">
-                        <input type="file" id="import-file" accept=".pdf,.txt,.md,.csv,.tsv,.docx,.pptx,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
+                        <input type="file" id="import-file" accept=".pdf,.epub,.fb2,.docx,.odt,.html,.htm,.txt,.md,.pptx,.csv,.tsv,.apkg" multiple class="hidden" onchange="handleFileUpload(event)">
                         <button type="button" onclick="document.getElementById('import-file').click()" class="flex items-center justify-center gap-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-primary hover:text-primary py-2 px-2 rounded-xl bg-surface-container-lowest transition-all text-center">
                             <span class="material-symbols-outlined text-[14px]">attach_file</span>
-                            <span>Документ (PDF/Word/PPTX)</span>
+                            <span>Документ (PDF/Word/EPUB)</span>
                         </button>
 
                         <input type="file" id="import-image" accept="image/*" multiple class="hidden" onchange="handleImageOcr(event)">
@@ -1437,26 +1437,22 @@
                     </p>
                 </div>
 
+                <!-- Вид карты: тропа (что дальше), фокус (тема и её связи), круги (весь курс), созвездие (граф облаками тем) -->
+                <div id="kg-view-switch" class="kg-view-switch shrink-0" role="tablist" aria-label="Вид карты знаний">
+                    <button type="button" role="tab" data-kgview="path" onclick="setKgViewMode('path')"><span class="material-symbols-outlined" aria-hidden="true">route</span>Тропа</button>
+                    <button type="button" role="tab" data-kgview="focus" onclick="setKgViewMode('focus')"><span class="material-symbols-outlined" aria-hidden="true">hub</span>Фокус</button>
+                    <button type="button" role="tab" data-kgview="sun" onclick="setKgViewMode('sun')"><span class="material-symbols-outlined" aria-hidden="true">donut_large</span>Круги</button>
+                    <button type="button" role="tab" data-kgview="sky" onclick="setKgViewMode('sky')"><span class="material-symbols-outlined" aria-hidden="true">bubble_chart</span>Созвездие</button>
+                </div>
+
                 <!-- Граф «Пути знаний» -->
                 <div id="kg-graph-view" class="flex-1 relative w-full h-full min-h-0 overflow-hidden">
                     <div id="kg-graph-canvas-wrapper" data-engine="force-graph" class="w-full h-full min-h-0"></div>
+                    <div id="kg-alt-view" class="hidden kg-alt-view"></div>
 
                     <!-- Панель переключения геометрии и поиска по связям (компактная на мобильных устройствах) -->
-                    <div class="absolute top-2.5 left-2.5 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 max-w-[calc(100%-20px)] flex-nowrap">
+                    <div id="kg-sky-toolbar" class="absolute top-2.5 left-2.5 z-10 flex items-center bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs text-[11px] font-mono gap-1 max-w-[calc(100%-20px)] flex-nowrap">
                         <div class="flex items-center gap-0.5 border-r border-neutral-200 dark:border-neutral-700 pr-1 mr-0.5 shrink-0">
-                            <button id="kg-layout-radial" aria-label="Круговая раскладка" onclick="setGraphLayout('radial')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Радиальное: концентрические кольца">
-                                <span class="material-symbols-outlined text-[15px]">adjust</span>
-                                <span class="hidden sm:inline">Радиальное</span>
-                            </button>
-                            <button id="kg-layout-tree" aria-label="Раскладка сверху вниз" onclick="setGraphLayout('tree')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: иерархия сверху вниз">
-                                <span class="material-symbols-outlined text-[15px]">account_tree</span>
-                                <span class="hidden sm:inline">Сверху вниз</span>
-                            </button>
-                            <button id="kg-layout-lr" aria-label="Раскладка слева направо" onclick="setGraphLayout('horizontal')" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Дерево: слева направо">
-                                <span class="material-symbols-outlined text-[15px]">east</span>
-                                <span class="hidden sm:inline">Слева направо</span>
-                            </button>
-                            <span class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" aria-hidden="true"></span>
                             <button id="kg-cross-links-toggle" aria-pressed="false" aria-label="Показать связи между темами" onclick="toggleKgCrossLinks()" class="p-1.5 sm:px-2.5 sm:py-1 rounded-lg font-bold uppercase transition-all text-neutral-500 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 flex items-center gap-1 cursor-pointer" title="Связи между основами и темами">
                                 <span class="material-symbols-outlined text-[15px]">share</span>
                                 <span class="hidden sm:inline">Связи</span>
@@ -1499,7 +1495,7 @@
                     </div>
 
                     <!-- Оверлей управления зумом -->
-                    <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">
+                    <div id="kg-sky-zoom" class="absolute bottom-4 right-4 z-10 flex flex-col gap-1.5 bg-surface-container-lowest/90 border border-neutral-200 dark:border-neutral-800 p-1 rounded-xl shadow-md backdrop-blur-xs">
                         <button onclick="zoomGraph(1.3)" aria-label="Приблизить" class="p-2 text-neutral-600 dark:text-neutral-300 hover:text-primary hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors" title="Приблизить">
                             <span class="material-symbols-outlined text-base">add</span>
                         </button>
@@ -1818,8 +1814,9 @@
     <div id="day-celebration" role="dialog" aria-modal="true" aria-labelledby="day-title" class="hidden fixed inset-0 z-[140] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col items-center justify-center font-sans select-none overflow-hidden" style="padding: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 32px) 16px calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);" onclick="dayCelebrationSkip()">
         <div class="day-scene" aria-hidden="true">
             <pre id="day-confetti" class="day-layer day-confetti font-mono"></pre>
-            <pre id="day-cat" class="day-layer day-face font-mono text-primary"></pre>
+            <pre id="day-cat" class="day-mascot font-mono text-primary"></pre>
         </div>
+        <p id="day-say" class="day-say font-sans text-sm text-center" aria-live="polite"></p>
         <h2 id="day-title" class="font-mono font-bold text-base uppercase tracking-widest text-primary mt-4 text-center">День закрыт</h2>
         <div id="day-stats" class="day-stats font-mono text-xs text-neutral-600 dark:text-neutral-300 mt-3 text-center"></div>
         <button id="day-close" onclick="dayCloseTap(event)" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">До завтра</button>
@@ -1859,7 +1856,7 @@
                     <div class="flex gap-2">
                         <button type="button" onclick="document.getElementById('exam-file').click()" class="oq-btn flex-1">Файл со списком</button>
                         <button type="button" onclick="document.getElementById('exam-photo').click()" class="oq-btn flex-1">Фото списка</button>
-                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.txt,.md" onchange="examLoadFile(event)">
+                        <input type="file" id="exam-file" class="hidden" accept=".pdf,.docx,.pptx,.epub,.fb2,.odt,.html,.htm,.txt,.md" onchange="examLoadFile(event)">
                         <input type="file" id="exam-photo" class="hidden" accept="image/*" multiple onchange="examLoadPhoto(event)">
                     </div>
                     <p id="exam-count" class="exam-note" aria-live="polite">Ответы писать не нужно — соберу их из твоих карточек. Если хочешь свой эталон: под билетом пункты «- тезис», билеты через пустую строку.</p>
@@ -1970,6 +1967,6 @@
     </div>
 
 
-    <script src="/js/app.js?v=137"></script>
+    <script src="/js/app.js?v=141"></script>
 </body>
 </html>

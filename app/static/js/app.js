@@ -477,6 +477,11 @@ window.addEventListener('keydown', (e) => {
 
     // Escape key
     if (e.key === 'Escape' || e.code === 'Escape') {
+        const dayOverlay = document.getElementById('day-celebration');
+        if (dayOverlay && !dayOverlay.classList.contains('hidden')) {
+            if (typeof window.closeDayCelebration === 'function') window.closeDayCelebration();
+            return;
+        }
         const practiceModal = document.getElementById('practice-modal');
         if (practiceModal && !practiceModal.classList.contains('hidden')) {
             if (typeof window.closePracticeModal === 'function') window.closePracticeModal();
@@ -6496,7 +6501,7 @@ function getActiveDeckSubject() {
 let currentKgSubject = '';
 let currentKgGraphData = null;
 let currentKgView = 'tree'; // 'tree' | 'graph'
-let currentKgLayout = 'radial'; // 'radial' | 'tree' (сверху вниз) | 'horizontal' (слева направо)
+let currentKgLayout = 'constellation'; // 'constellation' (облака тем) | 'radial' | 'tree' (сверху вниз) | 'horizontal' (слева направо)
 let currentForceGraphInstance = null;
 
 // Динамический асинхронный загрузчик библиотек физики графа (D3 & ForceGraph)
@@ -6931,7 +6936,7 @@ window.switchKgView = function() {
     if (currentKgGraphData) {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                initForceGraph(currentKgGraphData);
+                kgRenderCurrentView();
             });
         });
     }
@@ -7016,7 +7021,7 @@ window.loadKnowledgeGraph = async function(subject) {
         }
 
         setTimeout(() => {
-            initForceGraph(currentKgGraphData);
+            kgRenderCurrentView();
         }, 50);
 
     } catch (e) {
@@ -7106,7 +7111,9 @@ window.toggleKgCrossLinks = function() {
 // Раскладка «Пути знаний»: координаты считает 07a_path_layout.js, здесь узлы фиксируются,
 // линиям дерева передаются изгибы, связям между ветками — дуги (в круговой) или скрытие (в слоях).
 function applyPathLayout(graphData, layoutType) {
-    const meta = computePathLayout(graphData.nodes, graphData.links, layoutType);
+    const wrap = document.getElementById('kg-graph-canvas-wrapper');
+    const aspect = wrap && wrap.clientWidth ? wrap.clientHeight / wrap.clientWidth : 1;
+    const meta = computePathLayout(graphData.nodes, graphData.links, layoutType, aspect);
     kgPathLayoutMeta = { layout: layoutType, ...meta };
     const nodeById = new Map(graphData.nodes.map(n => [String(n.id), n]));
     let ringLane = 0;
@@ -7143,8 +7150,30 @@ function applyPathLayout(graphData, layoutType) {
 // Круговая — круг с названием, основы на его ободе. Слои — плашка-заголовок и линии к основам.
 function drawPathCourse(ctx, globalScale) {
     const meta = kgPathLayoutMeta;
-    if (!meta || !meta.course) return;
     const dark = document.documentElement.classList.contains('dark');
+    if (meta && meta.clusters) {
+        // «Созвездие»: мягкое облако под каждой темой — структура видна без линий
+        ctx.save();
+        meta.clusters.forEach(c => {
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, c.r, 0, 2 * Math.PI, false);
+            ctx.fillStyle = c.id === '_core'
+                ? (dark ? 'rgba(99, 102, 241, 0.10)' : 'rgba(79, 70, 229, 0.06)')
+                : (dark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)');
+            ctx.fill();
+            if (c.id === '_core' && globalScale < 1.2) {
+                const fs = 13 / globalScale;
+                ctx.font = `700 ${fs}px "Plus Jakarta Sans", -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = dark ? 'rgba(165, 180, 252, 0.9)' : 'rgba(79, 70, 229, 0.85)';
+                ctx.fillText('Основы', c.x, c.y - c.r - fs);
+            }
+        });
+        ctx.restore();
+        return;
+    }
+    if (!meta || !meta.course) return;
     const title = (currentPathState && currentPathState.title) || '';
     ctx.save();
     if (meta.layout === 'radial') {
@@ -7237,8 +7266,8 @@ function kgStructuralLinkBends(link) {
 }
 
 window.setGraphLayout = function(layoutType) {
-    const allowed = ['radial', 'tree', 'horizontal'];
-    currentKgLayout = allowed.includes(layoutType) ? layoutType : 'radial';
+    const allowed = ['constellation', 'radial', 'tree', 'horizontal'];
+    currentKgLayout = allowed.includes(layoutType) ? layoutType : 'constellation';
     isInitialLayoutFit = true;
 
     const buttons = { radial: 'kg-layout-radial', tree: 'kg-layout-tree', horizontal: 'kg-layout-lr' };
@@ -7842,6 +7871,10 @@ window.initForceGraph = async function(graphData) {
                 if (currentKgLayout === 'radial') return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)';
                 return 'rgba(0, 0, 0, 0)';
             }
+            // «Созвездие»: линии от основ к облакам тем — фоном, иначе центр снова превращается в «ежа»
+            if (currentKgLayout === 'constellation' && link.source && link.source.tier === 0 && link.target && link.target.tier >= 1) {
+                return isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.07)';
+            }
             return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
@@ -8308,7 +8341,9 @@ window.initForceGraph = async function(graphData) {
                 ctx.globalAlpha = prevLabelAlpha * labelAlpha;
 
                 // Фиксированный размер шрифта в мировых координатах (без раздувания при отдалении!)
-                const baseFontSize = isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8));
+                // В «Созвездии» подписи тем держат размер на экране при отдалении: обзор читается без приближения (основы подписаны облаком «Основы»)
+                const keepSize = currentKgLayout === 'constellation' && node.level === 1 ? Math.max(1, 0.9 / globalScale) : 1;
+                const baseFontSize = (isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8))) * keepSize;
                 ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${baseFontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -8738,9 +8773,10 @@ window.showKgNodeDrawer = function(node, startCollapsed = false) {
                     <span class="font-medium text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">${escapeHTML(otherName)}</span>
                 `;
                 chip.onclick = () => {
-                    if (otherNode) {
-                        focusNodeInGraph(otherNode.id);
-                    }
+                    if (!otherNode) return;
+                    // В видах «Тропа / Фокус / Круги» связь ведёт в этот вид, а не в холст графа
+                    if (typeof window.kgAltNavigate === 'function' && window.kgAltNavigate(otherNode.id)) return;
+                    focusNodeInGraph(otherNode.id);
                 };
                 linksContainer.appendChild(chip);
             });
@@ -9219,11 +9255,77 @@ function layoutPathRadial(tree) {
 }
 
 // Главная точка входа: nodes [{id, tier, name, parent_id, prereq_keys}], edges [{source, target}]
-function computePathLayout(nodes, edges, layoutType) {
+// «Созвездие»: каждая тема — своё облако (тема в центре, её подтемы спиралью вокруг), основы — облако в центре,
+// облака тем — по эллипсу вокруг него. aspect = высота / ширина экрана: на телефоне эллипс вытянут вверх.
+const CONSTELLATION_STEP = 30;        // шаг спирали внутри облака
+const CONSTELLATION_GAP = 46;         // зазор между облаками
+function constellationCluster(tree, id) {
+    let cur = id;
+    for (let i = 0; i < 12 && cur && cur !== PATH_COURSE_ID; i++) {
+        const n = tree.byId.get(cur);
+        if (n && n.tier === 1) return cur;
+        cur = tree.parent.get(cur);
+    }
+    return '_core';
+}
+
+function layoutPathConstellation(tree, aspect = 1) {
+    const groups = new Map([['_core', []]]);
+    tree.byId.forEach((n, id) => {
+        const c = constellationCluster(tree, id);
+        if (!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(id);
+    });
+    const positions = {};
+    const clusters = [];
+    const spiral = (ids, cx, cy) => ids.forEach((id, i) => {
+        const r = i === 0 ? 0 : CONSTELLATION_STEP * Math.sqrt(i + 0.3);
+        positions[id] = { x: cx + Math.cos(i * 2.39996) * r, y: cy + Math.sin(i * 2.39996) * r };
+    });
+    const radiusOf = ids => CONSTELLATION_STEP * Math.sqrt(Math.max(1, ids.length)) + 28;
+    // В облаке первым стоит якорь: тема, а в центральном — основы
+    const sortIds = (ids, anchor) => ids.slice().sort((a, b) =>
+        (b === anchor) - (a === anchor) || tree.byId.get(a).tier - tree.byId.get(b).tier);
+    const core = sortIds(groups.get('_core'), null);
+    const coreR = core.length ? radiusOf(core) : 0;
+    spiral(core, 0, 0);
+    if (core.length) clusters.push({ id: '_core', x: 0, y: 0, r: coreR });
+
+    const topics = [...groups.keys()].filter(k => k !== '_core');
+    const radii = topics.map(k => radiusOf(groups.get(k)));
+    const ar = Math.max(0.7, Math.min(1.9, aspect || 1));
+    const need = radii.reduce((s, r) => s + 2 * r + CONSTELLATION_GAP, 0);
+    // Эллипс: его периметр должен вместить все облака, и облака не должны задевать центральное.
+    // Места раздаём по длине дуги, а не по углу: иначе на вытянутом эллипсе облака слипаются у его концов
+    const SAMPLES = 720;
+    const unit = [];
+    let perim = 0;
+    for (let s = 0; s <= SAMPLES; s++) {
+        const t = -Math.PI / 2 + 2 * Math.PI * s / SAMPLES;
+        const p = { x: Math.cos(t), y: Math.sin(t) * ar };
+        if (s) perim += Math.hypot(p.x - unit[s - 1].x, p.y - unit[s - 1].y);
+        p.len = perim;
+        unit.push(p);
+    }
+    const rx = Math.max(need / perim, (coreR + Math.max(0, ...radii) + CONSTELLATION_GAP) / Math.min(1, ar));
+    let acc = 0, s = 0;
+    topics.forEach((k, i) => {
+        const share = (2 * radii[i] + CONSTELLATION_GAP) / need;
+        const target = (acc + share / 2) * perim;
+        acc += share;
+        while (s < SAMPLES && unit[s].len < target) s++;
+        const cx = unit[s].x * rx, cy = unit[s].y * rx;
+        spiral(sortIds(groups.get(k), k), cx, cy);
+        clusters.push({ id: k, x: cx, y: cy, r: radii[i] });
+    });
+    return { positions, bends: {}, course: null, clusters };
+}
+
+function computePathLayout(nodes, edges, layoutType, aspect) {
     const tree = buildPathTree(nodes);
     orderPathChildren(tree, edges);
-    const result = layoutType === 'radial'
-        ? layoutPathRadial(tree)
+    const result = layoutType === 'radial' ? layoutPathRadial(tree)
+        : layoutType === 'constellation' ? layoutPathConstellation(tree, aspect)
         : layoutPathVertical(tree, layoutType === 'horizontal');
     result.parent = {};
     tree.parent.forEach((p, id) => { result.parent[id] = p; });
@@ -9235,6 +9337,269 @@ function computePathLayout(nodes, edges, layoutType) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { PATH_COURSE_ID, PATH_LAYOUT_CONFIG, buildPathTree, computePathLayout, pathLabelWidth };
 }
+// ============================================================================
+// ВИДЫ КАРТЫ ЗНАНИЙ: ТРОПА, ФОКУС, КРУГИ (+ «СОЗВЕЗДИЕ» — холст графа из 07_graph.js)
+// Тропа отвечает на «что дальше», Фокус — «как тема связана с соседями», Круги — «сколько всего и сколько пройдено»,
+// Созвездие — граф облаками тем. Все виды открывают одну и ту же шторку узла (showKgNodeDrawer).
+// ============================================================================
+
+const KG_VIEWS = ['path', 'focus', 'sun', 'sky'];
+let kgViewMode = (() => {
+    try {
+        const v = localStorage.getItem('dg_kg_view');
+        return KG_VIEWS.includes(v) ? v : 'path';
+    } catch (_) { return 'path'; }
+})();
+let kgFocusId = null;     // тема в центре «Фокуса»
+let kgSunZoom = null;     // приближённая тема в «Кругах»
+
+const KG_ST_NAMES = { done: 'освоено', part: 'урок пройден', cur: 'ты здесь', open: 'открыто', lock: 'закрыто' };
+
+window.setKgViewMode = function(mode) {
+    kgViewMode = KG_VIEWS.includes(mode) ? mode : 'path';
+    try { localStorage.setItem('dg_kg_view', kgViewMode); } catch (_) { /* вид просто не запомнится */ }
+    kgFocusId = null;
+    kgSunZoom = null;
+    if (typeof closeKgNodeDrawer === 'function') closeKgNodeDrawer();
+    triggerHaptic('light');
+    kgRenderCurrentView();
+};
+
+window.kgRenderCurrentView = function() {
+    const sky = kgViewMode === 'sky';
+    document.querySelectorAll('#kg-view-switch [data-kgview]').forEach(b => {
+        const on = b.dataset.kgview === kgViewMode;
+        b.setAttribute('aria-selected', String(on));
+        b.classList.toggle('is-active', on);
+    });
+    ['kg-graph-canvas-wrapper', 'kg-sky-toolbar', 'kg-sky-zoom'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('hidden', !sky);
+    });
+    const alt = document.getElementById('kg-alt-view');
+    if (alt) alt.classList.toggle('hidden', sky);
+    const data = currentKgGraphData;
+    if (!data || !data.nodes || !data.nodes.length) return;
+    if (sky) {
+        initForceGraph(data);
+        return;
+    }
+    if (currentForceGraphInstance && currentForceGraphInstance.pauseAnimation) currentForceGraphInstance.pauseAnimation();
+    if (!alt) return;
+    alt.innerHTML = '';
+    const model = kgViewModel();
+    ({ path: kgRenderPath, focus: kgRenderFocus, sun: kgRenderSun })[kgViewMode](model, alt);
+};
+
+// Связь в шторке ведёт внутри текущего вида. false — пусть шторка сама фокусирует холст графа
+window.kgAltNavigate = function(id) {
+    if (kgViewMode === 'sky') return false;
+    const model = kgViewModel();
+    const node = model.by.get(String(id));
+    if (!node) return false;
+    if (kgViewMode === 'focus') {
+        kgFocusId = String(id);
+        closeKgNodeDrawer();
+        kgRenderCurrentView();
+    } else {
+        showKgNodeDrawer(node);
+        const stop = document.querySelector(`#kg-alt-view [data-kgnode="${CSS.escape(String(id))}"]`);
+        if (stop && stop.scrollIntoView) stop.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    }
+    return true;
+};
+
+// Курс → основы и темы с подтемами (подтема, висящая на основе или на другой подтеме, относится к ближайшей теме вверх)
+function kgViewModel() {
+    const nodes = currentKgGraphData.nodes;
+    const order = new Map(nodes.map((n, i) => [n, i]));
+    const by = new Map(nodes.map(n => [String(n.id), n]));
+    const parentOf = n => (n.path_parent || n.parent_id) ? String(n.path_parent || n.parent_id) : null;
+    const home = n => {
+        let p = n;
+        for (let g = 0; p && g < 12; g++) {
+            if (p.tier === 1) return String(p.id);
+            if (p.tier === 0) return '_core';
+            p = by.get(parentOf(p) || '');
+        }
+        return '_core';
+    };
+    const plan = (currentPathState && currentPathState.plan) || {};
+    const curDb = (plan.unfinished && plan.unfinished.node_id) || (plan.next_lesson && plan.next_lesson.node_id);
+    const cur = nodes.find(n => n.db_id === curDb) || nodes.find(n => n.status === 'open') || null;
+    const byOrder = (a, b) => order.get(a) - order.get(b);
+    const deep = nodes.filter(n => n.tier >= 2).sort((a, b) => a.tier - b.tier || byOrder(a, b));
+    const topics = nodes.filter(n => n.tier === 1).sort(byOrder).map(t => ({ node: t, kids: deep.filter(n => home(n) === String(t.id)) }));
+    const core = [...nodes.filter(n => n.tier === 0).sort(byOrder), ...deep.filter(n => home(n) === '_core')];
+    const st = n => n === cur ? 'cur' : ({ mastered: 'done', lesson_done: 'part', open: 'open' }[n.status] || 'lock');
+    const edges = currentKgGraphData.edges || currentKgGraphData.links || [];
+    const endId = v => String(v && typeof v === 'object' ? v.id : v);
+    return { nodes, by, parentOf, topics, core, cur, st, edges, endId, seq: [...core, ...topics.flatMap(t => [t.node, ...t.kids])] };
+}
+
+function kgNeighbors(M, n) {
+    const out = [];
+    const push = (id, rel) => {
+        const m = M.by.get(String(id));
+        if (m && m !== n && !out.some(x => x.n === m)) out.push({ n: m, rel });
+    };
+    const p = M.parentOf(n);
+    if (p) push(p, 'входит в');
+    (n.prereq_keys || []).forEach(k => push(k, 'нужно знать'));
+    M.edges.forEach(e => {
+        if (e.__structural) return;
+        const s = M.endId(e.source), t = M.endId(e.target);
+        if (s === String(n.id)) push(t, e.label || 'связано');
+        else if (t === String(n.id)) push(s, e.label || 'связано');
+    });
+    M.nodes.filter(x => M.parentOf(x) === String(n.id)).forEach(x => push(x.id, 'внутри'));
+    if (p && out.length < 6) M.nodes.filter(x => M.parentOf(x) === p).forEach(x => { if (out.length < 7) push(x.id, 'рядом'); });
+    return out.slice(0, 8);
+}
+
+// ---------- Тропа ----------
+function kgRenderPath(M, el) {
+    const sc = document.createElement('div');
+    sc.className = 'kgp-scroll';
+    const sections = [{ title: 'Основы', nodes: M.core }, ...M.topics.map(t => ({ title: t.node.name, nodes: [t.node, ...t.kids] }))]
+        .filter(s => s.nodes.length);
+    const icon = { done: 'check', part: 'more_horiz', lock: 'lock' };
+    const cat = (LESSON_CAT && LESSON_CAT.idle) ? LESSON_CAT.idle.frames[0].join('\n') : '';
+    let i = 0, step = 0;
+    sc.innerHTML = sections.map(sec => {
+        const done = sec.nodes.filter(n => n.status === 'mastered').length;
+        const here = sec.nodes.includes(M.cur);
+        const stops = sec.nodes.map(n => {
+            const s = M.st(n);
+            const x = 50 + Math.sin(i++ * 0.9) * 26;
+            step++;
+            const inner = icon[s] ? `<span class="material-symbols-outlined" aria-hidden="true">${icon[s]}</span>` : (n.tier === 3 ? '?' : step);
+            const catHtml = s === 'cur' && cat
+                ? `<pre class="kgp-cat" aria-hidden="true" style="left:calc(${x}% ${x > 50 ? '- 128px' : '+ 44px'})">${escapeHTML(cat)}</pre><span class="kgp-here" style="left:calc(${x}% ${x > 50 ? '- 128px' : '+ 44px'})">ты здесь</span>`
+                : '';
+            return `<div class="kgp-stop"><button type="button" class="kgp-node kgp-${s}${n.tier === 1 ? ' kgp-topic' : ''}" style="left:${x}%" data-kgnode="${escapeHTML(String(n.id))}"
+                aria-label="${escapeHTML(n.name)}: ${KG_ST_NAMES[s]}">${inner}</button>
+                <div class="kgp-cap" style="left:${x}%">${escapeHTML(n.name)}</div>${catHtml}</div>`;
+        }).join('');
+        return `<div class="kgp-sect${here ? ' kgp-sect-here' : ''}"><b>${escapeHTML(sec.title)}</b><small>${done} из ${sec.nodes.length}${here ? ' · ты здесь' : ''}</small>
+            <div class="kgp-bar"><i style="width:${Math.round(100 * done / sec.nodes.length)}%"></i></div></div><div class="kgp-trail">${stops}</div>`;
+    }).join('');
+    el.appendChild(sc);
+    sc.querySelectorAll('[data-kgnode]').forEach(b => b.addEventListener('click', () => showKgNodeDrawer(M.by.get(b.dataset.kgnode))));
+    const cur = sc.querySelector('.kgp-cur');
+    if (cur) requestAnimationFrame(() => {
+        sc.scrollTop = cur.getBoundingClientRect().top - sc.getBoundingClientRect().top - sc.clientHeight / 2 + 30;
+    });
+}
+
+// ---------- Фокус ----------
+function kgRenderFocus(M, el) {
+    const c = M.by.get(String(kgFocusId)) || M.cur || M.seq[0];
+    if (!c) return;
+    kgFocusId = String(c.id);
+    const W = el.clientWidth, H = el.clientHeight, cx = W / 2, cy = H / 2 - 6;
+    const nb = kgNeighbors(M, c);
+    const trail = [];
+    for (let p = c, g = 0; p && g < 12; g++) { trail.unshift(p); p = M.by.get(M.parentOf(p) || ''); }
+    // Соседи — сеткой по два в ряд над центром и под ним: ни одна плашка не налезает на другую
+    const top = nb.slice(0, Math.ceil(nb.length / 2)), bot = nb.slice(top.length);
+    const rowGap = Math.max(62, Math.min(96, H - 120 - cy - 82));      // нижний ряд не налезает на подсказку внизу
+    const place = (list, dir) => list.map((x, k) => {
+        const row = Math.floor(k / 2), alone = k === list.length - 1 && list.length % 2 === 1;
+        const px = alone ? cx : (k % 2 ? W * 0.74 : W * 0.26);
+        return { ...x, px, py: cy + dir * (82 + row * rowGap) };
+    });
+    const pos = [...place(top, -1), ...place(bot, 1)];
+    const tierName = n => PATH_TIER_NAMES[n.tier] || '';
+    let html = `<nav class="kgf-crumbs" aria-label="Где эта тема в курсе">${trail.map((n, k) => k < trail.length - 1
+        ? `<button type="button" data-kgfocus="${escapeHTML(String(n.id))}">${escapeHTML(n.name)}</button><span aria-hidden="true">›</span>`
+        : `<span>${escapeHTML(n.name)}</span>`).join('')}</nav>`;
+    html += `<svg class="kgf-lines" width="${W}" height="${H}" aria-hidden="true">${pos.map(p => `<line x1="${cx}" y1="${cy}" x2="${p.px}" y2="${p.py}"/>`).join('')}</svg>`;
+    html += `<button type="button" class="kgf-node kgf-center kgf-${M.st(c)}" style="left:${cx}px;top:${cy}px" data-kgopen="1">${escapeHTML(c.name)}<small>${tierName(c)} · ${KG_ST_NAMES[M.st(c)]}</small></button>`;
+    html += pos.map(p => `<button type="button" class="kgf-node kgf-${M.st(p.n)}" style="left:${p.px}px;top:${p.py}px" data-kgfocus="${escapeHTML(String(p.n.id))}">${escapeHTML(p.n.name)}<small>${escapeHTML(p.rel)}</small></button>`).join('');
+    html += `<div class="kgf-foot">${nb.length ? 'Тап по соседу — перейти к нему. Тап по центру — урок и карточки.' : 'У этой темы нет связей в карте.'}
+        ${M.cur && M.cur !== c ? '<button type="button" class="kgf-home" data-kghome="1">К «ты здесь»</button>' : ''}</div>`;
+    el.innerHTML = html;
+    el.querySelectorAll('[data-kgfocus]').forEach(b => b.addEventListener('click', () => {
+        kgFocusId = b.dataset.kgfocus;
+        closeKgNodeDrawer();
+        triggerHaptic('light');
+        kgRenderCurrentView();
+    }));
+    el.querySelector('[data-kgopen]').addEventListener('click', () => showKgNodeDrawer(c));
+    const home = el.querySelector('[data-kghome]');
+    if (home) home.addEventListener('click', () => { kgFocusId = String(M.cur.id); kgRenderCurrentView(); });
+}
+
+// ---------- Круги ----------
+function kgArc(cx, cy, r0, r1, a0, a1) {
+    const p = (r, a) => `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    return `M${p(r1, a0)}A${r1},${r1} 0 ${big} 1 ${p(r1, a1)}L${p(r0, a1)}A${r0},${r0} 0 ${big} 0 ${p(r0, a0)}Z`;
+}
+
+function kgRenderSun(M, el) {
+    const W = el.clientWidth, H = el.clientHeight, cx = W / 2, cy = H / 2 - 12;
+    const groupState = (head, kids) => {
+        const all = head ? [head, ...kids] : kids;
+        if (all.includes(M.cur)) return 'cur';
+        if (all.every(n => n.status === 'mastered')) return 'done';
+        if (all.some(n => n.status !== 'locked')) return 'open';
+        return 'lock';
+    };
+    let groups = [{ id: '_core', name: 'Основы', head: null, kids: M.core }, ...M.topics.map(t => ({ id: String(t.node.id), name: t.node.name, head: t.node, kids: t.kids }))];
+    let zoomed = kgSunZoom ? groups.find(g => g.id === kgSunZoom) : null;
+    const items = zoomed ? (zoomed.head ? [zoomed.head, ...zoomed.kids] : zoomed.kids) : M.seq;
+    if (zoomed) groups = items.map(n => ({ id: String(n.id), name: n.name, head: n, kids: [], leaf: true }));
+    const done = items.filter(n => n.status === 'mastered').length;
+    const total = groups.reduce((s, g) => s + Math.max(1, g.kids.length), 0);
+    const R = Math.min(W, H) / 2 - 64;
+    const r0 = Math.max(44, R * 0.36), r1 = zoomed ? R : R * 0.72, r2 = R;
+    let a = -Math.PI / 2;
+    let svg = `<svg class="kgs-svg" width="${W}" height="${H}" role="img" aria-label="Курс кругами: темы и подтемы">`;
+    groups.forEach(g => {
+        const span = 2 * Math.PI * Math.max(1, g.kids.length) / total, a0 = a, a1 = a + span;
+        const s = g.leaf ? M.st(g.head) : groupState(g.head, g.kids);
+        svg += `<path class="kgs-seg kgs-${s}" d="${kgArc(cx, cy, r0, r1, a0 + 0.004, a1 - 0.004)}" data-kgsun="${escapeHTML(g.id)}" tabindex="0"><title>${escapeHTML(g.name)}</title></path>`;
+        if (!zoomed) g.kids.forEach((k, i) => {
+            const b0 = a0 + span * i / g.kids.length, b1 = a0 + span * (i + 1) / g.kids.length;
+            svg += `<path class="kgs-seg kgs-${M.st(k)}" d="${kgArc(cx, cy, r1 + 3, r2, b0 + 0.006, b1 - 0.006)}" data-kgnode="${escapeHTML(String(k.id))}"><title>${escapeHTML(k.name)}</title></path>`;
+        });
+        if (span > 0.3) {
+            const mid = (a0 + a1) / 2, lr = zoomed ? (r0 + r1) / 2 : r2 + 12;
+            const lines = (typeof wrapNodeText === 'function' ? wrapNodeText(g.name, 12) : [g.name]).slice(0, 2);
+            const anchor = zoomed ? 'middle' : (Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle');
+            const tw = Math.max(...lines.map(l => l.length)) * 6.2;      // подпись не уходит за край экрана
+            let x = cx + Math.cos(mid) * lr;
+            if (anchor === 'end') x = Math.max(x, tw + 6); else if (anchor === 'start') x = Math.min(x, W - tw - 6);
+            const y = cy + Math.sin(mid) * lr - (lines.length - 1) * 6;
+            const onFill = zoomed && (s === 'done' || s === 'cur');
+            svg += `<text class="kgs-label${onFill ? ' kgs-on-fill' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}">${lines.map((l, i) => `<tspan x="${x.toFixed(1)}" dy="${i ? 12 : 0}">${escapeHTML(l)}</tspan>`).join('')}</text>`;
+        }
+        a = a1;
+    });
+    const title = zoomed ? zoomed.name : ((currentPathState && currentPathState.title) || 'Курс');
+    svg += `<circle class="kgs-hub${zoomed ? ' kgs-back' : ''}" cx="${cx}" cy="${cy}" r="${r0 - 5}" ${zoomed ? 'data-kgback="1" tabindex="0"' : ''}><title>${zoomed ? 'Назад ко всему курсу' : escapeHTML(title)}</title></circle>`;
+    const short = title.length > 18 ? `${title.slice(0, 17)}…` : title;
+    svg += `<text class="kgs-hub-title" x="${cx}" y="${cy - 4}" text-anchor="middle">${escapeHTML(short)}</text>`;
+    svg += `<text class="kgs-hub-sub" x="${cx}" y="${cy + 13}" text-anchor="middle">${done} из ${items.length} · ${Math.round(100 * done / Math.max(1, items.length))}%</text></svg>`;
+    el.innerHTML = svg + `<div class="kgf-foot">${zoomed ? 'Тап по сектору — урок и карточки. Тап по центру — назад ко всему курсу.' : 'Внутри — темы, снаружи — подтемы. Тап по теме — приблизить.'}</div>`;
+    el.querySelectorAll('[data-kgsun]').forEach(p => p.addEventListener('click', () => {
+        if (zoomed) { showKgNodeDrawer(M.by.get(p.dataset.kgsun)); return; }
+        kgSunZoom = p.dataset.kgsun;
+        closeKgNodeDrawer();
+        kgRenderCurrentView();
+    }));
+    el.querySelectorAll('[data-kgnode]').forEach(p => p.addEventListener('click', () => showKgNodeDrawer(M.by.get(p.dataset.kgnode))));
+    const back = el.querySelector('[data-kgback]');
+    if (back) back.addEventListener('click', () => { kgSunZoom = null; closeKgNodeDrawer(); kgRenderCurrentView(); });
+}
+
+// Поворот телефона / смена размера окна: виды без холста пересчитываются под новый размер
+window.addEventListener('resize', () => {
+    const modal = document.getElementById('knowledge-graph-modal');
+    if (modal && !modal.classList.contains('hidden') && kgViewMode !== 'sky' && kgViewMode !== 'path') kgRenderCurrentView();
+});
 
 /* ==========================================================================
    MILESTONE 4: INTERACTIVE PRACTICE MODULE CONTROLLER (R5)
@@ -9730,31 +10095,31 @@ window.checkTodayPracticeStats = async function(sub) {
 // выбирает только клиент — в промпт урока и VALID_EMOTIONS их добавлять не нужно.
 const LESSON_CAT = {
     idle: {
-        frames: [['  /\_/\  ', ' ( \'w\' ) ', ' (") (") ']],
-        blink: ['  /\_/\  ', ' ( -w- ) ', ' (") (") '],
+        frames: [['  /\\_/\\  ', ' ( \'w\' ) ', ' (") (") ']],
+        blink: ['  /\\_/\\  ', ' ( -w- ) ', ' (") (") '],
         // редкие «вздохи» между морганиями: тихое мяу и прищур
         idleFrames: [
-            ['  /\_/\  ', ' ( \'o\' ) ', ' (") (") '],
-            ['  /\_/\  ', ' ( -w- ) ', ' (") (") ']
+            ['  /\\_/\\  ', ' ( \'o\' ) ', ' (") (") '],
+            ['  /\\_/\\  ', ' ( -w- ) ', ' (") (") ']
         ]
     },
     talk: {
         frames: [
-            ['  /\_/\  ', ' ( \'o\' ) ', ' (") (") '],
-            ['  /\_/\  ', ' ( \'w\' ) ', ' (") (") '],
-            ['  /\_/\  ', ' ( \'v\' ) ', ' (") (") ']
+            ['  /\\_/\\  ', ' ( \'o\' ) ', ' (") (") '],
+            ['  /\\_/\\  ', ' ( \'w\' ) ', ' (") (") '],
+            ['  /\\_/\\  ', ' ( \'v\' ) ', ' (") (") ']
         ]
     },
-    happy:     { frames: [['  /\_/\  ', ' ( ^w^ ) ', ' (") (") ']], blink: ['  /\_/\  ', ' ( ^-^ ) ', ' (") (") '] },
-    think:     { frames: [['  /\_/\ ?', ' ( -.- ) ', ' (") (") '], ['  /\_/\? ', ' ( -.- ) ', ' (") (") ']] },
-    surprised: { frames: [['  /\_/\ !', ' ( O.O ) ', ' (") (") ']] },
-    confused:  { frames: [['  /\_/\ ?', ' ( o.O ) ', ' (") (") ']] },
-    sleepy:    { frames: [['  /\_/\ z', ' ( u.u ) ', ' (") (") '], ['  /\_/\zZ', ' ( u.u ) ', ' (") (") ']] },
-    wink:      { frames: [['  /\_/\  ', ' ( ^.~ ) ', ' (") (") ']] },
-    proud:     { frames: [['* /\_/\ *', ' ( *.* ) ', ' (") (") '], [' */\_/\* ', ' ( *.* ) ', ' (") (") ']] },
+    happy:     { frames: [['  /\\_/\\  ', ' ( ^w^ ) ', ' (") (") ']], blink: ['  /\\_/\\  ', ' ( ^-^ ) ', ' (") (") '] },
+    think:     { frames: [['  /\\_/\\ ?', ' ( -.- ) ', ' (") (") '], ['  /\\_/\\? ', ' ( -.- ) ', ' (") (") ']] },
+    surprised: { frames: [['  /\\_/\\ !', ' ( O.O ) ', ' (") (") ']] },
+    confused:  { frames: [['  /\\_/\\ ?', ' ( o.O ) ', ' (") (") ']] },
+    sleepy:    { frames: [['  /\\_/\\ z', ' ( u.u ) ', ' (") (") '], ['  /\\_/\\zZ', ' ( u.u ) ', ' (") (") ']] },
+    wink:      { frames: [['  /\\_/\\  ', ' ( ^.~ ) ', ' (") (") ']] },
+    proud:     { frames: [['* /\\_/\\ *', ' ( *.* ) ', ' (") (") '], [' */\\_/\\* ', ' ( *.* ) ', ' (") (") ']] },
     // Только клиент: радость за правильный ответ и сочувствие при ошибке
-    cheer:     { frames: [['* /\_/\ *', ' ( ^o^ ) ', ' (") (") ']], blink: ['* /\_/\ *', ' ( ^-^ ) ', ' (") (") '] },
-    sad:       { frames: [['  /\_/\  ', ' ( T.T )\'', ' (") (") ']] }
+    cheer:     { frames: [['* /\\_/\\ *', ' ( ^o^ ) ', ' (") (") ']], blink: ['* /\\_/\\ *', ' ( ^-^ ) ', ' (") (") '] },
+    sad:       { frames: [['  /\\_/\\  ', ' ( T.T )\'', ' (") (") ']] }
 };
 const LESSON_TIER_NAMES = ['Основы', 'Тема', 'Подтема', 'Кейс на различение'];
 const LESSON_TYPE_MS = 18;
@@ -11077,47 +11442,19 @@ window.refreshPathRunButton = async function(attempt = 0) {
 };
 
 // ----------------------------------------------------------------------------
-// Итог дня: довольная круглая мордочка покачивается (CSS), а из-за неё волнами
-// вылетают конфетти. Два слоя <pre>: сзади конфетти, спереди морда. Там, где морда,
-// конфетти не рисуются — поэтому они «выпрыгивают» из-за неё.
+// Итог дня: тот же кот, что в уроках, только крупный. На отличный день прыгает
+// с поднятыми лапами, на обычный машет, на трудный тихо улыбается, на «До завтра» засыпает.
+// Два слоя <pre>: сзади сетка конфетти (она задаёт размер сцены), спереди кот.
+// Там, где кот, конфетти не рисуются — поэтому они «выпрыгивают» из-за него.
 // ----------------------------------------------------------------------------
 
 const DAY_W = 44;
 const DAY_H = 22;
-const DAY_SWAP = { '/': '\\', '\\': '/', '(': ')', ')': '(', '[': ']', ']': '[', '<': '>', '>': '<' };
-// Левая половина морды (14 знаков); правая получается зеркалом — морда всегда
-// симметрична: острые уши, круглый лоб, стены-щёки, подбородок.
-const DAY_FACE_HALF = [
-    '      /\\      ',
-    '     /  \\     ',
-    '    /    \\____',
-    '   /          ',
-    '  |           ',
-    '  |           ',
-    '  |           ',
-    '  |           ',
-    '   \\          ',
-    '    \\         ',
-    '     \\        ',
-    '      \\_______'
-];
-// Глаза: три строки «глазной зоны», правый глаз — зеркало левого (кроме подмигивания).
-// Алфавит как у маскота в уроках: o — открыты, - — моргает, ^ — прищур, * — звёздочки.
-const DAY_EYES = {
-    open:    { rows: [' .-. ', '( o )', " '-' "], y: 0 },
-    blink:   { rows: ['-----'], y: 1 },
-    happy:   { rows: [' ^^^ '], y: 1 },
-    sparkle: { rows: [' .-. ', '( * )', " '-' "], y: 0 }
-};
-// Улыбка — отдельная накладка на силуэт: меняется, не пересобирая всю морду
-const DAY_MOUTH = { calm: '\\____/', wide: '\\______/' };
+// Точки вылета конфетти в клетках сетки: кот стоит по центру внизу сцены
 const DAY_FACE_X = 8;
-const DAY_FACE_Y = DAY_H - DAY_FACE_HALF.length - 1;
-const DAY_EYE_LEFT_X = DAY_FACE_X + 6;
-const DAY_EYE_RIGHT_X = DAY_FACE_X + 17;
-const DAY_EYE_Y = DAY_FACE_Y + 4;
-// Версия арта: правишь силуэт/глаза/улыбку — увеличь, чтобы сбросить кэш морды и маски
-const DAY_ART_VERSION = 2;
+const DAY_FACE_Y = 9;
+// Глаза кота по состоянию цикла (алфавит маскота из уроков)
+const DAY_CAT_EYES = { open: "'w'", blink: '-w-', happy: '^w^', sparkle: '*w*', wink: '^.~', sleepy: 'u.u' };
 
 const DAY_CONFETTI_YOUNG = ['*', '+', 'x', '^', '~', 'o'];
 const DAY_CONFETTI_FADE = ['.', ',', "'", '`'];
@@ -11128,113 +11465,80 @@ const DAY_CONFETTI_RHYTHMS = [
     { every: 30, count: 4, kind: 'sprinkle' },
     { every: 24, count: 4, kind: 'puff' }
 ];
+// Кот празднует по-разному: отличный день — салют, обычный — спокойнее, трудный — тихая пыль и поддержка, а не фанфары
+const DAY_RHYTHMS_BY_MOOD = {
+    great: DAY_CONFETTI_RHYTHMS,
+    good: [{ every: 28, count: 4, kind: 'arc' }, { every: 36, count: 3, kind: 'sprinkle' }],
+    hard: [{ every: 44, count: 3, kind: 'sprinkle' }]
+};
+const DAY_LINES = {
+    great: ['Мур! Голова сегодня в ударе.', 'Вот это день. Горжусь тобой — правда.', 'Чисто сработано. Память скажет спасибо.'],
+    good: ['Хороший день. Что шаталось — завтра повторим.', 'Шаг за шагом — так и учатся. Мур.', 'Норма закрыта. Теперь можно отдыхать с чистой совестью.'],
+    hard: ['Трудный день — тоже день. Сегодняшние ошибки — завтрашние прочные ответы.', 'Было сложно? Значит, мозг работал. Завтра станет легче.', 'Не всё сразу. Главное — ты здесь и не бросаешь.']
+};
 
-function dayMirrorText(text) {
-    return [...text].reverse().map(ch => DAY_SWAP[ch] || ch).join('');
+// Настроение по итогам дня: точность важнее числа карточек, но по трём ответам выводов не делаем
+function dayMood(t) {
+    const answered = t.answered || 0;
+    const acc = typeof t.accuracy === 'number' ? t.accuracy : null;
+    if (acc !== null && answered >= 5 && acc < 60) return 'hard';
+    if (acc !== null && answered >= 5 && acc >= 85) return 'great';
+    return 'good';
 }
 
-// Полная строка морды из левой половины: 14 знаков + их зеркало = 28
-function dayMirror(half) {
-    const left = half.padEnd(14, ' ');
-    return left + dayMirrorText(left);
+function daySayText(mood, t) {
+    const pool = DAY_LINES[mood] || DAY_LINES.good;
+    let line = pool[Math.floor(Math.random() * pool.length)];
+    const streak = t.streak || 0;
+    if (streak >= 2) line += ` ${streak} ${pathRunPlural(streak, 'день', 'дня', 'дней')} подряд — не ломай цепочку.`;
+    return line;
 }
 
 function dayBlankGrid() {
     return Array.from({ length: DAY_H }, () => Array(DAY_W).fill(' '));
 }
 
-function dayStamp(grid, x, y, lines) {
-    lines.forEach((line, dy) => {
-        const row = grid[y + dy];
-        if (!row) return;
-        [...line].forEach((ch, dx) => {
-            if (ch !== ' ' && x + dx >= 0 && x + dx < DAY_W) row[x + dx] = ch;
-        });
-    });
-}
-
-// Пара глаз: обычно левый + его зеркало; подмигивание — открытый глаз и прищур
-function dayEyePair(eyes) {
-    if (eyes === 'wink') return [DAY_EYES.open, DAY_EYES.happy];
-    const e = DAY_EYES[eyes] || DAY_EYES.open;
-    return [e, e];
-}
-
-function dayFaceGrid(eyes, mouth) {
-    const grid = dayBlankGrid();
-    DAY_FACE_HALF.forEach((half, i) => dayStamp(grid, DAY_FACE_X, DAY_FACE_Y + i, [dayMirror(half)]));
-    const pair = dayEyePair(eyes);
-    dayStamp(grid, DAY_EYE_LEFT_X, DAY_EYE_Y + pair[0].y, pair[0].rows);
-    dayStamp(grid, DAY_EYE_RIGHT_X, DAY_EYE_Y + pair[1].y, pair[1].rows.map(dayMirrorText));
-    dayStamp(grid, DAY_FACE_X + 13, DAY_FACE_Y + 7, ['<>']);                  // нос
-    const smile = DAY_MOUTH[mouth] || DAY_MOUTH.calm;
-    dayStamp(grid, DAY_FACE_X + 14 - smile.length / 2, DAY_FACE_Y + 8, [smile]);
-    dayStamp(grid, DAY_FACE_X + 4, DAY_FACE_Y + 6, [',']);                    // румянец
-    dayStamp(grid, DAY_FACE_X + 23, DAY_FACE_Y + 6, [',']);
-    return grid;
-}
-
-// Усы живут вне 28-символьной морды: по две короткие линии слева и справа
-function dayStampWhiskers(grid) {
-    dayStamp(grid, 5, DAY_FACE_Y + 5, ['----', ' ---']);
-    dayStamp(grid, DAY_W - 9, DAY_FACE_Y + 5, ['----', '--- ']);
-}
-
-// Кадр морды собирается один раз на пару «глаза + улыбка»: смена состояния — это
-// один textContent вместо пересборки 22 строк
-const dayFaceCache = new Map();
-
-function dayFaceText(eyes, mouth) {
-    const key = `${eyes}|${mouth}`;
-    let text = dayFaceCache.get(key);
-    if (!text) {
-        const grid = dayFaceGrid(eyes, mouth);
-        dayStampWhiskers(grid);
-        text = grid.map(row => row.join('')).join('\n');
-        dayFaceCache.set(key, text);
+// Кадр кота: три строки по 9 знаков (ширина постоянная, иначе <pre> «прыгает»). up — кадр прыжка
+function dayCatFrame(st) {
+    let eyes = DAY_CAT_EYES[st.eyes] || DAY_CAT_EYES.open;
+    if (st.mood === 'hard' && st.eyes === 'open') eyes = '^_^';
+    if (st.sleeping) {
+        const z = Math.floor(st.tick / 9) % 2 ? '  /\\_/\\zZ' : '  /\\_/\\ z';
+        return { text: [z, ' ( u.u ) ', ' (") (") '].join('\n'), up: false };
     }
-    return text;
+    if (st.mood === 'great' && st.tick >= 14 && st.tick % 18 >= 9) {
+        return { text: ['  /\\_/\\  ', '\\( ^o^ )/', '  (")(") '].join('\n'), up: true };
+    }
+    const wave = st.mood === 'good' && st.tick % 60 >= 48;
+    return { text: ['  /\\_/\\  ', wave ? ` ( ${eyes} )/` : ` ( ${eyes} ) `, ' (") (") '].join('\n'), up: false };
 }
 
-// Маска «за мордой»: в каждой строке всё от первого до последнего знака морды (+1 запас
-// на покачивание CSS). Собирается по всем кадрам — смена глаз и улыбки маску не расширяет,
-// а после правки арта (DAY_ART_VERSION) кэш пересобирается.
-let dayMaskCache = null;
-let dayMaskVersion = -1;
+function dayDrawCat(faceEl, st) {
+    const f = dayCatFrame(st);
+    if (faceEl.textContent !== f.text) faceEl.textContent = f.text;
+    faceEl.classList.toggle('day-cat-up', f.up);
+}
 
-function dayFaceMask() {
-    if (dayMaskCache && dayMaskVersion === DAY_ART_VERSION) return dayMaskCache;
-    const spans = new Array(DAY_H).fill(null);
-    Object.keys(DAY_EYES).concat(['wink']).forEach(eyes => {
-        Object.keys(DAY_MOUTH).forEach(mouth => {
-            dayFaceGrid(eyes, mouth).forEach((row, y) => {
-                const first = row.findIndex(ch => ch !== ' ');
-                if (first < 0) return;
-                let last = row.length - 1;
-                while (row[last] === ' ') last--;
-                const span = spans[y];
-                spans[y] = span
-                    ? [Math.min(span[0], first - 1), Math.max(span[1], last + 1)]
-                    : [first - 1, last + 1];
-            });
-        });
-    });
-    dayMaskCache = spans;
-    dayMaskVersion = DAY_ART_VERSION;
-    return dayMaskCache;
+// Маска «за котом» в клетках сетки конфетти: меряется по экрану один раз при показе
+function dayMeasureMask(faceEl, confettiEl) {
+    const c = confettiEl.getBoundingClientRect();
+    const f = faceEl.getBoundingClientRect();
+    if (!c.width || !c.height) return null;
+    const cw = c.width / DAY_W, ch = c.height / DAY_H;
+    const x0 = Math.floor((f.left - c.left) / cw) - 1, x1 = Math.ceil((f.right - c.left) / cw);
+    const y0 = Math.floor((f.top - c.top) / ch) - 3;              // запас на прыжок
+    return new Array(DAY_H).fill(null).map((_, y) => (y >= y0 ? [x0, x1] : null));
 }
 
 let dayCelebration = null;
 
-// Кадр цикла: сначала звёздочки в глазах, потом открытые глаза; изредка моргает,
-// прищуривается и подмигивает. Улыбка широкая, пока глаза «сияют», и спокойная иначе.
-function dayEyeState(tick) {
-    const eyes = tick < 14 ? 'sparkle'
+// Глаза по кадру: сначала звёздочки (или прищур), потом открытые; изредка моргает и подмигивает.
+// Трудный день: без звёздочек и подмигиваний (выглядело бы насмешкой).
+function dayEyeState(tick, mood = 'great') {
+    return tick < 14 ? (mood === 'great' ? 'sparkle' : 'happy')
         : (tick % 30 < 2 ? 'blink'
-        : (tick % 104 >= 88 ? 'wink'
+        : (mood !== 'hard' && tick % 104 >= 88 ? 'wink'
         : (tick % 152 >= 132 ? 'happy' : 'open')));
-    const mouth = eyes === 'blink' || eyes === 'happy' ? 'calm' : 'wide';
-    return { eyes, mouth };
 }
 
 function dayConfettiParticle(kind) {
@@ -11287,7 +11591,7 @@ function dayConfettiWave(st, rhythm) {
 
 function dayRenderConfetti(st) {
     const grid = dayBlankGrid();
-    const mask = dayFaceMask();
+    const mask = st.mask || [];
     // Старые частицы рисуем первыми: молодые перекрывают их в той же клетке
     st.confetti.slice().sort((a, b) => b.age - a.age).forEach(p => {
         const ratio = p.age / p.life;
@@ -11298,12 +11602,25 @@ function dayRenderConfetti(st) {
         if (span && x >= span[0] && x <= span[1]) return; // за мордочкой
         // Молодые — яркий глиф (и лёгкое мерцание), зрелые — спокойнее, старые — точка
         const twinkle = (st.tick + p.seed) % 9 < 4;
-        const ch = ratio < 0.4 ? (twinkle ? p.chA : p.chB)
+        const ch = ratio < 0.4 ? (twinkle ? p.chB : p.chA)
             : ratio < 0.68 ? p.chB
             : DAY_CONFETTI_FADE[p.seed % DAY_CONFETTI_FADE.length];
         grid[y][x] = ch;
     });
     return grid.map(row => row.join('')).join('\n');
+}
+
+// Итоги одной строкой «фишек»: число и подпись по-русски, без «Карточек: 1»
+function dayStatChips(t) {
+    const chips = [];
+    const answered = t.answered || 0;
+    if (answered) {
+        const acc = typeof t.accuracy === 'number' ? ` · ${t.accuracy}%` : '';
+        chips.push(`${answered} ${pathRunPlural(answered, 'карточка', 'карточки', 'карточек')}${acc}`);
+    }
+    if (t.lessons) chips.push(`${t.lessons} ${pathRunPlural(t.lessons, 'новая тема', 'новые темы', 'новых тем')}`);
+    if (t.practice) chips.push(`практика ${t.practice.score}/${t.practice.total}`);
+    return chips;
 }
 
 function showDayCelebration(result) {
@@ -11313,25 +11630,32 @@ function showDayCelebration(result) {
     const confettiEl = document.getElementById('day-confetti');
     if (!overlay || !faceEl || !confettiEl) return;
 
-    const answered = t.answered || 0;
+    const mood = dayMood(t);
     const title = document.getElementById('day-title');
-    if (title) title.textContent = (t.accuracy || 0) >= 85 ? 'День закрыт на отлично' : 'День закрыт';
+    if (title) title.textContent = mood === 'great' ? 'День закрыт на отлично' : 'День закрыт';
+    const sayEl = document.getElementById('day-say');
+    if (sayEl) sayEl.textContent = daySayText(mood, t);
 
-    const lines = [];
-    if (answered) lines.push(`Карточек: ${answered}${t.accuracy !== null && t.accuracy !== undefined ? ` · точность ${t.accuracy}%` : ''}`);
-    if (t.lessons) lines.push(`Новых тем: ${t.lessons}`);
-    if (t.practice) lines.push(`Практика: ${t.practice.score}/${t.practice.total}`);
-    if (result.next_up) lines.push(`Завтра по пути: «${result.next_up}»`);
     const statsEl = document.getElementById('day-stats');
     if (statsEl) {
         statsEl.innerHTML = '';
-        lines.forEach((l, i) => {
-            const p = document.createElement('p');
-            p.className = 'day-stat-line';
-            p.style.animationDelay = `${1.2 + i * 0.3}s`;
-            p.textContent = l;
-            statsEl.appendChild(p);
+        const row = document.createElement('div');
+        row.className = 'day-chips';
+        dayStatChips(t).forEach((text, i) => {
+            const chip = document.createElement('span');
+            chip.className = 'day-chip day-stat-line';
+            chip.style.animationDelay = `${1.2 + i * 0.25}s`;
+            chip.textContent = text;
+            row.appendChild(chip);
         });
+        if (row.childElementCount) statsEl.appendChild(row);
+        if (result.next_up) {
+            const p = document.createElement('p');
+            p.className = 'day-stat-line day-next';
+            p.style.animationDelay = `${1.3 + row.childElementCount * 0.25}s`;
+            p.textContent = `Завтра по пути: «${result.next_up}»`;
+            statsEl.appendChild(p);
+        }
     }
     const closeBtn = document.getElementById('day-close');
     if (closeBtn) {
@@ -11341,8 +11665,8 @@ function showDayCelebration(result) {
         closeBtn.classList.add('day-close-in');
     }
 
-    overlay.classList.remove('hidden');
-    triggerHaptic('success');
+    overlay.classList.remove('hidden', 'day-out');
+    triggerHaptic(mood === 'hard' ? 'soft' : 'success');
     // Заголовок появляется мягко уже на видимом оверлее (CSS); под reduced-motion — сразу
     if (title && !prefersReducedMotion() && typeof window.restartCssAnimation === 'function') {
         window.restartCssAnimation(title, 'day-title-in');
@@ -11351,9 +11675,10 @@ function showDayCelebration(result) {
     if (dayCelebration) { clearInterval(dayCelebration.timer); dayCelebration = null; }
 
     if (prefersReducedMotion()) {
-        // Без движения: статичная добрая морда, конфетти нет, итоги уже читаются
-        faceEl.textContent = dayFaceText('sparkle', 'wide');
-        confettiEl.textContent = '';
+        // Без движения: статичный кот, конфетти нет, итоги уже читаются
+        dayDrawCat(faceEl, { mood, tick: 20, eyes: mood === 'great' ? 'sparkle' : 'open', sleeping: false });
+        faceEl.classList.remove('day-cat-up');
+        confettiEl.textContent = dayBlankGrid().map(row => row.join('')).join('\n');
         return;
     }
 
@@ -11361,38 +11686,40 @@ function showDayCelebration(result) {
         confetti: [],
         tick: 0,
         timer: null,
-        eyes: 'sparkle',
-        mouth: 'wide',
+        mood,
+        sleeping: false,
+        eyes: dayEyeState(0, mood),
+        mask: null,
         // У каждого ритма свой отсчёт: волны идут вразнобой, а не залпом
-        rhythms: DAY_CONFETTI_RHYTHMS.map((r, i) => ({ ...r, next: i === 0 ? 0 : 6 + i * 9 }))
+        rhythms: DAY_RHYTHMS_BY_MOOD[mood].map((r, i) => ({ ...r, next: i === 0 ? 0 : 6 + i * 9 }))
     };
     dayCelebration = st;
-    faceEl.textContent = dayFaceText(st.eyes, st.mouth);
-    confettiEl.textContent = '';
+    // Пустая сетка задаёт размер сцены, поэтому кот и маска встают на место с первого кадра
+    confettiEl.textContent = dayBlankGrid().map(row => row.join('')).join('\n');
+    dayDrawCat(faceEl, st);
 
     st.timer = setInterval(() => {
         st.tick++;
-        st.rhythms.forEach(r => {
-            if (st.tick >= r.next) {
-                dayConfettiWave(st, r);
-                r.next = st.tick + r.every;
-            }
-        });
+        if (!st.mask) st.mask = dayMeasureMask(faceEl, confettiEl);
+        if (!st.sleeping) {
+            st.rhythms.forEach(r => {
+                if (st.tick >= r.next) {
+                    dayConfettiWave(st, r);
+                    r.next = st.tick + r.every;
+                }
+            });
+        }
         st.confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += p.g; p.vx *= p.drag; p.age++; });
         st.confetti = st.confetti.filter(p => p.age < p.life && p.y < DAY_H + 3 && p.y > -5 && p.x > -5 && p.x < DAY_W + 5);
         confettiEl.textContent = dayRenderConfetti(st);
-        // Морда: звёздочки → открытые глаза, редкие моргания, прищур и подмигивание
-        const state = dayEyeState(st.tick);
-        if (state.eyes !== st.eyes || state.mouth !== st.mouth) {
-            st.eyes = state.eyes;
-            st.mouth = state.mouth;
-            faceEl.textContent = dayFaceText(st.eyes, st.mouth);
-        }
+        st.eyes = st.sleeping ? 'sleepy' : dayEyeState(st.tick, st.mood);
+        dayDrawCat(faceEl, st);
     }, 70);
 }
 
 // Тап по экрану — сразу показать итоги и кнопку
 window.dayCelebrationSkip = function() {
+    if (dayCelebration && dayCelebration.sleeping) return;
     document.querySelectorAll('#day-stats .day-stat-line').forEach(p => { p.style.animationDelay = '0s'; });
     const closeBtn = document.getElementById('day-close');
     if (closeBtn) closeBtn.style.animationDelay = '0s';
@@ -11405,12 +11732,26 @@ window.dayCloseTap = function(e) {
     else closeDayCelebration();
 };
 
-window.closeDayCelebration = function() {
+function hideDayCelebration() {
     if (dayCelebration) clearInterval(dayCelebration.timer);
     dayCelebration = null;
     const overlay = document.getElementById('day-celebration');
     if (overlay) overlay.classList.add('hidden');
     if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
+}
+
+// «До завтра»: кот закрывает глаза, над ухом плывут «z», экран гаснет. Повторный тап и reduced-motion — закрыть сразу
+window.closeDayCelebration = function() {
+    const st = dayCelebration;
+    const overlay = document.getElementById('day-celebration');
+    if (!st || st.sleeping || prefersReducedMotion() || !overlay) return hideDayCelebration();
+    st.sleeping = true;
+    st.tick = Math.ceil(st.tick / 9) * 9;               // «z» над ухом — сразу со следующего кадра
+    const sayEl = document.getElementById('day-say');
+    if (sayEl) sayEl.textContent = 'Мур… до завтра.';
+    triggerHaptic('soft');
+    setTimeout(() => overlay.classList.add('day-out'), 1400);   // успеть увидеть, как кот засыпает
+    setTimeout(hideDayCelebration, 1800);
 };
 
 window.showDayCelebration = showDayCelebration;

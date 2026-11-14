@@ -368,11 +368,77 @@ function layoutPathRadial(tree) {
 }
 
 // Главная точка входа: nodes [{id, tier, name, parent_id, prereq_keys}], edges [{source, target}]
-function computePathLayout(nodes, edges, layoutType) {
+// «Созвездие»: каждая тема — своё облако (тема в центре, её подтемы спиралью вокруг), основы — облако в центре,
+// облака тем — по эллипсу вокруг него. aspect = высота / ширина экрана: на телефоне эллипс вытянут вверх.
+const CONSTELLATION_STEP = 30;        // шаг спирали внутри облака
+const CONSTELLATION_GAP = 46;         // зазор между облаками
+function constellationCluster(tree, id) {
+    let cur = id;
+    for (let i = 0; i < 12 && cur && cur !== PATH_COURSE_ID; i++) {
+        const n = tree.byId.get(cur);
+        if (n && n.tier === 1) return cur;
+        cur = tree.parent.get(cur);
+    }
+    return '_core';
+}
+
+function layoutPathConstellation(tree, aspect = 1) {
+    const groups = new Map([['_core', []]]);
+    tree.byId.forEach((n, id) => {
+        const c = constellationCluster(tree, id);
+        if (!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(id);
+    });
+    const positions = {};
+    const clusters = [];
+    const spiral = (ids, cx, cy) => ids.forEach((id, i) => {
+        const r = i === 0 ? 0 : CONSTELLATION_STEP * Math.sqrt(i + 0.3);
+        positions[id] = { x: cx + Math.cos(i * 2.39996) * r, y: cy + Math.sin(i * 2.39996) * r };
+    });
+    const radiusOf = ids => CONSTELLATION_STEP * Math.sqrt(Math.max(1, ids.length)) + 28;
+    // В облаке первым стоит якорь: тема, а в центральном — основы
+    const sortIds = (ids, anchor) => ids.slice().sort((a, b) =>
+        (b === anchor) - (a === anchor) || tree.byId.get(a).tier - tree.byId.get(b).tier);
+    const core = sortIds(groups.get('_core'), null);
+    const coreR = core.length ? radiusOf(core) : 0;
+    spiral(core, 0, 0);
+    if (core.length) clusters.push({ id: '_core', x: 0, y: 0, r: coreR });
+
+    const topics = [...groups.keys()].filter(k => k !== '_core');
+    const radii = topics.map(k => radiusOf(groups.get(k)));
+    const ar = Math.max(0.7, Math.min(1.9, aspect || 1));
+    const need = radii.reduce((s, r) => s + 2 * r + CONSTELLATION_GAP, 0);
+    // Эллипс: его периметр должен вместить все облака, и облака не должны задевать центральное.
+    // Места раздаём по длине дуги, а не по углу: иначе на вытянутом эллипсе облака слипаются у его концов
+    const SAMPLES = 720;
+    const unit = [];
+    let perim = 0;
+    for (let s = 0; s <= SAMPLES; s++) {
+        const t = -Math.PI / 2 + 2 * Math.PI * s / SAMPLES;
+        const p = { x: Math.cos(t), y: Math.sin(t) * ar };
+        if (s) perim += Math.hypot(p.x - unit[s - 1].x, p.y - unit[s - 1].y);
+        p.len = perim;
+        unit.push(p);
+    }
+    const rx = Math.max(need / perim, (coreR + Math.max(0, ...radii) + CONSTELLATION_GAP) / Math.min(1, ar));
+    let acc = 0, s = 0;
+    topics.forEach((k, i) => {
+        const share = (2 * radii[i] + CONSTELLATION_GAP) / need;
+        const target = (acc + share / 2) * perim;
+        acc += share;
+        while (s < SAMPLES && unit[s].len < target) s++;
+        const cx = unit[s].x * rx, cy = unit[s].y * rx;
+        spiral(sortIds(groups.get(k), k), cx, cy);
+        clusters.push({ id: k, x: cx, y: cy, r: radii[i] });
+    });
+    return { positions, bends: {}, course: null, clusters };
+}
+
+function computePathLayout(nodes, edges, layoutType, aspect) {
     const tree = buildPathTree(nodes);
     orderPathChildren(tree, edges);
-    const result = layoutType === 'radial'
-        ? layoutPathRadial(tree)
+    const result = layoutType === 'radial' ? layoutPathRadial(tree)
+        : layoutType === 'constellation' ? layoutPathConstellation(tree, aspect)
         : layoutPathVertical(tree, layoutType === 'horizontal');
     result.parent = {};
     tree.parent.forEach((p, id) => { result.parent[id] = p; });

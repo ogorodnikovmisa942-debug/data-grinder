@@ -477,6 +477,11 @@ window.addEventListener('keydown', (e) => {
 
     // Escape key
     if (e.key === 'Escape' || e.code === 'Escape') {
+        const dayOverlay = document.getElementById('day-celebration');
+        if (dayOverlay && !dayOverlay.classList.contains('hidden')) {
+            if (typeof window.closeDayCelebration === 'function') window.closeDayCelebration();
+            return;
+        }
         const practiceModal = document.getElementById('practice-modal');
         if (practiceModal && !practiceModal.classList.contains('hidden')) {
             if (typeof window.closePracticeModal === 'function') window.closePracticeModal();

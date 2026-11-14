@@ -24,6 +24,7 @@ from app.services.card_db_sync import (
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.core.limiter import limiter
+from app.services.text_extract import BOOK_FORMATS, SCAN_PDF_MESSAGE, ExtractError, extract_book_format, strip_page_furniture
 
 import logging
 logger = logging.getLogger("grinder.imports")
@@ -40,11 +41,11 @@ def _extract_pdf_text(contents: bytes, filename: str) -> tuple[str, int]:
     total_pages = len(reader.pages)
     if total_pages > MAX_PDF_PAGES:
         raise HTTPException(status_code=413, detail=f"В файле «{filename}» {total_pages} страниц, максимум {MAX_PDF_PAGES}. Разбейте его на части.")
-    pages_text = []
-    for idx in range(total_pages):
-        txt = reader.pages[idx].extract_text() or ""
-        if txt.strip():
-            pages_text.append(f"--- {filename}: Стр. {idx+1} ---\n{txt.strip()}")
+    pages = strip_page_furniture([reader.pages[idx].extract_text() or "" for idx in range(total_pages)])
+    pages_text = [f"--- {filename}: Стр. {idx+1} ---\n{txt.strip()}" for idx, txt in enumerate(pages) if txt.strip()]
+    # Скан без текстового слоя: раньше такой файл молча давал «не удалось извлечь текст»
+    if total_pages and sum(len(t.strip()) for t in pages) < 5 * total_pages:
+        raise HTTPException(status_code=400, detail=f"«{filename}»: {SCAN_PDF_MESSAGE}")
     return "\n\n".join(pages_text), total_pages
 
 
@@ -432,6 +433,19 @@ async def import_file_at_code_level(
                 print(f"[PPTX Import] {up_file.filename}: извлечено {len(slides_text)} слайдов ({len(extracted_text)} знаков).")
             except Exception as e:
                 print(f"[WARN] Ошибка чтения PPTX {up_file.filename}: {e}")
+
+        # 6. Книжные форматы: EPUB, FB2, ODT, HTML
+        elif filename.endswith(BOOK_FORMATS):
+            try:
+                extracted_text = await asyncio.to_thread(extract_book_format, filename, contents)
+                print(f"[Book Import] {up_file.filename}: {len(extracted_text)} знаков.")
+            except ExtractError as e:
+                raise HTTPException(status_code=400, detail=f"«{up_file.filename}»: {e}")
+
+        else:
+            raise HTTPException(status_code=400, detail=(
+                f"Формат «{up_file.filename}» не поддерживается. Подойдут PDF, Word (DOCX), EPUB, FB2, ODT, HTML, "
+                "PowerPoint (PPTX), TXT/MD, CSV и колоды Anki. Старый .doc и .djvu сохраните в PDF или DOCX."))
 
         if extracted_text.strip():
             all_extracted_texts.append(f"=== ДОКУМЕНТ: {up_file.filename} ===\n" + extracted_text.strip())

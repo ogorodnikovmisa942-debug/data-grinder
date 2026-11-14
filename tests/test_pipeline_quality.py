@@ -100,7 +100,7 @@ def test_lesson_request_has_cards_excerpt_and_no_book():
     assert "1. Q: Какой срок полномочий установлен для судьи Конституционного суда? | A: Шесть лет." in block
     assert "PREREQS: Тема" in block
     assert "RELATED: Судья разграничивается с Иск" in block         # связь из карты, а не из книги
-    assert "KEYS: sub_a=Судья" in block and "topic=Тема" in block
+    assert "NAMES: Судья" in block and "; Тема" in block
     assert "EXCERPT: «" in block and "составляет шесть лет" in block   # выдержка вокруг цитаты карточки
     assert len(prompt) < len(book) / 4 and book[:2000] not in prompt  # в запросе урока нет книги целиком
 

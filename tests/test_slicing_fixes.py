@@ -153,8 +153,10 @@ def test_three_chapters_with_the_same_topic_make_one_branch_without_lonely_found
     import sys
     from pathlib import Path
     script = Path(__file__).parent / "fixtures" / "chapters_run.py"
+    import os
+    # На Windows дочерний процесс иначе пишет в кодировке консоли (cp1251), и чтение UTF-8 падает в потоке: stdout = None
     out = subprocess.run([sys.executable, str(script), "merge"], capture_output=True, text=True, encoding="utf-8", timeout=200,
-                         cwd=Path(__file__).parents[1])
+                         cwd=Path(__file__).parents[1], env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     assert out.returncode == 0, out.stderr[-800:]
     assert "связных кусков в данных: 1" in out.stdout and "Узлов в графе 11" in out.stdout, out.stdout[-1500:]
 
@@ -173,7 +175,9 @@ def _blank_pdf(pages: int) -> bytes:
 
 def test_a_pdf_over_the_page_limit_is_refused_instead_of_cut():
     from app.api.endpoints import imports
-    assert imports._extract_pdf_text(_blank_pdf(3), "a.pdf") == ("", 3)
+    with pytest.raises(HTTPException) as scan:                 # PDF без текстового слоя (скан): понятная причина, а не «не удалось извлечь»
+        imports._extract_pdf_text(_blank_pdf(3), "a.pdf")
+    assert scan.value.status_code == 400 and "скан" in scan.value.detail
     with patch.object(imports, "MAX_PDF_PAGES", 5):
         with pytest.raises(HTTPException) as e:
             imports._extract_pdf_text(_blank_pdf(6), "big.pdf")

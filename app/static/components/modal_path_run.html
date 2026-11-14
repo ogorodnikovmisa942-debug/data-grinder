@@ -41,8 +41,9 @@
     <div id="day-celebration" role="dialog" aria-modal="true" aria-labelledby="day-title" class="hidden fixed inset-0 z-[140] bg-[#fbfbfb] dark:bg-[#0e0e0e] text-neutral-900 dark:text-neutral-100 flex flex-col items-center justify-center font-sans select-none overflow-hidden" style="padding: calc(max(var(--tg-safe-top, 24px), env(safe-area-inset-top, 20px)) + 32px) 16px calc(max(var(--tg-safe-bottom, 16px), env(safe-area-inset-bottom, 16px)) + 16px);" onclick="dayCelebrationSkip()">
         <div class="day-scene" aria-hidden="true">
             <pre id="day-confetti" class="day-layer day-confetti font-mono"></pre>
-            <pre id="day-cat" class="day-layer day-face font-mono text-primary"></pre>
+            <pre id="day-cat" class="day-mascot font-mono text-primary"></pre>
         </div>
+        <p id="day-say" class="day-say font-sans text-sm text-center" aria-live="polite"></p>
         <h2 id="day-title" class="font-mono font-bold text-base uppercase tracking-widest text-primary mt-4 text-center">День закрыт</h2>
         <div id="day-stats" class="day-stats font-mono text-xs text-neutral-600 dark:text-neutral-300 mt-3 text-center"></div>
         <button id="day-close" onclick="dayCloseTap(event)" class="mt-6 px-6 py-2.5 rounded-xl bg-primary text-on-primary text-sm font-mono font-bold transition-all cursor-pointer">До завтра</button>

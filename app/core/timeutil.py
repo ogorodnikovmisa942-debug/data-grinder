@@ -62,3 +62,22 @@ async def get_user_timezone(db, user_id: str) -> str:
 async def user_day_start(db, user_id: str) -> datetime:
     """Начало сегодняшних суток пользователя (наивный UTC)."""
     return local_midnight_utc(await get_user_timezone(db, user_id))
+
+
+async def streak_days(db, user_id: str) -> int:
+    """Ударный режим: сколько дней подряд (по часам пользователя) были повторения; сегодняшний день ещё может быть пустым."""
+    from app.database.models import ReviewLog
+    tz_name = await get_user_timezone(db, user_id)
+    times = (await db.execute(
+        select(ReviewLog.review_time).where(ReviewLog.user_id == user_id,
+                                            ReviewLog.review_time >= local_midnight_utc(tz_name, days_back=60))
+    )).scalars().all()
+    dates = {to_local_date(t, tz_name) for t in times if t}
+    day = local_now(tz_name).date()
+    if day not in dates:
+        day -= timedelta(days=1)
+    streak = 0
+    while day in dates:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak

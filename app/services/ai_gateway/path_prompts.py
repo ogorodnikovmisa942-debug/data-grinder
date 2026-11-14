@@ -106,11 +106,11 @@ CARD LAWS (non-negotiable):
 - No binary Yes/No cards. The answer is never "Да." or "Нет.".
 - Core concepts ARE allowed and required, but through hallmarks, not dictionary wording: describe the decisive features -> ask for the concept ("Как называется ...", "Какой метод ..."). Never "Что такое X?" / "Дайте определение X".
 - Anti-giveaway: the question 't' must not contain the root, stem or obvious synonym of the answer.
-- Zero-Spoiler Law for the front: the question 't' never carries the answer or its root clue. Put phonetic reading (pinyin/transcription) + part of speech in 's' for language cards (NEVER write the translation or its root in 's'); otherwise 's' is a brief non-spoiler context cue or empty (the app adds a default header and strips spoilers).
+- Zero-Spoiler Law for the front: the question 't' never carries the answer or its root clue. Put phonetic reading (pinyin/transcription) + part of speech in 's' for language cards (NEVER write the translation or its root in 's'); on other cards omit 's' (the app shows the course and topic name).
 - One correct answer: according to the source the question has exactly one correct answer. If the source gives alternatives, ask about one defined aspect.
 - Self-contained: the question names its subject and never refers to the text, the chapter, the author of the book or the lesson ("согласно тексту", "по определению из главы", "отмечает источник", "как сказано выше", "в этой теме").
   Attribute a view to the person or school the source names ("по мнению Г. Кельзена", "по учению Аристотеля"), never to "the text". The app deletes such phrases and may discard the card.
-- 's' (optional, 1-6 words): non-spoiler reading (pinyin/IPA + POS for languages) or branch/statute cue; leave empty if redundant.
+- 's' (1-6 words): language cards only (reading + part of speech), or a statute/article cue the question cannot do without. Omit it otherwise: it costs tokens and the app already shows the topic.
 - 'd' (back): 1-12 words, one grammatically complete phrase ending with a period; up to 15 words for formulas, code or doses.
 - 'e' (optional, <= 15 words): for foreign languages, ALWAYS write one short realistic sentence/micro-dialogue using the target item; for formulas, code, doses or subtle rules, write one concrete example; omit otherwise to save tokens.
 - Vary question openers; no robotic repeated stems. No tautologies (answer must not echo the question).
@@ -148,7 +148,14 @@ CARDS JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
     {
       "key": "impuls",
       "cards": [
-        {"t": "Как называется величина, равная произведению массы тела на его скорость?", "s": "Механика | Динамика", "d": "Импульс тела.", "ev": "импульс тела равен произведению его массы на скорость", "y": 0, "at": "term", "x": ["Кинетическая энергия.", "Сила тяжести.", "Работа силы."], "e": "Шайба массой 0,2 кг со скоростью 5 м/с имеет импульс 1 кг·м/с.", "m": {"k": "Пульс-толчок", "c": "Пульс толкает массу вперед со скоростью v."}}
+        {"t": "Какая величина сохраняется при упругом ударе, но не при неупругом?", "d": "Кинетическая энергия тел.", "ev": "при упругом ударе сохраняется кинетическая энергия", "y": 2, "at": "criterion", "x": ["Масса тел.", "Скорость каждого тела.", "Сила взаимодействия."]},
+        {"t": "Как называется величина, равная произведению массы тела на его скорость?", "d": "Импульс тела.", "ev": "импульс тела равен произведению его массы на скорость", "y": 0, "at": "term", "x": ["Кинетическая энергия.", "Сила тяжести.", "Работа силы."], "e": "Шайба массой 0,2 кг со скоростью 5 м/с имеет импульс 1 кг·м/с."}
+      ]
+    },
+    {
+      "key": "slova_ucheby",
+      "cards": [
+        {"t": "学校", "s": "xuéxiào, сущ.", "d": "Школа.", "ev": "学校 — школа", "y": 0, "at": "term", "x": ["Больница.", "Магазин.", "Библиотека."], "e": "我在学校学习。— Я учусь в школе.", "m": {"k": "学 — учиться", "c": "Ребёнок под крышей учится, а 校 — здание из дерева: здание для учёбы."}}
       ]
     }
   ]
@@ -261,8 +268,8 @@ H3. THE LESSON
   If the node shows a look-alike sibling or a demarcated_from link, one screen contrasts the two in one line ("А vs Б: ...").
   If the node has prerequisites, one screen must explicitly connect to them ("Помнишь X? Так вот...").
   Last screen = a one-sentence takeaway the learner should remember.
-- "emo" per screen: idle | talk | happy | think | surprised | confused. Pick the one matching the line (surprised for a twist, think for a distinction, happy for the takeaway).
-- "focus": 0-3 node keys from the KEYS line of the node that this screen mentions (the graph highlights them); [] when none.
+- Each screen is a pair ["say", "emo"]. emo: idle | talk | happy | think | surprised | confused. Pick the one matching the line (surprised for a twist, think for a distinction, happy for the takeaway).
+- When a screen is about a node of the NAMES line, call it by that exact name: the app highlights the named nodes on the graph.
 - "check": exactly 1 comprehension question asked right after the lesson. It tests UNDERSTANDING of the lesson (apply the idea to a new situation, tell two things apart), not memory of a wording, and it must not repeat a card's question.
   3 options, exactly one correct ("answer" is its 0-based index), all options the same kind and similar length, wrong options plausible for a beginner. "why": 1 sentence explaining the right answer.
 - Tier-3 (case) nodes: the lesson is a worked example — a short situation, the mascot reasons through which rule applies and why the look-alike rule does not.
@@ -278,8 +285,8 @@ LESSON JSON SCHEMA (return exactly this shape, raw JSON, no markdown):
       "key": "zakony_nyutona",
       "lesson": {
         "screens": [
-          {"say": "Представь: ты толкаешь пустую тележку, а потом полную. Почему вторую сдвинуть труднее?", "emo": "surprised", "focus": []},
-          {"say": "Помнишь силу? Тут она встречается с массой: чем масса больше, тем меньше ускорение при той же силе.", "emo": "talk", "focus": ["sila"]}
+          ["Представь: ты толкаешь пустую тележку, а потом полную. Почему вторую сдвинуть труднее?", "surprised"],
+          ["Помнишь силу? Тут она встречается с массой: чем масса больше, тем меньше ускорение при той же силе.", "talk"]
         ],
         "check": [
           {"q": "Во сколько раз изменится ускорение, если при той же силе масса тела вырастет вдвое?", "options": ["Уменьшится вдвое", "Не изменится", "Вырастет вдвое"], "answer": 0, "why": "Ускорение обратно пропорционально массе."}

@@ -108,14 +108,13 @@ class TestAccessibilityAndHotkeys(unittest.TestCase):
         self.assertIn('id="kg-fullscreen-btn"', html)
         self.assertIn('aria-label="Полноэкранный режим графа"', html)
 
-        # Layout buttons
-        self.assertIn('aria-label="Круговая раскладка"', html)
-        self.assertIn('aria-label="Раскладка сверху вниз"', html)
-        self.assertIn('aria-label="Раскладка слева направо"', html)
+        # Виды карты знаний: тропа, фокус, круги, созвездие (старые раскладки заменены созвездием)
+        self.assertIn('aria-label="Вид карты знаний"', html)
+        for view in ("path", "focus", "sun", "sky"):
+            self.assertIn(f'data-kgview="{view}"', html)
         self.assertIn('aria-label="Показать связи между темами"', html)
         self.assertNotIn('id="kg-layout-force"', html)  # «Паутина» удалена
-        self.assertIn('id="kg-layout-radial"', html)
-        self.assertIn('id="kg-layout-tree"', html)
+        self.assertNotIn('id="kg-layout-radial"', html)
 
         # Close buttons
         self.assertIn('aria-label="Закрыть"', html)

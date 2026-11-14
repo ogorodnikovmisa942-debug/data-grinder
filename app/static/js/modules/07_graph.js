@@ -1,7 +1,7 @@
 let currentKgSubject = '';
 let currentKgGraphData = null;
 let currentKgView = 'tree'; // 'tree' | 'graph'
-let currentKgLayout = 'radial'; // 'radial' | 'tree' (сверху вниз) | 'horizontal' (слева направо)
+let currentKgLayout = 'constellation'; // 'constellation' (облака тем) | 'radial' | 'tree' (сверху вниз) | 'horizontal' (слева направо)
 let currentForceGraphInstance = null;
 
 // Динамический асинхронный загрузчик библиотек физики графа (D3 & ForceGraph)
@@ -436,7 +436,7 @@ window.switchKgView = function() {
     if (currentKgGraphData) {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                initForceGraph(currentKgGraphData);
+                kgRenderCurrentView();
             });
         });
     }
@@ -521,7 +521,7 @@ window.loadKnowledgeGraph = async function(subject) {
         }
 
         setTimeout(() => {
-            initForceGraph(currentKgGraphData);
+            kgRenderCurrentView();
         }, 50);
 
     } catch (e) {
@@ -611,7 +611,9 @@ window.toggleKgCrossLinks = function() {
 // Раскладка «Пути знаний»: координаты считает 07a_path_layout.js, здесь узлы фиксируются,
 // линиям дерева передаются изгибы, связям между ветками — дуги (в круговой) или скрытие (в слоях).
 function applyPathLayout(graphData, layoutType) {
-    const meta = computePathLayout(graphData.nodes, graphData.links, layoutType);
+    const wrap = document.getElementById('kg-graph-canvas-wrapper');
+    const aspect = wrap && wrap.clientWidth ? wrap.clientHeight / wrap.clientWidth : 1;
+    const meta = computePathLayout(graphData.nodes, graphData.links, layoutType, aspect);
     kgPathLayoutMeta = { layout: layoutType, ...meta };
     const nodeById = new Map(graphData.nodes.map(n => [String(n.id), n]));
     let ringLane = 0;
@@ -648,8 +650,30 @@ function applyPathLayout(graphData, layoutType) {
 // Круговая — круг с названием, основы на его ободе. Слои — плашка-заголовок и линии к основам.
 function drawPathCourse(ctx, globalScale) {
     const meta = kgPathLayoutMeta;
-    if (!meta || !meta.course) return;
     const dark = document.documentElement.classList.contains('dark');
+    if (meta && meta.clusters) {
+        // «Созвездие»: мягкое облако под каждой темой — структура видна без линий
+        ctx.save();
+        meta.clusters.forEach(c => {
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, c.r, 0, 2 * Math.PI, false);
+            ctx.fillStyle = c.id === '_core'
+                ? (dark ? 'rgba(99, 102, 241, 0.10)' : 'rgba(79, 70, 229, 0.06)')
+                : (dark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)');
+            ctx.fill();
+            if (c.id === '_core' && globalScale < 1.2) {
+                const fs = 13 / globalScale;
+                ctx.font = `700 ${fs}px "Plus Jakarta Sans", -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = dark ? 'rgba(165, 180, 252, 0.9)' : 'rgba(79, 70, 229, 0.85)';
+                ctx.fillText('Основы', c.x, c.y - c.r - fs);
+            }
+        });
+        ctx.restore();
+        return;
+    }
+    if (!meta || !meta.course) return;
     const title = (currentPathState && currentPathState.title) || '';
     ctx.save();
     if (meta.layout === 'radial') {
@@ -742,8 +766,8 @@ function kgStructuralLinkBends(link) {
 }
 
 window.setGraphLayout = function(layoutType) {
-    const allowed = ['radial', 'tree', 'horizontal'];
-    currentKgLayout = allowed.includes(layoutType) ? layoutType : 'radial';
+    const allowed = ['constellation', 'radial', 'tree', 'horizontal'];
+    currentKgLayout = allowed.includes(layoutType) ? layoutType : 'constellation';
     isInitialLayoutFit = true;
 
     const buttons = { radial: 'kg-layout-radial', tree: 'kg-layout-tree', horizontal: 'kg-layout-lr' };
@@ -1347,6 +1371,10 @@ window.initForceGraph = async function(graphData) {
                 if (currentKgLayout === 'radial') return isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)';
                 return 'rgba(0, 0, 0, 0)';
             }
+            // «Созвездие»: линии от основ к облакам тем — фоном, иначе центр снова превращается в «ежа»
+            if (currentKgLayout === 'constellation' && link.source && link.source.tier === 0 && link.target && link.target.tier >= 1) {
+                return isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.07)';
+            }
             return getKgRelationLinkColor(link.relation, false, isDark);
         })
         .linkWidth(link => {
@@ -1813,7 +1841,9 @@ window.initForceGraph = async function(graphData) {
                 ctx.globalAlpha = prevLabelAlpha * labelAlpha;
 
                 // Фиксированный размер шрифта в мировых координатах (без раздувания при отдалении!)
-                const baseFontSize = isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8));
+                // В «Созвездии» подписи тем держат размер на экране при отдалении: обзор читается без приближения (основы подписаны облаком «Основы»)
+                const keepSize = currentKgLayout === 'constellation' && node.level === 1 ? Math.max(1, 0.9 / globalScale) : 1;
+                const baseFontSize = (isTarget ? 11 : (node.level === 0 ? 12 : (isBackboneNode || node.level === 1 ? 9.5 : 8))) * keepSize;
                 ctx.font = `${isTarget || isBackboneNode || node.level <= 1 ? '700' : '500'} ${baseFontSize}px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -2243,9 +2273,10 @@ window.showKgNodeDrawer = function(node, startCollapsed = false) {
                     <span class="font-medium text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">${escapeHTML(otherName)}</span>
                 `;
                 chip.onclick = () => {
-                    if (otherNode) {
-                        focusNodeInGraph(otherNode.id);
-                    }
+                    if (!otherNode) return;
+                    // В видах «Тропа / Фокус / Круги» связь ведёт в этот вид, а не в холст графа
+                    if (typeof window.kgAltNavigate === 'function' && window.kgAltNavigate(otherNode.id)) return;
+                    focusNodeInGraph(otherNode.id);
                 };
                 linksContainer.appendChild(chip);
             });

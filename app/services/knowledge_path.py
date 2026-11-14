@@ -13,7 +13,7 @@ import re
 
 from sqlalchemy import select, delete, func, case, or_, update
 
-from app.core.timeutil import user_day_start, get_user_timezone, local_now
+from app.core.timeutil import user_day_start, get_user_timezone, local_now, streak_days
 from app.services.graph_service import get_all_subject_aliases
 
 from app.database.models import (
@@ -725,6 +725,7 @@ async def get_today_summary(db, user_id: str, subject: str) -> dict:
         "accuracy": round(100 * (correct or 0) / answered) if answered else None,
         "lessons": lessons,
         "practice": {"score": practice[0], "total": practice[1]} if practice else None,
+        "streak": await streak_days(db, user_id),
     }
 
 

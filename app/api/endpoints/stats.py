@@ -16,7 +16,7 @@ from app.services.card_db_sync import is_admin_or_dev, get_user_experiment_statu
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.services.knowledge_path import get_day_plan
-from app.core.timeutil import get_user_timezone, local_now, local_midnight_utc, to_local_date, user_day_start
+from app.core.timeutil import get_user_timezone, local_now, local_midnight_utc, user_day_start, streak_days
 
 router = APIRouter()
 
@@ -70,21 +70,8 @@ async def get_analytics(
     successful_reviews = sum(1 for r in logs if r.rating > 1)
     retention_rate = round((successful_reviews / total_reviews) * 100, 1) if total_reviews > 0 else 0.0
 
-    # Расчет ударного режима (Streak) для конкретного пользователя
     tz_name = await get_user_timezone(db, current_user)
-    since = local_midnight_utc(tz_name, days_back=60)
-    times = (await db.execute(
-        select(ReviewLog.review_time).where(ReviewLog.user_id == current_user, ReviewLog.review_time >= since)
-    )).scalars().all()
-    dates_set = {to_local_date(t, tz_name) for t in times if t}
-
-    streak = 0
-    current_date = local_now(tz_name).date()
-    if current_date not in dates_set:
-        current_date -= timedelta(days=1)
-    while current_date in dates_set:
-        streak += 1
-        current_date -= timedelta(days=1)
+    streak = await streak_days(db, current_user)
 
     # Тематическая раскладка матрицы знаний текущего пользователя
     breakdown = []
