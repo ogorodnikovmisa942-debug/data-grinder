@@ -852,9 +852,9 @@ window.showSessionDebrief = async function() {
     if (elReviewed) elReviewed.textContent = reviewed;
     if (elAcc) elAcc.textContent = `${accuracy}%`;
     
-    let subDisplay = (currentSubject && currentSubject !== 'all') ? currentSubject.toUpperCase() : 'ВСЕ ПРЕДМЕТЫ';
+    let subDisplay = subjectLabel(currentSubject);
     if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
-        subDisplay = cardsQueue[0].subject_title.toUpperCase();
+        subDisplay = cardsQueue[0].subject_title;
     }
     if (elSub) elSub.textContent = subDisplay;
 
@@ -1306,8 +1306,12 @@ function renderIntroductionCard(card) {
         badge.classList.toggle('hidden', !value);
         badge.classList.toggle('inline-flex', !!value);
     };
-    setChip('card-intro-chapter-badge', 'card-intro-chapter-text', (card.chapter || card.phrase_text || '').trim());
-    setChip('card-intro-subject-badge', 'card-intro-subject-text', card.subject_title || '');
+    const chapterText = (card.chapter || card.phrase_text || '').trim();
+    const subjectText = (card.subject_title || '').trim();
+    setChip('card-intro-chapter-badge', 'card-intro-chapter-text', chapterText);
+    // Название предмета часто совпадает с названием темы — один и тот же значок дважды только путает
+    setChip('card-intro-subject-badge', 'card-intro-subject-text',
+        subjectText && subjectText.toLowerCase() !== chapterText.toLowerCase() ? subjectText : '');
 
     const isIntroCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
     const termEl = document.getElementById('card-intro-term');
@@ -1350,12 +1354,12 @@ function renderIntroductionCard(card) {
             </button>${knowLink}`;
         catEmo = 'talk'; catText = TRAIN_CAT_LINES.preview;
     } else if (!revealed) {
+        // Место ответа — подсказка, а не вторая кнопка: «Показать ответ» внизу одна. Нажатие сюда тоже открывает ответ
         if (bodyEl) bodyEl.innerHTML = `
-            <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-reveal animate-fade-in">
-                <span class="material-symbols-outlined">visibility</span>
-                <span class="intro-reveal-title">Открыть ответ</span>
-                <span class="intro-reveal-hint">сначала произнеси его про себя</span>
-            </button>`;
+            <div onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-reveal animate-fade-in" aria-hidden="true">
+                <span class="material-symbols-outlined">visibility_off</span>
+                <span class="intro-reveal-hint">Ответ скрыт</span>
+            </div>`;
         if (footerEl) footerEl.innerHTML = `
             <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-btn intro-btn-primary">
                 <span class="material-symbols-outlined">visibility</span><span>Показать ответ</span>
@@ -1512,7 +1516,7 @@ function renderReviewCard(card) {
     const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
 
     // Хлебные крошки: предмет карточки на лицевой стороне показываем только в общем режиме ("Все предметы")
-    const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
+    const subTitle = card.subject_title || (card.subject ? subjectLabel(card.subject) : '');
     const frontSubBadge = document.getElementById('card-front-subject-badge');
     const frontSubText = document.getElementById('card-front-subject-text');
     if (frontSubBadge && frontSubText) {

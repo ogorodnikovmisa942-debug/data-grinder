@@ -359,7 +359,7 @@ window.openKnowledgeGraphModal = function(targetSubject) {
     modal.classList.remove('hidden');
 
     const badge = document.getElementById('kg-subject-badge');
-    if (badge) badge.textContent = sub.toUpperCase();
+    if (badge) badge.textContent = subjectLabel(sub);
 
     // Preserve selected view or default to tree view initially
     switchKgView('graph');
@@ -483,7 +483,7 @@ window.loadKnowledgeGraph = async function(subject) {
     }
 
     currentKgSubject = sub;
-    if (badge) badge.textContent = sub.toUpperCase();
+    if (badge) badge.textContent = subjectLabel(sub);
 
     if (loading) loading.classList.remove('hidden');
     if (emptyState) emptyState.classList.add('hidden');
@@ -502,7 +502,7 @@ window.loadKnowledgeGraph = async function(subject) {
         const data = await res.json();
         currentPathState = data;
         currentKgSubject = data.subject || sub;
-        if (badge) badge.textContent = currentKgSubject.toUpperCase();
+        if (badge) badge.textContent = subjectLabel(currentKgSubject);
         currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;

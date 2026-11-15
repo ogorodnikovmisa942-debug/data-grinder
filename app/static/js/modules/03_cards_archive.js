@@ -340,8 +340,14 @@ async function renderRemainingToLearn(data) {
     const limit = Math.max(1, data.daily_new_limit || 10);
     const days = Math.ceil(left / limit);
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    set('stats-left-cards', left ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}` : 'Всё изучено');
-    set('stats-left-days', left ? `≈ ${days} дн. при лимите ${limit}/день` : 'новых карточек не осталось');
+    // Пустой аккаунт — не «Всё изучено»: изучать пока просто нечего
+    const total = data.total_cards || 0;
+    set('stats-left-cards', left
+        ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}`
+        : (total ? 'Всё изучено' : 'Пока пусто'));
+    set('stats-left-days', left
+        ? `≈ ${days} дн. при лимите ${limit}/день`
+        : (total ? 'новых карточек не осталось' : 'загрузи учебник или конспект — появятся карточки'));
     const row = document.getElementById('stats-left-topics-row');
     const subject = currentSubject !== 'all' ? currentSubject : (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
     if (row) row.classList.add('hidden');
@@ -378,9 +384,12 @@ async function loadStatsTab() {
         if (elNew) elNew.innerText = data.cards_new;
         if (elLrn) elLrn.innerText = data.cards_learning;
         if (elRev) elRev.innerText = data.cards_review;
-        if (elPrg) elPrg.innerText = `${data.progress_percent}%`;
-        if (elRet) elRet.innerText = `${data.retention_rate_30d}%`;
-        if (elStr) elStr.innerText = `${data.streak_days} дней`;
+        if (elPrg) elPrg.innerText = percentText(data.progress_percent);
+        if (elRet) elRet.innerText = percentText(data.retention_rate_30d);
+        if (elStr) {
+            const n = data.streak_days || 0;
+            elStr.innerText = `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'день' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'дня' : 'дней')}`;
+        }
         
         renderRemainingToLearn(data);
         if (data.maturity) renderMaturity(data.maturity);
@@ -435,7 +444,7 @@ async function loadConfigTab() {
     refreshPlanUsage();
     try {
         const subjLabel = document.getElementById('config-subject-label');
-        if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
+        if (subjLabel) subjLabel.innerText = currentSubject === 'all' ? 'все предметы' : subjectLabel(currentSubject);
 
         const res = await apiFetch(`/api/config?subject=${currentSubject}`);
         const data = await res.json();
@@ -550,20 +559,20 @@ window.onImportSubjectChange = function(event) {
             newSubInput.classList.remove('hidden');
             newSubInput.focus();
         }
-        if (tipEl) tipEl.textContent = '[НОВЫЙ ПРЕДМЕТ]';
+        if (tipEl) tipEl.textContent = 'Новый предмет';
     } else {
         if (newSubInput) {
             newSubInput.classList.add('hidden');
             newSubInput.value = '';
         }
-        if (tipEl) tipEl.textContent = val ? `[ВЫБРАН: ${val.toUpperCase()}]` : '[ВЫБЕРИТЕ ПРЕДМЕТ]';
+        if (tipEl) tipEl.textContent = val ? subjectLabel(val) : 'Выберите предмет';
     }
 };
 
 window.onStagingSubjectChange = function(event) {
     stagingSubject = event.target.value.trim().toLowerCase();
     const titleEl = document.getElementById('staging-topic-title');
-    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+    if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 };
 
 function getSelectedImportSubject() {
@@ -586,6 +595,9 @@ async function loadDynamicSubjects() {
                 const serverSubs = await res.json();
                 if (Array.isArray(serverSubs)) {
                     subjects = serverSubs;
+                    // Ответ сервера получен: стартовый экран по нему отличает нового пользователя (предметов нет).
+                    // Кэш при сбое сети этот флаг не ставит — приветствие новичка не покажется старому пользователю
+                    window.knownSubjectsLoaded = true;
                     localStorage.setItem('grinder_cached_subjects', JSON.stringify(subjects));
                 }
             }
@@ -601,17 +613,18 @@ async function loadDynamicSubjects() {
             subjects = [];
         }
         const subjectNames = {};      // названия предметов — ровно как ввёл пользователь
+        window.knownSubjectsCount = subjects.length;
 
         // 1. Селекторы фильтрации карточек/тренировок
         const getSubSlug = (sub) => typeof sub === 'string' ? sub : (sub?.slug || sub?.name || String(sub || ''));
         const selectors = document.querySelectorAll('#subject-selector');
         selectors.forEach(sel => {
-            sel.innerHTML = '<option value="all">[ВСЕ ПРЕДМЕТЫ]</option>';
+            sel.innerHTML = '<option value="all">Все предметы</option>';
             subjects.forEach(sub => {
                 const subStr = getSubSlug(sub);
                 const option = document.createElement('option'); 
                 option.value = subStr;
-                option.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`; 
+                option.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 sel.appendChild(option);
             });
         });
@@ -620,17 +633,17 @@ async function loadDynamicSubjects() {
         const importSel = document.getElementById('import-target-subject');
         if (importSel) {
             const currentVal = importSel.value;
-            importSel.innerHTML = '<option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>';
+            importSel.innerHTML = '<option value="" disabled selected>Выберите предмет</option>';
             subjects.forEach(sub => {
                 const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
                 opt.value = subStr;
-                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
+                opt.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 importSel.appendChild(opt);
             });
             const newOpt = document.createElement('option');
             newOpt.value = '__new__';
-            newOpt.textContent = '[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]';
+            newOpt.textContent = '+ Новый предмет…';
             importSel.appendChild(newOpt);
 
             const tipEl = document.getElementById('subject-status-tip');
@@ -638,19 +651,19 @@ async function loadDynamicSubjects() {
             const subSlugs = subjects.map(getSubSlug);
             if (currentVal && (subSlugs.includes(currentVal) || currentVal === '__new__')) {
                 importSel.value = currentVal;
-                if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = currentVal === '__new__' ? 'Новый предмет' : subjectLabel(currentVal);
             } else if (currentSubject && currentSubject !== 'all' && subSlugs.includes(currentSubject)) {
                 importSel.value = currentSubject;
-                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${currentSubject.toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = subjectLabel(currentSubject);
                 if (inputNew) inputNew.classList.add('hidden');
             } else if (subSlugs.length > 0) {
                 importSel.value = subSlugs[0];
-                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subSlugs[0].toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = subjectLabel(subSlugs[0]);
                 if (inputNew) inputNew.classList.add('hidden');
             } else {
                 importSel.value = '__new__';
                 if (inputNew) inputNew.classList.remove('hidden');
-                if (tipEl) tipEl.textContent = '[СОЗДАЙТЕ ПРЕДМЕТ]';
+                if (tipEl) tipEl.textContent = 'Новый предмет';
             }
         }
 
@@ -662,14 +675,14 @@ async function loadDynamicSubjects() {
                 const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
                 opt.value = subStr;
-                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
+                opt.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 stagingSel.appendChild(opt);
             });
             if (typeof stagingSubject !== 'undefined' && stagingSubject) {
                 if (!subjects.includes(stagingSubject)) {
                     const opt = document.createElement('option');
                     opt.value = stagingSubject;
-                    opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                    opt.textContent = subjectLabel(stagingSubject);
                     stagingSel.appendChild(opt);
                 }
                 stagingSel.value = stagingSubject;
@@ -1236,7 +1249,7 @@ window.importPreset = async function(presetName) {
         if (response.ok && data.status === 'staging') {
             startStagingSession(data);
         } else if (response.ok && data.status === 'success') {
-            alert(`Библиотека успешно импортирована!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: [${data.subject.toUpperCase()}]`);
+            alert(`Библиотека успешно импортирована!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: «${subjectLabel(data.subject)}»`);
             await loadDynamicSubjects(); 
             updateGlobalBadges();
         } else { 

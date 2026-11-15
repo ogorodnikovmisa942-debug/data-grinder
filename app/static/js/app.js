@@ -343,6 +343,23 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
+// Название предмета для людей: предмет хранится строкой в нижнем регистре («гражданское право», «chinese_hsk3»).
+// Показываем с заглавной буквы, без скобок и капса; служебные коды вида «biology_101» — с пробелами вместо «_».
+function subjectLabel(slug) {
+    const s = String(slug || '').trim();
+    if (!s || s === 'all') return 'Все предметы';
+    const words = /^[a-z0-9_\-]+$/i.test(s) ? s.replace(/[_\-]+/g, ' ') : s;
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+window.subjectLabel = subjectLabel;
+
+// Проценты из API приходят то числом (42), то строкой ("42%"): знак «%» ровно один
+function percentText(value) {
+    const raw = String(value ?? 0).trim().replace(/%+$/, '');
+    return `${raw || 0}%`;
+}
+window.percentText = percentText;
+
 // Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK и Web Vibration API
 function triggerHaptic(type = 'light') {
     try {
@@ -1792,9 +1809,9 @@ window.showSessionDebrief = async function() {
     if (elReviewed) elReviewed.textContent = reviewed;
     if (elAcc) elAcc.textContent = `${accuracy}%`;
     
-    let subDisplay = (currentSubject && currentSubject !== 'all') ? currentSubject.toUpperCase() : 'ВСЕ ПРЕДМЕТЫ';
+    let subDisplay = subjectLabel(currentSubject);
     if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
-        subDisplay = cardsQueue[0].subject_title.toUpperCase();
+        subDisplay = cardsQueue[0].subject_title;
     }
     if (elSub) elSub.textContent = subDisplay;
 
@@ -2246,8 +2263,12 @@ function renderIntroductionCard(card) {
         badge.classList.toggle('hidden', !value);
         badge.classList.toggle('inline-flex', !!value);
     };
-    setChip('card-intro-chapter-badge', 'card-intro-chapter-text', (card.chapter || card.phrase_text || '').trim());
-    setChip('card-intro-subject-badge', 'card-intro-subject-text', card.subject_title || '');
+    const chapterText = (card.chapter || card.phrase_text || '').trim();
+    const subjectText = (card.subject_title || '').trim();
+    setChip('card-intro-chapter-badge', 'card-intro-chapter-text', chapterText);
+    // Название предмета часто совпадает с названием темы — один и тот же значок дважды только путает
+    setChip('card-intro-subject-badge', 'card-intro-subject-text',
+        subjectText && subjectText.toLowerCase() !== chapterText.toLowerCase() ? subjectText : '');
 
     const isIntroCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
     const termEl = document.getElementById('card-intro-term');
@@ -2290,12 +2311,12 @@ function renderIntroductionCard(card) {
             </button>${knowLink}`;
         catEmo = 'talk'; catText = TRAIN_CAT_LINES.preview;
     } else if (!revealed) {
+        // Место ответа — подсказка, а не вторая кнопка: «Показать ответ» внизу одна. Нажатие сюда тоже открывает ответ
         if (bodyEl) bodyEl.innerHTML = `
-            <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-reveal animate-fade-in">
-                <span class="material-symbols-outlined">visibility</span>
-                <span class="intro-reveal-title">Открыть ответ</span>
-                <span class="intro-reveal-hint">сначала произнеси его про себя</span>
-            </button>`;
+            <div onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-reveal animate-fade-in" aria-hidden="true">
+                <span class="material-symbols-outlined">visibility_off</span>
+                <span class="intro-reveal-hint">Ответ скрыт</span>
+            </div>`;
         if (footerEl) footerEl.innerHTML = `
             <button onclick="event.stopPropagation(); window.toggleIntroRecall()" class="intro-btn intro-btn-primary">
                 <span class="material-symbols-outlined">visibility</span><span>Показать ответ</span>
@@ -2452,7 +2473,7 @@ function renderReviewCard(card) {
     const isCloze = card.content_type === 'cloze' || /\{\{c\d+::/.test(card.text);
 
     // Хлебные крошки: предмет карточки на лицевой стороне показываем только в общем режиме ("Все предметы")
-    const subTitle = card.subject_title || (card.subject ? card.subject.toUpperCase() : '');
+    const subTitle = card.subject_title || (card.subject ? subjectLabel(card.subject) : '');
     const frontSubBadge = document.getElementById('card-front-subject-badge');
     const frontSubText = document.getElementById('card-front-subject-text');
     if (frontSubBadge && frontSubText) {
@@ -3353,8 +3374,14 @@ async function renderRemainingToLearn(data) {
     const limit = Math.max(1, data.daily_new_limit || 10);
     const days = Math.ceil(left / limit);
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-    set('stats-left-cards', left ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}` : 'Всё изучено');
-    set('stats-left-days', left ? `≈ ${days} дн. при лимите ${limit}/день` : 'новых карточек не осталось');
+    // Пустой аккаунт — не «Всё изучено»: изучать пока просто нечего
+    const total = data.total_cards || 0;
+    set('stats-left-cards', left
+        ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}`
+        : (total ? 'Всё изучено' : 'Пока пусто'));
+    set('stats-left-days', left
+        ? `≈ ${days} дн. при лимите ${limit}/день`
+        : (total ? 'новых карточек не осталось' : 'загрузи учебник или конспект — появятся карточки'));
     const row = document.getElementById('stats-left-topics-row');
     const subject = currentSubject !== 'all' ? currentSubject : (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
     if (row) row.classList.add('hidden');
@@ -3391,9 +3418,12 @@ async function loadStatsTab() {
         if (elNew) elNew.innerText = data.cards_new;
         if (elLrn) elLrn.innerText = data.cards_learning;
         if (elRev) elRev.innerText = data.cards_review;
-        if (elPrg) elPrg.innerText = `${data.progress_percent}%`;
-        if (elRet) elRet.innerText = `${data.retention_rate_30d}%`;
-        if (elStr) elStr.innerText = `${data.streak_days} дней`;
+        if (elPrg) elPrg.innerText = percentText(data.progress_percent);
+        if (elRet) elRet.innerText = percentText(data.retention_rate_30d);
+        if (elStr) {
+            const n = data.streak_days || 0;
+            elStr.innerText = `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'день' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'дня' : 'дней')}`;
+        }
         
         renderRemainingToLearn(data);
         if (data.maturity) renderMaturity(data.maturity);
@@ -3448,7 +3478,7 @@ async function loadConfigTab() {
     refreshPlanUsage();
     try {
         const subjLabel = document.getElementById('config-subject-label');
-        if (subjLabel) subjLabel.innerText = currentSubject.toUpperCase();
+        if (subjLabel) subjLabel.innerText = currentSubject === 'all' ? 'все предметы' : subjectLabel(currentSubject);
 
         const res = await apiFetch(`/api/config?subject=${currentSubject}`);
         const data = await res.json();
@@ -3563,20 +3593,20 @@ window.onImportSubjectChange = function(event) {
             newSubInput.classList.remove('hidden');
             newSubInput.focus();
         }
-        if (tipEl) tipEl.textContent = '[НОВЫЙ ПРЕДМЕТ]';
+        if (tipEl) tipEl.textContent = 'Новый предмет';
     } else {
         if (newSubInput) {
             newSubInput.classList.add('hidden');
             newSubInput.value = '';
         }
-        if (tipEl) tipEl.textContent = val ? `[ВЫБРАН: ${val.toUpperCase()}]` : '[ВЫБЕРИТЕ ПРЕДМЕТ]';
+        if (tipEl) tipEl.textContent = val ? subjectLabel(val) : 'Выберите предмет';
     }
 };
 
 window.onStagingSubjectChange = function(event) {
     stagingSubject = event.target.value.trim().toLowerCase();
     const titleEl = document.getElementById('staging-topic-title');
-    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+    if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 };
 
 function getSelectedImportSubject() {
@@ -3599,6 +3629,9 @@ async function loadDynamicSubjects() {
                 const serverSubs = await res.json();
                 if (Array.isArray(serverSubs)) {
                     subjects = serverSubs;
+                    // Ответ сервера получен: стартовый экран по нему отличает нового пользователя (предметов нет).
+                    // Кэш при сбое сети этот флаг не ставит — приветствие новичка не покажется старому пользователю
+                    window.knownSubjectsLoaded = true;
                     localStorage.setItem('grinder_cached_subjects', JSON.stringify(subjects));
                 }
             }
@@ -3614,17 +3647,18 @@ async function loadDynamicSubjects() {
             subjects = [];
         }
         const subjectNames = {};      // названия предметов — ровно как ввёл пользователь
+        window.knownSubjectsCount = subjects.length;
 
         // 1. Селекторы фильтрации карточек/тренировок
         const getSubSlug = (sub) => typeof sub === 'string' ? sub : (sub?.slug || sub?.name || String(sub || ''));
         const selectors = document.querySelectorAll('#subject-selector');
         selectors.forEach(sel => {
-            sel.innerHTML = '<option value="all">[ВСЕ ПРЕДМЕТЫ]</option>';
+            sel.innerHTML = '<option value="all">Все предметы</option>';
             subjects.forEach(sub => {
                 const subStr = getSubSlug(sub);
                 const option = document.createElement('option'); 
                 option.value = subStr;
-                option.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`; 
+                option.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 sel.appendChild(option);
             });
         });
@@ -3633,17 +3667,17 @@ async function loadDynamicSubjects() {
         const importSel = document.getElementById('import-target-subject');
         if (importSel) {
             const currentVal = importSel.value;
-            importSel.innerHTML = '<option value="" disabled selected>-- ВЫБЕРИТЕ ПРЕДМЕТ --</option>';
+            importSel.innerHTML = '<option value="" disabled selected>Выберите предмет</option>';
             subjects.forEach(sub => {
                 const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
                 opt.value = subStr;
-                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
+                opt.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 importSel.appendChild(opt);
             });
             const newOpt = document.createElement('option');
             newOpt.value = '__new__';
-            newOpt.textContent = '[+ СОЗДАТЬ НОВЫЙ ПРЕДМЕТ...]';
+            newOpt.textContent = '+ Новый предмет…';
             importSel.appendChild(newOpt);
 
             const tipEl = document.getElementById('subject-status-tip');
@@ -3651,19 +3685,19 @@ async function loadDynamicSubjects() {
             const subSlugs = subjects.map(getSubSlug);
             if (currentVal && (subSlugs.includes(currentVal) || currentVal === '__new__')) {
                 importSel.value = currentVal;
-                if (tipEl) tipEl.textContent = currentVal === '__new__' ? '[НОВЫЙ ПРЕДМЕТ]' : `[ВЫБРАН: ${currentVal.toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = currentVal === '__new__' ? 'Новый предмет' : subjectLabel(currentVal);
             } else if (currentSubject && currentSubject !== 'all' && subSlugs.includes(currentSubject)) {
                 importSel.value = currentSubject;
-                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${currentSubject.toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = subjectLabel(currentSubject);
                 if (inputNew) inputNew.classList.add('hidden');
             } else if (subSlugs.length > 0) {
                 importSel.value = subSlugs[0];
-                if (tipEl) tipEl.textContent = `[ВЫБРАН: ${subSlugs[0].toUpperCase()}]`;
+                if (tipEl) tipEl.textContent = subjectLabel(subSlugs[0]);
                 if (inputNew) inputNew.classList.add('hidden');
             } else {
                 importSel.value = '__new__';
                 if (inputNew) inputNew.classList.remove('hidden');
-                if (tipEl) tipEl.textContent = '[СОЗДАЙТЕ ПРЕДМЕТ]';
+                if (tipEl) tipEl.textContent = 'Новый предмет';
             }
         }
 
@@ -3675,14 +3709,14 @@ async function loadDynamicSubjects() {
                 const subStr = getSubSlug(sub);
                 const opt = document.createElement('option');
                 opt.value = subStr;
-                opt.textContent = `[${subjectNames[subStr] || subStr.toUpperCase()}]`;
+                opt.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 stagingSel.appendChild(opt);
             });
             if (typeof stagingSubject !== 'undefined' && stagingSubject) {
                 if (!subjects.includes(stagingSubject)) {
                     const opt = document.createElement('option');
                     opt.value = stagingSubject;
-                    opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                    opt.textContent = subjectLabel(stagingSubject);
                     stagingSel.appendChild(opt);
                 }
                 stagingSel.value = stagingSubject;
@@ -4249,7 +4283,7 @@ window.importPreset = async function(presetName) {
         if (response.ok && data.status === 'staging') {
             startStagingSession(data);
         } else if (response.ok && data.status === 'success') {
-            alert(`Библиотека успешно импортирована!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: [${data.subject.toUpperCase()}]`);
+            alert(`Библиотека успешно импортирована!\n\nСоздан топик: ${data.theme}\nИмпортировано карт: ${data.cards_count}\nДобавлено в предмет: «${subjectLabel(data.subject)}»`);
             await loadDynamicSubjects(); 
             updateGlobalBadges();
         } else { 
@@ -4820,7 +4854,7 @@ function startStagingSession(data) {
 
     const overlay = document.getElementById('staging-overlay');
     const titleEl = document.getElementById('staging-topic-title');
-    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+    if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 
     // Синхронизация выпадающего списка предметов в шапке песочницы
     const stagingSel = document.getElementById('staging-subject-select');
@@ -4835,7 +4869,7 @@ function startStagingSession(data) {
         if (!hasOpt && stagingSubject) {
             const opt = document.createElement('option');
             opt.value = stagingSubject;
-            opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+            opt.textContent = subjectLabel(stagingSubject);
             stagingSel.appendChild(opt);
         }
         stagingSel.value = stagingSubject;
@@ -5267,7 +5301,7 @@ window.commitApprovedStagingCards = async function() {
 
         const data = await response.json();
         if (response.ok && data.status === 'success') {
-            alert(`Успешно сохранено ${data.cards_count} карточек в предмет [${data.subject.toUpperCase()}]!`);
+            alert(`Успешно сохранено ${data.cards_count} карточек в предмет «${subjectLabel(data.subject)}»`);
             window.currentStagingJobId = null;
             if (window.location.hash.includes('staging_job')) {
                 try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
@@ -5621,13 +5655,13 @@ window.saveCardEditorData = async function() {
             if (!hasOpt && stagingSubject) {
                 const opt = document.createElement('option');
                 opt.value = stagingSubject;
-                opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                opt.textContent = subjectLabel(stagingSubject);
                 stagingSel.appendChild(opt);
             }
             stagingSel.value = stagingSubject;
         }
         const titleEl = document.getElementById('staging-topic-title');
-        if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+        if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 
         renderCurrentStagingCard();
         closeCardEditorModal();
@@ -6060,8 +6094,8 @@ window.loadSubjectsManagerList = async function() {
             
             row.innerHTML = `
                 <div class="flex flex-col min-w-0 pr-2">
-                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 font-mono truncate uppercase flex items-center gap-1.5">
-                        <span class="truncate">${escapeHTML(sub.name || sub.slug.toUpperCase())}</span>
+                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 font-sans truncate flex items-center gap-1.5">
+                        <span class="truncate">${escapeHTML(subjectLabel(sub.slug || sub.name))}</span>
                         ${badgeHtml}
                     </div>
                     <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
@@ -6116,7 +6150,7 @@ window.shareSubjectDeck = async function(subjectSlug) {
         }
         const data = await res.json();
         const shareUrl = data.share_url;
-        const deckTitle = data.title || subjectSlug.toUpperCase();
+        const deckTitle = data.title || subjectLabel(subjectSlug);
         const totalCards = data.total_cards || 0;
         const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота:`;
         const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
@@ -6147,7 +6181,7 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
     const label = document.getElementById('subject-sources-subject');
     if (!modal || !list) return;
     modal.dataset.subject = subjectSlug;
-    if (label) label.textContent = subjectSlug.toUpperCase();
+    if (label) label.textContent = subjectLabel(subjectSlug);
     modal.classList.remove('hidden');
     list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка...</div>';
     try {
@@ -6250,7 +6284,7 @@ window.shareCurrentSubject = function() {
 
 window.openSubjectRenameModal = function(subjectSlug) {
     if (!subjectSlug || subjectSlug === 'all') {
-        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя переименовать общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     const oldInput = document.getElementById('rename-old-subject');
@@ -6259,7 +6293,7 @@ window.openSubjectRenameModal = function(subjectSlug) {
     const modal = document.getElementById('subject-rename-modal');
     
     if (oldInput) oldInput.value = subjectSlug;
-    if (oldLabel) oldLabel.textContent = subjectSlug.toUpperCase();
+    if (oldLabel) oldLabel.textContent = subjectLabel(subjectSlug);
     if (newInput) {
         newInput.value = subjectSlug;
     }
@@ -6322,7 +6356,7 @@ window.submitSubjectRename = async function() {
             if (currentTab === 'stats') await loadStatsTab();
             await fetchActiveSession();
             
-            alert(`Предмет успешно переименован в [${newSub.toUpperCase()}]. Обновлено карточек: ${resData.cards_updated || 0}.`);
+            alert(`Предмет успешно переименован в «${subjectLabel(newSub)}». Обновлено карточек: ${resData.cards_updated || 0}.`);
         } else {
             const errData = await response.json();
             alert("Ошибка при переименовании: " + (errData.detail || "Неизвестная ошибка"));
@@ -6335,7 +6369,7 @@ window.submitSubjectRename = async function() {
 
 window.renameCurrentSubject = function() {
     if (!currentSubject || currentSubject === 'all') {
-        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя переименовать общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     openSubjectRenameModal(currentSubject);
@@ -6343,12 +6377,12 @@ window.renameCurrentSubject = function() {
 
 window.deleteSubjectByName = async function(subjectSlug) {
     if (!subjectSlug || subjectSlug === 'all') {
-        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ].");
+        alert("Нельзя удалить общий вид «Все предметы».");
         return;
     }
     
-    const subName = subjectSlug.toUpperCase();
-    if (!confirm(`ВНИМАНИЕ! Удалить предмет [${subName}] и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
+    const subName = subjectLabel(subjectSlug);
+    if (!confirm(`ВНИМАНИЕ! Удалить предмет «${subName}» и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
         return;
     }
     
@@ -6390,7 +6424,7 @@ window.deleteSubjectByName = async function(subjectSlug) {
 
 window.deleteCurrentSubject = async function() {
     if (!currentSubject || currentSubject === 'all') {
-        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя удалить общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     await deleteSubjectByName(currentSubject);
@@ -6859,7 +6893,7 @@ window.openKnowledgeGraphModal = function(targetSubject) {
     modal.classList.remove('hidden');
 
     const badge = document.getElementById('kg-subject-badge');
-    if (badge) badge.textContent = sub.toUpperCase();
+    if (badge) badge.textContent = subjectLabel(sub);
 
     // Preserve selected view or default to tree view initially
     switchKgView('graph');
@@ -6983,7 +7017,7 @@ window.loadKnowledgeGraph = async function(subject) {
     }
 
     currentKgSubject = sub;
-    if (badge) badge.textContent = sub.toUpperCase();
+    if (badge) badge.textContent = subjectLabel(sub);
 
     if (loading) loading.classList.remove('hidden');
     if (emptyState) emptyState.classList.add('hidden');
@@ -7002,7 +7036,7 @@ window.loadKnowledgeGraph = async function(subject) {
         const data = await res.json();
         currentPathState = data;
         currentKgSubject = data.subject || sub;
-        if (badge) badge.textContent = currentKgSubject.toUpperCase();
+        if (badge) badge.textContent = subjectLabel(currentKgSubject);
         currentKgGraphData = pathStateToGraphData(data);
 
         const nodesCount = (currentKgGraphData && currentKgGraphData.nodes) ? currentKgGraphData.nodes.length : 0;
@@ -11290,6 +11324,13 @@ function examDoneView(step) {
 window.startPathRun = function() {
     const sub = activeRunSubject();
     const p = starterPreview;
+    // Первый запуск / пустой предмет / карточки без плана тем: кнопка ведёт туда, о чём сказал кот
+    const welcomeStillValid = p && p.action === 'upload' && !p.subject && !window.knownSubjectsCount;
+    if (p && p.action && (welcomeStillValid || (p.subject && p.subject === sub))) {
+        if (p.action === 'upload') openMaterialUpload();
+        else if (p.action === 'learn_new' && typeof startSession === 'function') startSession('new');
+        return;
+    }
     const step = p && p.subject === sub && Date.now() - p.at < 5 * 60 * 1000 ? p.step : null;
     if (p && p.subject === sub && p.scope === 'exam') {
         if (step && step.type === 'done') {
@@ -11367,8 +11408,39 @@ window.switchToPrioritySubject = function() {
     if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
 };
 
-function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
+const STARTER_WELCOME_TEXT = 'Привет! Я помогу подготовиться к экзамену. Загрузи учебник, конспект или лекцию — '
+    + 'разложу материал на темы, уроки и карточки и составлю план по дням. Потом можно добавить билеты.';
+
+// Сколько карточек в колоде и сколько новых можно взять сегодня (для предметов без «Пути знаний»)
+async function starterDeckState(subject) {
+    try {
+        const res = await apiFetch(`/api/stats/dashboard?subject=${encodeURIComponent(subject)}`);
+        if (!res.ok) return null;
+        const d = await res.json();
+        return { total: d.total_cards || 0, newToday: d.new_remaining_today || 0 };
+    } catch (_) { return null; }
+}
+
+// Загрузка материала живёт в «Настройках»: открываем вкладку сразу на нужном блоке.
+// Если предметов ещё нет — сразу поле «Новый предмет», чтобы не искать его в списке.
+window.openMaterialUpload = function() {
+    if (typeof switchTab === 'function') switchTab('config');
+    setTimeout(() => {
+        const box = document.getElementById('slicing-controls-container');
+        if (box && box.scrollIntoView) box.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+        const sel = document.getElementById('import-target-subject');
+        const input = document.getElementById('import-new-subject-input');
+        if (sel && !window.knownSubjectsCount) {
+            sel.value = '__new__';
+            if (input) { input.classList.remove('hidden'); input.focus({ preventScroll: true }); }
+        }
+    }, 120);
+};
+
+function renderStarter({ say, emo, step, goLabel, goEnabled = true, welcome = false }) {
     if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
+    const panel = document.querySelector('#session-starter .starter-panel');
+    if (panel) panel.classList.toggle('starter-welcome', welcome);
     const cat = document.getElementById('starter-cat');
     if (cat) cat.classList.remove('intro-cat');
     const card = document.getElementById('starter-step');
@@ -11400,6 +11472,12 @@ window.refreshPathRunButton = async function(attempt = 0) {
     const subject = activeRunSubject();
     if (!subject || subject === 'all') {
         // Список предметов мог ещё не загрузиться — пробуем чуть позже
+        if (window.knownSubjectsLoaded && !window.knownSubjectsCount) {
+            starterPreview = { action: 'upload', subject: '', at: Date.now() };
+            renderStarter({ say: STARTER_WELCOME_TEXT, emo: 'talk', goLabel: 'Загрузить материал', welcome: true });
+            return;
+        }
+        // Приветствие — только когда список точно загружен и пуст: при сбое сети старому пользователю его не показываем
         if (attempt < 3) setTimeout(() => refreshPathRunButton(attempt + 1), 700);
         else renderStarter({ say: 'Выбери предмет вверху — и начнём.', emo: 'idle', goLabel: 'Начать', goEnabled: false });
         return;
@@ -11417,6 +11495,25 @@ window.refreshPathRunButton = async function(attempt = 0) {
             const ex = examDoneView(step);
             renderStarter({ say: ex.say, emo: 'happy', goLabel: ex.goLabel });
             return;
+        }
+        if (step.type === 'done' && step.plan && !step.plan.is_path && step.reason === 'waiting') {
+            const deck = await starterDeckState(subject);
+            if (deck && !deck.total) {
+                starterPreview = { subject, step, scope, at: Date.now(), action: 'upload' };
+                renderStarter({
+                    say: `В предмете «${subjectLabel(subject)}» пока нет карточек. Добавь учебник, конспект или лекцию — разложу на темы и карточки.`,
+                    emo: 'talk', goLabel: 'Добавить материал'
+                });
+                return;
+            }
+            if (deck && deck.newToday > 0) {
+                starterPreview = { subject, step, scope, at: Date.now(), action: 'learn_new' };
+                renderStarter({
+                    say: `На сегодня ${deck.newToday} ${pathRunPlural(deck.newToday, 'новая карточка', 'новые карточки', 'новых карточек')}. Начнём?`,
+                    emo: 'talk', goLabel: 'Учить новое'
+                });
+                return;
+            }
         }
         if (step.type === 'done') {
             const say = {

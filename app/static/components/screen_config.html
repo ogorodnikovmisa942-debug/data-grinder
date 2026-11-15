@@ -5,7 +5,7 @@
             <div class="flex flex-col gap-sm shrink-0">
                 <div class="flex flex-col gap-2 text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></span>
+                        <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold normal-case">все предметы</span></span>
                         <span id="config-phase-badge" class="hidden px-2 py-0.5 text-[9px] font-mono font-bold rounded-lg bg-secondary/15 text-secondary border border-secondary/30">[ФАЗА 1: 10 КАРТ/ДЕНЬ]</span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
@@ -133,12 +133,12 @@
                         <span>Предмет</span>
                         <span id="subject-selected-hint" class="text-primary text-[9px] font-mono"></span>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="flex flex-col gap-2">
                         <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs">
                             <option value="" disabled selected>-- Выберите предмет --</option>
                             <option value="__new__">+ Новый предмет...</option>
                         </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. biology_101)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
+                        <input type="text" id="import-new-subject-input" placeholder="Название предмета, например «Химия»" class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-sans text-xs" />
                     </div>
                 </div>
 

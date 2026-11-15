@@ -126,13 +126,13 @@ window.saveCardEditorData = async function() {
             if (!hasOpt && stagingSubject) {
                 const opt = document.createElement('option');
                 opt.value = stagingSubject;
-                opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+                opt.textContent = subjectLabel(stagingSubject);
                 stagingSel.appendChild(opt);
             }
             stagingSel.value = stagingSubject;
         }
         const titleEl = document.getElementById('staging-topic-title');
-        if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+        if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 
         renderCurrentStagingCard();
         closeCardEditorModal();

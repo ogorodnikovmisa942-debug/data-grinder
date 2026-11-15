@@ -792,6 +792,8 @@ html, body {
 .dark .intro-chip { background: rgba(129, 140, 248, 0.16); color: #a5b4fc; }
 .intro-chip .material-symbols-outlined { font-size: 13px; }
 .intro-chip-muted { background: #f5f5f5; color: #737373; }
+/* .intro-chip задаёт display и перебивает .hidden из Tailwind: пустой значок оставался серым кружком */
+.intro-chip.hidden { display: none; }
 .dark .intro-chip-muted { background: #262626; color: #a3a3a3; }
 .intro-chip-btn { cursor: pointer; padding: 2px 7px; }
 .intro-chip-btn:hover { color: #4f46e5; }
@@ -802,16 +804,16 @@ html, body {
 .intro-reveal {
     width: 100%; flex: 1; min-height: 84px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-    border: 2px dashed rgba(99, 102, 241, 0.35); border-radius: 16px;
-    background: rgba(99, 102, 241, 0.04); color: #4f46e5; cursor: pointer;
+    border: 1.5px dashed #d4d4d4; border-radius: 16px;
+    background: rgba(0, 0, 0, 0.015); color: #a3a3a3; cursor: pointer;
     transition: background 0.15s ease, transform 0.15s ease;
 }
-.intro-reveal:hover { background: rgba(99, 102, 241, 0.09); }
+.intro-reveal:hover { background: rgba(0, 0, 0, 0.035); }
 .intro-reveal:active { transform: scale(0.98); }
-.intro-reveal .material-symbols-outlined { font-size: 28px; }
+.intro-reveal .material-symbols-outlined { font-size: 24px; }
 .intro-reveal-title { font-size: 13px; font-weight: 700; }
 .intro-reveal-hint { font-size: 11px; color: #a3a3a3; }
-.dark .intro-reveal { color: #a5b4fc; border-color: rgba(165, 180, 252, 0.35); }
+.dark .intro-reveal { color: #737373; border-color: #3f3f3f; background: rgba(255, 255, 255, 0.02); }
 
 .intro-answer {
     padding: 12px 14px; border-radius: 16px; text-align: left;
@@ -929,6 +931,10 @@ html, body {
 .starter-go .material-symbols-outlined { font-size: 20px; }
 .dark .starter-go { background: #e5e5e5; color: #171717; }
 .starter-more { display: flex; gap: 8px; }
+/* Первый запуск: только кот и одна кнопка «Загрузить материал». Ручные режимы и билеты появятся, когда будет что учить */
+.starter-welcome .starter-more,
+.starter-welcome #starter-exam,
+.starter-welcome #starter-priority { display: none; }
 .starter-tile {
     position: relative; flex: 1 1 0; min-width: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
@@ -940,7 +946,8 @@ html, body {
 .starter-tile:hover { border-color: #a3a3a3; }
 .starter-tile:active { transform: scale(0.97); }
 .starter-tile .material-symbols-outlined { font-size: 20px; }
-.starter-tile-label { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* Подпись переносится на вторую строку, а не обрезается («Учить н…» на узких экранах) */
+.starter-tile-label { font-size: 11px; font-weight: 600; line-height: 1.15; text-align: center; overflow-wrap: anywhere; max-width: 100%; }
 .starter-tile-badge {
     position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 6px;
     border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center;
@@ -1660,4 +1667,9 @@ html, body {
     .kg-view-switch { padding: 8px; gap: 4px; }
     .kg-view-switch button { flex: 1 1 0; padding: 8px 4px; font-size: 10.5px; }
     .kg-view-switch button .material-symbols-outlined { display: none; }
+}
+
+/* Легенда «Насколько прочно запомнено»: на телефоне в две колонки подписи наезжали на числа */
+@media (max-width: 480px) {
+    #stats-maturity-box .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
 }

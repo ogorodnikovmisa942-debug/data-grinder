@@ -48,12 +48,12 @@
             <!-- 2. Зрелость памяти (FSRS Stability Distribution) -->
             <div id="stats-maturity-box" class="flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs flex items-center justify-between">
-                    <span>ЗРЕЛОСТЬ ПАМЯТИ (FSRS)</span>
-                    <span class="text-[9px] text-neutral-400 font-normal">СТАБИЛЬНОСТЬ S</span>
+                    <span>НАСКОЛЬКО ПРОЧНО ЗАПОМНЕНО</span>
+                    <span class="text-[9px] text-neutral-400 font-normal normal-case">сколько дней держится в памяти</span>
                 </div>
                 <!-- Многосегментный прогресс-бар -->
                 <div class="w-full h-3 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden flex my-1.5" id="maturity-bar">
-                    <div id="mat-seg-fragile" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%" title="Хрупкие (S < 7д)"></div>
+                    <div id="mat-seg-fragile" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%" title="Хрупкие: меньше недели"></div>
                     <div id="mat-seg-dev" class="h-full bg-amber-500 transition-all duration-300" style="width: 0%" title="Развивающиеся (7-30д)"></div>
                     <div id="mat-seg-mature" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%" title="Зрелые (30-180д)"></div>
                     <div id="mat-seg-mastered" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%" title="Долговременные (>180д)"></div>

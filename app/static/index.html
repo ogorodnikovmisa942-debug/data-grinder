@@ -58,8 +58,8 @@
         <div id="app-header" class="w-full flex justify-between items-center font-mono text-xs py-2.5 border-b border-neutral-200/60 dark:border-neutral-800 shrink-0 select-none">
             <div class="relative max-w-[68%] flex items-center gap-1.5 overflow-hidden border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs">
                 <div class="relative overflow-hidden flex-1 min-w-0">
-                    <select id="subject-selector" class="w-full bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none uppercase truncate">
-                        <option value="all">[ВСЕ ПРЕДМЕТЫ]</option>
+                    <select id="subject-selector" class="w-full bg-transparent border-0 font-bold tracking-tighter text-xs p-0 pr-5 text-primary focus:ring-0 cursor-pointer appearance-none truncate">
+                        <option value="all">Все предметы</option>
                     </select>
                     <span class="material-symbols-outlined absolute right-0 top-1/2 -translate-y-1/2 text-[14px] pointer-events-none text-outline">expand_more</span>
                 </div>
@@ -135,7 +135,7 @@
                         </button>
                         <button id="btn-session-review" class="starter-tile">
                             <span class="material-symbols-outlined">history</span>
-                            <span id="btn-session-review-text" class="starter-tile-label">Повторение</span>
+                            <span id="btn-session-review-text" class="starter-tile-label">Повторы</span>
                             <span id="btn-session-review-badge" class="starter-tile-badge"></span>
                         </button>
                         <button id="btn-session-cram" class="starter-tile">
@@ -597,12 +597,12 @@
             <!-- 2. Зрелость памяти (FSRS Stability Distribution) -->
             <div id="stats-maturity-box" class="flex flex-col gap-xs font-mono border border-neutral-200 dark:border-neutral-800 p-4 bg-surface-container-lowest shrink-0 text-xs rounded-2xl shadow-xs">
                 <div class="text-[11px] font-bold text-outline uppercase tracking-wider border-b border-neutral-200 dark:border-neutral-800 pb-xs mb-xs flex items-center justify-between">
-                    <span>ЗРЕЛОСТЬ ПАМЯТИ (FSRS)</span>
-                    <span class="text-[9px] text-neutral-400 font-normal">СТАБИЛЬНОСТЬ S</span>
+                    <span>НАСКОЛЬКО ПРОЧНО ЗАПОМНЕНО</span>
+                    <span class="text-[9px] text-neutral-400 font-normal normal-case">сколько дней держится в памяти</span>
                 </div>
                 <!-- Многосегментный прогресс-бар -->
                 <div class="w-full h-3 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden flex my-1.5" id="maturity-bar">
-                    <div id="mat-seg-fragile" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%" title="Хрупкие (S < 7д)"></div>
+                    <div id="mat-seg-fragile" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%" title="Хрупкие: меньше недели"></div>
                     <div id="mat-seg-dev" class="h-full bg-amber-500 transition-all duration-300" style="width: 0%" title="Развивающиеся (7-30д)"></div>
                     <div id="mat-seg-mature" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%" title="Зрелые (30-180д)"></div>
                     <div id="mat-seg-mastered" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%" title="Долговременные (>180д)"></div>
@@ -670,7 +670,7 @@
             <div class="flex flex-col gap-sm shrink-0">
                 <div class="flex flex-col gap-2 text-xs font-bold tracking-wider uppercase text-outline font-mono mb-xs">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold">ALL</span></span>
+                        <span>ТЕМП ПРЕДМЕТА: <span id="config-subject-label" class="text-secondary font-bold normal-case">все предметы</span></span>
                         <span id="config-phase-badge" class="hidden px-2 py-0.5 text-[9px] font-mono font-bold rounded-lg bg-secondary/15 text-secondary border border-secondary/30">[ФАЗА 1: 10 КАРТ/ДЕНЬ]</span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
@@ -798,12 +798,12 @@
                         <span>Предмет</span>
                         <span id="subject-selected-hint" class="text-primary text-[9px] font-mono"></span>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="flex flex-col gap-2">
                         <select id="import-target-subject" onchange="onImportSubjectChange(event)" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs">
                             <option value="" disabled selected>-- Выберите предмет --</option>
                             <option value="__new__">+ Новый предмет...</option>
                         </select>
-                        <input type="text" id="import-new-subject-input" placeholder="Код (напр. biology_101)..." class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-mono text-xs" />
+                        <input type="text" id="import-new-subject-input" placeholder="Название предмета, например «Химия»" class="hidden w-full bg-surface-container border border-primary rounded-xl py-2 px-2.5 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-sans text-xs" />
                     </div>
                 </div>
 
@@ -1938,13 +1938,13 @@
             </div>
 
             <div class="flex flex-col gap-1 text-[11px] font-mono">
-                <label class="text-outline uppercase font-bold">Статус FSRS:</label>
+                <label class="text-outline uppercase font-bold">Этап изучения:</label>
                 <select id="filter-fsrs-state" class="bg-surface-container-lowest border border-outline-variant/70 rounded-xl text-xs p-2 text-primary focus:border-primary focus:ring-0">
-                    <option value="all">[ВСЕ СТАТУСЫ]</option>
-                    <option value="new">Новые (New, state 0)</option>
-                    <option value="learning">Изучаемые (Learning, state 1)</option>
-                    <option value="review">Повторение (Review, state 2)</option>
-                    <option value="relearning">Переучивание (Relearning, state 3)</option>
+                    <option value="all">Все этапы</option>
+                    <option value="new">Новые</option>
+                    <option value="learning">Изучаются</option>
+                    <option value="review">На повторении</option>
+                    <option value="relearning">Забытые, учим заново</option>
                 </select>
             </div>
 

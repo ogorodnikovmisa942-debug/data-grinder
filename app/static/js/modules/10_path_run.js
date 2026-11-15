@@ -466,6 +466,13 @@ function examDoneView(step) {
 window.startPathRun = function() {
     const sub = activeRunSubject();
     const p = starterPreview;
+    // Первый запуск / пустой предмет / карточки без плана тем: кнопка ведёт туда, о чём сказал кот
+    const welcomeStillValid = p && p.action === 'upload' && !p.subject && !window.knownSubjectsCount;
+    if (p && p.action && (welcomeStillValid || (p.subject && p.subject === sub))) {
+        if (p.action === 'upload') openMaterialUpload();
+        else if (p.action === 'learn_new' && typeof startSession === 'function') startSession('new');
+        return;
+    }
     const step = p && p.subject === sub && Date.now() - p.at < 5 * 60 * 1000 ? p.step : null;
     if (p && p.subject === sub && p.scope === 'exam') {
         if (step && step.type === 'done') {
@@ -543,8 +550,39 @@ window.switchToPrioritySubject = function() {
     if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
 };
 
-function renderStarter({ say, emo, step, goLabel, goEnabled = true }) {
+const STARTER_WELCOME_TEXT = 'Привет! Я помогу подготовиться к экзамену. Загрузи учебник, конспект или лекцию — '
+    + 'разложу материал на темы, уроки и карточки и составлю план по дням. Потом можно добавить билеты.';
+
+// Сколько карточек в колоде и сколько новых можно взять сегодня (для предметов без «Пути знаний»)
+async function starterDeckState(subject) {
+    try {
+        const res = await apiFetch(`/api/stats/dashboard?subject=${encodeURIComponent(subject)}`);
+        if (!res.ok) return null;
+        const d = await res.json();
+        return { total: d.total_cards || 0, newToday: d.new_remaining_today || 0 };
+    } catch (_) { return null; }
+}
+
+// Загрузка материала живёт в «Настройках»: открываем вкладку сразу на нужном блоке.
+// Если предметов ещё нет — сразу поле «Новый предмет», чтобы не искать его в списке.
+window.openMaterialUpload = function() {
+    if (typeof switchTab === 'function') switchTab('config');
+    setTimeout(() => {
+        const box = document.getElementById('slicing-controls-container');
+        if (box && box.scrollIntoView) box.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+        const sel = document.getElementById('import-target-subject');
+        const input = document.getElementById('import-new-subject-input');
+        if (sel && !window.knownSubjectsCount) {
+            sel.value = '__new__';
+            if (input) { input.classList.remove('hidden'); input.focus({ preventScroll: true }); }
+        }
+    }, 120);
+};
+
+function renderStarter({ say, emo, step, goLabel, goEnabled = true, welcome = false }) {
     if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
+    const panel = document.querySelector('#session-starter .starter-panel');
+    if (panel) panel.classList.toggle('starter-welcome', welcome);
     const cat = document.getElementById('starter-cat');
     if (cat) cat.classList.remove('intro-cat');
     const card = document.getElementById('starter-step');
@@ -576,6 +614,12 @@ window.refreshPathRunButton = async function(attempt = 0) {
     const subject = activeRunSubject();
     if (!subject || subject === 'all') {
         // Список предметов мог ещё не загрузиться — пробуем чуть позже
+        if (window.knownSubjectsLoaded && !window.knownSubjectsCount) {
+            starterPreview = { action: 'upload', subject: '', at: Date.now() };
+            renderStarter({ say: STARTER_WELCOME_TEXT, emo: 'talk', goLabel: 'Загрузить материал', welcome: true });
+            return;
+        }
+        // Приветствие — только когда список точно загружен и пуст: при сбое сети старому пользователю его не показываем
         if (attempt < 3) setTimeout(() => refreshPathRunButton(attempt + 1), 700);
         else renderStarter({ say: 'Выбери предмет вверху — и начнём.', emo: 'idle', goLabel: 'Начать', goEnabled: false });
         return;
@@ -593,6 +637,25 @@ window.refreshPathRunButton = async function(attempt = 0) {
             const ex = examDoneView(step);
             renderStarter({ say: ex.say, emo: 'happy', goLabel: ex.goLabel });
             return;
+        }
+        if (step.type === 'done' && step.plan && !step.plan.is_path && step.reason === 'waiting') {
+            const deck = await starterDeckState(subject);
+            if (deck && !deck.total) {
+                starterPreview = { subject, step, scope, at: Date.now(), action: 'upload' };
+                renderStarter({
+                    say: `В предмете «${subjectLabel(subject)}» пока нет карточек. Добавь учебник, конспект или лекцию — разложу на темы и карточки.`,
+                    emo: 'talk', goLabel: 'Добавить материал'
+                });
+                return;
+            }
+            if (deck && deck.newToday > 0) {
+                starterPreview = { subject, step, scope, at: Date.now(), action: 'learn_new' };
+                renderStarter({
+                    say: `На сегодня ${deck.newToday} ${pathRunPlural(deck.newToday, 'новая карточка', 'новые карточки', 'новых карточек')}. Начнём?`,
+                    emo: 'talk', goLabel: 'Учить новое'
+                });
+                return;
+            }
         }
         if (step.type === 'done') {
             const say = {

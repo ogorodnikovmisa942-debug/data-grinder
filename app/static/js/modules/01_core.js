@@ -343,6 +343,23 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
+// Название предмета для людей: предмет хранится строкой в нижнем регистре («гражданское право», «chinese_hsk3»).
+// Показываем с заглавной буквы, без скобок и капса; служебные коды вида «biology_101» — с пробелами вместо «_».
+function subjectLabel(slug) {
+    const s = String(slug || '').trim();
+    if (!s || s === 'all') return 'Все предметы';
+    const words = /^[a-z0-9_\-]+$/i.test(s) ? s.replace(/[_\-]+/g, ' ') : s;
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+window.subjectLabel = subjectLabel;
+
+// Проценты из API приходят то числом (42), то строкой ("42%"): знак «%» ровно один
+function percentText(value) {
+    const raw = String(value ?? 0).trim().replace(/%+$/, '');
+    return `${raw || 0}%`;
+}
+window.percentText = percentText;
+
 // Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK и Web Vibration API
 function triggerHaptic(type = 'light') {
     try {

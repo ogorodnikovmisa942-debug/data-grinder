@@ -43,8 +43,8 @@ window.loadSubjectsManagerList = async function() {
             
             row.innerHTML = `
                 <div class="flex flex-col min-w-0 pr-2">
-                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 font-mono truncate uppercase flex items-center gap-1.5">
-                        <span class="truncate">${escapeHTML(sub.name || sub.slug.toUpperCase())}</span>
+                    <div class="font-bold text-xs text-neutral-800 dark:text-neutral-200 font-sans truncate flex items-center gap-1.5">
+                        <span class="truncate">${escapeHTML(subjectLabel(sub.slug || sub.name))}</span>
                         ${badgeHtml}
                     </div>
                     <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
@@ -99,7 +99,7 @@ window.shareSubjectDeck = async function(subjectSlug) {
         }
         const data = await res.json();
         const shareUrl = data.share_url;
-        const deckTitle = data.title || subjectSlug.toUpperCase();
+        const deckTitle = data.title || subjectLabel(subjectSlug);
         const totalCards = data.total_cards || 0;
         const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота:`;
         const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
@@ -130,7 +130,7 @@ window.openSubjectSourcesModal = async function(subjectSlug) {
     const label = document.getElementById('subject-sources-subject');
     if (!modal || !list) return;
     modal.dataset.subject = subjectSlug;
-    if (label) label.textContent = subjectSlug.toUpperCase();
+    if (label) label.textContent = subjectLabel(subjectSlug);
     modal.classList.remove('hidden');
     list.innerHTML = '<div class="text-center py-6 text-neutral-400 text-xs font-mono">Загрузка...</div>';
     try {
@@ -233,7 +233,7 @@ window.shareCurrentSubject = function() {
 
 window.openSubjectRenameModal = function(subjectSlug) {
     if (!subjectSlug || subjectSlug === 'all') {
-        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя переименовать общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     const oldInput = document.getElementById('rename-old-subject');
@@ -242,7 +242,7 @@ window.openSubjectRenameModal = function(subjectSlug) {
     const modal = document.getElementById('subject-rename-modal');
     
     if (oldInput) oldInput.value = subjectSlug;
-    if (oldLabel) oldLabel.textContent = subjectSlug.toUpperCase();
+    if (oldLabel) oldLabel.textContent = subjectLabel(subjectSlug);
     if (newInput) {
         newInput.value = subjectSlug;
     }
@@ -305,7 +305,7 @@ window.submitSubjectRename = async function() {
             if (currentTab === 'stats') await loadStatsTab();
             await fetchActiveSession();
             
-            alert(`Предмет успешно переименован в [${newSub.toUpperCase()}]. Обновлено карточек: ${resData.cards_updated || 0}.`);
+            alert(`Предмет успешно переименован в «${subjectLabel(newSub)}». Обновлено карточек: ${resData.cards_updated || 0}.`);
         } else {
             const errData = await response.json();
             alert("Ошибка при переименовании: " + (errData.detail || "Неизвестная ошибка"));
@@ -318,7 +318,7 @@ window.submitSubjectRename = async function() {
 
 window.renameCurrentSubject = function() {
     if (!currentSubject || currentSubject === 'all') {
-        alert("Нельзя переименовать агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя переименовать общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     openSubjectRenameModal(currentSubject);
@@ -326,12 +326,12 @@ window.renameCurrentSubject = function() {
 
 window.deleteSubjectByName = async function(subjectSlug) {
     if (!subjectSlug || subjectSlug === 'all') {
-        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ].");
+        alert("Нельзя удалить общий вид «Все предметы».");
         return;
     }
     
-    const subName = subjectSlug.toUpperCase();
-    if (!confirm(`ВНИМАНИЕ! Удалить предмет [${subName}] и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
+    const subName = subjectLabel(subjectSlug);
+    if (!confirm(`ВНИМАНИЕ! Удалить предмет «${subName}» и ВСЕ связанные с ним карточки? Это действие необратимо!`)) {
         return;
     }
     
@@ -373,7 +373,7 @@ window.deleteSubjectByName = async function(subjectSlug) {
 
 window.deleteCurrentSubject = async function() {
     if (!currentSubject || currentSubject === 'all') {
-        alert("Нельзя удалить агрегированный вид [ВСЕ ПРЕДМЕТЫ]. Выберите конкретный предмет.");
+        alert("Нельзя удалить общий вид «Все предметы». Выберите конкретный предмет.");
         return;
     }
     await deleteSubjectByName(currentSubject);

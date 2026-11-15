@@ -44,7 +44,7 @@ function startStagingSession(data) {
 
     const overlay = document.getElementById('staging-overlay');
     const titleEl = document.getElementById('staging-topic-title');
-    if (titleEl) titleEl.textContent = `[${stagingSubject.toUpperCase()}] ${stagingTheme}`;
+    if (titleEl) titleEl.textContent = `${subjectLabel(stagingSubject)} · ${stagingTheme}`;
 
     // Синхронизация выпадающего списка предметов в шапке песочницы
     const stagingSel = document.getElementById('staging-subject-select');
@@ -59,7 +59,7 @@ function startStagingSession(data) {
         if (!hasOpt && stagingSubject) {
             const opt = document.createElement('option');
             opt.value = stagingSubject;
-            opt.textContent = `[${stagingSubject.toUpperCase()}]`;
+            opt.textContent = subjectLabel(stagingSubject);
             stagingSel.appendChild(opt);
         }
         stagingSel.value = stagingSubject;
@@ -491,7 +491,7 @@ window.commitApprovedStagingCards = async function() {
 
         const data = await response.json();
         if (response.ok && data.status === 'success') {
-            alert(`Успешно сохранено ${data.cards_count} карточек в предмет [${data.subject.toUpperCase()}]!`);
+            alert(`Успешно сохранено ${data.cards_count} карточек в предмет «${subjectLabel(data.subject)}»`);
             window.currentStagingJobId = null;
             if (window.location.hash.includes('staging_job')) {
                 try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
