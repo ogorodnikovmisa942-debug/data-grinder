@@ -706,20 +706,8 @@ window.setAssocPreference = setAssocPreference;
 function updateAssocPreferenceUI(pref) {
     const btnVis = document.getElementById('btn-assoc-visual');
     const btnAc = document.getElementById('btn-assoc-acoustic');
-    if (btnVis && btnAc) {
-        btnVis.classList.remove('bg-primary', 'text-on-primary', 'border-primary');
-        btnAc.classList.remove('bg-primary', 'text-on-primary', 'border-primary');
-        btnVis.classList.add('text-primary', 'border-outline-variant');
-        btnAc.classList.add('text-primary', 'border-outline-variant');
-
-        if (pref === 'visual') {
-            btnVis.classList.add('bg-primary', 'text-on-primary', 'border-primary');
-            btnVis.classList.remove('text-primary', 'border-outline-variant');
-        } else {
-            btnAc.classList.add('bg-primary', 'text-on-primary', 'border-primary');
-            btnAc.classList.remove('text-primary', 'border-outline-variant');
-        }
-    }
+    if (btnVis) btnVis.classList.toggle('cfg-option-on', pref === 'visual');
+    if (btnAc) btnAc.classList.toggle('cfg-option-on', pref !== 'visual');
 }
 window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
@@ -855,8 +843,17 @@ window.showSessionDebrief = async function() {
     const elSub = document.getElementById('debrief-subject-text');
     const elBtnNextText = document.getElementById('debrief-btn-next-text');
 
-    if (elReviewed) elReviewed.textContent = reviewed;
+    if (elReviewed) {
+        elReviewed.textContent = reviewed;
+        const lbl = elReviewed.nextElementSibling;
+        if (lbl) lbl.textContent = reviewed % 10 === 1 && reviewed % 100 !== 11 ? 'карточка'
+            : (reviewed % 10 >= 2 && reviewed % 10 <= 4 && (reviewed % 100 < 12 || reviewed % 100 > 14) ? 'карточки' : 'карточек');
+    }
     if (elAcc) elAcc.textContent = `${accuracy}%`;
+    const surveyLink = document.getElementById('debrief-survey-link');
+    if (surveyLink) surveyLink.classList.toggle('hidden', !window.isExperimentParticipant);
+    const elTitle = document.getElementById('debrief-title');
+    if (elTitle) elTitle.textContent = accuracy >= 85 ? 'Отлично, блок пройден' : (accuracy >= 60 ? 'Блок пройден' : 'Блок пройден — трудные вернутся');
     
     let subDisplay = subjectLabel(currentSubject);
     if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
@@ -866,11 +863,11 @@ window.showSessionDebrief = async function() {
 
     if (elBtnNextText) {
         if (currentSessionMode === 'new') {
-            elBtnNextText.textContent = 'СЛЕДУЮЩИЙ БЛОК (+10)';
+            elBtnNextText.textContent = 'Учить дальше';
         } else if (currentSessionMode === 'cram') {
-            elBtnNextText.textContent = 'ЕЩЕ РАУНД ШТУРМА';
+            elBtnNextText.textContent = 'Ещё раунд штурма';
         } else {
-            elBtnNextText.textContent = 'ПРОДОЛЖИТЬ ПОВТОРЕНИЕ';
+            elBtnNextText.textContent = 'Продолжить повторение';
         }
     }
 
@@ -1085,10 +1082,10 @@ function renderSessionError(mode, status) {
             </p>
             <div class="flex gap-2">
                 <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                    [ ПОВТОРИТЬ ПОПЫТКУ ]
+                    Повторить
                 </button>
                 <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
-                    [ В МЕНЮ СЕССИЙ ]
+                    На главную
                 </button>
             </div>
         `;
@@ -1593,7 +1590,7 @@ function renderReviewCard(card) {
                 modeBadge.className = 'mode-badge mode-violet';
             }
         } else {
-            modeText.textContent = 'ПОВТОРЕНИЕ FSRS';
+            modeText.textContent = 'ПОВТОРЕНИЕ';
             if (modeBadge) {
                 modeBadge.className = 'mode-badge mode-neutral';
             }
@@ -1944,6 +1941,7 @@ async function updateGlobalBadges() {
         const data = await res.json();
         if (!data || typeof data !== 'object') return;
         window.surveyCompletedToday = data.survey_completed || false;
+        window.isExperimentParticipant = !!data.is_experiment_participant;
         
         const totalCards = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
         const dueCount = (Array.isArray(cardsQueue) ? cardsQueue.length : 0) - currentIndex;

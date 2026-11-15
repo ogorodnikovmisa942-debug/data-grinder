@@ -462,7 +462,7 @@ window.commitApprovedStagingCards = async function() {
     const btn = document.getElementById('staging-commit-btn');
     if (btn) {
         btn.disabled = true;
-        btn.innerText = "[СОХРАНЕНИЕ В БД...]";
+        btn.innerText = "Сохраняю…";
     }
 
     try {

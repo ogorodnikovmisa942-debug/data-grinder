@@ -1700,20 +1700,8 @@ window.setAssocPreference = setAssocPreference;
 function updateAssocPreferenceUI(pref) {
     const btnVis = document.getElementById('btn-assoc-visual');
     const btnAc = document.getElementById('btn-assoc-acoustic');
-    if (btnVis && btnAc) {
-        btnVis.classList.remove('bg-primary', 'text-on-primary', 'border-primary');
-        btnAc.classList.remove('bg-primary', 'text-on-primary', 'border-primary');
-        btnVis.classList.add('text-primary', 'border-outline-variant');
-        btnAc.classList.add('text-primary', 'border-outline-variant');
-
-        if (pref === 'visual') {
-            btnVis.classList.add('bg-primary', 'text-on-primary', 'border-primary');
-            btnVis.classList.remove('text-primary', 'border-outline-variant');
-        } else {
-            btnAc.classList.add('bg-primary', 'text-on-primary', 'border-primary');
-            btnAc.classList.remove('text-primary', 'border-outline-variant');
-        }
-    }
+    if (btnVis) btnVis.classList.toggle('cfg-option-on', pref === 'visual');
+    if (btnAc) btnAc.classList.toggle('cfg-option-on', pref !== 'visual');
 }
 window.updateAssocPreferenceUI = updateAssocPreferenceUI;
 
@@ -1849,8 +1837,17 @@ window.showSessionDebrief = async function() {
     const elSub = document.getElementById('debrief-subject-text');
     const elBtnNextText = document.getElementById('debrief-btn-next-text');
 
-    if (elReviewed) elReviewed.textContent = reviewed;
+    if (elReviewed) {
+        elReviewed.textContent = reviewed;
+        const lbl = elReviewed.nextElementSibling;
+        if (lbl) lbl.textContent = reviewed % 10 === 1 && reviewed % 100 !== 11 ? 'карточка'
+            : (reviewed % 10 >= 2 && reviewed % 10 <= 4 && (reviewed % 100 < 12 || reviewed % 100 > 14) ? 'карточки' : 'карточек');
+    }
     if (elAcc) elAcc.textContent = `${accuracy}%`;
+    const surveyLink = document.getElementById('debrief-survey-link');
+    if (surveyLink) surveyLink.classList.toggle('hidden', !window.isExperimentParticipant);
+    const elTitle = document.getElementById('debrief-title');
+    if (elTitle) elTitle.textContent = accuracy >= 85 ? 'Отлично, блок пройден' : (accuracy >= 60 ? 'Блок пройден' : 'Блок пройден — трудные вернутся');
     
     let subDisplay = subjectLabel(currentSubject);
     if (cardsQueue.length > 0 && cardsQueue[0].subject_title) {
@@ -1860,11 +1857,11 @@ window.showSessionDebrief = async function() {
 
     if (elBtnNextText) {
         if (currentSessionMode === 'new') {
-            elBtnNextText.textContent = 'СЛЕДУЮЩИЙ БЛОК (+10)';
+            elBtnNextText.textContent = 'Учить дальше';
         } else if (currentSessionMode === 'cram') {
-            elBtnNextText.textContent = 'ЕЩЕ РАУНД ШТУРМА';
+            elBtnNextText.textContent = 'Ещё раунд штурма';
         } else {
-            elBtnNextText.textContent = 'ПРОДОЛЖИТЬ ПОВТОРЕНИЕ';
+            elBtnNextText.textContent = 'Продолжить повторение';
         }
     }
 
@@ -2079,10 +2076,10 @@ function renderSessionError(mode, status) {
             </p>
             <div class="flex gap-2">
                 <button type="button" onclick="event.stopPropagation(); window.fetchActiveSession('${mode}');" class="px-4 py-2 border border-primary text-primary font-bold font-mono text-xs uppercase rounded-xl hover:bg-primary/10 transition-colors">
-                    [ ПОВТОРИТЬ ПОПЫТКУ ]
+                    Повторить
                 </button>
                 <button type="button" onclick="event.stopPropagation(); window.exitToSessionMenu();" class="px-4 py-2 bg-primary text-on-primary font-bold font-mono text-xs uppercase rounded-xl hover:opacity-90 transition-opacity">
-                    [ В МЕНЮ СЕССИЙ ]
+                    На главную
                 </button>
             </div>
         `;
@@ -2587,7 +2584,7 @@ function renderReviewCard(card) {
                 modeBadge.className = 'mode-badge mode-violet';
             }
         } else {
-            modeText.textContent = 'ПОВТОРЕНИЕ FSRS';
+            modeText.textContent = 'ПОВТОРЕНИЕ';
             if (modeBadge) {
                 modeBadge.className = 'mode-badge mode-neutral';
             }
@@ -2938,6 +2935,7 @@ async function updateGlobalBadges() {
         const data = await res.json();
         if (!data || typeof data !== 'object') return;
         window.surveyCompletedToday = data.survey_completed || false;
+        window.isExperimentParticipant = !!data.is_experiment_participant;
         
         const totalCards = (data.cards_new || 0) + (data.cards_learning || 0) + (data.cards_review || 0);
         const dueCount = (Array.isArray(cardsQueue) ? cardsQueue.length : 0) - currentIndex;
@@ -3220,8 +3218,8 @@ function initArchiveFilters() {
     const filterButtons = document.querySelectorAll('#archive-filter-bar button');
     filterButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            filterButtons.forEach(b => { b.className = "px-xs py-0.5 text-outline hover:text-primary border border-transparent"; });
-            btn.className = "px-xs py-0.5 bg-primary text-on-primary border border-primary";
+            filterButtons.forEach(b => b.classList.remove('archive-filter-on'));
+            btn.classList.add('archive-filter-on');
             currentDataFilter = btn.getAttribute('data-filter'); 
             renderFilteredArchiveDOM();
         });
@@ -3247,20 +3245,16 @@ function renderFilteredArchiveDOM() {
     const filteredCount = filtered.length;
     const countBadge = document.getElementById('archive-count');
     if (countBadge) {
-        if (filteredCount === totalCount) {
-            countBadge.innerText = `(${totalCount})`;
-        } else {
-            countBadge.innerText = `(${filteredCount}/${totalCount})`;
-        }
+        countBadge.innerText = filteredCount === totalCount ? `${totalCount}` : `${filteredCount} из ${totalCount}`;
     }
     
     if (filtered.length === 0) { 
-        container.innerHTML = `<div class="text-sm font-mono text-outline py-md text-center">${terms.length ? 'Ничего не найдено по запросу' : 'Категория пуста'}</div>`; 
+        container.innerHTML = `<div class="archive-empty">${terms.length ? 'Ничего не найдено' : (totalCount ? 'Здесь пусто' : 'Карточек пока нет. Добавь материал — список предметов вверху → «+ Добавить материал».')}</div>`; 
         return; 
     }
     
     container.innerHTML = filtered.map(c => {
-        const labels = ['NEW', 'LRN', 'REV', 'REL'];
+        const labels = ['новая', 'учу', 'повтор', 'заново'];
         const hitInExample = terms.length && c.example && cardMatchesQuery({ text: '', translation: '', secondary_text: '', example: c.example }, terms);
         return `
             <div class="archive-row cursor-pointer" id="archive-row-${c.id}" data-card-id="${c.id}"
@@ -3277,7 +3271,7 @@ function renderFilteredArchiveDOM() {
                     <div class="archive-row-a">${highlightMatches(c.translation, terms)}</div>
                     ${hitInExample ? `<div class="archive-hit-line">в примере: ${highlightMatches(c.example, terms)}</div>` : ''}
                 </div>
-                <span class="archive-row-state">${labels[c.state] || 'NEW'}</span>
+                <span class="archive-row-state">${labels[c.state] || 'новая'}</span>
             </div>
         `;
     }).join('');
@@ -3437,12 +3431,14 @@ async function renderRemainingToLearn(data) {
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
     // Пустой аккаунт — не «Всё изучено»: изучать пока просто нечего
     const total = data.total_cards || 0;
+    const inProgress = (data.cards_learning || 0);
     set('stats-left-cards', left
         ? `${left} ${left % 10 === 1 && left % 100 !== 11 ? 'карточка' : (left % 10 >= 2 && left % 10 <= 4 && (left % 100 < 12 || left % 100 > 14) ? 'карточки' : 'карточек')}`
-        : (total ? 'Всё изучено' : 'Пока пусто'));
+        : (!total ? 'Пока пусто' : (inProgress ? 'Новых нет' : 'Всё изучено')));
     set('stats-left-days', left
         ? `≈ ${days} дн. при лимите ${limit}/день`
-        : (total ? 'новых карточек не осталось' : 'загрузи учебник или конспект — появятся карточки'));
+        : (!total ? 'загрузи учебник или конспект — появятся карточки'
+            : (inProgress ? `${inProgress} в изучении — закрепятся в повторениях` : 'новых карточек не осталось')));
     const row = document.getElementById('stats-left-topics-row');
     const subject = currentSubject !== 'all' ? currentSubject : (typeof getActiveDeckSubject === 'function' ? getActiveDeckSubject() : '');
     if (row) row.classList.add('hidden');
@@ -3597,25 +3593,12 @@ async function loadConfigTab() {
 function renderPresetButtonsDOM(activeLimit) {
     [10, 20, 30, 10000].forEach(val => {
         const btn = document.getElementById(`btn-preset-${val}`);
-        if (btn) {
-            if (window.isExperimentPhase1) {
-                if (val === 10) {
-                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs cursor-default";
-                    btn.title = "Фиксированный лимит эксперимента (Фаза 1: 10 карт в день)";
-                } else {
-                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-neutral-400 dark:text-neutral-600 border-neutral-200 dark:border-neutral-800 font-mono text-xs uppercase rounded-xl shadow-xs opacity-40 cursor-not-allowed pointer-events-none";
-                    btn.title = "Зафиксировано на время Фазы 1 эксперимента (10 карт в день)";
-                }
-            } else {
-                if (val === activeLimit) {
-                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-primary text-on-primary border-primary font-mono text-xs font-bold uppercase rounded-xl shadow-xs";
-                    btn.title = "";
-                } else {
-                    btn.className = "w-full text-left border p-md transition-all duration-75 flex justify-between items-center bg-surface-container-lowest text-primary border-neutral-300 dark:border-neutral-700 font-mono text-xs uppercase rounded-xl shadow-xs hover:border-primary";
-                    btn.title = "";
-                }
-            }
-        }
+        if (!btn) return;
+        const locked = !!window.isExperimentPhase1;
+        const on = locked ? val === 10 : val === activeLimit;
+        btn.classList.toggle('cfg-option-on', on);
+        btn.classList.toggle('cfg-option-locked', locked && !on);
+        btn.title = locked ? 'Во время Фазы 1 эксперимента — 10 карточек в день' : '';
     });
 }
 
@@ -4062,7 +4045,7 @@ window.updateTariffBanner = async function() {
     if (isOffPeak) {
         if (bannerTitle) bannerTitle.innerHTML = titleText;
         bannerBadge.className = "text-emerald-600 dark:text-emerald-400 font-bold font-mono animate-pulse";
-        bannerBadge.textContent = "[СКИДКА -50% АКТИВНА]";
+        bannerBadge.textContent = "Скидка 50% сейчас";
         if (btnDeferred) {
             btnDeferred.innerHTML = `<span class="material-symbols-outlined text-[15px]">dark_mode</span><span>СКИДКА -50% (СЕЙЧАС)</span>`;
         }
@@ -4199,11 +4182,11 @@ window.checkNightQueueStatus = async function() {
                                 <div class="flex items-center gap-1">
                                     <button onclick="discardStagingDeck(${j.id})" class="px-2 py-1 border border-secondary text-secondary hover:bg-secondary hover:text-on-secondary rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1 font-mono" title="Удалить колоду">
                                         <span class="material-symbols-outlined text-[12px]">delete</span>
-                                        <span>[УДАЛИТЬ]</span>
+                                        <span>Удалить</span>
                                     </button>
                                     <button onclick="openStagingJob(${j.id})" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[9px] font-bold uppercase transition-all shadow-sm flex items-center gap-1 font-mono">
                                         <span class="material-symbols-outlined text-[13px]">style</span>
-                                        <span>[РАЗОБРАТЬ]</span>
+                                        <span>Разобрать</span>
                                     </button>
                                 </div>
                             </div>
@@ -4320,9 +4303,9 @@ async function importTextKnowledge(isDeferred = false) {
     if (btnDeferred) btnDeferred.disabled = true;
 
     if (isDeferred) {
-        if (btnDeferred) btnDeferred.innerText = "[ОЧЕРЕДЬ...]";
+        if (btnDeferred) btnDeferred.innerText = "Ставлю в очередь…";
     } else {
-        if (btnInstant) btnInstant.innerText = "[ДЕПСИК...]";
+        if (btnInstant) btnInstant.innerText = "Создаю карточки…";
         activeImportAbortController = new AbortController();
         const activeBar = document.getElementById('generation-active-bar');
         const activeStatus = document.getElementById('generation-active-status');
@@ -4393,7 +4376,7 @@ async function importTextKnowledge(isDeferred = false) {
 
 window.importPreset = async function(presetName) {
     const btn = document.getElementById('btn-import');
-    if (btn) { btn.disabled = true; btn.innerText = "[ЗАГРУЗКА БИБЛИОТЕКИ...]"; }
+    if (btn) { btn.disabled = true; btn.innerText = "Загружаю…"; }
     try {
         const response = await apiFetch('/api/config/import/preset', {
             method: 'POST', 
@@ -4414,7 +4397,7 @@ window.importPreset = async function(presetName) {
         console.error("Сбой сети при импорте готовой колоды:", e); 
         alert("Критический сбой сети при импорте."); 
     } finally { 
-        if (btn) { btn.disabled = false; btn.innerText = "[ЗАПУСТИТЬ ПАРСЕР ЗНАНИЙ]"; } 
+        if (btn) { btn.disabled = false; btn.innerText = "Создать карточки"; } 
     }
 };
 
@@ -4688,7 +4671,7 @@ window.handleImageOcr = async function(event) {
 
     if (typeof Tesseract === 'undefined') {
         if (statusEl) {
-            statusEl.textContent = "[ЗАГРУЗКА OCR-ДВИЖКА TESSERACT...]";
+            statusEl.textContent = "Готовлю распознавание текста…";
             statusEl.classList.remove('hidden');
         }
         try {
@@ -4794,7 +4777,7 @@ window.handleImageOcr = async function(event) {
         if (failedCount > 0) {
             alertMsg += `\n(На ${failedCount} фото текст был слишком нечетким и пропущен).`;
         }
-        alertMsg += `\n\nТекст помещен в поле ввода.\nПроверьте его и нажмите «[СЕЙЧАС]» или «[НОЧЬЮ (-50%)]» для создания карточек.`;
+        alertMsg += `\n\nТекст помещен в поле ввода.\nПроверьте его и нажмите «Создать карточки».`;
         alert(alertMsg);
     } catch (ocrErr) {
         console.error("Ошибка пакетного OCR:", ocrErr);
@@ -5384,7 +5367,7 @@ window.commitApprovedStagingCards = async function() {
     const btn = document.getElementById('staging-commit-btn');
     if (btn) {
         btn.disabled = true;
-        btn.innerText = "[СОХРАНЕНИЕ В БД...]";
+        btn.innerText = "Сохраняю…";
     }
 
     try {
@@ -5976,7 +5959,7 @@ function activateSelectionMode(initialCardId = null) {
     const toggleBtn = document.getElementById('bulk-select-toggle');
     if (toggleBtn) {
         toggleBtn.textContent = 'Отмена';
-        toggleBtn.className = "text-[10px] font-mono font-bold px-1.5 py-0.5 border border-secondary text-secondary hover:bg-error-container/10 transition-colors uppercase";
+        toggleBtn.className = "archive-action archive-action-active";
     }
     
     populateBulkSubjects();
@@ -5999,7 +5982,7 @@ function deactivateSelectionMode() {
     const toggleBtn = document.getElementById('bulk-select-toggle');
     if (toggleBtn) {
         toggleBtn.textContent = 'Выбрать';
-        toggleBtn.className = "text-[10px] font-mono font-bold px-1.5 py-0.5 border border-outline text-outline hover:text-primary hover:border-primary transition-colors uppercase";
+        toggleBtn.className = "archive-action";
     }
     
     // Скрываем чекбоксы и сбрасываем состояние
@@ -6264,7 +6247,7 @@ window.shareSubjectDeck = async function(subjectSlug) {
         const shareUrl = data.share_url;
         const deckTitle = data.title || subjectLabel(subjectSlug);
         const totalCards = data.total_cards || 0;
-        const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота:`;
+        const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек). Открой ссылку для добавления в бота:`;
         const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
         
         if (window.Telegram?.WebApp?.openTelegramLink) {
@@ -6546,7 +6529,7 @@ window.submitDailySessionSurvey = async function() {
     const btn = document.getElementById('survey-submit-btn');
     if (btn) {
         btn.disabled = true;
-        btn.innerText = "[ОТПРАВКА...]";
+        btn.innerText = "Отправляю…";
     }
     
     const mental = parseInt(document.getElementById('survey-mental')?.value || '3');
@@ -6572,7 +6555,7 @@ window.submitDailySessionSurvey = async function() {
             if (window.showNotification) {
                 window.showNotification("Отчет сессии сохранен для аналитики FSRS!", "success");
             } else {
-                alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+                alert("Спасибо! Ответы сохранены.");
             }
             window.surveyCompletedToday = true;
             
@@ -6580,7 +6563,7 @@ window.submitDailySessionSurvey = async function() {
             if (surveyContainer) surveyContainer.classList.add('hidden');
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+                btn.innerText = "Отправить";
             }
             
             if (typeof window.showSessionDebrief === 'function') {
@@ -6592,7 +6575,7 @@ window.submitDailySessionSurvey = async function() {
             alert("Ошибка при отправке отчета сессии.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+                btn.innerText = "Отправить";
             }
         }
     } catch (e) {
@@ -6600,7 +6583,7 @@ window.submitDailySessionSurvey = async function() {
         alert("Сбой сети при отправке отчета.");
         if (btn) {
             btn.disabled = false;
-            btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+            btn.innerText = "Отправить";
         }
     }
 };

@@ -101,7 +101,7 @@ window.shareSubjectDeck = async function(subjectSlug) {
         const shareUrl = data.share_url;
         const deckTitle = data.title || subjectLabel(subjectSlug);
         const totalCards = data.total_cards || 0;
-        const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек FSRS). Открой ссылку для добавления в бота:`;
+        const shareMsg = `Колода Data Grinder: «${deckTitle}» (${totalCards} карточек). Открой ссылку для добавления в бота:`;
         const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareMsg)}`;
         
         if (window.Telegram?.WebApp?.openTelegramLink) {
@@ -383,7 +383,7 @@ window.submitDailySessionSurvey = async function() {
     const btn = document.getElementById('survey-submit-btn');
     if (btn) {
         btn.disabled = true;
-        btn.innerText = "[ОТПРАВКА...]";
+        btn.innerText = "Отправляю…";
     }
     
     const mental = parseInt(document.getElementById('survey-mental')?.value || '3');
@@ -409,7 +409,7 @@ window.submitDailySessionSurvey = async function() {
             if (window.showNotification) {
                 window.showNotification("Отчет сессии сохранен для аналитики FSRS!", "success");
             } else {
-                alert("Отчет сессии успешно сохранен для аналитики FSRS!");
+                alert("Спасибо! Ответы сохранены.");
             }
             window.surveyCompletedToday = true;
             
@@ -417,7 +417,7 @@ window.submitDailySessionSurvey = async function() {
             if (surveyContainer) surveyContainer.classList.add('hidden');
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+                btn.innerText = "Отправить";
             }
             
             if (typeof window.showSessionDebrief === 'function') {
@@ -429,7 +429,7 @@ window.submitDailySessionSurvey = async function() {
             alert("Ошибка при отправке отчета сессии.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+                btn.innerText = "Отправить";
             }
         }
     } catch (e) {
@@ -437,7 +437,7 @@ window.submitDailySessionSurvey = async function() {
         alert("Сбой сети при отправке отчета.");
         if (btn) {
             btn.disabled = false;
-            btn.innerText = "[ОТПРАВИТЬ ОТЧЕТ СЕССИИ]";
+            btn.innerText = "Отправить";
         }
     }
 };

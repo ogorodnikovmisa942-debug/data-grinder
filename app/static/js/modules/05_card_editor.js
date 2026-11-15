@@ -335,7 +335,7 @@ function activateSelectionMode(initialCardId = null) {
     const toggleBtn = document.getElementById('bulk-select-toggle');
     if (toggleBtn) {
         toggleBtn.textContent = 'Отмена';
-        toggleBtn.className = "text-[10px] font-mono font-bold px-1.5 py-0.5 border border-secondary text-secondary hover:bg-error-container/10 transition-colors uppercase";
+        toggleBtn.className = "archive-action archive-action-active";
     }
     
     populateBulkSubjects();
@@ -358,7 +358,7 @@ function deactivateSelectionMode() {
     const toggleBtn = document.getElementById('bulk-select-toggle');
     if (toggleBtn) {
         toggleBtn.textContent = 'Выбрать';
-        toggleBtn.className = "text-[10px] font-mono font-bold px-1.5 py-0.5 border border-outline text-outline hover:text-primary hover:border-primary transition-colors uppercase";
+        toggleBtn.className = "archive-action";
     }
     
     // Скрываем чекбоксы и сбрасываем состояние

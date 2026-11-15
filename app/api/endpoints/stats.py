@@ -112,7 +112,8 @@ async def get_analytics(
     survey_res = await db.execute(survey_stmt)
     survey_completed = survey_res.scalars().first() is not None
     # Опрос после сессии нужен только участникам научного эксперимента; остальным его не показываем (решение плана 2026-10-06)
-    if not (await get_user_experiment_status(current_user, db))[0]:
+    is_participant = bool((await get_user_experiment_status(current_user, db))[0])
+    if not is_participant:
         survey_completed = True
 
     # Карты к вечеру для текущего пользователя
@@ -236,6 +237,7 @@ async def get_analytics(
         "streak_days": streak, 
         "breakdown": breakdown,
         "survey_completed": survey_completed,
+        "is_experiment_participant": is_participant,
         "due_evening": due_evening,
         "maturity": maturity,
         "heatmap": heatmap_data
