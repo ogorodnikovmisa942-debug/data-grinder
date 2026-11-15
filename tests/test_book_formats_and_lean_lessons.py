@@ -69,3 +69,62 @@ def test_lesson_screens_as_pairs_and_focus_from_named_nodes():
     assert [s["emo"] for s in lesson["screens"]] == ["surprised", "talk", "happy"]
     assert lesson["screens"][0]["focus"] == []
     assert set(lesson["screens"][1]["focus"]) == {"sila", "massa"}
+
+
+# --- Презентации: слайды-картинки, повторы анимации, плотность карточек ---------------------------------------------
+
+from app.services.ai_gateway import source_profile as sp  # noqa: E402
+
+
+class _Img:
+    def __init__(self, size):
+        self.data = b"x" * size
+
+
+class _Page:
+    def __init__(self, text, images=()):
+        self._t, self.images = text, list(images)
+
+    def extract_text(self):
+        return self._t
+
+
+class _Reader:
+    def __init__(self, pages):
+        self.pages = pages
+
+
+def test_image_slides_are_read_by_ocr_and_icons_skipped(monkeypatch):
+    monkeypatch.setattr(te, "ocr_langs", lambda: "bel+rus")
+    monkeypatch.setattr(te, "ocr_image", lambda data, langs: f"распознано {len(data)}")
+    reader = _Reader([_Page("Длинный текст слайда " * 10), _Page("Рюрик", [_Img(20000), _Img(500)])])
+    pages = te.pdf_pages_text(reader)
+    assert pages[0].startswith("Длинный текст")                  # страницу с текстом не трогаем
+    assert pages[1] == "Рюрик\nраспознано 20000"                 # иконку на 500 байт пропустили
+
+
+def test_no_tesseract_or_a_scanned_book_skips_ocr(monkeypatch):
+    called = []
+    monkeypatch.setattr(te, "ocr_image", lambda data, langs: called.append(1) or "x")
+    monkeypatch.setattr(te, "ocr_langs", lambda: None)
+    assert te.pdf_pages_text(_Reader([_Page("", [_Img(20000)])])) == [""]
+    monkeypatch.setattr(te, "ocr_langs", lambda: "rus")
+    scan = _Reader([_Page("", [_Img(20000)]) for _ in range(te.OCR_MAX_PAGES + 1)])
+    assert te.pdf_pages_text(scan) == [""] * (te.OCR_MAX_PAGES + 1) and not called
+
+
+def test_animation_build_slides_keep_only_the_full_one():
+    pages = ["Тэма 2", "Раскладанню спрыялі войны", "Раскладанню спрыялі войны", "Раскладанню спрыялі войны і гандаль", "Іншы слайд"]
+    assert te.drop_build_slides(pages) == ["Тэма 2", "", "", "Раскладанню спрыялі войны і гандаль", "Іншы слайд"]
+
+
+def _deck(pages: int, chars: int) -> str:
+    return "\n\n".join(f"--- t.pdf: Стр. {i} ---\n" + "факт " * (chars // 5) for i in range(1, pages + 1))
+
+
+def test_lecture_made_of_slides_is_counted_as_slides():
+    slides, book = _deck(40, 300), _deck(40, 2200)
+    assert sp.resolve_kind("lecture", slides) == "slides" and sp.resolve_kind("notes", slides) == "slides"
+    assert sp.resolve_kind("lecture", book) == "lecture"                 # текст лекции остаётся лекцией
+    assert sp.resolve_kind("textbook", slides) == "textbook"             # явный «учебник» не переопределяем
+    assert sp.target_cards("slides", slides) >= 35                      # ≈ карточка на слайд, а не 4 на всю презентацию

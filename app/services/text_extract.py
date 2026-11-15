@@ -1,7 +1,11 @@
 """Текст из загруженного файла (без ИИ): PDF, DOCX, PPTX, EPUB, FB2, ODT, HTML, TXT/MD — и чистка текста перед нарезкой."""
+import functools
 import io
 import posixpath
 import re
+import shutil
+import subprocess
+import time
 import zipfile
 from collections import Counter
 from html.parser import HTMLParser
@@ -16,6 +20,72 @@ SCAN_PDF_MESSAGE = ("В PDF нет текстового слоя — похож�
 
 class ExtractError(ValueError):
     pass
+
+
+# --- Распознавание слайдов-картинок (Tesseract на сервере; нет его — PDF читается как раньше, без картинок) ---
+OCR_MIN_PAGE_TEXT = 80        # на странице меньше стольких знаков — это слайд-картинка или схема: текст ищем на изображениях
+OCR_MAX_PAGES = 150           # больше таких страниц — это скан книги: распознавание заняло бы десятки минут, не начинаем
+OCR_TIME_BUDGET_S = 180       # загрузка файла не ждёт дольше (таймаут nginx — 300 с)
+OCR_MIN_IMAGE_BYTES = 8000    # иконки, логотипы и маркеры списков не распознаём
+OCR_LANGS = ("bel", "rus", "ukr", "eng")
+
+
+@functools.lru_cache(maxsize=1)
+def ocr_langs() -> str | None:
+    """Языки Tesseract, которые установлены на сервере, в виде «bel+rus+eng»; None — распознавания нет."""
+    exe = shutil.which("tesseract")
+    if not exe:
+        return None
+    try:
+        listed = subprocess.run([exe, "--list-langs"], capture_output=True, text=True, timeout=10).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    have = [lang for lang in OCR_LANGS if lang in listed]
+    return "+".join(have) or None
+
+
+def ocr_image(data: bytes, langs: str) -> str:
+    try:
+        r = subprocess.run(["tesseract", "stdin", "stdout", "-l", langs], input=data, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return re.sub(r"[ \t]+", " ", r.stdout.decode("utf-8", "ignore")).strip()
+
+
+def pdf_pages_text(reader) -> list[str]:
+    """Текст страниц PDF. Страница почти без текста (слайд, сохранённый картинкой, схема) дочитывается распознаванием её картинок."""
+    pages = [p.extract_text() or "" for p in reader.pages]
+    langs = ocr_langs()
+    todo = [i for i, t in enumerate(pages) if len(t.strip()) < OCR_MIN_PAGE_TEXT]
+    if not (langs and todo):
+        return pages
+    if len(todo) > OCR_MAX_PAGES:
+        print(f"[OCR] страниц без текста {len(todo)} — похоже на скан книги, распознавание не запускаю", flush=True)
+        return pages
+    started, done = time.monotonic(), 0
+    for i in todo:
+        if time.monotonic() - started > OCR_TIME_BUDGET_S:
+            print(f"[OCR] время вышло: распознано {done} из {len(todo)} страниц-картинок", flush=True)
+            break
+        try:
+            images = reader.pages[i].images
+            found = [ocr_image(im.data, langs) for im in images if len(im.data) >= OCR_MIN_IMAGE_BYTES]
+        except Exception:  # noqa: BLE001 — битая картинка не должна ронять весь файл
+            continue
+        pages[i] = "\n".join([pages[i].strip(), *filter(None, found)]).strip()
+        done += 1
+    return pages
+
+
+def drop_build_slides(pages: list[str]) -> list[str]:
+    """Анимация в презентации даёт подряд одинаковые слайды или слайд, «дорастающий» по строчке: оставляем только полный.
+    Номера страниц не сдвигаются — повтор становится пустой страницей."""
+    pages = list(pages)
+    for i in range(1, len(pages)):
+        prev = pages[i - 1].strip()
+        if prev and pages[i].strip().startswith(prev):
+            pages[i - 1] = ""
+    return pages
 
 
 class _TextParser(HTMLParser):
@@ -163,8 +233,8 @@ def extract_text(filename: str, contents: bytes) -> str:
         raise ExtractError("Файл слишком большой (максимум 8 МБ).")
     if name.endswith(".pdf"):
         from pypdf import PdfReader
-        pages = [(p.extract_text() or "").strip() for p in PdfReader(io.BytesIO(contents)).pages]
-        text = "\n".join(p for p in strip_page_furniture(pages) if p)
+        pages = pdf_pages_text(PdfReader(io.BytesIO(contents)))
+        text = "\n".join(p for p in strip_page_furniture(drop_build_slides(pages)) if p)
         if not text.strip() and pages:
             raise ExtractError(SCAN_PDF_MESSAGE)
     elif name.endswith(".docx"):

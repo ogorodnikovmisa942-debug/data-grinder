@@ -510,6 +510,8 @@ def build_lessons_task(blocks_text: str, source_type: str | None = None) -> str:
     lesson_hint = {"notes": ("SOURCE TYPE: notes. The source gives bare facts without explanations: group the facts, explain why they belong together "
                              "and how to remember them; do not just read the list back."),
                    "lecture": "SOURCE TYPE: lecture. Keep the substance, drop the digressions.",
+                   "slides": ("SOURCE TYPE: slides. Each slide is a bare list of facts: tie them into a story, explain why they belong together "
+                              "and how to remember them; do not read the slides back."),
                    "guide": "SOURCE TYPE: study guide. The text is already condensed: teach the structure and the links between the facts, do not retell it.",
                    "language": "SOURCE TYPE: language. Unpack character components/radicals or grammar structure simply, contrast tones or look-alike words, and keep dialogues natural."}.get(source_type or "", "")
     return (

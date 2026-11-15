@@ -8,18 +8,19 @@
 import os
 import re
 
-KINDS = ("textbook", "article", "notes", "lecture", "guide", "glossary", "language")
+KINDS = ("textbook", "article", "notes", "lecture", "slides", "guide", "glossary", "language")
 
 # Знаков источника на одну карточку по типу. Учебник — ≈ страница (решение пользователя 2026-10-06); короткая статья или доклад
 # плотнее: там почти нет «воды»; лекция реже: много повторов и отступлений. Для конспекта считаем по пунктам (см. target_cards).
 # Для учебника: ≈ карточка на страницу. Цена целой книги при такой плотности ≈ 17¢ (замер на «Судоустройстве», 1 млн знаков), при 2000 знаках — уже ≈ 18,6¢.
 # guide (пособие, подробный конспект лекций, краткий курс): связный текст, уже сжатый, поэтому гуще учебника, но не «строка = факт», как в шпаргалке.
-CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "notes": 600, "guide": 1200, "language": 750}
+# slides — презентация: на слайде пара фактов без «воды», карточка примерно на 280 знаков (≈ слайд); lecture (3200) — это расшифровка живой речи
+CHARS_PER_CARD = {"textbook": int(os.getenv("PATH_CHARS_PER_CARD", "2300")), "article": 800, "lecture": 3200, "slides": 280, "notes": 600, "guide": 1200, "language": 750}
 # Фактов «Конспекта темы» на одну карточку: остаток текста, которого карточки не спрашивают, идёт готовым списком. Учебник: 3,2 факта на
 # карточку = ~1 факт на 700 знаков. Замеры 2026-10-07/08: при 1 факте на 880 знаков эталон «Судоустройства» покрыт на 56%, на 550 — около 65%
 # (+7 пунктов покрытия за каждые +40% фактов); ~6–13% фактов повторяют карточку и отбрасываются, поэтому просим с запасом.
 # В конспекте почти каждый пункт уже карточка — фактов там немного. PATH_FACTS_SCALE меняет всё сразу (0 — без фактов).
-FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "notes": 0.5, "guide": 1.6, "language": 0.5}
+FACTS_PER_CARD = {"textbook": 3.2, "article": 2.2, "lecture": 2.6, "slides": 0.5, "notes": 0.5, "guide": 1.6, "language": 0.5}
 FACTS_SCALE = float(os.getenv("PATH_FACTS_SCALE", "1.0"))
 NOTES_CARDS_PER_ITEM = 0.85          # конспект: почти по карточке на пункт (часть пунктов — пояснения и повторы)
 ARTICLE_MAX_CHARS = 40_000           # короче этого экспозиционный текст считаем статьёй/докладом, а не учебником
@@ -70,11 +71,23 @@ def heuristic_kind(text: str) -> str:
     return "article" if m["chars"] <= ARTICLE_MAX_CHARS else "textbook"
 
 
+# Метки страниц и слайдов, которые ставит загрузка файлов: «--- файл: Стр. 12 ---», «--- файл: Слайд 3 ---»
+_PAGE_MARK = re.compile(r"^--- .+?: (?:Стр\.|Слайд) \d+ ---$", re.M)
+SLIDE_PAGE_MAX_CHARS = 900      # в среднем меньше стольких знаков на страницу — это презентация, а не текст
+
+
+def slides_like(text: str) -> bool:
+    """Презентация (PDF из слайдов или PPTX): много страниц, на каждой мало текста. Учебник — ≈2000+ знаков на страницу."""
+    pages = len(_PAGE_MARK.findall(text or ""))
+    return pages >= 5 and len(text) / pages < SLIDE_PAGE_MAX_CHARS
+
+
 def resolve_kind(declared: str | None, text: str) -> str:
     """Тип от модели, если он из списка (глава учебника остаётся «учебником» при любом размере: плотность части книги такая же, как у целой);
-    иначе по тексту."""
+    иначе по тексту. «Лекция» или «конспект», оказавшиеся слайдами, считаются как слайды: их плотность другая."""
     kind = (declared or "").strip().lower()
-    return kind if kind in KINDS else heuristic_kind(text)
+    kind = kind if kind in KINDS else heuristic_kind(text)
+    return "slides" if kind in ("lecture", "notes") and slides_like(text) else kind
 
 
 def target_cards(kind: str, text: str) -> int:
@@ -96,6 +109,9 @@ KIND_HINTS = {
     "notes": ("SOURCE TYPE: notes (cheat sheet, theses, slides). Every item is already an exam fact: write a card for nearly every item and keep the "
               "author's items; do not summarize several items into one. The TARGET is close to the number of items."),
     "article": "SOURCE TYPE: short article or report. It has little filler: most paragraphs carry a fact worth a card.",
+    "slides": ("SOURCE TYPE: slides (a presentation, partly read from slide images, so a word may carry a recognition typo). "
+               "Each slide holds one or two facts: write about one card per slide with real content, skip titles repeated on every slide, "
+               "captions of pictures and decorative text. Correct obvious recognition typos in questions and answers, but copy 'ev' as it stands."),
     "lecture": ("SOURCE TYPE: lecture. It repeats itself and digresses: take the substance once; the lecturer's stress phrases "
                 "(\"write this down\", \"this is important\", \"this will be on the exam\") mark the most important facts."),
     "guide": ("SOURCE TYPE: study guide or detailed lecture notes. The text is already condensed: most sentences carry a fact an exam may ask, "

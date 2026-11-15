@@ -24,7 +24,8 @@ from app.services.card_db_sync import (
 from app.core.auth import get_current_user_id
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.services.text_extract import BOOK_FORMATS, SCAN_PDF_MESSAGE, ExtractError, extract_book_format, strip_page_furniture
+from app.services.text_extract import (BOOK_FORMATS, SCAN_PDF_MESSAGE, ExtractError, drop_build_slides, extract_book_format,
+                                       pdf_pages_text, strip_page_furniture)
 
 import logging
 logger = logging.getLogger("grinder.imports")
@@ -41,7 +42,7 @@ def _extract_pdf_text(contents: bytes, filename: str) -> tuple[str, int]:
     total_pages = len(reader.pages)
     if total_pages > MAX_PDF_PAGES:
         raise HTTPException(status_code=413, detail=f"В файле «{filename}» {total_pages} страниц, максимум {MAX_PDF_PAGES}. Разбейте его на части.")
-    pages = strip_page_furniture([reader.pages[idx].extract_text() or "" for idx in range(total_pages)])
+    pages = strip_page_furniture(drop_build_slides(pdf_pages_text(reader)))
     pages_text = [f"--- {filename}: Стр. {idx+1} ---\n{txt.strip()}" for idx, txt in enumerate(pages) if txt.strip()]
     # Скан без текстового слоя: раньше такой файл молча давал «не удалось извлечь текст»
     if total_pages and sum(len(t.strip()) for t in pages) < 5 * total_pages:
