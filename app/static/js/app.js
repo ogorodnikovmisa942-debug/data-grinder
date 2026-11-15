@@ -1987,7 +1987,21 @@ window.teleportCurrentCardToGraph = function() {
     }
 };
 
+// Обычная учёба карточек как занятие: шапка, меню и счётчики уходят, остаётся строка «× шаг ▬▬ 1/3».
+// Внутри «Пути знаний» режимом управляет pathRun (path-run-mode), здесь — только ручные сессии.
+const CARD_SESSION_KIND = { new: 'Новое', review: 'Повторение', cram: 'Штурм', mixed: 'Учёба' };
+function setCardSessionMode(on, mode) {
+    const inPath = window.pathRun && window.pathRun.active;
+    document.body.classList.toggle('card-session-mode', !!on && !inPath);
+    if (!on || inPath) return;
+    const kind = document.getElementById('run-bar-kind');
+    if (kind) kind.textContent = CARD_SESSION_KIND[mode] || 'Учёба';
+    if (typeof window.updateRunBar === 'function') window.updateRunBar(0, 0);
+}
+window.setCardSessionMode = setCardSessionMode;
+
 function showSessionStarter() {
+    setCardSessionMode(false);
     resetCardDOM();
     const starter = document.getElementById('session-starter');
     const flashcard = document.getElementById('flashcard');
@@ -2039,6 +2053,7 @@ async function startSession(mode) {
         if (flashcard) flashcard.classList.remove('hidden');
         if (progressBar) progressBar.classList.remove('hidden');
         if (sessionCounters) sessionCounters.classList.remove('hidden');
+        setCardSessionMode(true, mode);
         
         await fetchActiveSession(mode);
     } catch (e) {
@@ -2163,7 +2178,8 @@ function recalculateQueueCounters() {
 
 function renderCurrentCard() {
     const inRun = window.pathRun && window.pathRun.active;
-    if (inRun && typeof window.updateRunBar === 'function') window.updateRunBar(currentIndex, cardsQueue.length);
+    const inCardSession = document.body.classList.contains('card-session-mode');
+    if ((inRun || inCardSession) && typeof window.updateRunBar === 'function') window.updateRunBar(currentIndex, cardsQueue.length);
     if (currentIndex >= cardsQueue.length) {
         if (cardsQueue.length > 0) {
             // В занятии без анкеты FSRS: кот сразу ведёт к следующему шагу
@@ -2240,6 +2256,7 @@ function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
             <div class="intro-answer-text">${escapeHTML(card.translation || '')}</div>
             ${chipsHTML ? `
                 <div id="intro-sec-box" data-blur-sec class="mt-2.5 pt-2 border-t border-neutral-200/70 dark:border-neutral-800">
+                    ${maskSecondary || !chipsHTML.includes('blur-chip-key') ? `
                     <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                         <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.sec)}</span>
                         ${maskSecondary ? `
@@ -2247,7 +2264,7 @@ function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
                             <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardScaffold('intro-sec-box', this);" class="blur-action-btn" title="Подсказка: показать каркас">Каркас</button>
                             <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">Открыть</button>
                         </div>` : ''}
-                    </div>
+                    </div>` : ''}
                     <div class="blur-chips-row" data-no-swipe>${chipsHTML}</div>
                 </div>
             ` : ''}
@@ -2256,7 +2273,7 @@ function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
             <div class="dg-example-box animate-fade-in">
                 <div class="flex items-center justify-between gap-2 mb-1">
                     <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.ex)}</span>
-                    ${canSpeakEx ? `<button type="button" data-no-swipe onclick="event.stopPropagation(); window.replayCurrentExampleAudio();" class="blur-action-btn" aria-label="Озвучить пример"><span class="material-symbols-outlined" style="font-size:12px;">volume_up</span><span>Пример</span></button>` : ''}
+                    ${canSpeakEx ? `<button type="button" data-no-swipe onclick="event.stopPropagation(); window.replayCurrentExampleAudio();" class="blur-action-btn" aria-label="Озвучить пример"><span class="material-symbols-outlined" style="font-size:14px;">volume_up</span></button>` : ''}
                 </div>
                 <div class="text-xs text-neutral-700 dark:text-neutral-300 italic leading-relaxed break-words">${window.renderExampleTokensHTML(example, card, { masked: maskSecondary })}</div>
             </div>
@@ -3016,6 +3033,8 @@ async function loadTopicButtonPlan(subject) {
 window.switchTab = function(targetTab) {
     if (!targetTab) return;
     currentTab = targetTab;
+    // Ушли с экрана учёбы (например, кнопкой загрузки) — шапка и меню должны вернуться
+    if (targetTab !== 'train') setCardSessionMode(false);
     
     if (typeof body !== 'undefined' && body) {
         if (targetTab !== 'train') {

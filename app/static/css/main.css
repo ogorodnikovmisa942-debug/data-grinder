@@ -977,7 +977,10 @@ html, body {
 .run-bar-fill { height: 100%; width: 0; border-radius: 9999px; background: var(--dg-green); transition: width 0.35s ease; }
 .run-bar-count { font: 700 11px/1 "JetBrains Mono", ui-monospace, monospace; color: #a3a3a3; min-width: 32px; text-align: right; }
 
-.path-run-mode .run-bar { display: flex; }
+/* card-session-mode — то же самое для обычной учёбы карточек («Учить новое», «Повторы», «Штурм»):
+   во время занятия на экране только карточка и строка «× шаг ▬▬ 1/3», без шапки, меню и счётчиков */
+.path-run-mode .run-bar,
+.card-session-mode .run-bar { display: flex; }
 .path-run-mode #app-header,
 .path-run-mode #bottom-nav,
 .path-run-mode #train-session-counters,
@@ -986,12 +989,28 @@ html, body {
 .path-run-mode #card-front-subject-badge,
 .path-run-mode #card-back-subject-badge,
 .path-run-mode #card-counter,
-.path-run-mode #focus-toggle { display: none !important; }
-.path-run-mode main { padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); }
+.path-run-mode #focus-toggle,
+.card-session-mode #app-header,
+.card-session-mode #bottom-nav,
+.card-session-mode #train-session-counters,
+.card-session-mode #progress-bar,
+.card-session-mode #card-front-mode-badge,
+.card-session-mode #card-front-subject-badge,
+.card-session-mode #card-back-subject-badge,
+.card-session-mode #card-counter,
+.card-session-mode #focus-toggle { display: none !important; }
+.path-run-mode main,
+.card-session-mode main { padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); }
+/* Счётчик «1/3» теперь в строке занятия — место под ним на карточке не нужно */
+.path-run-mode .intro-card,
+.card-session-mode .intro-card { padding-top: 6px; }
 /* Вход в занятие — мягкое появление, а не скачок экрана (только прозрачность: transform размывает 3D-карточку) */
 .path-run-mode #card-zone,
 .path-run-mode #action-buttons,
-.path-run-mode .run-bar { animation: runEnter 0.3s cubic-bezier(.22, 1, .36, 1); }
+.path-run-mode .run-bar,
+.card-session-mode #card-zone,
+.card-session-mode #action-buttons,
+.card-session-mode .run-bar { animation: runEnter 0.3s cubic-bezier(.22, 1, .36, 1); }
 @keyframes runEnter { from { opacity: 0; } to { opacity: 1; } }
 
 /* ===== Оценка карточки: Забыл · Трудно · Помню · Легко ===== */
@@ -1747,3 +1766,12 @@ html, body {
 #card-intro-secondary .dg-speak-pill > span:not(.material-symbols-outlined) {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
+
+/* Знакомство с карточкой: один цветной блок — сам ответ (зелёный). Пример и ассоциация — спокойные серые,
+   цвет только у подписи: три разноцветные рамки подряд рассеивали внимание */
+#card-intro-body .dg-example-box,
+#card-intro-body .intro-mnemonic {
+    border: 1px solid #ececec; border-radius: 14px; background: #fafafa;
+}
+.dark #card-intro-body .dg-example-box,
+.dark #card-intro-body .intro-mnemonic { border-color: #2a2a2a; background: #161616; }
