@@ -1966,18 +1966,9 @@ async function updateGlobalBadges() {
         renderSessionStarterButtons(data);
         if (typeof refreshPathRunButton === 'function') refreshPathRunButton();
         
-        const dataTab = document.getElementById('tab-text-data');
-        const learnTab = document.getElementById('tab-text-train');
-        if (dataTab) dataTab.innerText = totalCards > 0 ? `ДАННЫЕ [${totalCards}]` : 'ДАННЫЕ';
-        if (learnTab) {
-            if (dueCount > 0) {
-                learnTab.innerText = `УЧЁБА [${dueCount}]`;
-                learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-secondary";
-            } else {
-                learnTab.innerText = 'УЧЁБА';
-                learnTab.className = "text-[10px] font-bold tracking-wider font-mono text-primary";
-            }
-        }
+        // Меню: число только там, где оно зовёт к действию — повторения, которые пора сделать
+        const learnBadge = document.getElementById('nav-badge-train');
+        if (learnBadge) learnBadge.textContent = dueCount > 0 ? (dueCount > 99 ? '99+' : String(dueCount)) : '';
     } catch (e) { console.error("Ошибка расчета бэйджей:", e); }
 }
 
@@ -1987,7 +1978,8 @@ function setStarterTile(btn, badge, value, { hot = false, dim = false } = {}) {
     if (!btn || !badge) return;
     badge.textContent = value ? String(value) : '';
     badge.className = `starter-tile-badge${hot ? ' starter-tile-badge-hot' : ''}`;
-    btn.classList.toggle('starter-tile-dim', dim);
+    // Недоступная плитка не висит серой: её просто нет, пока ей нечем заняться
+    btn.classList.toggle('hidden', dim);
 }
 
 function renderSessionStarterButtons(data) {
@@ -2007,6 +1999,7 @@ function renderSessionStarterButtons(data) {
     }
     if (btnNew) btnNew.classList.toggle('hidden', !!window.pathDayPlan);
     if (btnNew && !window.pathDayPlan) {
+        btnNew.classList.remove('hidden');
         const newRemaining = data.new_remaining_today !== undefined ? data.new_remaining_today : (data.cards_new || 0);
         const totalNew = (data.cards_new !== undefined) ? data.cards_new : (data.unlearned_in_deck || 0);
         if (btnNewText) btnNewText.textContent = newRemaining > 0 || !totalNew ? 'Учить новое' : 'Учить ещё';
@@ -2020,6 +2013,11 @@ function renderSessionStarterButtons(data) {
         : (data.cards_learning + data.cards_review);
     setStarterTile(document.getElementById('btn-session-cram'), document.getElementById('btn-session-cram-badge'),
         cramAvailable, { dim: cramAvailable <= 0 });
+
+    // 4. Практика собирается только из выученного: пока выученного нет, плитки нет
+    const practiceTile = document.getElementById('starter-practice-tile');
+    if (practiceTile) practiceTile.classList.toggle('hidden', cramAvailable <= 0 && !practiceTile.querySelector('.starter-tile-badge-ok'));
+    if (typeof syncStarterTiles === 'function') syncStarterTiles();
 }
 
 // «Все предметы»: путь берём из активной колоды — как и главная кнопка

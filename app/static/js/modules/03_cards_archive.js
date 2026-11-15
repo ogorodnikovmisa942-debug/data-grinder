@@ -777,7 +777,9 @@ function initPomodoroEngine() {
             }
         }, 1000);
     }
-    window.startGlobalPomodoro = function() { if (isTimerRunning) return; isTimerRunning = true; runTimerLoop(); };
+    // Таймер «52 минуты учёбы — 17 отдыха» виден в шапке только после запуска: застывшее «52:00» на главном экране — шум
+    const showTimer = () => { const c = document.getElementById('session-timer-container'); if (c) c.classList.remove('hidden'); };
+    window.startGlobalPomodoro = function() { if (isTimerRunning) return; isTimerRunning = true; showTimer(); runTimerLoop(); };
     window.syncTimerWithServer = async function() {
         try {
             const res = await apiFetch(`/api/timer/status?tg_id=${tgId}`); const data = await res.json();
@@ -787,6 +789,7 @@ function initPomodoroEngine() {
                 startRestArtRotation();
                 if (restTimerDisplay) restTimerDisplay.textContent = formatTime(timeRemaining); 
                 if (restOverlay) { restOverlay.classList.remove('hidden'); restOverlay.classList.add('flex'); }
+                showTimer();
                 runTimerLoop();
             }
         } catch (e) { console.error("Ошибка синхронизации времени:", e); }

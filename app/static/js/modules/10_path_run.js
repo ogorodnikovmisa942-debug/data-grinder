@@ -581,6 +581,23 @@ window.openMaterialUpload = function() {
     }, 120);
 };
 
+// Плитка не повторяет главную кнопку («Учить новое» дважды), а пустой ряд плиток не показывается
+function syncStarterTiles() {
+    const btnNew = document.getElementById('btn-session-new');
+    const mainIsLearnNew = !!(starterPreview && starterPreview.action === 'learn_new');
+    if (btnNew) btnNew.classList.toggle('starter-tile-same-as-main', mainIsLearnNew);
+    // Главная кнопка уже ведёт на повторение («Разминка», «Закрепление») — таблетка «Повторы» её не дублирует
+    const btnReview = document.getElementById('btn-session-review');
+    const mainType = starterPreview && starterPreview.step && starterPreview.step.type;
+    if (btnReview) btnReview.classList.toggle('starter-tile-same-as-main', mainType === 'review' || mainType === 'recap');
+    const row = document.querySelector('#session-starter .starter-more');
+    if (row) {
+        const anyVisible = [...row.querySelectorAll('.starter-tile')].some(t => !t.classList.contains('hidden') && !t.classList.contains('starter-tile-same-as-main'));
+        row.classList.toggle('hidden', !anyVisible);
+    }
+}
+window.syncStarterTiles = syncStarterTiles;
+
 function renderStarter({ say, emo, step, goLabel, goEnabled = true, welcome = false }) {
     if (typeof setCatWidget === 'function') setCatWidget('starter-cat', 'starter-say', emo || 'idle', say);
     const panel = document.querySelector('#session-starter .starter-panel');
@@ -608,6 +625,7 @@ function renderStarter({ say, emo, step, goLabel, goEnabled = true, welcome = fa
     const text = document.getElementById('btn-path-run-text');
     if (text) text.textContent = goLabel;
     if (btn) btn.disabled = !goEnabled;
+    syncStarterTiles();
 }
 
 // Стартовый экран: кот говорит, что будет первым шагом, кнопка запускает его одним нажатием

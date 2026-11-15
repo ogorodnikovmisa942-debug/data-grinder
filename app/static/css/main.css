@@ -1775,3 +1775,32 @@ html, body {
 }
 .dark #card-intro-body .dg-example-box,
 .dark #card-intro-body .intro-mnemonic { border-color: #2a2a2a; background: #161616; }
+
+/* ===== Главный экран: меньше одновременно видимого ===== */
+/* Фокус-режим заменён режимом занятия (шапка и меню уходят сами) */
+#focus-toggle { display: none !important; }
+/* Ручные режимы — лёгкие «таблетки» в строку (значок и слово рядом), только доступные: их бывает 1–5 */
+.starter-more { justify-content: center; flex-wrap: wrap; gap: 8px; }
+.starter-more.hidden { display: none; }
+.starter-more .starter-tile {
+    flex: 0 0 auto; flex-direction: row; gap: 6px;
+    padding: 7px 12px 7px 10px; border-radius: 9999px;
+}
+.starter-more .starter-tile .material-symbols-outlined { font-size: 17px; }
+.starter-more .starter-tile-label { font-size: 12px; }
+.starter-more .starter-tile-badge { position: static; min-width: 18px; height: 18px; padding: 0 5px; font-size: 10px; }
+.starter-tile-same-as-main { display: none !important; }
+
+/* Нижнее меню: значок + обычное слово, число — кружком только у «Учёбы» */
+.nav-icon-wrap { position: relative; display: inline-flex; }
+.nav-icon { font-size: 22px; line-height: 1; }
+.nav-label { font-size: 11px; font-weight: 600; letter-spacing: 0; }
+.nav-link[data-tab].text-primary .nav-icon { font-variation-settings: 'FILL' 1; }
+.nav-badge {
+    position: absolute; top: -5px; left: 14px; min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center;
+    font: 700 9.5px/1 "Plus Jakarta Sans", system-ui, sans-serif;
+    background: #171717; color: #ffffff;
+}
+.dark .nav-badge { background: #f5f5f5; color: #171717; }
+.nav-badge:empty { display: none; }

@@ -66,17 +66,11 @@
                 <button onclick="openSubjectsManagerModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Управление предметами" aria-label="Управление предметами">
                     <span class="material-symbols-outlined text-[16px]">tune</span>
                 </button>
-                <button onclick="openKnowledgeGraphModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Каркас знаний и Граф" aria-label="Каркас знаний и Граф">
-                    <span class="material-symbols-outlined text-[16px]">account_tree</span>
-                </button>
-                <button onclick="openPracticeModal()" class="text-neutral-400 hover:text-primary p-0.5 transition-colors shrink-0 flex items-center rounded-lg" title="Интерактивная практика" aria-label="Интерактивная практика">
-                    <span class="material-symbols-outlined text-[16px]">psychology_alt</span>
-                </button>
             </div>
             
             <!-- Правый блок: Таймер и иконка фокуса интегрированы в общую линию -->
             <div class="flex items-center gap-1.5">
-                <div class="flex items-center gap-xs text-outline font-mono text-xs font-bold select-none border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs" id="session-timer-container">
+                <div class="hidden flex items-center gap-xs text-outline font-mono text-xs font-bold select-none border border-neutral-200 dark:border-neutral-800 rounded-xl px-2.5 py-1 bg-surface-container-lowest shadow-xs" id="session-timer-container">
                     <span id="session-timer">52:00</span>
                 </div>
                 <button id="focus-toggle" class="text-outline hover:text-primary transition-all duration-75 active:scale-90 flex items-center justify-center p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Режим фокуса">
@@ -143,7 +137,7 @@
                             <span id="btn-session-cram-text" class="starter-tile-label">Штурм</span>
                             <span id="btn-session-cram-badge" class="starter-tile-badge"></span>
                         </button>
-                        <button onclick="openPracticeModal()" class="starter-tile">
+                        <button id="starter-practice-tile" onclick="openPracticeModal()" class="starter-tile hidden">
                             <span class="material-symbols-outlined">psychology_alt</span>
                             <span class="starter-tile-label">Практика</span>
                             <span id="starter-practice-badge" class="starter-tile-badge"></span>
@@ -958,17 +952,30 @@
 
         <!-- Нижняя навигация -->
     <nav class="w-full flex justify-around items-center bg-background border-t border-outline-variant shrink-0 transition-all duration-300" id="bottom-nav" style="padding-bottom: calc(max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)) + 16px); height: calc(4.5rem + max(var(--tg-safe-bottom, 0px), env(safe-area-inset-bottom, 0px)));">
-        <button onclick="window.switchTab && window.switchTab('data')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="data" aria-label="Данные">
-            <span id="tab-text-data" class="text-[11px] font-bold tracking-wider font-mono uppercase">Данные</span>
+        <button onclick="window.switchTab && window.switchTab('data')" class="nav-link flex flex-col items-center justify-center gap-0.5 text-outline hover:text-primary transition-colors p-2 w-1/4" data-tab="data" aria-label="Карточки">
+            <span class="nav-icon-wrap">
+                <span class="material-symbols-outlined nav-icon">style</span>
+            </span>
+            <span id="tab-text-data" class="nav-label">Карточки</span>
         </button>
-        <button onclick="window.switchTab && window.switchTab('train')" class="nav-link flex flex-col items-center justify-center text-primary transition-colors p-3 w-1/4" data-tab="train" aria-label="Обучение">
-            <span id="tab-text-train" class="text-[11px] font-bold tracking-wider font-mono uppercase">Учёба</span>
+        <button onclick="window.switchTab && window.switchTab('train')" class="nav-link flex flex-col items-center justify-center gap-0.5 text-primary transition-colors p-2 w-1/4" data-tab="train" aria-label="Учёба">
+            <span class="nav-icon-wrap">
+                <span class="material-symbols-outlined nav-icon">school</span>
+                <span id="nav-badge-train" class="nav-badge"></span>
+            </span>
+            <span id="tab-text-train" class="nav-label">Учёба</span>
         </button>
-        <button onclick="window.switchTab && window.switchTab('stats')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="stats" aria-label="Статистика">
-            <span class="text-[11px] font-bold tracking-wider font-mono uppercase">Статистика</span>
+        <button onclick="window.switchTab && window.switchTab('stats')" class="nav-link flex flex-col items-center justify-center gap-0.5 text-outline hover:text-primary transition-colors p-2 w-1/4" data-tab="stats" aria-label="Статистика">
+            <span class="nav-icon-wrap">
+                <span class="material-symbols-outlined nav-icon">insights</span>
+            </span>
+            <span class="nav-label">Статистика</span>
         </button>
-        <button onclick="window.switchTab && window.switchTab('config')" class="nav-link flex flex-col items-center justify-center text-outline hover:text-primary transition-colors p-3 w-1/4" data-tab="config" aria-label="Настройки">
-            <span class="text-[11px] font-bold tracking-wider font-mono uppercase">Настройки</span>
+        <button onclick="window.switchTab && window.switchTab('config')" class="nav-link flex flex-col items-center justify-center gap-0.5 text-outline hover:text-primary transition-colors p-2 w-1/4" data-tab="config" aria-label="Настройки">
+            <span class="nav-icon-wrap">
+                <span class="material-symbols-outlined nav-icon">settings</span>
+            </span>
+            <span class="nav-label">Настройки</span>
         </button>
     </nav>
 
