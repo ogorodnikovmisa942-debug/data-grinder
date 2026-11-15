@@ -74,6 +74,9 @@ class Settings:
     # Тарифы и месячные квоты на ИИ (app/services/quota.py). По умолчанию ВЫКЛЮЧЕНЫ: включает владелец, когда появится оплата.
     # Числа из плана 2026-10-06 — гипотезы для проверки: бесплатно одна небольшая книга в ночной очереди, платно до 5 книг в месяц.
     QUOTAS_ENABLED: bool = os.getenv("QUOTAS_ENABLED", "0").lower() in ("1", "true", "yes")
+    # Пока нет оплаты: материал нарезается только в часы скидки DeepSeek (−50%), днём задача ждёт в очереди.
+    # Админ и dev — без ограничения (проверки и отладка). Выключить: OFFPEAK_ONLY=0
+    OFFPEAK_ONLY: bool = os.getenv("OFFPEAK_ONLY", "1").lower() in ("1", "true", "yes")
     FREE_BOOK_CHARS: int = int(os.getenv("FREE_BOOK_CHARS", "50000"))
     FREE_BOOKS_PER_MONTH: int = int(os.getenv("FREE_BOOKS_PER_MONTH", "1"))
     FREE_MONTHLY_AI_USD: float = float(os.getenv("FREE_MONTHLY_AI_USD", "0.15"))

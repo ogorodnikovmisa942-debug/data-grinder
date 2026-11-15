@@ -797,7 +797,7 @@
                     <button type="button" onclick="document.getElementById('import-file').click()" class="import-drop">
                         <span class="material-symbols-outlined">upload_file</span>
                         <span class="import-drop-title">Выбрать файл</span>
-                        <span class="import-drop-hint">PDF, Word, EPUB, PowerPoint — карточки начнут создаваться сразу</span>
+                        <span id="import-drop-hint" class="import-drop-hint">PDF, Word, EPUB, PowerPoint — карточки начнут создаваться сразу</span>
                     </button>
                     <div id="file-import-status" class="hidden text-[11px] text-center text-secondary font-bold py-1"></div>
                     <textarea id="import-text" aria-label="Текст материала" placeholder="…или вставь текст сюда" class="w-full bg-surface-container border border-neutral-300 dark:border-neutral-700 rounded-2xl p-3 text-neutral-900 dark:text-neutral-100 focus:border-primary focus:ring-0 font-sans text-xs leading-relaxed resize-y min-h-[72px] placeholder:text-neutral-400"></textarea>
@@ -893,7 +893,7 @@
                 </div>
 
 
-                        <label class="import-night">
+                        <label id="import-night-label" class="import-night">
                             <input type="checkbox" id="import-night-mode" onchange="saveImportNightMode(this.checked)">
                             <span>Обработать ночью, когда ИИ дешевле. Карточки будут готовы к утру.</span>
                         </label>

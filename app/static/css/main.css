@@ -1706,5 +1706,6 @@ html, body {
 .import-night { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.35; color: #525252; cursor: pointer; }
 .import-night input { margin-top: 2px; accent-color: #171717; }
 .dark .import-night { color: #a3a3a3; }
+.import-night.hidden { display: none; }
 /* «Создать карточки» появляется, только когда в поле есть текст (в том числе распознанный с фото): без текста главный путь — файл */
 #import-text:placeholder-shown + #btn-import-instant { display: none; }

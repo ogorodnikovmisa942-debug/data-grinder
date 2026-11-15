@@ -81,7 +81,20 @@ async def get_config(
         "target_retention": target_retention,
         "is_experiment_participant": is_part,
         "experiment_phase": phase,
-        "is_experiment_locked": bool(is_part and phase == 1)
+        "is_experiment_locked": bool(is_part and phase == 1),
+        **_import_schedule(current_user),
+    }
+
+
+def _import_schedule(user_id: str) -> dict:
+    """Когда загруженный материал пойдёт в работу: форма загрузки пишет это одной строкой вместо выбора «сейчас / ночью»."""
+    from app.services.card_db_sync import is_admin_or_dev
+    from app.services.generation_worker import is_deepseek_offpeak
+    from app.services.ai_gateway.client import format_offpeak_start_msk
+    return {
+        "offpeak_only": bool(settings.OFFPEAK_ONLY and not is_admin_or_dev(user_id)),
+        "offpeak_now": is_deepseek_offpeak(),
+        "offpeak_start": format_offpeak_start_msk(),
     }
 
 

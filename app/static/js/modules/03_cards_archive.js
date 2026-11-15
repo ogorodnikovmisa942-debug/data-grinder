@@ -451,6 +451,7 @@ async function loadConfigTab() {
         const data = await res.json();
 
         window.isExperimentPhase1 = Boolean(data && data.is_experiment_locked);
+        applyImportSchedule(data);
 
         // Индикатор Фазы 1 эксперимента в заголовке
         const phaseBadge = document.getElementById('config-phase-badge');
@@ -882,10 +883,44 @@ function isOffPeakWindow() {
     return !((h >= 1 && h < 4) || (h >= 6 && h < 10));
 }
 
-// Галочка «Обработать ночью»: выбор запоминается на этом устройстве
+// Когда материал пойдёт в работу. Пока нет оплаты, сервер берёт его только в часы скидки (OFFPEAK_ONLY):
+// выбирать нечего — форма одной строкой говорит, когда начнётся обработка
+window.importSchedule = null;
+
+// Начало ближайшего окна скидки по МСК — как format_offpeak_start_msk на сервере (пик заканчивается в 04:00 или 10:00 UTC)
+function nextOffpeakStartMsk() {
+    const h = new Date().getUTCHours();
+    return h < 4 ? '07:00 по МСК' : '13:00 по МСК';
+}
+
+function importWaitsForDiscount() {
+    const sch = window.importSchedule;
+    return !!(sch && sch.offpeak_only && !isOffPeakWindow());
+}
+
+function applyImportSchedule(data) {
+    if (data && 'offpeak_only' in data) window.importSchedule = data;
+    const sch = window.importSchedule;
+    const forced = !!(sch && sch.offpeak_only);
+    const waits = importWaitsForDiscount();
+    const hint = document.getElementById('import-drop-hint');
+    if (hint) {
+        hint.textContent = waits
+            ? `PDF, Word, EPUB, PowerPoint. Сейчас у ИИ дорогие часы — обработка начнётся в ${nextOffpeakStartMsk()}`
+            : 'PDF, Word, EPUB, PowerPoint — карточки начнут создаваться сразу';
+    }
+    // Выбор «сейчас / ночью» нужен только там, где правило не действует (админ, OFFPEAK_ONLY=0)
+    const night = document.getElementById('import-night-label');
+    if (night) night.classList.toggle('hidden', forced);
+    const banner = document.getElementById('tariff-banner');
+    if (banner) banner.classList.toggle('hidden', forced);
+}
+
+// Галочка «Обработать ночью» (только без правила «только в часы скидки»): выбор запоминается на этом устройстве
 function importNightMode() {
+    if (importWaitsForDiscount()) return true;
     const box = document.getElementById('import-night-mode');
-    return !!(box && box.checked);
+    return !!(box && box.checked && !box.closest('.hidden'));
 }
 window.importNightMode = importNightMode;
 window.saveImportNightMode = function(on) {
@@ -1294,7 +1329,7 @@ window.handleQueuedJob = function(data, statusEl) {
 
     if (!data.is_immediate) {
         // Задача отложена до ближайшего окна скидки DeepSeek
-        alert(`[ОЧЕРЕДЬ СКИДОК 50%]\n\n${data.message}`);
+        alert(data.message);
         if (activeBar) activeBar.classList.add('hidden');
         return false;
     }
@@ -1413,8 +1448,8 @@ window.handleFileUpload = async function(event) {
     const isDeferred = importNightMode();
     formData.append('is_deferred', isDeferred ? 'true' : 'false');
 
+    activeImportAbortController = new AbortController();
     if (!isDeferred) {
-        activeImportAbortController = new AbortController();
         const activeBar = document.getElementById('generation-active-bar');
         const activeStatus = document.getElementById('generation-active-status');
         if (activeBar) activeBar.classList.remove('hidden');

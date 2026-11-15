@@ -65,7 +65,8 @@ def plan_queue(is_deferred_requested: bool, char_count: int) -> tuple[bool, bool
     if is_offpeak:
         return False, True, True, f"🔥 Скидка 50% активна! Материал ({char_count} знаков) взят в работу: ИИ строит путь знаний."
     if is_deferred_requested:
-        return True, False, False, f"Материал принят в очередь. Обработка начнётся в {format_offpeak_start_msk()} (со скидкой 50%). Мы уведомим вас о готовности!"
+        return True, False, False, (f"Материал принят. Сейчас у ИИ дорогие часы, поэтому обработка начнётся "
+                                    f"в {format_offpeak_start_msk()}. Пришлю уведомление, когда карточки будут готовы.")
     return False, True, False, f"Материал ({char_count} знаков) взят в работу по пиковому тарифу: ИИ строит путь знаний."
 
 
@@ -96,6 +97,9 @@ async def guard_new_job(db: AsyncSession, user_id: str, char_count: int, is_defe
     )).scalar() or 0
     if recent >= settings.MAX_JOBS_PER_HOUR:
         raise HTTPException(status_code=429, detail="Слишком много загрузок за час. Попробуйте позже.")
+    if settings.OFFPEAK_ONLY:
+        # Пока нет оплаты — только в часы скидки: в пик задача ждёт в очереди, вне пика plan_queue берёт её сразу
+        return False
     return instant_allowed
 
 

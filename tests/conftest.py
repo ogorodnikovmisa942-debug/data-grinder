@@ -7,6 +7,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.core.config import settings
 settings.TESTING = True
 settings.DEBUG = True
+# «Только в часы скидки» зависит от времени суток: старые тесты очереди писались без него, своё правило проверяет свой тест
+settings.OFFPEAK_ONLY = False
 
 import pytest
 
