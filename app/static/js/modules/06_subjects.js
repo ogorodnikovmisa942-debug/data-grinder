@@ -475,7 +475,7 @@ function getActiveDeckSubject() {
     if (sel && sel.options) {
         for (let i = 0; i < sel.options.length; i++) {
             const val = sel.options[i].value;
-            if (val && val !== 'all') return val;
+            if (val && val !== 'all' && !isServiceSubjectOption(val)) return val;
         }
     }
     return currentKgSubject || '';

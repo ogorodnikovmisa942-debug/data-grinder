@@ -448,7 +448,7 @@ window.loadKnowledgeGraph = async function(subject) {
         const sel = document.getElementById('subject-selector');
         if (sel && sel.options) {
             for (let i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value && sel.options[i].value !== 'all') {
+                if (sel.options[i].value && sel.options[i].value !== 'all' && !isServiceSubjectOption(sel.options[i].value)) {
                     sub = sel.options[i].value;
                     break;
                 }

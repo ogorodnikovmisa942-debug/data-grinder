@@ -353,6 +353,13 @@ function subjectLabel(slug) {
 }
 window.subjectLabel = subjectLabel;
 
+// Служебные пункты списка предметов (например «+ Добавить материал…») — не предметы
+const ADD_MATERIAL_OPTION = '__add_material__';
+function isServiceSubjectOption(value) {
+    return typeof value === 'string' && value.startsWith('__');
+}
+window.isServiceSubjectOption = isServiceSubjectOption;
+
 // Проценты из API приходят то числом (42), то строкой ("42%"): знак «%» ровно один
 function percentText(value) {
     const raw = String(value ?? 0).trim().replace(/%+$/, '');
@@ -1358,6 +1365,12 @@ function bindDOMPointers() {
 
     if (subjectSelector) {
         subjectSelector.onchange = (e) => {
+            // «+ Добавить материал…» — не предмет: возвращаем выбор и открываем загрузку
+            if (isServiceSubjectOption(e.target.value)) {
+                e.target.value = currentSubject;
+                if (typeof openMaterialUpload === 'function') openMaterialUpload();
+                return;
+            }
             currentSubject = e.target.value; localStorage.setItem('selected_subject', currentSubject);
             cardsQueue = []; currentIndex = 0; fetchActiveSession(); updateGlobalBadges();
             renderFSRSButtons(currentSubject);
@@ -3236,7 +3249,7 @@ async function requestMoveCard(cardId) {
 
     const options = Array.from(selector.options)
         .map(opt => opt.value)
-        .filter(val => val !== 'all' && val !== currentSubject);
+        .filter(val => val !== 'all' && val !== currentSubject && !isServiceSubjectOption(val));
 
     if (options.length === 0) {
         alert("Нет других доступных предметов для переноса карточки.");
@@ -3476,6 +3489,7 @@ async function refreshPlanUsage() {
 
 async function loadConfigTab() {
     refreshPlanUsage();
+    restoreImportNightMode();
     try {
         const subjLabel = document.getElementById('config-subject-label');
         if (subjLabel) subjLabel.innerText = currentSubject === 'all' ? 'все предметы' : subjectLabel(currentSubject);
@@ -3661,6 +3675,12 @@ async function loadDynamicSubjects() {
                 option.textContent = subjectNames[subStr] || subjectLabel(subStr);
                 sel.appendChild(option);
             });
+            // Вход в загрузку без отдельной кнопки: последний пункт списка предметов
+            const addOpt = document.createElement('option');
+            addOpt.value = ADD_MATERIAL_OPTION;
+            addOpt.textContent = '+ Добавить материал…';
+            sel.appendChild(addOpt);
+            if (sel.value !== currentSubject && [...sel.options].some(o => o.value === currentSubject)) sel.value = currentSubject;
         });
 
         // 2. Селектор целевого предмета в панели импорта
@@ -3909,6 +3929,21 @@ function isOffPeakWindow() {
     return !((h >= 1 && h < 4) || (h >= 6 && h < 10));
 }
 
+// Галочка «Обработать ночью»: выбор запоминается на этом устройстве
+function importNightMode() {
+    const box = document.getElementById('import-night-mode');
+    return !!(box && box.checked);
+}
+window.importNightMode = importNightMode;
+window.saveImportNightMode = function(on) {
+    try { localStorage.setItem('import_night_mode', on ? '1' : '0'); } catch (_) {}
+};
+function restoreImportNightMode() {
+    const box = document.getElementById('import-night-mode');
+    if (!box) return;
+    try { box.checked = localStorage.getItem('import_night_mode') === '1'; } catch (_) {}
+}
+
 let cachedAiProviderInfo = null;
 let lastAiProviderFetchTime = 0;
 
@@ -4140,7 +4175,7 @@ window.cancelActiveGeneration = function() {
     const btnDeferred = document.getElementById('btn-import-deferred');
     if (btnInstant) {
         btnInstant.disabled = false;
-        btnInstant.innerHTML = `<span class="material-symbols-outlined text-[15px]">bolt</span><span>СЕЙЧАС</span>`;
+        btnInstant.innerHTML = `<span class="material-symbols-outlined text-[16px]">auto_awesome</span><span>Создать карточки</span>`;
     }
     if (btnDeferred) {
         btnDeferred.disabled = false;
@@ -4261,7 +4296,7 @@ async function importTextKnowledge(isDeferred = false) {
         }
         if (btnInstant) { 
             btnInstant.disabled = false; 
-            btnInstant.innerHTML = `<span class="material-symbols-outlined text-[15px]">bolt</span><span>СЕЙЧАС</span>`;
+            btnInstant.innerHTML = `<span class="material-symbols-outlined text-[16px]">auto_awesome</span><span>Создать карточки</span>`;
         }
         if (btnDeferred) { 
             btnDeferred.disabled = false; 
@@ -4394,9 +4429,9 @@ window.handleFileUpload = async function(event) {
     const statusEl = document.getElementById('file-import-status');
     if (statusEl) {
         const fileNames = Array.from(files).map(f => f.name).join(', ');
-        statusEl.textContent = files.length === 1 
-            ? `[ИЗВЛЕЧЕНИЕ: ${files[0].name.toUpperCase()}...]` 
-            : `[ОБРАБОТКА ПАЧКИ: ${files.length} ФАЙЛОВ (${fileNames.substring(0, 30)}...)...]`;
+        statusEl.textContent = files.length === 1
+            ? `Читаю «${files[0].name}»…`
+            : `Читаю ${files.length} файлов: ${fileNames.substring(0, 40)}…`;
         statusEl.classList.remove('hidden');
     }
 
@@ -4421,17 +4456,8 @@ window.handleFileUpload = async function(event) {
 
     // Если сейчас УЖЕ действует скидка DeepSeek, сразу генерируем со скидкой 50%
     // Предлагаем отложить в очередь ТОЛЬКО в дневные часы, чтобы пользователь мог сэкономить 50%.
-    const isOffPeak = isOffPeakWindow();
-    let isDeferred = false;
-    if (!isOffPeak && files.length > 0) {
-        isDeferred = confirm(
-            `Документ: ${fileName} (${fileSizeMb} МБ)\n\n` +
-            `Сейчас действует пиковый тариф DeepSeek.\n` +
-            `Поставить в очередь со скидкой 50% (обработка начнётся после окончания пика)?\n\n` +
-            `[OK] — В очередь со скидкой 50%\n` +
-            `[Отмена] — Создать карточки прямо сейчас`
-        );
-    }
+    // Ночная обработка — по галочке в «Дополнительно», без всплывающего вопроса при каждой загрузке
+    const isDeferred = importNightMode();
     formData.append('is_deferred', isDeferred ? 'true' : 'false');
 
     if (!isDeferred) {
@@ -4674,7 +4700,7 @@ window.handleImageOcr = async function(event) {
         }
 
         if (statusEl) {
-            statusEl.textContent = `[РАСПОЗНАНО ${recognizedPages.length} ИЗ ${totalFiles} ФОТО (${combinedText.length} ЗНАКОВ)]`;
+            statusEl.textContent = `Распознано ${recognizedPages.length} из ${totalFiles} фото — проверь текст и нажми «Создать карточки»`;
             statusEl.className = "text-[10px] font-mono text-center text-primary font-bold py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 border border-neutral-300 dark:border-neutral-700 block flex items-center justify-center gap-1";
         }
 
@@ -5932,7 +5958,7 @@ function populateBulkSubjects() {
     
     bulkSelector.innerHTML = '';
     Array.from(mainSelector.options).forEach(opt => {
-        if (opt.value !== 'all' && opt.value !== currentSubject) {
+        if (opt.value !== 'all' && opt.value !== currentSubject && !isServiceSubjectOption(opt.value)) {
             const newOpt = document.createElement('option');
             newOpt.value = opt.value;
             newOpt.textContent = opt.textContent;
@@ -6526,7 +6552,7 @@ function getActiveDeckSubject() {
     if (sel && sel.options) {
         for (let i = 0; i < sel.options.length; i++) {
             const val = sel.options[i].value;
-            if (val && val !== 'all') return val;
+            if (val && val !== 'all' && !isServiceSubjectOption(val)) return val;
         }
     }
     return currentKgSubject || '';
@@ -6982,7 +7008,7 @@ window.loadKnowledgeGraph = async function(subject) {
         const sel = document.getElementById('subject-selector');
         if (sel && sel.options) {
             for (let i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value && sel.options[i].value !== 'all') {
+                if (sel.options[i].value && sel.options[i].value !== 'all' && !isServiceSubjectOption(sel.options[i].value)) {
                     sub = sel.options[i].value;
                     break;
                 }
@@ -11426,7 +11452,9 @@ async function starterDeckState(subject) {
 window.openMaterialUpload = function() {
     if (typeof switchTab === 'function') switchTab('config');
     setTimeout(() => {
-        const box = document.getElementById('slicing-controls-container');
+        // Вся карточка «Добавить материал» с заголовком, а не середина формы
+        const inner = document.getElementById('slicing-controls-container');
+        const box = inner ? inner.parentElement : null;
         if (box && box.scrollIntoView) box.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
         const sel = document.getElementById('import-target-subject');
         const input = document.getElementById('import-new-subject-input');

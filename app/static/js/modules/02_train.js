@@ -401,6 +401,12 @@ function bindDOMPointers() {
 
     if (subjectSelector) {
         subjectSelector.onchange = (e) => {
+            // «+ Добавить материал…» — не предмет: возвращаем выбор и открываем загрузку
+            if (isServiceSubjectOption(e.target.value)) {
+                e.target.value = currentSubject;
+                if (typeof openMaterialUpload === 'function') openMaterialUpload();
+                return;
+            }
             currentSubject = e.target.value; localStorage.setItem('selected_subject', currentSubject);
             cardsQueue = []; currentIndex = 0; fetchActiveSession(); updateGlobalBadges();
             renderFSRSButtons(currentSubject);

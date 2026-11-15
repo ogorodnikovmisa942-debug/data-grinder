@@ -1673,3 +1673,38 @@ html, body {
 @media (max-width: 480px) {
     #stats-maturity-box .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ===== Загрузка материала: одна большая цель «Выбрать файл», остальное — в «Дополнительно» ===== */
+.import-drop {
+    width: 100%; min-height: 96px; padding: 14px 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    border: 1.5px dashed #a3a3a3; border-radius: 16px; background: #fafafa; color: #262626;
+    cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+.import-drop:hover { border-color: #171717; background: #f5f5f5; }
+.import-drop:active { transform: scale(0.99); }
+.import-drop .material-symbols-outlined { font-size: 28px; }
+.import-drop-title { font-size: 14px; font-weight: 700; }
+.import-drop-hint { font-size: 11px; color: #737373; text-align: center; line-height: 1.3; }
+.dark .import-drop { border-color: #525252; background: #141414; color: #e5e5e5; }
+.dark .import-drop:hover { border-color: #d4d4d4; background: #1a1a1a; }
+.dark .import-drop-hint { color: #a3a3a3; }
+
+.import-advanced { border-top: 1px solid #e5e5e5; padding-top: 10px; margin-top: 2px; }
+.dark .import-advanced { border-top-color: #262626; }
+.import-advanced > summary {
+    cursor: pointer; list-style: none; user-select: none;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; color: #737373;
+}
+.import-advanced > summary::-webkit-details-marker { display: none; }
+.import-advanced > summary::after { content: 'expand_more'; font-family: 'Material Symbols Outlined'; font-size: 18px; transition: transform 0.15s ease; }
+.import-advanced[open] > summary::after { transform: rotate(180deg); }
+.import-advanced > summary:hover { color: #171717; }
+.dark .import-advanced > summary:hover { color: #e5e5e5; }
+
+.import-night { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.35; color: #525252; cursor: pointer; }
+.import-night input { margin-top: 2px; accent-color: #171717; }
+.dark .import-night { color: #a3a3a3; }
+/* «Создать карточки» появляется, только когда в поле есть текст (в том числе распознанный с фото): без текста главный путь — файл */
+#import-text:placeholder-shown + #btn-import-instant { display: none; }

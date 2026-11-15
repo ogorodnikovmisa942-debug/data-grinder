@@ -403,7 +403,7 @@ function populateBulkSubjects() {
     
     bulkSelector.innerHTML = '';
     Array.from(mainSelector.options).forEach(opt => {
-        if (opt.value !== 'all' && opt.value !== currentSubject) {
+        if (opt.value !== 'all' && opt.value !== currentSubject && !isServiceSubjectOption(opt.value)) {
             const newOpt = document.createElement('option');
             newOpt.value = opt.value;
             newOpt.textContent = opt.textContent;

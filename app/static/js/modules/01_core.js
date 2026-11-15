@@ -353,6 +353,13 @@ function subjectLabel(slug) {
 }
 window.subjectLabel = subjectLabel;
 
+// Служебные пункты списка предметов (например «+ Добавить материал…») — не предметы
+const ADD_MATERIAL_OPTION = '__add_material__';
+function isServiceSubjectOption(value) {
+    return typeof value === 'string' && value.startsWith('__');
+}
+window.isServiceSubjectOption = isServiceSubjectOption;
+
 // Проценты из API приходят то числом (42), то строкой ("42%"): знак «%» ровно один
 function percentText(value) {
     const raw = String(value ?? 0).trim().replace(/%+$/, '');

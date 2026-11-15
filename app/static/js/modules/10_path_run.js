@@ -568,7 +568,9 @@ async function starterDeckState(subject) {
 window.openMaterialUpload = function() {
     if (typeof switchTab === 'function') switchTab('config');
     setTimeout(() => {
-        const box = document.getElementById('slicing-controls-container');
+        // Вся карточка «Добавить материал» с заголовком, а не середина формы
+        const inner = document.getElementById('slicing-controls-container');
+        const box = inner ? inner.parentElement : null;
         if (box && box.scrollIntoView) box.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
         const sel = document.getElementById('import-target-subject');
         const input = document.getElementById('import-new-subject-input');
