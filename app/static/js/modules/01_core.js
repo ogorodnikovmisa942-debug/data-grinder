@@ -367,6 +367,36 @@ function percentText(value) {
 }
 window.percentText = percentText;
 
+// Затухание у края прокручиваемой карточки — только когда за краем правда есть текст.
+// Постоянное затухание выглядело как обрезанный ответ.
+function refreshScrollFade(el) {
+    if (!el) return;
+    const more = el.scrollHeight - el.clientHeight - el.scrollTop > 2;
+    el.classList.toggle('fade-bottom', more);
+    el.classList.toggle('fade-top', el.scrollTop > 2);
+}
+window.refreshScrollFades = function() {
+    document.querySelectorAll('.card-scroll-masked').forEach(refreshScrollFade);
+};
+document.addEventListener('scroll', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('card-scroll-masked')) refreshScrollFade(e.target);
+}, true);
+(function watchCardContent() {
+    let queued = false;
+    const schedule = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; window.refreshScrollFades(); });
+    };
+    const start = () => {
+        const card = document.getElementById('flashcard');
+        if (card) new MutationObserver(schedule).observe(card, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', schedule);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+})();
+
 // Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK и Web Vibration API
 function triggerHaptic(type = 'light') {
     try {

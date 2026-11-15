@@ -367,6 +367,36 @@ function percentText(value) {
 }
 window.percentText = percentText;
 
+// Затухание у края прокручиваемой карточки — только когда за краем правда есть текст.
+// Постоянное затухание выглядело как обрезанный ответ.
+function refreshScrollFade(el) {
+    if (!el) return;
+    const more = el.scrollHeight - el.clientHeight - el.scrollTop > 2;
+    el.classList.toggle('fade-bottom', more);
+    el.classList.toggle('fade-top', el.scrollTop > 2);
+}
+window.refreshScrollFades = function() {
+    document.querySelectorAll('.card-scroll-masked').forEach(refreshScrollFade);
+};
+document.addEventListener('scroll', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('card-scroll-masked')) refreshScrollFade(e.target);
+}, true);
+(function watchCardContent() {
+    let queued = false;
+    const schedule = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; window.refreshScrollFades(); });
+    };
+    const start = () => {
+        const card = document.getElementById('flashcard');
+        if (card) new MutationObserver(schedule).observe(card, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', schedule);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+})();
+
 // Тактильный отклик (Haptic Feedback) для Telegram WebApp SDK и Web Vibration API
 function triggerHaptic(type = 'light') {
     try {
@@ -2212,10 +2242,11 @@ function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
                 <div id="intro-sec-box" data-blur-sec class="mt-2.5 pt-2 border-t border-neutral-200/70 dark:border-neutral-800">
                     <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                         <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.sec)}</span>
+                        ${maskSecondary ? `
                         <div class="flex items-center gap-1" data-no-swipe>
                             <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardScaffold('intro-sec-box', this);" class="blur-action-btn" title="Подсказка: показать каркас">Каркас</button>
-                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">${maskSecondary ? 'Открыть' : 'Скрыть'}</button>
-                        </div>
+                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">Открыть</button>
+                        </div>` : ''}
                     </div>
                     <div class="blur-chips-row" data-no-swipe>${chipsHTML}</div>
                 </div>

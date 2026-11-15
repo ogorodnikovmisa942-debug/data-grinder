@@ -1248,10 +1248,11 @@ function introAnswerHTML(card, mnemonicFormatted, opts = {}) {
                 <div id="intro-sec-box" data-blur-sec class="mt-2.5 pt-2 border-t border-neutral-200/70 dark:border-neutral-800">
                     <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                         <span class="text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">${escapeHTML(domain.labels.sec)}</span>
+                        ${maskSecondary ? `
                         <div class="flex items-center gap-1" data-no-swipe>
                             <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardScaffold('intro-sec-box', this);" class="blur-action-btn" title="Подсказка: показать каркас">Каркас</button>
-                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">${maskSecondary ? 'Открыть' : 'Скрыть'}</button>
-                        </div>
+                            <button type="button" data-no-swipe onclick="event.stopPropagation(); window.toggleCardBlurScope('${scopeId}', this);" class="blur-action-btn" title="Открыть или скрыть">Открыть</button>
+                        </div>` : ''}
                     </div>
                     <div class="blur-chips-row" data-no-swipe>${chipsHTML}</div>
                 </div>

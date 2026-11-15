@@ -482,7 +482,7 @@ html, body {
 /* Gradient Fade Scroll Masks (Indicates more content above/below without visual clutter) */
 .card-scroll-masked {
     --mask-top: 0px;
-    --mask-bottom: 24px;
+    --mask-bottom: 0px;
     mask-image: linear-gradient(
         to bottom,
         transparent 0px,
@@ -1102,11 +1102,13 @@ html, body {
 /* display:flex у .path-run-card перебивал .hidden из tailwind — пустая карточка шага была видна всегда */
 .path-run-card.hidden { display: none; }
 
-/* Одна и та же карточка везде (повторение, знакомство после урока, штурм, билеты): занимает доступную высоту */
+/* Одна и та же карточка везде (повторение, знакомство после урока, штурм, билеты): занимает доступную высоту.
+   Без нижнего порога: min-height 440px на телефоне выталкивал карточку на полосу «Сессии» и под нижнее меню.
+   Если содержимое не влезает, внутри карточки обычная прокрутка */
 #flashcard {
     aspect-ratio: auto !important;
     height: 100% !important;
-    min-height: 440px !important;
+    min-height: 0 !important;
     max-height: 640px !important;
 }
 
@@ -1709,3 +1711,39 @@ html, body {
 .import-night.hidden { display: none; }
 /* «Создать карточки» появляется, только когда в поле есть текст (в том числе распознанный с фото): без текста главный путь — файл */
 #import-text:placeholder-shown + #btn-import-instant { display: none; }
+
+/* Затухание у края — только когда за ним есть текст (классы ставит refreshScrollFades) */
+.card-scroll-masked.fade-bottom { --mask-bottom: 28px; }
+.card-scroll-masked.fade-top { --mask-top: 16px; }
+
+
+/* Невысокий экран (телефон в браузере, маленький iPhone): карточка знакомства плотнее */
+@media (max-height: 760px) {
+    .intro-card { padding-top: 12px; gap: 6px; }
+    .intro-cat { font-size: 9px; }
+    .intro-cat-bubble { padding: 6px 10px; font-size: 11.5px; }
+    .intro-cat-bubble p { min-height: 0; }
+    .intro-question-block { gap: 6px; padding: 4px 4px 6px; }
+    .intro-footer { padding-top: 6px; gap: 4px; }
+    #card-front-intro .intro-term { font-size: min(2.6rem, 7vh) !important; line-height: 1.15 !important; }
+}
+
+/* ===== Карточка на телефоне: место — ответу, а не рамкам ===== */
+/* Полоса сессии — тонкая строка без рамки: «← Сессии» слева, очередь справа */
+#train-session-counters {
+    border: 0 !important; background: transparent !important; box-shadow: none !important;
+    padding: 0 2px !important; margin-bottom: 2px !important;
+}
+#train-session-counters > button { padding: 3px 8px; font-size: 11px; border-color: transparent; }
+#train-session-counters > button:hover { border-color: currentColor; }
+/* Вокруг карточки — небольшой отступ вместо 16px сверху и снизу */
+#card-zone { padding-top: 6px !important; padding-bottom: 6px !important; }
+
+/* Знакомство: иероглиф/слово и круглая кнопка озвучки в одну строку, значки темы — над ними */
+.intro-question-block { flex-direction: row !important; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: 10px; }
+.intro-question-block > .intro-chips { flex-basis: 100%; }
+.intro-question-block > .intro-term { max-width: 100%; }
+#card-intro-secondary .dg-speak-pill { width: 40px; height: 40px; padding: 0; justify-content: center; }
+#card-intro-secondary .dg-speak-pill > span:not(.material-symbols-outlined) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
